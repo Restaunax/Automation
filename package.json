@@ -1,0 +1,31 @@
+{
+  "name": "restaunax-automation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "End-to-end automation tests for Restaunax using Playwright + Allure",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "test:debug": "playwright test --debug",
+    "test:ci": "CI=true playwright test --reporter=list,allure-playwright",
+    "report": "allure generate allure-results -o allure-report --clean && allure open allure-report",
+    "clean": "rm -rf allure-results allure-report test-results playwright-report"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.50.0",
+    "allure-js-commons": "^3.0.0",
+    "allure-playwright": "^3.0.0",
+    "dotenv": "^16.4.5",
+    "uuid": "^10.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/uuid": "^10.0.0",
+    "allure-commandline": "^2.30.0",
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
