@@ -15,7 +15,7 @@ import * as path from "path";
 import { chromium, type Page, type BrowserContext } from "@playwright/test";
 import { createDemoBookingPage } from "./pages/public/DemoBookingPage";
 import { createSignInPage } from "./pages/auth/SignInPage";
-import { apiLogin, createTestRestaurant } from "./utils/apiHelper";
+import { apiLogin, createTestRestaurant, createTestMenuGroup, createTestMenuItem } from "./utils/apiHelper";
 import {
   STATE_FILE,
   OWNER_AUTH_FILE,
@@ -96,6 +96,9 @@ export default async function globalSetup(): Promise<void> {
   //    so restaurantId is available for shared state)
   let restaurantId   = "";
   let restaurantName = "";
+  let menuItemId     = "";
+  let menuItemName   = "";
+  let menuItemPrice  = 0;
 
   if (OWNER_EMAIL && OWNER_PASSWORD) {
     const { accessToken } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD);
@@ -103,6 +106,13 @@ export default async function globalSetup(): Promise<void> {
     restaurantId   = restaurant.id;
     restaurantName = restaurant.name;
     console.log(`[globalSetup] Test restaurant created: ${restaurantName} (${restaurantId})`);
+
+    const group = await createTestMenuGroup(accessToken, restaurantId);
+    const item  = await createTestMenuItem(accessToken, group.id);
+    menuItemId    = item.id;
+    menuItemName  = item.name;
+    menuItemPrice = item.price;
+    console.log(`[globalSetup] Seed menu item created: ${menuItemName} (${menuItemId})`);
   } else {
     console.warn("[globalSetup] OWNER_EMAIL/PASSWORD not set — skipping owner auth + restaurant seed");
   }
@@ -129,6 +139,9 @@ export default async function globalSetup(): Promise<void> {
     submittedAt: new Date().toISOString(),
     restaurantId,
     restaurantName,
+    menuItemId,
+    menuItemName,
+    menuItemPrice,
   });
 
   console.log(`[globalSetup] shared-state.tmp.json written.\n`);
