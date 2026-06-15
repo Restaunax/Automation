@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run test*)",
+      "Bash(npm run report)",
+      "Bash(npm run clean)",
+      "Bash(npx playwright*)",
+      "Bash(npx allure*)",
+      "Bash(cat *)",
+      "Bash(ls *)",
+      "Bash(grep *)",
+      "Bash(find *)"
+    ]
+  }
+}
