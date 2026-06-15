@@ -1,0 +1,577 @@
+# Restaunax — Automated Test Cases
+### Plain English Documentation for Non-Technical Readers
+
+---
+
+## What Is This Document?
+
+This document explains every automated test we have written for the Restaunax platform. Each test is written as a computer program that pretends to be a real person using the website — it clicks buttons, fills in forms, and checks that things work correctly.
+
+Think of each test as a **quality checklist item** that runs automatically every time we make a change to the software.
+
+---
+
+## How to Read This Document
+
+Each test case includes:
+- **What it checks** — the real-world action being tested
+- **How it works** — what the automated test actually does, step by step
+- **Why it matters** — what would break for a real customer or staff member if this failed
+- **Status** — whether it currently passes ✅, is skipped ⏭️, or needs attention ⚠️
+
+---
+
+## The Four Areas We Test
+
+| Area | Who Uses It | Tests |
+|------|------------|-------|
+| 🌐 Public | Anyone on the internet | TC-01, TC-02 |
+| 🔐 Admin | Internal Restaunax staff | TC-03 → TC-12 |
+| 🏠 Owner | Restaurant owners | TC-13 → TC-21 |
+| 🛒 Customer | People ordering food | TC-22 → TC-26 |
+
+---
+
+---
+
+# 🌐 SECTION 1 — Public Pages
+> These tests check what any visitor to the Restaunax website can see and do — no login required.
+
+---
+
+## TC-01 — Demo Request Form Works
+**Status:** ✅ Passing
+
+### What it checks
+A restaurant owner who visits the Restaunax website and fills out the "Book a Demo" form gets a success confirmation on screen.
+
+### How it works, step by step
+1. The test opens the Restaunax demo booking page
+2. It fills in the form with a test contact's details:
+   - First name, last name, email address, phone number
+   - Restaurant name and preferred way to be contacted
+3. It checks the box agreeing to the terms
+4. It clicks the Submit button
+5. It checks that a success message appears on screen
+
+### Why it matters
+This is how potential new restaurant clients first contact Restaunax. If this form is broken, Restaunax loses leads — no one can request a demo.
+
+---
+
+## TC-02 — Confirmation Email Is Sent After Demo Request
+**Status:** ⏭️ Skipped (email testing account not connected yet)
+
+### What it checks
+After filling out the demo form, the person who submitted it receives a confirmation email.
+
+### How it works, step by step
+1. After TC-01 submits the form, this test waits up to 30 seconds
+2. It checks a test email inbox for a new email addressed to the test contact
+3. It confirms the email arrived
+
+### Why it matters
+If the confirmation email is not sent, potential clients might think their request never went through and contact Restaunax again — or worse, go to a competitor.
+
+### Why it's currently skipped
+This test requires a special email testing service (Mailtrap) to be connected. Once configured, it will run automatically.
+
+---
+
+---
+
+# 🔐 SECTION 2 — Admin Dashboard
+> These tests check what Restaunax's internal staff can do in the Admin area. The Admin is the person at Restaunax who manages restaurant clients, reviews demo requests, and handles onboarding.
+
+---
+
+## TC-03 — Admin Can Log In
+**Status:** ✅ Passing
+
+### What it checks
+An admin staff member can successfully log in and reach their dashboard.
+
+### How it works, step by step
+1. The test uses a pre-saved admin login session (like a remembered browser login)
+2. It confirms the admin is on a dashboard page — not stuck on the login screen
+
+### Why it matters
+If admins can't log in, no internal work can be done — no demo requests managed, no restaurants onboarded.
+
+---
+
+## TC-04 — Admin Can Find a Demo Request
+**Status:** ✅ Passing
+
+### What it checks
+After a potential client submits the demo form (TC-01), the admin can find that person's request in the Demo Management table.
+
+### How it works, step by step
+1. The test goes to the Admin Dashboard → Demo tab
+2. It searches by the email address of the person who submitted the form in TC-01
+3. It checks that:
+   - A row appears in the table with the correct name
+   - The status shows "NEW" (meaning nobody has acted on it yet)
+   - The date and time it was submitted is displayed
+
+### Why it matters
+If demo requests don't show up in the admin table, Restaunax staff won't know someone requested a demo — meaning that lead is lost.
+
+---
+
+## TC-05 — Admin Can Open the Actions Menu on a Demo Request
+**Status:** ✅ Passing
+
+### What it checks
+When an admin finds a demo request, they can click an "Actions" button to see a menu of things they can do with that request.
+
+### How it works, step by step
+1. The test finds the demo row from TC-04
+2. It clicks the Actions button (three dots or similar) on that row
+3. It checks that the following six options are visible in the menu:
+   - **View/Edit Details** — read more about the request
+   - **Assign Request** — hand it off to a team member
+   - **Schedule Demo** — book a meeting
+   - **Send Follow-up Email** — contact the prospect
+   - **Proceed to Onboarding** — start creating their restaurant account
+   - **Delete demo** — remove the request
+
+### Why it matters
+These are the core actions an admin needs to manage a prospect through the sales process. If any option is missing, the team can't complete their workflow.
+
+---
+
+## TC-06 — Admin Can Change the Status of a Demo Request
+**Status:** ✅ Passing
+
+### What it checks
+An admin can change the status of a demo request directly from the table — for example, changing it from "New" to "Contacted."
+
+### How it works, step by step
+1. The test finds the demo row
+2. It clicks the status dropdown on that row
+3. It selects "Contacted" from the list
+4. It confirms the status badge on the row now shows "Contacted"
+
+### Why it matters
+Status tracking lets the admin team know where each prospect is in the sales process. Without it, multiple people might contact the same prospect, or no one might follow up at all.
+
+---
+
+## TC-07 — Admin Can View Full Details of a Demo Request
+**Status:** ✅ Passing
+
+### What it checks
+Clicking "View/Edit Details" from the Actions menu opens a side panel showing the full information about that demo request.
+
+### How it works, step by step
+1. The test opens the Actions menu on the demo row
+2. It clicks "View/Edit Details"
+3. It confirms a panel slides in from the right side of the screen showing "Request Details"
+4. It closes the panel
+
+### Why it matters
+The main table only shows basic info. Admins need the full picture — number of locations, business needs, preferred contact time — to have an informed conversation with the prospect.
+
+---
+
+## TC-08 — Admin Can Open the Send Follow-up Email Dialog
+**Status:** ✅ Passing
+
+### What it checks
+Clicking "Send Follow-up Email" opens a dialog (pop-up window) where the admin can write and send an email to the prospect.
+
+### How it works, step by step
+1. The test opens the Actions menu
+2. It clicks "Send Follow-up Email"
+3. It confirms a dialog box appears with "Send Follow-up Email" as the title
+4. It closes the dialog without sending
+
+### Why it matters
+Quick email follow-up is critical in sales. If this dialog doesn't open, admins have to leave the platform to send emails, slowing down their response time.
+
+---
+
+## TC-09 — Admin Sees a Confirmation Before Deleting a Demo Request
+**Status:** ✅ Passing
+
+### What it checks
+When an admin clicks "Delete demo," a confirmation dialog appears asking them to confirm — preventing accidental deletions. Clicking Cancel keeps the record intact.
+
+### How it works, step by step
+1. The test opens the Actions menu
+2. It clicks "Delete demo"
+3. It confirms a warning dialog appears that includes the prospect's full name
+4. It clicks Cancel
+5. It confirms the demo row still exists in the table
+
+### Why it matters
+Accidental deletion of a demo request means losing a potential client permanently. The confirmation step is a safety net.
+
+---
+
+## TC-10 — Admin Can Open the Assign Request Dialog
+**Status:** ✅ Passing
+
+### What it checks
+Clicking "Assign Request" opens a dialog where the admin can hand the demo request off to a specific team member.
+
+### How it works, step by step
+1. The test opens the Actions menu
+2. It clicks "Assign Request"
+3. It confirms the "Assign Demo Request" dialog appears
+4. It closes the dialog
+
+### Why it matters
+When teams are busy, requests need to be distributed among staff. If assignment doesn't work, there's no accountability for who's handling which prospect.
+
+---
+
+## TC-11 — Admin Can Open the Schedule Demo Dialog
+**Status:** ✅ Passing
+
+### What it checks
+Clicking "Schedule Demo" opens a dialog where the admin can pick a date and time for the product demo meeting.
+
+### How it works, step by step
+1. The test opens the Actions menu
+2. It clicks "Schedule Demo"
+3. It confirms the "Schedule Demo" dialog appears
+4. It closes the dialog
+
+### Why it matters
+Scheduling is the most important step in converting a lead. If this dialog is broken, admins can't book meetings directly from the platform.
+
+---
+
+## TC-12 — Proceed to Onboarding Takes Admin to Restaurant Setup
+**Status:** ✅ Passing
+
+### What it checks
+When a prospect has agreed to move forward, clicking "Proceed to Onboarding" takes the admin to the restaurant creation form — ready to start setting up the new client's account.
+
+### How it works, step by step
+1. The test opens the Actions menu
+2. It clicks "Proceed to Onboarding"
+3. It confirms the page URL changes to the restaurant setup page
+
+### Why it matters
+This is the moment a prospect becomes a paying customer. A broken link here would mean manually navigating to the setup page, adding friction and opportunity for mistakes.
+
+---
+
+---
+
+# 🏠 SECTION 3 — Owner Dashboard
+> These tests check what a restaurant owner can do after they've been set up on Restaunax. The owner manages their restaurant's details, menu, pricing, and more.
+
+---
+
+## TC-13 — Owner Can Reach Their Restaurant List
+**Status:** ⏭️ Skipped (owner login not configured)
+
+### What it checks
+A restaurant owner can log in and see a page titled "My Restaurants" listing their restaurant(s).
+
+### How it works, step by step
+1. The test uses the owner's saved login session
+2. It navigates to the "My Restaurants" page
+3. It confirms the "My Restaurants" heading is visible on screen
+
+### Why it matters
+This is the owner's home base. If they can't see their restaurant list, they can't access any management features.
+
+---
+
+## TC-14 — Owner Can See Their Restaurant Card
+**Status:** ⏭️ Skipped (owner login not configured)
+
+### What it checks
+The owner's specific restaurant appears as a card on the "My Restaurants" page with the correct name.
+
+### How it works, step by step
+1. The test opens the My Restaurants page
+2. It looks for a card that contains the test restaurant's name
+3. It confirms the card is visible
+
+### Why it matters
+If the owner's restaurant doesn't appear, they have no way to manage it — menu, orders, settings, everything is inaccessible.
+
+---
+
+## TC-15 — Owner Can Enter Their Restaurant's Management Area
+**Status:** ⏭️ Skipped (owner login not configured)
+
+### What it checks
+Clicking into a restaurant opens the full management portal with a navigation sidebar.
+
+### How it works, step by step
+1. The test navigates directly to the restaurant management page
+2. It confirms the left-hand navigation sidebar is visible on screen
+
+### Why it matters
+The management portal is where the owner does everything — menu editing, viewing orders, settings, analytics. If it doesn't load, the owner is locked out of their own restaurant.
+
+---
+
+## TC-16 — Owner Can Navigate to Store Settings
+**Status:** ⏭️ Skipped (owner login not configured)
+
+### What it checks
+Clicking "Store Settings" in the sidebar navigation takes the owner to their store settings section.
+
+### How it works, step by step
+1. The test opens the restaurant management portal
+2. It clicks "Store Settings" in the left sidebar
+3. It confirms the page URL updates to reflect Store Settings is open
+
+### Why it matters
+Store Settings is where owners configure operating hours, delivery options, and other core restaurant details. A broken link means they can't update these settings.
+
+---
+
+## TC-17 — Owner Can Open Tax Settings
+**Status:** ⏭️ Skipped (owner login not configured)
+
+### What it checks
+The owner can navigate to the Tax Settings page for their restaurant and see a form to enter their sales tax rate.
+
+### How it works, step by step
+1. The test goes directly to the tax settings page for the test restaurant
+2. It confirms the tax rate input field is visible (showing placeholder text "e.g., 7.5")
+
+### Why it matters
+Tax must be correctly applied to every customer order. If owners can't set their tax rate, either customers are charged the wrong amount or the restaurant loses money.
+
+---
+
+## TC-18 — Owner Can Save a Tax Rate
+**Status:** ⏭️ Skipped (owner login not configured)
+
+### What it checks
+An owner can type a tax rate (like 8.5%) and save it — receiving a success confirmation message.
+
+### How it works, step by step
+1. The test opens the tax settings page
+2. It types "8.5" into the tax rate field
+3. It clicks the "Save Tax Settings" button
+4. It confirms the message "Tax settings updated successfully!" appears on screen
+
+### Why it matters
+Without being able to save the tax rate, every order placed through the restaurant would either have incorrect tax or no tax — a financial and compliance problem.
+
+---
+
+## TC-19 — Owner Can Open the Menu Management Tab
+**Status:** ⏭️ Skipped (owner login not configured)
+
+### What it checks
+Clicking "Menu" in the sidebar opens the menu management area where the owner can manage their food categories and items.
+
+### How it works, step by step
+1. The test opens the restaurant management portal
+2. It clicks "Menu" in the sidebar
+3. It confirms the "Add Category" button is visible on screen
+
+### Why it matters
+If the menu tab doesn't load, the owner cannot add, edit, or remove any food items — meaning their online menu is frozen as-is.
+
+---
+
+## TC-20 — Owner Can Create a Menu Category
+**Status:** ⏭️ Skipped (owner login not configured)
+
+### What it checks
+An owner can create a new menu category (like "Appetizers" or "Desserts") to organise their menu items.
+
+### How it works, step by step
+1. The test opens the menu management area
+2. It clicks "Add Category"
+3. It types "Test Starters" as the category name
+4. It clicks "Save changes"
+5. It confirms the new "Test Starters" category appears on the menu
+
+### Why it matters
+Categories make it easy for customers to browse the menu. Without the ability to create them, owners are stuck with a flat, unorganised list of food items.
+
+---
+
+## TC-21 — Owner Can Add a Menu Item
+**Status:** ⏭️ Skipped (owner login not configured)
+
+### What it checks
+An owner can add a new food item inside a category — with a name, price, and description.
+
+### How it works, step by step
+1. The test opens the menu management area
+2. It finds the "Test Starters" category (created in TC-20)
+3. It clicks "Add Item" inside that category
+4. It fills in:
+   - **Name:** Automation Bruschetta
+   - **Price:** $9.99
+   - **Description:** Test item created by Playwright automation
+5. It saves the item
+6. It confirms the success message "Menu item created successfully!" appears
+
+### Why it matters
+Adding menu items is the most fundamental thing a restaurant owner does when setting up. If this is broken, the restaurant's menu will be empty and customers can't order anything.
+
+---
+
+---
+
+# 🛒 SECTION 4 — Customer Ordering
+> These tests check what a customer experiences when they visit a restaurant's online ordering page, browse the menu, and place an order. This uses the customer-facing website (not the owner dashboard).
+
+---
+
+## TC-22 — Customer Can See the Menu Page
+**Status:** ⏭️ Skipped (owner login not configured — needed to seed test data)
+
+### What it checks
+A customer visiting the restaurant's online ordering link can see the menu page load successfully.
+
+### How it works, step by step
+1. The test opens the customer ordering website with the test restaurant's ID
+2. It confirms the URL changes to the menu page — the page has loaded
+
+### Why it matters
+If the menu page doesn't load, no customer can see what's available to order. The restaurant's entire online ordering is down.
+
+---
+
+## TC-23 — Customer Can Click a Menu Item and See Add to Cart
+**Status:** ⏭️ Skipped (owner login not configured — needed to seed test data)
+
+### What it checks
+When a customer clicks on a food item, a pop-up appears showing the item details with an "Add to Cart" button.
+
+### How it works, step by step
+1. The test opens the menu page
+2. It finds the test food item ("Automation Burger") and clicks on it
+3. It confirms a pop-up window opens
+4. It confirms the "Add to Cart" button is visible inside the pop-up
+
+### Why it matters
+If clicking an item doesn't open the details pop-up, customers can't add anything to their cart — meaning zero orders can be placed.
+
+---
+
+## TC-24 — Customer Can Reach the Checkout Page With Items in Cart
+**Status:** ⏭️ Skipped (owner login not configured — needed to seed test data)
+
+### What it checks
+A customer who has items in their cart can proceed to the checkout page and see the order form.
+
+### How it works, step by step
+1. The test adds a test item to the cart behind the scenes (simulating what a customer does after clicking Add to Cart)
+2. It navigates to the checkout page
+3. It confirms the customer information form is visible — specifically the First Name field
+
+### Why it matters
+If the checkout page doesn't load with cart contents, no customer can complete a purchase — the restaurant makes no revenue.
+
+---
+
+## TC-25 — Customer Can Fill in Their Details and Reach the Payment Step
+**Status:** ⏭️ Skipped (owner login not configured — needed to seed test data)
+
+### What it checks
+A customer can fill in their name, email, and phone number, choose "Pickup," and move to the payment step where they'll enter card details.
+
+### How it works, step by step
+1. The test puts items in the cart and goes to checkout
+2. It fills in the customer details:
+   - **First Name:** Jane
+   - **Last Name:** Tester
+   - **Email:** jane@restaunax-test.com
+   - **Phone:** 555-987-6543
+3. It selects "Pickup" as the order type
+4. It clicks "Proceed to Payment"
+5. It confirms the payment section appears (showing a "Complete Order" button)
+
+### Why it matters
+If the form doesn't accept customer details or the Proceed button doesn't work, the checkout process is completely broken — no one can pay.
+
+---
+
+## TC-26 — Customer Can Complete a Full Order and See Order Confirmation
+**Status:** ⏭️ Skipped (owner login not configured — needed to seed test data)
+
+### What it checks
+A customer can go through the entire ordering process from start to finish — including payment — and reach the "Order Confirmed!" page.
+
+### How it works, step by step
+1. The test puts items in the cart and goes to checkout
+2. It fills in the customer details (same as TC-25)
+3. It selects "Pickup"
+4. It clicks "Proceed to Payment"
+5. It enters a **Stripe test card number** (`4242 4242 4242 4242`) — this is a fake card that Stripe provides for testing, it never charges real money
+6. It enters an expiry date (12/30) and security code (123)
+7. It clicks "Complete Order"
+8. It confirms:
+   - The page changes to the order confirmation screen
+   - The heading "Order Confirmed!" is visible
+   - An order number is displayed
+   - The customer's first name ("Jane") appears in the thank-you message
+
+### Why it matters
+This is the most critical test in the entire suite. If a customer cannot complete an order, the restaurant earns nothing and the customer goes elsewhere. This test validates the entire money flow works end to end.
+
+---
+
+---
+
+# 📊 Test Summary
+
+| # | Test Case | Area | Status |
+|---|-----------|------|--------|
+| TC-01 | Demo request form works | Public | ✅ Passing |
+| TC-02 | Confirmation email is sent | Public | ⏭️ Skipped |
+| TC-03 | Admin can log in | Admin | ✅ Passing |
+| TC-04 | Admin finds demo request | Admin | ✅ Passing |
+| TC-05 | Admin opens actions menu | Admin | ✅ Passing |
+| TC-06 | Admin changes demo status | Admin | ✅ Passing |
+| TC-07 | Admin views full request details | Admin | ✅ Passing |
+| TC-08 | Admin opens follow-up email dialog | Admin | ✅ Passing |
+| TC-09 | Delete confirmation + cancel works | Admin | ✅ Passing |
+| TC-10 | Admin opens assign request dialog | Admin | ✅ Passing |
+| TC-11 | Admin opens schedule demo dialog | Admin | ✅ Passing |
+| TC-12 | Proceed to onboarding navigates correctly | Admin | ✅ Passing |
+| TC-13 | Owner sees My Restaurants page | Owner | ⏭️ Skipped |
+| TC-14 | Owner sees their restaurant card | Owner | ⏭️ Skipped |
+| TC-15 | Owner opens restaurant management portal | Owner | ⏭️ Skipped |
+| TC-16 | Owner navigates to Store Settings | Owner | ⏭️ Skipped |
+| TC-17 | Owner opens tax settings page | Owner | ⏭️ Skipped |
+| TC-18 | Owner saves a tax rate | Owner | ⏭️ Skipped |
+| TC-19 | Owner opens menu management | Owner | ⏭️ Skipped |
+| TC-20 | Owner creates a menu category | Owner | ⏭️ Skipped |
+| TC-21 | Owner adds a menu item | Owner | ⏭️ Skipped |
+| TC-22 | Customer sees menu page | Customer | ⏭️ Skipped |
+| TC-23 | Customer opens item and sees Add to Cart | Customer | ⏭️ Skipped |
+| TC-24 | Customer reaches checkout with cart | Customer | ⏭️ Skipped |
+| TC-25 | Customer fills details and reaches payment | Customer | ⏭️ Skipped |
+| TC-26 | Customer completes full order end to end | Customer | ⏭️ Skipped |
+
+**11 passing · 15 skipped · 0 failing**
+
+All skipped tests are waiting for owner account credentials to be added to the environment configuration. Once added, all 26 tests will run.
+
+---
+
+# ❓ Frequently Asked Questions
+
+**Q: Does any test use real money or real data?**
+No. All tests run against a test environment (QA). Payment tests use Stripe's official test card numbers — they simulate a real transaction but never charge anyone.
+
+**Q: Does any test create real restaurant accounts or orders?**
+Tests do create temporary data in the QA environment (test restaurants, test orders), but everything is automatically cleaned up when the tests finish.
+
+**Q: How often do these tests run?**
+They can be run manually at any time with one command (`npm run test`). They are designed to also run automatically whenever a developer makes a change to the codebase.
+
+**Q: What happens when a test fails?**
+A failed test means something in the software is not working as expected. The test suite saves a screenshot and recording of the failure so developers can see exactly what went wrong.
+
+**Q: Why are so many tests skipped?**
+The skipped tests require an "owner" login account for the QA environment. Once the owner email and password are added to the configuration file, those tests will all run automatically.
