@@ -13,8 +13,8 @@ import * as dotenv from "dotenv";
 import * as fs from "fs";
 import * as path from "path";
 import { chromium, type Page, type BrowserContext } from "@playwright/test";
-import { createDemoBookingPage } from "./pages/public/DemoBookingPage";
-import { createSignInPage } from "./pages/auth/SignInPage";
+import { createDemoBookingPage } from "./pages/dashboard/public/DemoBookingPage";
+import { createSignInPage } from "./pages/dashboard/auth/SignInPage";
 import { apiLogin, createTestRestaurant } from "./utils/apiHelper";
 import {
   STATE_FILE,

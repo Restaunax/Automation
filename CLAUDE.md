@@ -24,7 +24,7 @@ Restaunax is a SaaS platform that provides software for restaurants. It has five
 |------|-------------|-----------|----------------|
 | `ADMIN` | Email + password at `/sign-in` | `/admin` dashboard | `/api/admin/*` |
 | `OWNER` | Email + password at `/sign-in` | `/restaurant/*` pages | `/restaurant`, `/menu`, `/api/order`, `/api/coupons`, etc. |
-| `EMPLOYEE` | Email + password | Same as owner, narrower permissions | Same as owner |
+| `EMPLOYEE` | Email + password | **Company-side** setup staff: can create restaurants, **publish menus**, edit **tax**, manage register devices; **cannot** invite staff. Not "owner with fewer perms" — see TEST_PLAN.md. | `/restaurant/*` + `/publish`, `/tax` |
 | `RESTAURANT_STAFF` | Tablet name + code at Device In Store | `TabletLoginScreen` → `OrdersScreen` | `/api/tablet/*` |
 | `Customer (guest)` | No login | Template Wind `/menu` → `/checkout` | `/api/order/new/restaurantId/*` |
 | `Customer (member)` | OTP phone login | Template Wind `/menu` → `/checkout` | Same + `/login/send-otp`, `/api/rewards/*` |
@@ -172,21 +172,24 @@ PENDING → CONFIRMED → PREPARING → READY → PICKED_UP / DELIVERED
 
 ## Test Structure
 
+Organized **app → role → feature**. See `TEST_PLAN.md` for the canonical
+reference (conventions, role model, how to add a test).
+
 ```
 tests/
-  owner/      — Owner dashboard flows
-  admin/      — Admin dashboard flows
-  staff/      — Staff / POS flows (API-level)
-  public/     — Unauthenticated flows (demo form, sign-up)
-  customer/   — Customer ordering flows (Template Wind)
-  mobile/     — Mobile ordering (API-level)
+  dashboard/        — Restaunax dashboard (project: dashboard, baseURL FRONTEND_URL)
+    public/         — Unauthenticated (demo form, sign-in/up)
+    admin/          — Company admin manages everything
+    owner/          — Restaurant client manages their own restaurant(s)
+    employee/       — Company-side setup staff (publish/tax/create restaurant)
+    staff/          — Thin /staff PIN-card stub (web)
+  customer/         — Customer ordering (project: customer, baseURL TEMPLATE_WIND_URL)
+  pos/              — Device In Store / POS — API-level placeholder (not a project)
 
 pages/
-  owner/      — Page Object Models for owner screens
-  admin/      — POMs for admin screens
-  auth/       — POMs for sign-in / sign-up
-  public/     — POMs for public pages
-  customer/   — POMs for Template Wind (MenuPage, CheckoutPage, etc.)
+  dashboard/
+    auth/  public/  admin/  owner/   — POMs mirror the test axis
+  customer/                          — Template Wind POMs (MenuPage, CheckoutPage, …)
 ```
 
 ---

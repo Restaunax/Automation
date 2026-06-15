@@ -6,9 +6,9 @@
  */
 
 import * as allure from "allure-js-commons";
-import { test, expect } from "../../fixtures/base";
-import { generateDemoFormData, readSharedState } from "../../utils/testData";
-import { waitForEmail } from "../../utils/emailHelper";
+import { test, expect } from "../../../fixtures/base";
+import { generateDemoFormData, readSharedState } from "../../../utils/testData";
+import { waitForEmail } from "../../../utils/emailHelper";
 
 test.describe("Demo Request — Public Form", () => {
   test.beforeEach(async () => {

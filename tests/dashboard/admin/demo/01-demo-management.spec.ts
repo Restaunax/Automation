@@ -9,9 +9,9 @@
  */
 
 import * as allure from "allure-js-commons";
-import { test, expect } from "../../fixtures/base";
-import { createAdminDemoManagementPage } from "../../pages/admin/AdminDemoManagementPage";
-import { readSharedState } from "../../utils/testData";
+import { test, expect } from "../../../../fixtures/base";
+import { createAdminDemoManagementPage } from "../../../../pages/dashboard/admin/AdminDemoManagementPage";
+import { readSharedState } from "../../../../utils/testData";
 
 const ADMIN_EMAIL    = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";

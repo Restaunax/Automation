@@ -10,3 +10,9 @@ dist/
 
 # Local environment — never commit credentials
 .env
+
+# OS / editor cruft
+.DS_Store
+
+# Personal Claude skills (not part of the test suite)
+.claude/skills/
