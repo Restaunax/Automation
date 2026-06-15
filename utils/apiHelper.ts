@@ -132,3 +132,37 @@ export async function deleteTestRestaurant(
     adminAccessToken
   );
 }
+
+export interface ApiMenuGroup {
+  id: string;
+}
+
+export interface ApiMenuItem {
+  id: string;
+  name: string;
+  price: number;
+}
+
+export async function createTestMenuGroup(
+  accessToken: string,
+  restaurantId: string
+): Promise<ApiMenuGroup> {
+  return apiRequest<ApiMenuGroup>(
+    "POST",
+    "/menu/group/new",
+    { restaurantId, menuGroup: "Automation Items" },
+    accessToken
+  );
+}
+
+export async function createTestMenuItem(
+  accessToken: string,
+  groupId: string
+): Promise<ApiMenuItem> {
+  return apiRequest<ApiMenuItem>(
+    "POST",
+    "/menu/item/new",
+    { name: "Automation Burger", price: 12.99, groupId },
+    accessToken
+  );
+}
