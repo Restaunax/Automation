@@ -55,6 +55,9 @@ export interface SharedState {
   submittedAt: string;     // ISO 8601
   restaurantId: string;
   restaurantName: string;
+  menuItemId: string;
+  menuItemName: string;
+  menuItemPrice: number;
 }
 
 export function readSharedState(): SharedState {
