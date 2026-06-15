@@ -7,7 +7,10 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 
 test.describe("Admin — Demo Request Actions", () => {
-  test.skip(!ADMIN_EMAIL || !ADMIN_PASSWORD, "ADMIN_EMAIL / ADMIN_PASSWORD not set in .env");
+  test.skip(
+    !ADMIN_EMAIL || !ADMIN_PASSWORD,
+    "ADMIN_EMAIL / ADMIN_PASSWORD not set in .env"
+  );
 
   test.beforeEach(async ({ adminPage }) => {
     await allure.label("feature", "Demo Request Flow");
@@ -20,23 +23,33 @@ test.describe("Admin — Demo Request Actions", () => {
     await demoPage.assertRowExists(email);
   });
 
-  test("TC-05: admin can open the action menu on a demo row", async ({ adminPage }) => {
+  test("TC-05: admin can open the action menu on a demo row", async ({
+    adminPage,
+  }) => {
     const { email } = readSharedState();
     const demoPage = createAdminDemoManagementPage(adminPage);
 
     await demoPage.openActionMenu(email);
 
     for (const label of [
-      "View/Edit Details", "Assign Request", "Schedule Demo",
-      "Send Follow-up Email", "Proceed to Onboarding", "Delete demo",
+      "View/Edit Details",
+      "Assign Request",
+      "Schedule Demo",
+      "Send Follow-up Email",
+      "Proceed to Onboarding",
+      "Delete demo",
     ]) {
-      await expect(adminPage.locator('[role="menu"]').getByText(label, { exact: true })).toBeVisible();
+      await expect(
+        adminPage.locator('[role="menu"]').getByText(label, { exact: true })
+      ).toBeVisible();
     }
 
     await adminPage.keyboard.press("Escape");
   });
 
-  test("TC-06: admin can change demo status via inline dropdown", async ({ adminPage }) => {
+  test("TC-06: admin can change demo status via inline dropdown", async ({
+    adminPage,
+  }) => {
     const { email } = readSharedState();
     const demoPage = createAdminDemoManagementPage(adminPage);
 
@@ -47,7 +60,9 @@ test.describe("Admin — Demo Request Actions", () => {
     ).toContainText("Contacted", { timeout: 10_000 });
   });
 
-  test("TC-07: admin can open View/Edit Details side sheet", async ({ adminPage }) => {
+  test("TC-07: admin can open View/Edit Details side sheet", async ({
+    adminPage,
+  }) => {
     const { email } = readSharedState();
     const demoPage = createAdminDemoManagementPage(adminPage);
 
@@ -57,7 +72,9 @@ test.describe("Admin — Demo Request Actions", () => {
     await demoPage.closeSideSheet();
   });
 
-  test("TC-08: admin can open Send Follow-up Email dialog", async ({ adminPage }) => {
+  test("TC-08: admin can open Send Follow-up Email dialog", async ({
+    adminPage,
+  }) => {
     const { email } = readSharedState();
     const demoPage = createAdminDemoManagementPage(adminPage);
 
@@ -67,7 +84,9 @@ test.describe("Admin — Demo Request Actions", () => {
     await demoPage.closeDialog();
   });
 
-  test("TC-09: admin sees delete confirmation and can cancel", async ({ adminPage }) => {
+  test("TC-09: admin sees delete confirmation and can cancel", async ({
+    adminPage,
+  }) => {
     const { email, firstName, lastName } = readSharedState();
     const demoPage = createAdminDemoManagementPage(adminPage);
 
@@ -102,12 +121,16 @@ test.describe("Admin — Demo Request Actions", () => {
     await demoPage.closeDialog();
   });
 
-  test("TC-12: Proceed to Onboarding navigates to restaurant setup", async ({ adminPage }) => {
+  test("TC-12: Proceed to Onboarding navigates to restaurant setup", async ({
+    adminPage,
+  }) => {
     const { email } = readSharedState();
     const demoPage = createAdminDemoManagementPage(adminPage);
 
     await demoPage.openActionMenu(email);
     await demoPage.clickMenuAction("Proceed to Onboarding");
-    await expect(adminPage).toHaveURL(/\/restaurant\/new\/demoId\//, { timeout: 10_000 });
+    await expect(adminPage).toHaveURL(/\/restaurant\/new\/demoId\//, {
+      timeout: 10_000,
+    });
   });
 });

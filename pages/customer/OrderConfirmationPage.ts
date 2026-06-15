@@ -16,4 +16,6 @@ export const createOrderConfirmationPage = (page: Page) => {
   return { getOrderNumber, orderMore };
 };
 
-export type OrderConfirmationPage = ReturnType<typeof createOrderConfirmationPage>;
+export type OrderConfirmationPage = ReturnType<
+  typeof createOrderConfirmationPage
+>;

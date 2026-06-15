@@ -44,7 +44,13 @@ export const createCheckoutPage = (page: Page) => {
     await continueToPaymentButton.click();
   };
 
-  return { goto, fillCustomerInfo, selectServiceType, selectTip, continueToPayment };
+  return {
+    goto,
+    fillCustomerInfo,
+    selectServiceType,
+    selectTip,
+    continueToPayment,
+  };
 };
 
 export type CheckoutPage = ReturnType<typeof createCheckoutPage>;

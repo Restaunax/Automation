@@ -9,7 +9,9 @@ import { readSharedState } from "../../../utils/testData";
  * advance its status. See TEST_PLAN.md.
  */
 test.describe("Owner — Orders", () => {
-  test.fixme("TC-XXX: owner can change an order's status", async ({ ownerPage }) => {
+  test.fixme("TC-XXX: owner can change an order's status", async ({
+    ownerPage,
+  }) => {
     const { restaurantId } = readSharedState();
     const orders = createOrdersPage(ownerPage);
     await orders.goto(restaurantId);

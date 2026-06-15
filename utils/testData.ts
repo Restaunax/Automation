@@ -3,17 +3,25 @@ import * as path from "path";
 import { v4 as uuidv4 } from "uuid";
 import type { DemoFormData } from "../pages/dashboard/public/DemoBookingPage";
 
-export const FRONTEND_URL = process.env.FRONTEND_URL ?? "https://app.qa.restaunax.com";
+export const FRONTEND_URL =
+  process.env.FRONTEND_URL ?? "https://app.qa.restaunax.com";
 
 // Template Wind (customer ordering site) — base URL for the `customer` project.
-export const TEMPLATE_WIND_URL = process.env.TEMPLATE_WIND_URL ?? "https://qa.restaunax.com";
+export const TEMPLATE_WIND_URL =
+  process.env.TEMPLATE_WIND_URL ?? "https://qa.restaunax.com";
 
 const EMAIL_DOMAIN = process.env.TEST_EMAIL_DOMAIN ?? "restaunax-test.com";
 
 // ── Shared temp file paths (all relative to Automation/) ────────────────────
-export const STATE_FILE      = path.resolve(__dirname, "../shared-state.tmp.json");
-export const OWNER_AUTH_FILE = path.resolve(__dirname, "../owner-auth.tmp.json");
-export const ADMIN_AUTH_FILE = path.resolve(__dirname, "../admin-auth.tmp.json");
+export const STATE_FILE = path.resolve(__dirname, "../shared-state.tmp.json");
+export const OWNER_AUTH_FILE = path.resolve(
+  __dirname,
+  "../owner-auth.tmp.json"
+);
+export const ADMIN_AUTH_FILE = path.resolve(
+  __dirname,
+  "../admin-auth.tmp.json"
+);
 
 // ── Test data generators ─────────────────────────────────────────────────────
 export function generateDemoFormData(): DemoFormData & { uniqueId: string } {
@@ -52,7 +60,7 @@ export interface SharedState {
   email: string;
   firstName: string;
   lastName: string;
-  submittedAt: string;     // ISO 8601
+  submittedAt: string; // ISO 8601
   restaurantId: string;
   restaurantName: string;
   menuItemId: string;
@@ -77,5 +85,7 @@ export function writeSharedState(state: SharedState): void {
 // per-restaurant; appending ?restaurantId=<id> skips the location picker in QA.
 // Prefers an explicit env override, else the restaurant seeded by globalSetup.
 export function readRestaurantId(): string {
-  return process.env.TEMPLATE_WIND_RESTAURANT_ID ?? readSharedState().restaurantId;
+  return (
+    process.env.TEMPLATE_WIND_RESTAURANT_ID ?? readSharedState().restaurantId
+  );
 }

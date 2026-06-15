@@ -8,8 +8,7 @@
 
 import { generateRestaurantData } from "./testData";
 
-const BACKEND_URL =
-  process.env.BACKEND_URL ?? "https://api.qa.restaunax.com";
+const BACKEND_URL = process.env.BACKEND_URL ?? "https://api.qa.restaunax.com";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 

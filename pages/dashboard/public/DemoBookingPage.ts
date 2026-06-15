@@ -20,7 +20,10 @@ const buildLocators = (page: Page) => ({
   agreeToTermsCheckbox: page.locator('input[name="agreeToTerms"]'),
   submitButton: page.locator('button[type="submit"]'),
   successDialog: page.locator("#success-dialog-title"),
-  successDialogCloseButton: page.locator('[role="dialog"]').getByRole("button").last(),
+  successDialogCloseButton: page
+    .locator('[role="dialog"]')
+    .getByRole("button")
+    .last(),
   preferredContactRadio: (value: "email" | "phone"): Locator =>
     page.locator(`input[name="preferredContact"][value="${value}"]`),
 });

@@ -7,14 +7,19 @@ const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
 
 test.describe("Owner — Restaurant Management Portal", () => {
-  test.skip(!OWNER_EMAIL || !OWNER_PASSWORD, "OWNER_EMAIL / OWNER_PASSWORD not set in .env");
+  test.skip(
+    !OWNER_EMAIL || !OWNER_PASSWORD,
+    "OWNER_EMAIL / OWNER_PASSWORD not set in .env"
+  );
 
   test.beforeEach(async () => {
     await allure.label("feature", "Owner Restaurant Management");
     await allure.label("severity", "critical");
   });
 
-  test("TC-15: owner can navigate to the restaurant management page and the portal shell loads", async ({ ownerPage }) => {
+  test("TC-15: owner can navigate to the restaurant management page and the portal shell loads", async ({
+    ownerPage,
+  }) => {
     await allure.description(
       "Navigating to /restaurant/restaurantId/:id/restaurantManagement loads the portal shell with a sidebar drawer."
     );
@@ -22,9 +27,12 @@ test.describe("Owner — Restaurant Management Portal", () => {
     const { restaurantId } = readSharedState();
     const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
 
-    await allure.step(`Navigate to restaurant management (id: ${restaurantId})`, async () => {
-      await mgmtPage.goto(restaurantId);
-    });
+    await allure.step(
+      `Navigate to restaurant management (id: ${restaurantId})`,
+      async () => {
+        await mgmtPage.goto(restaurantId);
+      }
+    );
 
     await allure.step("Verify portal shell drawer is visible", async () => {
       await mgmtPage.assertPortalShellLoaded();
@@ -33,7 +41,9 @@ test.describe("Owner — Restaurant Management Portal", () => {
     });
   });
 
-  test("TC-16: owner can navigate to Store Settings via the sidebar", async ({ ownerPage }) => {
+  test("TC-16: owner can navigate to Store Settings via the sidebar", async ({
+    ownerPage,
+  }) => {
     await allure.description(
       "Clicking Store Settings in the portal sidebar appends ?tab=Store%20Settings to the URL."
     );

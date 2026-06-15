@@ -9,7 +9,9 @@ import { test } from "../../../fixtures/base";
  * the API level — see tests/pos/README.md. SCAFFOLD placeholder.
  */
 test.describe("Staff — Portal", () => {
-  test.fixme("TC-XXX: a user can view/set their POS PIN", async ({ adminPage }) => {
+  test.fixme("TC-XXX: a user can view/set their POS PIN", async ({
+    adminPage,
+  }) => {
     await adminPage.goto("/staff", { waitUntil: "domcontentloaded" });
     // TODO: assert the PIN card renders (use a RESTAURANT_STAFF session when available)
   });

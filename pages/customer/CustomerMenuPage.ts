@@ -1,6 +1,7 @@
 import { type Page, expect } from "@playwright/test";
 
-const TEMPLATE_WIND_URL = process.env.TEMPLATE_WIND_URL ?? "https://qa.restaunax.com";
+const TEMPLATE_WIND_URL =
+  process.env.TEMPLATE_WIND_URL ?? "https://qa.restaunax.com";
 
 export const createCustomerMenuPage = (page: Page) => {
   const goto = async (restaurantId: string) => {
@@ -10,7 +11,9 @@ export const createCustomerMenuPage = (page: Page) => {
   };
 
   const menuItemCard = (name: string) =>
-    page.locator('[data-testid="menu-item-card"], .menu-item-card, article').filter({ hasText: name });
+    page
+      .locator('[data-testid="menu-item-card"], .menu-item-card, article')
+      .filter({ hasText: name });
 
   const floatingCartButton = () =>
     page.getByRole("button", { name: /view cart/i });
@@ -18,11 +21,12 @@ export const createCustomerMenuPage = (page: Page) => {
   const assertPageLoaded = () =>
     expect(page).toHaveURL(/\/menu/, { timeout: 15_000 });
 
-  const openItemModal = (itemName: string) =>
-    menuItemCard(itemName).click();
+  const openItemModal = (itemName: string) => menuItemCard(itemName).click();
 
   const assertItemModalOpen = () =>
-    expect(page.locator('[role="dialog"], [data-testid="item-modal"]')).toBeVisible({ timeout: 10_000 });
+    expect(
+      page.locator('[role="dialog"], [data-testid="item-modal"]')
+    ).toBeVisible({ timeout: 10_000 });
 
   const addToCartButton = () =>
     page.getByRole("button", { name: /add to cart/i });

@@ -1,6 +1,7 @@
 import { type Page, expect } from "@playwright/test";
 
-const TEMPLATE_WIND_URL = process.env.TEMPLATE_WIND_URL ?? "https://qa.restaunax.com";
+const TEMPLATE_WIND_URL =
+  process.env.TEMPLATE_WIND_URL ?? "https://qa.restaunax.com";
 
 export const createCustomerCheckoutPage = (page: Page) => {
   // Navigate to menu first to establish the domain, then seed cart via sessionStorage
@@ -40,10 +41,19 @@ export const createCustomerCheckoutPage = (page: Page) => {
           })
         );
       },
-      { rid: restaurantId, iid: menuItemId, iname: menuItemName, iprice: menuItemPrice }
+      {
+        rid: restaurantId,
+        iid: menuItemId,
+        iname: menuItemName,
+        iprice: menuItemPrice,
+      }
     );
-    await page.goto(`${TEMPLATE_WIND_URL}/checkout`, { waitUntil: "domcontentloaded" });
-    await page.getByPlaceholder("John").waitFor({ state: "visible", timeout: 15_000 });
+    await page.goto(`${TEMPLATE_WIND_URL}/checkout`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page
+      .getByPlaceholder("John")
+      .waitFor({ state: "visible", timeout: 15_000 });
   };
 
   const fillCustomerInfo = async (
@@ -70,12 +80,20 @@ export const createCustomerCheckoutPage = (page: Page) => {
   const clickProceedToPayment = () => proceedToPaymentButton().click();
 
   const assertPaymentSectionVisible = () =>
-    expect(page.getByRole("button", { name: "Complete Order" })).toBeVisible({ timeout: 15_000 });
+    expect(page.getByRole("button", { name: "Complete Order" })).toBeVisible({
+      timeout: 15_000,
+    });
 
-  const fillStripeCard = async (cardNumber: string, expiry: string, cvc: string) => {
+  const fillStripeCard = async (
+    cardNumber: string,
+    expiry: string,
+    cvc: string
+  ) => {
     // Stripe PaymentElement renders card fields inside an iframe with a stripe.com src
     const stripeFrame = page.frameLocator('iframe[src*="stripe.com"]').first();
-    await stripeFrame.locator('[placeholder="1234 1234 1234 1234"]').fill(cardNumber);
+    await stripeFrame
+      .locator('[placeholder="1234 1234 1234 1234"]')
+      .fill(cardNumber);
     await stripeFrame.locator('[placeholder="MM / YY"]').fill(expiry);
     await stripeFrame.locator('[placeholder="CVC"]').fill(cvc);
   };

@@ -15,7 +15,12 @@ import * as path from "path";
 import { chromium, type Page, type BrowserContext } from "@playwright/test";
 import { createDemoBookingPage } from "./pages/dashboard/public/DemoBookingPage";
 import { createSignInPage } from "./pages/dashboard/auth/SignInPage";
-import { apiLogin, createTestRestaurant, createTestMenuGroup, createTestMenuItem } from "./utils/apiHelper";
+import {
+  apiLogin,
+  createTestRestaurant,
+  createTestMenuGroup,
+  createTestMenuItem,
+} from "./utils/apiHelper";
 import {
   STATE_FILE,
   OWNER_AUTH_FILE,
@@ -27,9 +32,9 @@ import {
 
 dotenv.config({ path: path.resolve(__dirname, ".env") });
 
-const OWNER_EMAIL    = process.env.OWNER_EMAIL    ?? "";
+const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
-const ADMIN_EMAIL    = process.env.ADMIN_EMAIL    ?? "";
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 
 // ── Shared browser lifecycle ──────────────────────────────────────────────────
@@ -38,7 +43,7 @@ async function withBrowser<T>(
 ): Promise<T> {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ baseURL: FRONTEND_URL });
-  const page    = await context.newPage();
+  const page = await context.newPage();
   try {
     return await fn(page, context);
   } finally {
@@ -58,16 +63,29 @@ async function saveAuthState(
     try {
       await createSignInPage(page).loginAndWait(email, password);
       await context.storageState({ path: outputFile });
-      console.log(`[globalSetup] ${label} auth state saved → ${path.basename(outputFile)}`);
+      console.log(
+        `[globalSetup] ${label} auth state saved → ${path.basename(outputFile)}`
+      );
     } catch (err) {
-      await page.screenshot({ path: path.resolve(__dirname, `test-results/globalSetup-${label}-failure.png`) }).catch(() => {});
+      await page
+        .screenshot({
+          path: path.resolve(
+            __dirname,
+            `test-results/globalSetup-${label}-failure.png`
+          ),
+        })
+        .catch(() => {});
       throw err;
     }
   });
 }
 
 // ── Helper: submit demo request via browser ──────────────────────────────────
-async function submitDemoRequest(): Promise<{ email: string; firstName: string; lastName: string }> {
+async function submitDemoRequest(): Promise<{
+  email: string;
+  firstName: string;
+  lastName: string;
+}> {
   const formData = generateDemoFormData();
   console.log(`[globalSetup] Submitting demo request for: ${formData.email}`);
   await withBrowser(async (page) => {
@@ -75,11 +93,22 @@ async function submitDemoRequest(): Promise<{ email: string; firstName: string; 
       await createDemoBookingPage(page).fillAndSubmit(formData);
       console.log("[globalSetup] Demo request submitted successfully.");
     } catch (err) {
-      await page.screenshot({ path: path.resolve(__dirname, "test-results/globalSetup-demo-failure.png") }).catch(() => {});
+      await page
+        .screenshot({
+          path: path.resolve(
+            __dirname,
+            "test-results/globalSetup-demo-failure.png"
+          ),
+        })
+        .catch(() => {});
       throw err;
     }
   });
-  return { email: formData.email, firstName: formData.firstName, lastName: formData.lastName };
+  return {
+    email: formData.email,
+    firstName: formData.firstName,
+    lastName: formData.lastName,
+  };
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
@@ -94,27 +123,33 @@ export default async function globalSetup(): Promise<void> {
 
   // 1. Owner API login → seed test restaurant (must finish before browser sessions start
   //    so restaurantId is available for shared state)
-  let restaurantId   = "";
+  let restaurantId = "";
   let restaurantName = "";
-  let menuItemId     = "";
-  let menuItemName   = "";
-  let menuItemPrice  = 0;
+  let menuItemId = "";
+  let menuItemName = "";
+  let menuItemPrice = 0;
 
   if (OWNER_EMAIL && OWNER_PASSWORD) {
     const { accessToken } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD);
     const restaurant = await createTestRestaurant(accessToken);
-    restaurantId   = restaurant.id;
+    restaurantId = restaurant.id;
     restaurantName = restaurant.name;
-    console.log(`[globalSetup] Test restaurant created: ${restaurantName} (${restaurantId})`);
+    console.log(
+      `[globalSetup] Test restaurant created: ${restaurantName} (${restaurantId})`
+    );
 
     const group = await createTestMenuGroup(accessToken, restaurantId);
-    const item  = await createTestMenuItem(accessToken, group.id);
-    menuItemId    = item.id;
-    menuItemName  = item.name;
+    const item = await createTestMenuItem(accessToken, group.id);
+    menuItemId = item.id;
+    menuItemName = item.name;
     menuItemPrice = item.price;
-    console.log(`[globalSetup] Seed menu item created: ${menuItemName} (${menuItemId})`);
+    console.log(
+      `[globalSetup] Seed menu item created: ${menuItemName} (${menuItemId})`
+    );
   } else {
-    console.warn("[globalSetup] OWNER_EMAIL/PASSWORD not set — skipping owner auth + restaurant seed");
+    console.warn(
+      "[globalSetup] OWNER_EMAIL/PASSWORD not set — skipping owner auth + restaurant seed"
+    );
   }
 
   // 2-4. Owner auth, admin auth, and demo submission are fully independent —
@@ -125,7 +160,11 @@ export default async function globalSetup(): Promise<void> {
       : Promise.resolve(),
     ADMIN_EMAIL && ADMIN_PASSWORD
       ? saveAuthState(ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_AUTH_FILE, "admin")
-      : Promise.resolve(console.warn("[globalSetup] ADMIN_EMAIL/PASSWORD not set — skipping admin auth")),
+      : Promise.resolve(
+          console.warn(
+            "[globalSetup] ADMIN_EMAIL/PASSWORD not set — skipping admin auth"
+          )
+        ),
     submitDemoRequest(),
   ]);
 

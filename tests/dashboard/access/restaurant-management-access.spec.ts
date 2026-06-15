@@ -19,7 +19,9 @@ const ROLES_WITH_MENU_ACCESS = ["owner", "admin", "employee"] as const;
 
 test.describe("Access — Restaurant management (shared screens)", () => {
   for (const role of ROLES_WITH_MENU_ACCESS) {
-    test.fixme(`TC-XXX: ${role} can reach menu management`, async ({ pageForRole }) => {
+    test.fixme(`TC-XXX: ${role} can reach menu management`, async ({
+      pageForRole,
+    }) => {
       const { restaurantId } = readSharedState();
       const page = await pageForRole(role);
       await createMenuManagementPage(page).goto(restaurantId);

@@ -8,8 +8,12 @@ import { test } from "../../../fixtures/base";
  * See TEST_PLAN.md → role model. SCAFFOLD placeholder.
  */
 test.describe("Owner — Rewards", () => {
-  test.fixme("TC-XXX: configure a loyalty reward program", async ({ ownerPage }) => {
-    await ownerPage.goto("/restaurant/loyalty", { waitUntil: "domcontentloaded" });
+  test.fixme("TC-XXX: configure a loyalty reward program", async ({
+    ownerPage,
+  }) => {
+    await ownerPage.goto("/restaurant/loyalty", {
+      waitUntil: "domcontentloaded",
+    });
     // TODO: assert the loyalty configuration UI
   });
 });

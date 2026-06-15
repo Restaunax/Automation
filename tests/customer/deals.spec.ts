@@ -7,7 +7,9 @@ import { createMenuPage } from "../../pages/customer/MenuPage";
  * SCAFFOLD placeholder. TODO: add a DealBuilderPage POM under pages/customer/.
  */
 test.describe("Customer — Deals", () => {
-  test.fixme("TC-XXX: build a deal and add it to the cart", async ({ customerPage }) => {
+  test.fixme("TC-XXX: build a deal and add it to the cart", async ({
+    customerPage,
+  }) => {
     const menu = createMenuPage(customerPage);
     await menu.goto();
     // TODO: open a deal, add the required items, continue to checkout

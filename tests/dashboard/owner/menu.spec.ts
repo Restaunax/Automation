@@ -16,7 +16,7 @@ test.describe("Owner — Menu", () => {
   test.fixme("TC-XXX: owner can add a menu category", async ({ ownerPage }) => {
     const { restaurantId } = readSharedState();
     const menu = createMenuManagementPage(ownerPage);
-    await menu.goto(restaurantId);        // Arrange
+    await menu.goto(restaurantId); // Arrange
     await menu.addCategory("Appetizers"); // Act
     // Assert: TODO expect the category to appear in the list
   });

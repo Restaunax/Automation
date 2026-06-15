@@ -8,7 +8,9 @@ import { createCheckoutPage } from "../../pages/customer/CheckoutPage";
  * an OTP login helper — see TEST_PLAN.md → "Future infrastructure").
  */
 test.describe("Customer — Checkout", () => {
-  test.fixme("TC-XXX: guest fills info, picks pickup, and adds a tip", async ({ customerPage }) => {
+  test.fixme("TC-XXX: guest fills info, picks pickup, and adds a tip", async ({
+    customerPage,
+  }) => {
     const checkout = createCheckoutPage(customerPage);
     await checkout.goto();
     await checkout.fillCustomerInfo({

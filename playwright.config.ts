@@ -8,8 +8,10 @@ dotenv.config({ path: path.resolve(__dirname, ".env") });
 // (tests/dashboard) and the Template Wind customer site (tests/customer).
 // Each gets its own project below so page.goto("/menu") resolves against the
 // correct host. See TEST_PLAN.md for the structure rationale.
-const DASHBOARD_URL = process.env.FRONTEND_URL ?? "https://app.qa.restaunax.com";
-const CUSTOMER_URL = process.env.TEMPLATE_WIND_URL ?? "https://qa.restaunax.com";
+const DASHBOARD_URL =
+  process.env.FRONTEND_URL ?? "https://app.qa.restaunax.com";
+const CUSTOMER_URL =
+  process.env.TEMPLATE_WIND_URL ?? "https://qa.restaunax.com";
 
 export default defineConfig({
   testDir: "./tests",

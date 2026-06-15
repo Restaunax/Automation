@@ -34,14 +34,12 @@ async function fetchInboxMessages(
   });
 
   if (!res.ok) {
-    throw new Error(
-      `Mailtrap API error ${res.status}: ${await res.text()}`
-    );
+    throw new Error(`Mailtrap API error ${res.status}: ${await res.text()}`);
   }
 
   const json = (await res.json()) as MailtrapListResponse | MailtrapMessage[];
   // The v1 API returns an array directly for some endpoints
-  return Array.isArray(json) ? json : json.data ?? [];
+  return Array.isArray(json) ? json : (json.data ?? []);
 }
 
 export interface WaitForEmailOptions {
@@ -87,8 +85,7 @@ export async function waitForEmail(
     }
 
     const match = messages.find((m) => {
-      const recipientMatch =
-        m.to_email.toLowerCase() === toEmail.toLowerCase();
+      const recipientMatch = m.to_email.toLowerCase() === toEmail.toLowerCase();
       const subjectMatch = subjectPattern
         ? subjectPattern.test(m.subject)
         : true;

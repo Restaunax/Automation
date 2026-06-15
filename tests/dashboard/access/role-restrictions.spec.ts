@@ -11,17 +11,25 @@ import { readSharedState } from "../../../utils/testData";
  * SCAFFOLD: test.fixme placeholders.
  */
 test.describe("Access — Role restrictions", () => {
-  test.fixme("TC-XXX: OWNER is denied the publish route (EMPLOYEE/ADMIN only)", async ({ pageForRole }) => {
+  test.fixme("TC-XXX: OWNER is denied the publish route (EMPLOYEE/ADMIN only)", async ({
+    pageForRole,
+  }) => {
     const { restaurantId } = readSharedState();
     const page = await pageForRole("owner");
-    await page.goto(`/restaurant/restaurantId/${restaurantId}/publish`, { waitUntil: "domcontentloaded" });
+    await page.goto(`/restaurant/restaurantId/${restaurantId}/publish`, {
+      waitUntil: "domcontentloaded",
+    });
     await expect(page).toHaveURL(/access-denied/);
   });
 
-  test.fixme("TC-XXX: OWNER is denied the tax route (EMPLOYEE/ADMIN only)", async ({ pageForRole }) => {
+  test.fixme("TC-XXX: OWNER is denied the tax route (EMPLOYEE/ADMIN only)", async ({
+    pageForRole,
+  }) => {
     const { restaurantId } = readSharedState();
     const page = await pageForRole("owner");
-    await page.goto(`/restaurant/restaurantId/${restaurantId}/tax`, { waitUntil: "domcontentloaded" });
+    await page.goto(`/restaurant/restaurantId/${restaurantId}/tax`, {
+      waitUntil: "domcontentloaded",
+    });
     await expect(page).toHaveURL(/access-denied/);
   });
 });

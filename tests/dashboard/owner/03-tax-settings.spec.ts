@@ -1,5 +1,5 @@
 import * as allure from "allure-js-commons";
-import { test, expect } from "../../../fixtures/base";
+import { test } from "../../../fixtures/base";
 import { createOwnerTaxPage } from "../../../pages/dashboard/owner/OwnerTaxPage";
 import { readSharedState } from "../../../utils/testData";
 
@@ -7,14 +7,19 @@ const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
 
 test.describe("Owner — Tax Settings", () => {
-  test.skip(!OWNER_EMAIL || !OWNER_PASSWORD, "OWNER_EMAIL / OWNER_PASSWORD not set in .env");
+  test.skip(
+    !OWNER_EMAIL || !OWNER_PASSWORD,
+    "OWNER_EMAIL / OWNER_PASSWORD not set in .env"
+  );
 
   test.beforeEach(async () => {
     await allure.label("feature", "Owner Restaurant Management");
     await allure.label("severity", "normal");
   });
 
-  test("TC-17: owner can navigate to tax settings and see the tax rate form", async ({ ownerPage }) => {
+  test("TC-17: owner can navigate to tax settings and see the tax rate form", async ({
+    ownerPage,
+  }) => {
     await allure.description(
       "Navigating directly to /restaurant/restaurantId/:id/tax renders the Tax Rate (%) input field."
     );
@@ -22,9 +27,12 @@ test.describe("Owner — Tax Settings", () => {
     const { restaurantId } = readSharedState();
     const taxPage = createOwnerTaxPage(ownerPage);
 
-    await allure.step(`Navigate to tax settings (id: ${restaurantId})`, async () => {
-      await taxPage.goto(restaurantId);
-    });
+    await allure.step(
+      `Navigate to tax settings (id: ${restaurantId})`,
+      async () => {
+        await taxPage.goto(restaurantId);
+      }
+    );
 
     await allure.step("Verify tax rate input is visible", async () => {
       await taxPage.assertFormVisible();
@@ -33,7 +41,9 @@ test.describe("Owner — Tax Settings", () => {
     });
   });
 
-  test("TC-18: owner can set a tax rate and save — success toast appears", async ({ ownerPage }) => {
+  test("TC-18: owner can set a tax rate and save — success toast appears", async ({
+    ownerPage,
+  }) => {
     await allure.description(
       "Owner fills in a tax rate value, saves, and verifies the success toast notification."
     );

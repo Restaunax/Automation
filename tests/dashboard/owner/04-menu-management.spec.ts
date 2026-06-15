@@ -11,14 +11,19 @@ const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
 const TEST_CATEGORY_NAME = "Test Starters";
 
 test.describe("Owner — Menu Management", () => {
-  test.skip(!OWNER_EMAIL || !OWNER_PASSWORD, "OWNER_EMAIL / OWNER_PASSWORD not set in .env");
+  test.skip(
+    !OWNER_EMAIL || !OWNER_PASSWORD,
+    "OWNER_EMAIL / OWNER_PASSWORD not set in .env"
+  );
 
   test.beforeEach(async () => {
     await allure.label("feature", "Owner Menu Management");
     await allure.label("severity", "normal");
   });
 
-  test("TC-19: owner can navigate to the Menu tab and see the category section", async ({ ownerPage }) => {
+  test("TC-19: owner can navigate to the Menu tab and see the category section", async ({
+    ownerPage,
+  }) => {
     await allure.description(
       "From the portal shell, clicking Menu in the sidebar reveals the category management UI."
     );
@@ -36,7 +41,9 @@ test.describe("Owner — Menu Management", () => {
     });
 
     await allure.step("Verify Add Category button is visible", async () => {
-      await expect(menuPage.addCategoryButton()).toBeVisible({ timeout: 10_000 });
+      await expect(menuPage.addCategoryButton()).toBeVisible({
+        timeout: 10_000,
+      });
       await allure.parameter("restaurantId", restaurantId);
     });
   });
@@ -60,12 +67,17 @@ test.describe("Owner — Menu Management", () => {
       await allure.parameter("Category name", TEST_CATEGORY_NAME);
     });
 
-    await allure.step("Verify category is visible in the menu list", async () => {
-      await menuPage.assertCategoryVisible(TEST_CATEGORY_NAME);
-    });
+    await allure.step(
+      "Verify category is visible in the menu list",
+      async () => {
+        await menuPage.assertCategoryVisible(TEST_CATEGORY_NAME);
+      }
+    );
   });
 
-  test("TC-21: owner can add a menu item to a category", async ({ ownerPage }) => {
+  test("TC-21: owner can add a menu item to a category", async ({
+    ownerPage,
+  }) => {
     await allure.description(
       "Owner adds a menu item with name, price, and description to an existing category."
     );
@@ -83,16 +95,27 @@ test.describe("Owner — Menu Management", () => {
       await menuPage.navigateToMenuTab();
     });
 
-    await allure.step(`Verify category "${TEST_CATEGORY_NAME}" exists`, async () => {
-      await menuPage.assertCategoryVisible(TEST_CATEGORY_NAME);
-    });
+    await allure.step(
+      `Verify category "${TEST_CATEGORY_NAME}" exists`,
+      async () => {
+        await menuPage.assertCategoryVisible(TEST_CATEGORY_NAME);
+      }
+    );
 
-    await allure.step(`Add item "${ITEM_NAME}" to "${TEST_CATEGORY_NAME}"`, async () => {
-      await menuPage.createMenuItem(TEST_CATEGORY_NAME, ITEM_NAME, ITEM_PRICE, ITEM_DESCRIPTION);
-      await allure.parameter("Item name", ITEM_NAME);
-      await allure.parameter("Price", ITEM_PRICE);
-      await allure.parameter("Category", TEST_CATEGORY_NAME);
-    });
+    await allure.step(
+      `Add item "${ITEM_NAME}" to "${TEST_CATEGORY_NAME}"`,
+      async () => {
+        await menuPage.createMenuItem(
+          TEST_CATEGORY_NAME,
+          ITEM_NAME,
+          ITEM_PRICE,
+          ITEM_DESCRIPTION
+        );
+        await allure.parameter("Item name", ITEM_NAME);
+        await allure.parameter("Price", ITEM_PRICE);
+        await allure.parameter("Category", TEST_CATEGORY_NAME);
+      }
+    );
 
     await allure.step("Verify success toast appears", async () => {
       await menuPage.assertMenuItemSuccessToast();

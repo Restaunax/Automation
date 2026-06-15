@@ -13,20 +13,25 @@ import { test, expect } from "../../../../fixtures/base";
 import { createAdminDemoManagementPage } from "../../../../pages/dashboard/admin/AdminDemoManagementPage";
 import { readSharedState } from "../../../../utils/testData";
 
-const ADMIN_EMAIL    = process.env.ADMIN_EMAIL ?? "";
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 
 test.describe("Admin — Demo Management", () => {
   // Skip the entire suite at the describe level so Playwright never attempts
   // to instantiate the adminPage fixture (which throws when auth file is missing).
-  test.skip(!ADMIN_EMAIL || !ADMIN_PASSWORD, "ADMIN_EMAIL / ADMIN_PASSWORD not set in .env");
+  test.skip(
+    !ADMIN_EMAIL || !ADMIN_PASSWORD,
+    "ADMIN_EMAIL / ADMIN_PASSWORD not set in .env"
+  );
 
   test.beforeEach(async () => {
     await allure.label("feature", "Demo Request Flow");
     await allure.label("severity", "critical");
   });
 
-  test("TC-03: admin can reach the dashboard after login", async ({ adminPage }) => {
+  test("TC-03: admin can reach the dashboard after login", async ({
+    adminPage,
+  }) => {
     await allure.description(
       "Using the pre-authenticated admin session from globalSetup, " +
         "the admin should land on a page that is not /sign-in."
@@ -39,7 +44,9 @@ test.describe("Admin — Demo Management", () => {
     });
   });
 
-  test("TC-04: admin can find the new demo request in Demo Management", async ({ adminPage }) => {
+  test("TC-04: admin can find the new demo request in Demo Management", async ({
+    adminPage,
+  }) => {
     await allure.description(
       "Admin navigates to Demo Management, searches by email, and verifies " +
         "the row shows correct name, status NEW, and a creation timestamp."

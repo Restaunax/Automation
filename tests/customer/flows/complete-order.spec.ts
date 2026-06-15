@@ -15,7 +15,9 @@ import { STRIPE_CARDS, STRIPE_DEFAULTS } from "../../../utils/stripeCards";
  * This is the highest-value flow to implement first. See TEST_PLAN.md.
  */
 test.describe("Customer — Complete order (guest)", () => {
-  test.fixme("TC-XXX: guest places a pickup order end-to-end", async ({ customerPage }) => {
+  test.fixme("TC-XXX: guest places a pickup order end-to-end", async ({
+    customerPage,
+  }) => {
     const menu = createMenuPage(customerPage);
     const item = createItemModal(customerPage);
     const cart = createCartSummary(customerPage);
@@ -45,7 +47,11 @@ test.describe("Customer — Complete order (guest)", () => {
 
     // 4. Pay with a Stripe test card
     const expiry = `${STRIPE_DEFAULTS.EXPIRY_MONTH}/${STRIPE_DEFAULTS.EXPIRY_YEAR.slice(-2)}`;
-    await payment.fillCard(STRIPE_CARDS.VISA_SUCCESS, expiry, STRIPE_DEFAULTS.CVC);
+    await payment.fillCard(
+      STRIPE_CARDS.VISA_SUCCESS,
+      expiry,
+      STRIPE_DEFAULTS.CVC
+    );
     await payment.pay();
 
     // 5. Confirmation

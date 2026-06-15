@@ -26,7 +26,10 @@ export const createSignInPage = (page: Page) => {
     await expect(page).not.toHaveURL(/\/sign-in/, { timeout: 15_000 });
   };
 
-  const loginAndWait = async (email: string, password: string): Promise<void> => {
+  const loginAndWait = async (
+    email: string,
+    password: string
+  ): Promise<void> => {
     await goto();
     await login(email, password);
     await waitForDashboard();

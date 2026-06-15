@@ -10,7 +10,9 @@ import { type Page } from "@playwright/test";
  * "Three gating layers".
  */
 export const createCouponsPage = (page: Page) => {
-  const createCouponButton = page.getByRole("button", { name: /create coupon/i });
+  const createCouponButton = page.getByRole("button", {
+    name: /create coupon/i,
+  });
 
   const goto = async (restaurantId: string): Promise<void> => {
     await page.goto(

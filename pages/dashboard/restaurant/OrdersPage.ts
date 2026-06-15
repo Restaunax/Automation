@@ -12,7 +12,10 @@ export const createOrdersPage = (page: Page) => {
     );
   };
 
-  const setOrderStatus = async (orderId: string, status: string): Promise<void> => {
+  const setOrderStatus = async (
+    orderId: string,
+    status: string
+  ): Promise<void> => {
     // TODO: open order `orderId` and change its status to `status`
     await page.getByText(orderId).first().click();
     await page.getByRole("button", { name: status }).click();

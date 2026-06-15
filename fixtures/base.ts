@@ -1,9 +1,25 @@
 import * as fs from "fs";
 import * as path from "path";
-import { test as base, type Page, type Browser, type BrowserContext } from "@playwright/test";
-import { createDemoBookingPage, type DemoBookingPage } from "../pages/dashboard/public/DemoBookingPage";
-import { createSignInPage, type SignInPage } from "../pages/dashboard/auth/SignInPage";
-import { OWNER_AUTH_FILE, ADMIN_AUTH_FILE, FRONTEND_URL, TEMPLATE_WIND_URL } from "../utils/testData";
+import {
+  test as base,
+  type Page,
+  type Browser,
+  type BrowserContext,
+} from "@playwright/test";
+import {
+  createDemoBookingPage,
+  type DemoBookingPage,
+} from "../pages/dashboard/public/DemoBookingPage";
+import {
+  createSignInPage,
+  type SignInPage,
+} from "../pages/dashboard/auth/SignInPage";
+import {
+  OWNER_AUTH_FILE,
+  ADMIN_AUTH_FILE,
+  FRONTEND_URL,
+  TEMPLATE_WIND_URL,
+} from "../utils/testData";
 
 // Roles that share the dashboard restaurant-management screens. Used by the
 // access-control matrix to verify who-can-reach-what without re-running the
@@ -42,7 +58,10 @@ async function loadAuthContext(
         `Make sure ${label}_EMAIL and ${label}_PASSWORD are set in .env and globalSetup ran.`
     );
   }
-  const context = await browser.newContext({ storageState: authFile, baseURL: FRONTEND_URL });
+  const context = await browser.newContext({
+    storageState: authFile,
+    baseURL: FRONTEND_URL,
+  });
   await use(context);
   await context.close();
 }
@@ -95,7 +114,11 @@ export const test = base.extend<Fixtures>({
     const resolve: PageForRole = async (role) => {
       // employee has no stored session yet — that's future infrastructure.
       const authFile =
-        role === "admin" ? ADMIN_AUTH_FILE : role === "owner" ? OWNER_AUTH_FILE : null;
+        role === "admin"
+          ? ADMIN_AUTH_FILE
+          : role === "owner"
+            ? OWNER_AUTH_FILE
+            : null;
       if (!authFile) {
         throw new Error(
           `pageForRole("${role}") is not available yet — no ${role} session is stored. ` +
@@ -108,7 +131,10 @@ export const test = base.extend<Fixtures>({
             `Ensure the matching *_EMAIL / *_PASSWORD are set in .env and globalSetup ran.`
         );
       }
-      const context = await browser.newContext({ storageState: authFile, baseURL: FRONTEND_URL });
+      const context = await browser.newContext({
+        storageState: authFile,
+        baseURL: FRONTEND_URL,
+      });
       opened.push(context);
       return context.newPage();
     };
