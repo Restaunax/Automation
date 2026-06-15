@@ -1,7 +1,7 @@
 import * as allure from "allure-js-commons";
-import { test, expect } from "../../fixtures/base";
-import { createOwnerTaxPage } from "../../pages/owner/OwnerTaxPage";
-import { readSharedState } from "../../utils/testData";
+import { test, expect } from "../../../fixtures/base";
+import { createOwnerTaxPage } from "../../../pages/dashboard/owner/OwnerTaxPage";
+import { readSharedState } from "../../../utils/testData";
 
 const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
