@@ -9,11 +9,16 @@
 import * as dotenv from "dotenv";
 import * as fs from "fs";
 import * as path from "path";
-import { apiLogin, deleteTestRestaurant } from "./utils/apiHelper";
+import {
+  apiLogin,
+  deleteTestRestaurant,
+  deleteRecordedUsers,
+} from "./utils/apiHelper";
 import {
   STATE_FILE,
   OWNER_AUTH_FILE,
   ADMIN_AUTH_FILE,
+  USERS_CLEANUP_FILE,
   readSharedState,
 } from "./utils/testData";
 
@@ -47,8 +52,24 @@ export default async function globalTeardown(): Promise<void> {
     );
   }
 
-  // 2. Remove all temp files
-  for (const f of [STATE_FILE, OWNER_AUTH_FILE, ADMIN_AUTH_FILE]) {
+  // 2. Delete any users created by the admin user-management suite (best-effort).
+  if (ADMIN_EMAIL && ADMIN_PASSWORD) {
+    try {
+      const { accessToken } = await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD);
+      await deleteRecordedUsers(accessToken);
+      console.log("[globalTeardown] Cleaned up recorded test users");
+    } catch (err) {
+      console.warn("[globalTeardown] Failed to clean up test users:", err);
+    }
+  }
+
+  // 3. Remove all temp files
+  for (const f of [
+    STATE_FILE,
+    OWNER_AUTH_FILE,
+    ADMIN_AUTH_FILE,
+    USERS_CLEANUP_FILE,
+  ]) {
     if (fs.existsSync(f)) {
       fs.unlinkSync(f);
       console.log(`[globalTeardown] Removed ${path.basename(f)}`);

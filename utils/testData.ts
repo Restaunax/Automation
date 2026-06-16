@@ -23,6 +23,18 @@ export const ADMIN_AUTH_FILE = path.resolve(
   "../admin-auth.tmp.json"
 );
 
+// Records users created by the admin user-management suite so globalTeardown
+// (and spec afterAll hooks) can delete them even if a test crashes mid-run.
+export const USERS_CLEANUP_FILE = path.resolve(
+  __dirname,
+  "../users-cleanup.tmp.json"
+);
+
+// A stable, recognizable marker baked into every test-user email so leftovers
+// are easy to identify and sweep. Search the admin user list for it to find
+// orphaned accounts from interrupted runs.
+export const TEST_USER_MARKER = "autouser";
+
 // ── Test data generators ─────────────────────────────────────────────────────
 export function generateDemoFormData(): DemoFormData & { uniqueId: string } {
   const uniqueId = uuidv4().split("-")[0];
@@ -36,6 +48,40 @@ export function generateDemoFormData(): DemoFormData & { uniqueId: string } {
     preferredContact: "email",
     agreeToTerms: true,
   };
+}
+
+// Unique, recognizable email for an invited/registered test user. The
+// TEST_USER_MARKER prefix lets cleanup find leftovers. In QA all outbound mail
+// is captured by the Mailtrap sandbox, so the domain need not be real.
+export function generateUserEmail(label = "u"): string {
+  const uniqueId = uuidv4().split("-")[0];
+  return `${TEST_USER_MARKER}_${label}_${uniqueId}@${EMAIL_DOMAIN}`;
+}
+
+// ── Created-user cleanup tracking ────────────────────────────────────────────
+export function recordUserForCleanup(email: string): void {
+  const current = readUsersForCleanup();
+  if (!current.includes(email)) {
+    current.push(email);
+    fs.writeFileSync(
+      USERS_CLEANUP_FILE,
+      JSON.stringify(current, null, 2),
+      "utf-8"
+    );
+  }
+}
+
+export function readUsersForCleanup(): string[] {
+  if (!fs.existsSync(USERS_CLEANUP_FILE)) return [];
+  try {
+    return JSON.parse(fs.readFileSync(USERS_CLEANUP_FILE, "utf-8")) as string[];
+  } catch {
+    return [];
+  }
+}
+
+export function clearUsersForCleanup(): void {
+  if (fs.existsSync(USERS_CLEANUP_FILE)) fs.unlinkSync(USERS_CLEANUP_FILE);
 }
 
 export function generateRestaurantData() {
