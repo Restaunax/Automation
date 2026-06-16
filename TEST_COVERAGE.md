@@ -1,6 +1,6 @@
 # Restaunax — Test Coverage Map
 
-> Last updated: 2026-06-15
+> Last updated: 2026-06-15 (batch 2)
 
 ---
 
@@ -30,7 +30,7 @@
 | Schedule demo dialog | TC-11 | ⚠️ Opens only — date not set |
 | Delete confirmation + cancel | TC-09 | ⚠️ Cancel path only — actual delete not tested |
 | Proceed to onboarding navigation | TC-12 | ✅ |
-| Admin restaurant list | — | ❌ Not written |
+| Admin restaurant list | TC-32 | ⏭️ Skipped (no admin credentials) |
 | Admin subscription management | — | ❌ Not written |
 | Admin finance reports | — | ❌ Not written |
 | Admin system logs | — | ❌ Not written |
@@ -53,10 +53,12 @@
 | Create menu category | TC-20 | ⏭️ Skipped (no owner credentials) |
 | Add menu item to category | TC-21 | ⏭️ Skipped (no owner credentials) |
 | Hours of operation setup | — | ❌ Not written |
-| Publish restaurant | — | ❌ Not written |
+| Publish restaurant page loads | TC-27 | ⏭️ Skipped (no owner credentials) |
+| Publish checklist items visible | TC-28 | ⏭️ Skipped (no owner credentials) |
 | Unpublish restaurant | — | ❌ Not written |
-| View orders list | — | ❌ Not written |
-| Create coupon | — | ❌ Not written |
+| View orders list | TC-29 | ⏭️ Skipped (no owner credentials) |
+| Create coupon — form loads | TC-30 | ⏭️ Skipped (no owner credentials) |
+| Create coupon — submit coupon | TC-31 | ⏭️ Skipped (no owner credentials) |
 | Create deal | — | ❌ Not written |
 | Employee management | — | ❌ Not written |
 | Loyalty rewards setup | — | ❌ Not written |
@@ -116,14 +118,14 @@
 
 | Area | Written | Passing | Skipped | Not Written |
 |------|---------|---------|---------|-------------|
-| Admin | 12 | 10 | 1 | 6 |
-| Owner | 9 | 0 | 9 | 12 |
+| Admin | 13 | 10 | 2 | 5 |
+| Owner | 14 | 0 | 14 | 7 |
 | Customer | 5 | 0 | 5 | 7 |
 | Staff / POS | 0 | 0 | 0 | 7 |
 | End-to-End | 0 | 0 | 0 | 5 |
-| **Total** | **26** | **10** | **15** | **37** |
+| **Total** | **32** | **10** | **21** | **31** |
 
-> **Overall coverage: ~41% of known features have tests written**
+> **Overall coverage: ~51% of known features have tests written**
 
 ---
 
@@ -132,15 +134,13 @@
 | Priority | Area | Reason |
 |----------|------|--------|
 | 🔴 1 | Staff / POS — order lifecycle | Zero coverage on core business flow |
-| 🔴 2 | Owner — publish restaurant | Blocker for customer tests to work |
-| 🔴 3 | Owner — hours of operation | Required before orders can be accepted |
-| 🟡 4 | Owner — view orders | Owners need to monitor revenue |
-| 🟡 5 | Owner — create coupon | High-value marketing feature |
-| 🟡 6 | Customer — delivery order | Second most common order type |
-| 🟡 7 | Admin — restaurant list | Admin oversight of all clients |
-| 🟢 8 | Customer — apply coupon | Common checkout variation |
-| 🟢 9 | Full E2E — customer orders → staff accepts | Validates entire platform works together |
-| 🟢 10 | Admin dialogs — actually test features inside | Current tests only check dialogs open |
+| 🔴 2 | Owner — hours of operation | Required before orders can be accepted |
+| 🟡 3 | Customer — delivery order | Second most common order type |
+| 🟡 4 | Customer — apply coupon | Common checkout variation |
+| 🟢 5 | Full E2E — customer orders → staff accepts | Validates entire platform works together |
+| 🟢 6 | Admin dialogs — actually test features inside | Current tests only check dialogs open |
+| 🟢 7 | Admin — subscription management | Key revenue flow |
+| 🟢 8 | Owner — employee management | Core owner workflow |
 
 ---
 
