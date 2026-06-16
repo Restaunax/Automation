@@ -27,7 +27,7 @@ Each test case includes:
 |------|------------|-------|
 | 🌐 Public | Anyone on the internet | TC-01, TC-02 |
 | 🔐 Admin | Internal Restaunax staff | TC-03 → TC-12, TC-32 |
-| 🏠 Owner | Restaurant owners | TC-13 → TC-21, TC-27 → TC-31 |
+| 🏠 Owner | Restaurant owners | TC-13 → TC-21, TC-27 → TC-31, TC-33 → TC-39 |
 | 🛒 Customer | People ordering food | TC-22 → TC-26 |
 
 ---
@@ -523,6 +523,117 @@ If coupon creation fails, the restaurant can't run any promotions. This directly
 
 ---
 
+## TC-33 — Owner Can Configure Hours of Operation
+**Status:** ⏭️ Skipped (owner login not configured)
+
+### What it checks
+An owner can navigate to the Hours of Operation section and see all seven days of the week ready to be configured.
+
+### How it works, step by step
+1. The test opens the restaurant management portal
+2. It clicks "Hours" in the sidebar
+3. It confirms the hours tab loads
+4. It checks that all seven days are visible: Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday
+
+### Why it matters
+Without setting hours, the restaurant's online ordering page won't show customers when they can place orders. It's one of the first things an owner must configure before going live.
+
+---
+
+## TC-34 — Owner Can Access Employee Management
+**Status:** ⏭️ Skipped (owner login not configured)
+
+### What it checks
+An owner can navigate to the Employee Management section and see an option to add new staff members.
+
+### How it works, step by step
+1. The test opens the restaurant management portal
+2. It clicks "Employees" in the sidebar
+3. It confirms the employee management area loads with an "Add Employee" button visible
+
+### Why it matters
+Owners need to add and manage their restaurant staff on the platform. If this section doesn't load, they can't assign roles, set access levels, or onboard new team members.
+
+---
+
+## TC-35 — Owner Can View the Analytics Dashboard
+**Status:** ⏭️ Skipped (owner login not configured)
+
+### What it checks
+An owner can navigate to the Analytics section and see summary metrics like total orders or total revenue.
+
+### How it works, step by step
+1. The test opens the restaurant management portal
+2. It clicks "Analytics" in the sidebar
+3. It confirms the analytics dashboard loads with at least one key metric visible (e.g. Total Orders, Total Revenue, or Total Sales)
+
+### Why it matters
+Analytics is how owners track the performance of their restaurant. Without it, they have no visibility into revenue trends, popular items, or customer behavior.
+
+---
+
+## TC-36 — Owner Can View Their Billing and Subscription
+**Status:** ⏭️ Skipped (owner login not configured)
+
+### What it checks
+An owner can navigate to their restaurant's subscription page and see their current plan information.
+
+### How it works, step by step
+1. The test navigates directly to the subscription page for the test restaurant
+2. It confirms content related to the current plan or billing is visible on screen
+
+### Why it matters
+Owners need to see what plan they're on, manage their billing, and upgrade if needed. A broken subscription page means owners can't self-serve their account management.
+
+---
+
+## TC-37 — Owner Can Access the Loyalty Program Setup
+**Status:** ⏭️ Skipped (owner login not configured)
+
+### What it checks
+An owner can navigate to the Loyalty Program page and see the rewards setup options.
+
+### How it works, step by step
+1. The test navigates to the loyalty program page (`/restaurant/loyalty`)
+2. It confirms the "Loyalty" heading is visible
+3. It confirms content related to points or rewards is visible
+
+### Why it matters
+Loyalty programs keep customers coming back. If the loyalty setup page is broken, owners can't create or manage reward programs — a key feature for customer retention.
+
+---
+
+## TC-38 — Owner Can Access Uber Eats Settings
+**Status:** ⏭️ Skipped (owner login not configured)
+
+### What it checks
+An owner can navigate to the Uber Eats integration settings page for their restaurant.
+
+### How it works, step by step
+1. The test navigates directly to the Uber Eats settings page for the test restaurant
+2. It confirms the page loads and shows "Uber Eats" content
+
+### Why it matters
+Many restaurants use Uber Eats as a delivery channel alongside direct ordering. If this settings page is broken, owners can't connect or manage their Uber Eats integration — potentially losing a significant revenue stream.
+
+---
+
+## TC-39 — Owner Can Access the Deals Section
+**Status:** ⏭️ Skipped (owner login not configured)
+
+### What it checks
+An owner can navigate to the Deals section in the sidebar and see an option to create a new deal.
+
+### How it works, step by step
+1. The test opens the restaurant management portal
+2. It clicks "Deals" in the sidebar
+3. It confirms the deals area loads with a "Create Deal" or "Add Deal" button visible
+
+### Why it matters
+Deals are time-limited promotions that drive sales. If owners can't access the deals section, they lose a key marketing tool for increasing order volume during slow periods.
+
+---
+
 ---
 
 # 🛒 SECTION 4 — Customer Ordering
@@ -663,10 +774,17 @@ This is the most critical test in the entire suite. If a customer cannot complet
 | TC-30 | Owner opens the Create Coupon form | Owner | ⏭️ Skipped |
 | TC-31 | Owner creates a new coupon | Owner | ⏭️ Skipped |
 | TC-32 | Admin sees the Restaurants list | Admin | ⏭️ Skipped |
+| TC-33 | Owner configures hours of operation | Owner | ⏭️ Skipped |
+| TC-34 | Owner accesses employee management | Owner | ⏭️ Skipped |
+| TC-35 | Owner views the analytics dashboard | Owner | ⏭️ Skipped |
+| TC-36 | Owner views billing and subscription | Owner | ⏭️ Skipped |
+| TC-37 | Owner accesses loyalty program setup | Owner | ⏭️ Skipped |
+| TC-38 | Owner accesses Uber Eats settings | Owner | ⏭️ Skipped |
+| TC-39 | Owner accesses the Deals section | Owner | ⏭️ Skipped |
 
-**10 passing · 22 skipped · 0 failing**
+**10 passing · 29 skipped · 0 failing**
 
-All skipped tests are waiting for owner and/or admin account credentials to be added to the environment configuration. Once added, all 32 tests will run.
+All skipped tests are waiting for owner and/or admin account credentials to be added to the environment configuration. Once added, all 39 tests will run.
 
 ---
 

@@ -52,19 +52,19 @@
 | Menu tab loads | TC-19 | ⏭️ Skipped (no owner credentials) |
 | Create menu category | TC-20 | ⏭️ Skipped (no owner credentials) |
 | Add menu item to category | TC-21 | ⏭️ Skipped (no owner credentials) |
-| Hours of operation setup | — | ❌ Not written |
+| Hours of operation setup | TC-33 | ⏭️ Skipped (no owner credentials) |
 | Publish restaurant page loads | TC-27 | ⏭️ Skipped (no owner credentials) |
 | Publish checklist items visible | TC-28 | ⏭️ Skipped (no owner credentials) |
 | Unpublish restaurant | — | ❌ Not written |
 | View orders list | TC-29 | ⏭️ Skipped (no owner credentials) |
 | Create coupon — form loads | TC-30 | ⏭️ Skipped (no owner credentials) |
 | Create coupon — submit coupon | TC-31 | ⏭️ Skipped (no owner credentials) |
-| Create deal | — | ❌ Not written |
-| Employee management | — | ❌ Not written |
-| Loyalty rewards setup | — | ❌ Not written |
-| Analytics dashboard | — | ❌ Not written |
-| Billing / subscription | — | ❌ Not written |
-| Uber Eats settings | — | ❌ Not written |
+| Create deal | TC-39 | ⏭️ Skipped (no owner credentials) |
+| Employee management | TC-34 | ⏭️ Skipped (no owner credentials) |
+| Loyalty rewards setup | TC-37 | ⏭️ Skipped (no owner credentials) |
+| Analytics dashboard | TC-35 | ⏭️ Skipped (no owner credentials) |
+| Billing / subscription | TC-36 | ⏭️ Skipped (no owner credentials) |
+| Uber Eats settings | TC-38 | ⏭️ Skipped (no owner credentials) |
 | Edit restaurant info | — | ❌ Not written |
 
 ---
@@ -119,13 +119,13 @@
 | Area | Written | Passing | Skipped | Not Written |
 |------|---------|---------|---------|-------------|
 | Admin | 13 | 10 | 2 | 5 |
-| Owner | 14 | 0 | 14 | 7 |
+| Owner | 21 | 0 | 21 | 1 |
 | Customer | 5 | 0 | 5 | 7 |
 | Staff / POS | 0 | 0 | 0 | 7 |
 | End-to-End | 0 | 0 | 0 | 5 |
-| **Total** | **32** | **10** | **21** | **31** |
+| **Total** | **39** | **10** | **28** | **25** |
 
-> **Overall coverage: ~51% of known features have tests written**
+> **Overall coverage: ~61% of known features have tests written**
 
 ---
 
@@ -134,13 +134,12 @@
 | Priority | Area | Reason |
 |----------|------|--------|
 | 🔴 1 | Staff / POS — order lifecycle | Zero coverage on core business flow |
-| 🔴 2 | Owner — hours of operation | Required before orders can be accepted |
-| 🟡 3 | Customer — delivery order | Second most common order type |
-| 🟡 4 | Customer — apply coupon | Common checkout variation |
+| 🟡 2 | Customer — delivery order | Second most common order type |
+| 🟡 3 | Customer — apply coupon | Common checkout variation |
+| 🟡 4 | Owner — edit restaurant info | Only remaining owner gap |
 | 🟢 5 | Full E2E — customer orders → staff accepts | Validates entire platform works together |
 | 🟢 6 | Admin dialogs — actually test features inside | Current tests only check dialogs open |
-| 🟢 7 | Admin — subscription management | Key revenue flow |
-| 🟢 8 | Owner — employee management | Core owner workflow |
+| 🟢 7 | Admin — subscription / finance / leads | Admin oversight of key business areas |
 
 ---
 
