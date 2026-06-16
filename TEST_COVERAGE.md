@@ -65,7 +65,8 @@
 | Analytics dashboard | TC-35 | ⏭️ Skipped (no owner credentials) |
 | Billing / subscription | TC-36 | ⏭️ Skipped (no owner credentials) |
 | Uber Eats settings | TC-38 | ⏭️ Skipped (no owner credentials) |
-| Edit restaurant info | — | ❌ Not written |
+| Edit restaurant info — form loads | TC-40 | ⏭️ Skipped (no owner credentials) |
+| Edit restaurant info — save changes | TC-41 | ⏭️ Skipped (no owner credentials) |
 
 ---
 
@@ -119,13 +120,13 @@
 | Area | Written | Passing | Skipped | Not Written |
 |------|---------|---------|---------|-------------|
 | Admin | 13 | 10 | 2 | 5 |
-| Owner | 21 | 0 | 21 | 1 |
+| Owner | 23 | 0 | 23 | 0 |
 | Customer | 5 | 0 | 5 | 7 |
 | Staff / POS | 0 | 0 | 0 | 7 |
 | End-to-End | 0 | 0 | 0 | 5 |
-| **Total** | **39** | **10** | **28** | **25** |
+| **Total** | **41** | **10** | **30** | **23** |
 
-> **Overall coverage: ~61% of known features have tests written**
+> **Overall coverage: ~64% of known features have tests written**
 
 ---
 
@@ -136,7 +137,7 @@
 | 🔴 1 | Staff / POS — order lifecycle | Zero coverage on core business flow |
 | 🟡 2 | Customer — delivery order | Second most common order type |
 | 🟡 3 | Customer — apply coupon | Common checkout variation |
-| 🟡 4 | Owner — edit restaurant info | Only remaining owner gap |
+| 🟡 4 | Customer — declined card handling | Important error path for checkout |
 | 🟢 5 | Full E2E — customer orders → staff accepts | Validates entire platform works together |
 | 🟢 6 | Admin dialogs — actually test features inside | Current tests only check dialogs open |
 | 🟢 7 | Admin — subscription / finance / leads | Admin oversight of key business areas |

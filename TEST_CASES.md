@@ -27,7 +27,7 @@ Each test case includes:
 |------|------------|-------|
 | 🌐 Public | Anyone on the internet | TC-01, TC-02 |
 | 🔐 Admin | Internal Restaunax staff | TC-03 → TC-12, TC-32 |
-| 🏠 Owner | Restaurant owners | TC-13 → TC-21, TC-27 → TC-31, TC-33 → TC-39 |
+| 🏠 Owner | Restaurant owners | TC-13 → TC-21, TC-27 → TC-31, TC-33 → TC-41 |
 | 🛒 Customer | People ordering food | TC-22 → TC-26 |
 
 ---
@@ -634,6 +634,39 @@ Deals are time-limited promotions that drive sales. If owners can't access the d
 
 ---
 
+## TC-40 — Owner Can Open the Restaurant Info Form
+**Status:** ⏭️ Skipped (owner login not configured)
+
+### What it checks
+An owner can navigate to Store Settings → Restaurant Info and see the editable form with the restaurant name and phone number fields.
+
+### How it works, step by step
+1. The test opens the restaurant management portal
+2. It expands "Store Settings" in the sidebar and clicks "Restaurant Info"
+3. It confirms the form is visible — specifically the Restaurant Name input and Phone Number input
+
+### Why it matters
+Restaurant Info is where owners maintain their core business details — name, contact number, address, description. If this form doesn't load, owners can't update any of these details.
+
+---
+
+## TC-41 — Owner Can Edit and Save the Restaurant Phone Number
+**Status:** ⏭️ Skipped (owner login not configured)
+
+### What it checks
+An owner can change their restaurant's phone number and save it — receiving a success confirmation message.
+
+### How it works, step by step
+1. The test opens the Restaurant Info form
+2. It clears the current phone number and types a new test number (5551234567)
+3. It clicks the Save button
+4. It confirms a success message appears on screen
+
+### Why it matters
+If saving restaurant info doesn't work, every change an owner makes — phone number, business description, contact details — will be silently lost. Customers and delivery drivers could end up with outdated contact information.
+
+---
+
 ---
 
 # 🛒 SECTION 4 — Customer Ordering
@@ -781,10 +814,12 @@ This is the most critical test in the entire suite. If a customer cannot complet
 | TC-37 | Owner accesses loyalty program setup | Owner | ⏭️ Skipped |
 | TC-38 | Owner accesses Uber Eats settings | Owner | ⏭️ Skipped |
 | TC-39 | Owner accesses the Deals section | Owner | ⏭️ Skipped |
+| TC-40 | Owner opens the Restaurant Info form | Owner | ⏭️ Skipped |
+| TC-41 | Owner edits and saves restaurant phone number | Owner | ⏭️ Skipped |
 
-**10 passing · 29 skipped · 0 failing**
+**10 passing · 31 skipped · 0 failing**
 
-All skipped tests are waiting for owner and/or admin account credentials to be added to the environment configuration. Once added, all 39 tests will run.
+All skipped tests are waiting for owner and/or admin account credentials to be added to the environment configuration. Once added, all 41 tests will run.
 
 ---
 
