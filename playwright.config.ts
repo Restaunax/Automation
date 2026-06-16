@@ -4,6 +4,15 @@ import * as path from "path";
 
 dotenv.config({ path: path.resolve(__dirname, ".env") });
 
+// Two front-end web apps live under tests/: the Restaunax dashboard
+// (tests/dashboard) and the Template Wind customer site (tests/customer).
+// Each gets its own project below so page.goto("/menu") resolves against the
+// correct host. See TEST_PLAN.md for the structure rationale.
+const DASHBOARD_URL =
+  process.env.FRONTEND_URL ?? "https://app.qa.restaunax.com";
+const CUSTOMER_URL =
+  process.env.TEMPLATE_WIND_URL ?? "https://qa.restaunax.com";
+
 export default defineConfig({
   testDir: "./tests",
   fullyParallel: false,
@@ -34,7 +43,8 @@ export default defineConfig({
   ],
 
   use: {
-    baseURL: process.env.FRONTEND_URL ?? "https://app.qa.restaunax.com",
+    // Default base URL (used by globalSetup). Per-project overrides below.
+    baseURL: DASHBOARD_URL,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
@@ -47,8 +57,16 @@ export default defineConfig({
 
   projects: [
     {
-      name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
+      // Restaunax dashboard — admin / owner / employee / public flows.
+      name: "dashboard",
+      testDir: "./tests/dashboard",
+      use: { ...devices["Desktop Chrome"], baseURL: DASHBOARD_URL },
+    },
+    {
+      // Template Wind — customer ordering flows.
+      name: "customer",
+      testDir: "./tests/customer",
+      use: { ...devices["Desktop Chrome"], baseURL: CUSTOMER_URL },
     },
   ],
 });

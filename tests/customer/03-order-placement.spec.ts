@@ -6,8 +6,8 @@ import { readSharedState } from "../../utils/testData";
 import { STRIPE_CARDS, STRIPE_DEFAULTS } from "../../utils/stripeCards";
 
 const TEMPLATE_WIND_URL = process.env.TEMPLATE_WIND_URL ?? "";
-const OWNER_EMAIL       = process.env.OWNER_EMAIL ?? "";
-const OWNER_PASSWORD    = process.env.OWNER_PASSWORD ?? "";
+const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
+const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
 
 test.describe("Customer — Order Placement", () => {
   test.skip(
@@ -20,23 +20,36 @@ test.describe("Customer — Order Placement", () => {
     await allure.label("severity", "critical");
   });
 
-  test("TC-26: customer can complete a full order with Stripe test card and reach Order Confirmed", async ({ page }) => {
+  test("TC-26: customer can complete a full order with Stripe test card and reach Order Confirmed", async ({
+    page,
+  }) => {
     await allure.description(
       "Full happy path: pre-seeded cart → fill form → Proceed to Payment → fill Stripe VISA test card → Complete Order → Order Confirmed page."
     );
 
-    const { restaurantId, menuItemId, menuItemName, menuItemPrice } = readSharedState();
+    const { restaurantId, menuItemId, menuItemName, menuItemPrice } =
+      readSharedState();
     const checkoutPage = createCustomerCheckoutPage(page);
     const confirmationPage = createCustomerOrderConfirmationPage(page);
 
     await allure.step("Seed cart and navigate to checkout", async () => {
-      await checkoutPage.seedCart(restaurantId, menuItemId, menuItemName, menuItemPrice);
+      await checkoutPage.seedCart(
+        restaurantId,
+        menuItemId,
+        menuItemName,
+        menuItemPrice
+      );
       await allure.parameter("Item", menuItemName);
       await allure.parameter("Price", `$${menuItemPrice}`);
     });
 
     await allure.step("Fill customer info", async () => {
-      await checkoutPage.fillCustomerInfo("Jane", "Tester", "jane@restaunax-test.com", "5559876543");
+      await checkoutPage.fillCustomerInfo(
+        "Jane",
+        "Tester",
+        "jane@restaunax-test.com",
+        "5559876543"
+      );
     });
 
     await allure.step("Select Pickup service type", async () => {

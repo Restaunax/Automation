@@ -4,8 +4,8 @@ import { createCustomerCheckoutPage } from "../../pages/customer/CustomerCheckou
 import { readSharedState } from "../../utils/testData";
 
 const TEMPLATE_WIND_URL = process.env.TEMPLATE_WIND_URL ?? "";
-const OWNER_EMAIL       = process.env.OWNER_EMAIL ?? "";
-const OWNER_PASSWORD    = process.env.OWNER_PASSWORD ?? "";
+const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
+const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
 
 test.describe("Customer — Checkout", () => {
   test.skip(
@@ -18,16 +18,24 @@ test.describe("Customer — Checkout", () => {
     await allure.label("severity", "critical");
   });
 
-  test("TC-24: customer with pre-seeded cart can reach checkout and see the form", async ({ page }) => {
+  test("TC-24: customer with pre-seeded cart can reach checkout and see the form", async ({
+    page,
+  }) => {
     await allure.description(
       "Cart is injected via sessionStorage; customer navigates to /checkout and sees the customer info form."
     );
 
-    const { restaurantId, menuItemId, menuItemName, menuItemPrice } = readSharedState();
+    const { restaurantId, menuItemId, menuItemName, menuItemPrice } =
+      readSharedState();
     const checkoutPage = createCustomerCheckoutPage(page);
 
     await allure.step("Seed cart and navigate to checkout", async () => {
-      await checkoutPage.seedCart(restaurantId, menuItemId, menuItemName, menuItemPrice);
+      await checkoutPage.seedCart(
+        restaurantId,
+        menuItemId,
+        menuItemName,
+        menuItemPrice
+      );
       await allure.parameter("restaurantId", restaurantId);
       await allure.parameter("Item", menuItemName);
     });
@@ -38,20 +46,33 @@ test.describe("Customer — Checkout", () => {
     });
   });
 
-  test("TC-25: customer can fill checkout form and proceed to payment step", async ({ page }) => {
+  test("TC-25: customer can fill checkout form and proceed to payment step", async ({
+    page,
+  }) => {
     await allure.description(
       "Customer fills First Name, Last Name, Email, Phone, selects Pickup, and clicks Proceed to Payment. Stripe payment section appears."
     );
 
-    const { restaurantId, menuItemId, menuItemName, menuItemPrice } = readSharedState();
+    const { restaurantId, menuItemId, menuItemName, menuItemPrice } =
+      readSharedState();
     const checkoutPage = createCustomerCheckoutPage(page);
 
     await allure.step("Seed cart and navigate to checkout", async () => {
-      await checkoutPage.seedCart(restaurantId, menuItemId, menuItemName, menuItemPrice);
+      await checkoutPage.seedCart(
+        restaurantId,
+        menuItemId,
+        menuItemName,
+        menuItemPrice
+      );
     });
 
     await allure.step("Fill customer info", async () => {
-      await checkoutPage.fillCustomerInfo("Jane", "Tester", "jane@restaunax-test.com", "5559876543");
+      await checkoutPage.fillCustomerInfo(
+        "Jane",
+        "Tester",
+        "jane@restaunax-test.com",
+        "5559876543"
+      );
       await allure.parameter("Name", "Jane Tester");
       await allure.parameter("Email", "jane@restaunax-test.com");
     });
