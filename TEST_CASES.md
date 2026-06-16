@@ -26,8 +26,8 @@ Each test case includes:
 | Area | Who Uses It | Tests |
 |------|------------|-------|
 | 🌐 Public | Anyone on the internet | TC-01, TC-02 |
-| 🔐 Admin | Internal Restaunax staff | TC-03 → TC-12 |
-| 🏠 Owner | Restaurant owners | TC-13 → TC-21 |
+| 🔐 Admin | Internal Restaunax staff | TC-03 → TC-12, TC-32 |
+| 🏠 Owner | Restaurant owners | TC-13 → TC-21, TC-27 → TC-31 |
 | 🛒 Customer | People ordering food | TC-22 → TC-26 |
 
 ---
@@ -260,6 +260,22 @@ This is the moment a prospect becomes a paying customer. A broken link here woul
 
 ---
 
+## TC-32 — Admin Can See the Restaurants List
+**Status:** ⏭️ Skipped (admin login not configured)
+
+### What it checks
+An admin can navigate to the Restaurants tab in the admin dashboard and see a list of restaurants including the test restaurant.
+
+### How it works, step by step
+1. The test navigates to the Admin Dashboard → Restaurants tab
+2. It confirms the "Restaurants" heading is visible
+3. It finds the seed test restaurant by name in the table and confirms its row is visible
+
+### Why it matters
+Admin oversight of all restaurant accounts is essential for account management, support, and billing. If this page is broken, admins can't see or manage any of their clients.
+
+---
+
 ---
 
 # 🏠 SECTION 3 — Owner Dashboard
@@ -418,6 +434,95 @@ Adding menu items is the most fundamental thing a restaurant owner does when set
 
 ---
 
+## TC-27 — Owner Can Reach the Publish Page
+**Status:** ⏭️ Skipped (owner login not configured)
+
+### What it checks
+An owner can navigate to the Publish page for their restaurant and see the "Publish Restaurant" button.
+
+### How it works, step by step
+1. The test navigates directly to the restaurant's publish page
+2. It confirms the "Publish Restaurant" button is visible on screen
+
+### Why it matters
+Publishing is what makes a restaurant go live for customers. If the publish page is broken or the button is missing, the restaurant can't be activated and no customer orders are possible.
+
+---
+
+## TC-28 — Publish Page Shows the Required Checklist
+**Status:** ⏭️ Skipped (owner login not configured)
+
+### What it checks
+The Publish page shows a checklist of things the owner must complete before their restaurant can go live.
+
+### How it works, step by step
+1. The test opens the restaurant's publish page
+2. It checks that the following four checklist items are all visible:
+   - **Hours of Operation** — the restaurant must set its opening hours
+   - **Menu Setup** — at least one menu item must exist
+   - **Restaurant Information** — basic details like name and address must be filled in
+   - **Payment Processing** — payment must be configured to accept orders
+
+### Why it matters
+The checklist prevents owners from accidentally publishing an incomplete restaurant. If any item is missing from the checklist, owners have no guidance on what to fix before going live.
+
+---
+
+## TC-29 — Owner Can View the Orders Tab
+**Status:** ⏭️ Skipped (owner login not configured)
+
+### What it checks
+An owner can click "Orders" in the restaurant sidebar and see the orders management area with a search bar and filter options.
+
+### How it works, step by step
+1. The test opens the restaurant management portal
+2. It clicks "Orders" in the left sidebar
+3. It confirms the orders tab loads — specifically that the search bar ("Search orders, customers, phone...") is visible
+4. It confirms the "Filters" button is also visible
+
+### Why it matters
+Orders is how owners track their revenue and see what customers have purchased. If this tab doesn't load, owners are blind to their business activity.
+
+---
+
+## TC-30 — Owner Can Navigate to the Create Coupon Form
+**Status:** ⏭️ Skipped (owner login not configured)
+
+### What it checks
+An owner can expand the Coupons section in the sidebar and open the Create Coupon form.
+
+### How it works, step by step
+1. The test opens the restaurant management portal
+2. It clicks the "Coupons" section in the sidebar (which expands to show sub-options)
+3. It clicks "Create Coupon"
+4. It confirms the coupon creation form appears — showing a field for the coupon code
+
+### Why it matters
+Coupons are a key marketing tool for restaurants to attract customers. If the form doesn't open, owners can't run promotions or discounts.
+
+---
+
+## TC-31 — Owner Can Create a New Coupon
+**Status:** ⏭️ Skipped (owner login not configured)
+
+### What it checks
+An owner can fill out the coupon form with a code, discount amount, and date range — then save it and receive a success message.
+
+### How it works, step by step
+1. The test opens the Create Coupon form
+2. It fills in:
+   - **Coupon Code:** a unique auto-generated code (e.g. AUTO123456)
+   - **Discount Value:** 10 (meaning 10% off)
+   - **Start Date:** 1 July 2026
+   - **End Date:** 31 December 2026
+3. It clicks the "Create Coupon" button
+4. It confirms the message "Coupon created successfully!" appears on screen
+
+### Why it matters
+If coupon creation fails, the restaurant can't run any promotions. This directly impacts the owner's ability to attract and retain customers.
+
+---
+
 ---
 
 # 🛒 SECTION 4 — Customer Ordering
@@ -552,10 +657,16 @@ This is the most critical test in the entire suite. If a customer cannot complet
 | TC-24 | Customer reaches checkout with cart | Customer | ⏭️ Skipped |
 | TC-25 | Customer fills details and reaches payment | Customer | ⏭️ Skipped |
 | TC-26 | Customer completes full order end to end | Customer | ⏭️ Skipped |
+| TC-27 | Owner reaches the publish page | Owner | ⏭️ Skipped |
+| TC-28 | Publish checklist items are visible | Owner | ⏭️ Skipped |
+| TC-29 | Owner views the Orders tab | Owner | ⏭️ Skipped |
+| TC-30 | Owner opens the Create Coupon form | Owner | ⏭️ Skipped |
+| TC-31 | Owner creates a new coupon | Owner | ⏭️ Skipped |
+| TC-32 | Admin sees the Restaurants list | Admin | ⏭️ Skipped |
 
-**11 passing · 15 skipped · 0 failing**
+**10 passing · 22 skipped · 0 failing**
 
-All skipped tests are waiting for owner account credentials to be added to the environment configuration. Once added, all 26 tests will run.
+All skipped tests are waiting for owner and/or admin account credentials to be added to the environment configuration. Once added, all 32 tests will run.
 
 ---
 
