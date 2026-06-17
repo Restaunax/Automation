@@ -29,7 +29,7 @@ Each test case includes:
 | ----------- | ------------------------ | ------------------------------------------- |
 | 🌐 Public   | Anyone on the internet   | TC-01, TC-02                                |
 | 🔐 Admin    | Internal Restaunax staff | TC-03 → TC-12, TC-32                        |
-| 🏠 Owner    | Restaurant owners        | TC-13 → TC-21, TC-27 → TC-31, TC-33 → TC-41 |
+| 🏠 Owner    | Restaurant owners        | TC-13 → TC-21, TC-27 → TC-31, TC-33 → TC-45 |
 | 🛒 Customer | People ordering food     | TC-22 → TC-26                               |
 
 ---
@@ -817,6 +817,90 @@ If saving restaurant info doesn't work, every change an owner makes — phone nu
 
 ---
 
+## TC-42 — Owner Can Edit a Menu Category Name
+
+**Status:** ⏭️ Skipped (owner login not configured)
+
+### What it checks
+
+An owner can rename an existing menu category and see the updated name reflected in the menu list.
+
+### How it works, step by step
+
+1. The test navigates to the Menu tab for the seed restaurant
+2. It clicks the edit icon on the "Test Starters" category created in TC-20
+3. It clears the name and types a new one ("Test Starters Edited")
+4. It clicks Save and confirms the renamed category is visible
+
+### Why it matters
+
+If category editing is broken, owners cannot correct typos or reorganise their menu structure. Customers would see incorrect category names on the ordering site.
+
+---
+
+## TC-43 — Owner Can Edit a Menu Item Name and Price
+
+**Status:** ⏭️ Skipped (owner login not configured)
+
+### What it checks
+
+An owner can open a menu item, change its name and price, save successfully, and see a confirmation.
+
+### How it works, step by step
+
+1. The test navigates to the Menu tab
+2. It clicks the edit icon on the item created in TC-21 ("Automation Bruschetta")
+3. It updates the name to "Automation Bruschetta Edited" and the price to $12.99
+4. It saves and confirms a success toast appears
+
+### Why it matters
+
+If item editing is broken, owners cannot update prices or fix item names after they are published. Customers could be charged the wrong price.
+
+---
+
+## TC-44 — Owner Can Delete a Menu Item
+
+**Status:** ⏭️ Skipped (owner login not configured)
+
+### What it checks
+
+An owner can delete a menu item from a category and confirm it no longer appears in the menu.
+
+### How it works, step by step
+
+1. The test navigates to the Menu tab
+2. It clicks the delete icon on "Automation Bruschetta Edited" (created and edited in TC-21 / TC-43)
+3. It confirms the deletion dialog if prompted
+4. It verifies the item is no longer visible in the category
+
+### Why it matters
+
+If item deletion is broken, owners cannot remove sold-out or discontinued items. Customers could try to order items that are no longer available.
+
+---
+
+## TC-45 — Owner Can Delete a Menu Category
+
+**Status:** ⏭️ Skipped (owner login not configured)
+
+### What it checks
+
+An owner can delete an empty menu category and confirm it no longer appears in the menu list.
+
+### How it works, step by step
+
+1. The test navigates to the Menu tab
+2. It clicks the delete icon on "Test Starters Edited" (the renamed category from TC-42, now empty after TC-44)
+3. It confirms the deletion dialog if prompted
+4. It verifies the category is no longer visible
+
+### Why it matters
+
+If category deletion is broken, owners are left with empty or outdated sections cluttering their menu. This also serves as cleanup — TC-42 to TC-45 together leave QA in the same state as before the tests ran.
+
+---
+
 ---
 
 # 🛒 SECTION 4 — Customer Ordering
@@ -987,10 +1071,14 @@ This is the most critical test in the entire suite. If a customer cannot complet
 | TC-39 | Owner accesses the Deals section              | Owner    | ⏭️ Skipped |
 | TC-40 | Owner opens the Restaurant Info form          | Owner    | ⏭️ Skipped |
 | TC-41 | Owner edits and saves restaurant phone number | Owner    | ⏭️ Skipped |
+| TC-42 | Owner renames a menu category                 | Owner    | ⏭️ Skipped |
+| TC-43 | Owner edits a menu item name and price        | Owner    | ⏭️ Skipped |
+| TC-44 | Owner deletes a menu item                     | Owner    | ⏭️ Skipped |
+| TC-45 | Owner deletes a menu category                 | Owner    | ⏭️ Skipped |
 
-**10 passing · 31 skipped · 0 failing**
+**10 passing · 35 skipped · 0 failing**
 
-All skipped tests are waiting for owner and/or admin account credentials to be added to the environment configuration. Once added, all 41 tests will run.
+All skipped tests are waiting for owner and/or admin account credentials to be added to the environment configuration. Once added, all 45 tests will run.
 
 ---
 
