@@ -7,8 +7,11 @@ import { readSharedState } from "../../../utils/testData";
 const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
 
-// Shared across TC-20 and TC-21 within this file (workers: 1, sequential).
+// Shared across TC-20 to TC-45 within this file (workers: 1, sequential).
 const TEST_CATEGORY_NAME = "Test Starters";
+const TEST_CATEGORY_RENAMED = "Test Starters Edited";
+const TEST_ITEM_NAME = "Automation Bruschetta";
+const TEST_ITEM_RENAMED = "Automation Bruschetta Edited";
 
 test.describe("Owner — Menu Management", () => {
   test.skip(
@@ -119,6 +122,128 @@ test.describe("Owner — Menu Management", () => {
 
     await allure.step("Verify success toast appears", async () => {
       await menuPage.assertMenuItemSuccessToast();
+    });
+  });
+
+  test("TC-42: owner can edit a menu category name", async ({ ownerPage }) => {
+    await allure.description(
+      "Owner clicks the edit icon on a category, renames it, saves, and verifies the new name appears."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const menuPage = createOwnerMenuPage(ownerPage);
+
+    await allure.step("Navigate to Menu tab", async () => {
+      await mgmtPage.goto(restaurantId);
+      await menuPage.navigateToMenuTab();
+    });
+
+    await allure.step(
+      `Rename "${TEST_CATEGORY_NAME}" to "${TEST_CATEGORY_RENAMED}"`,
+      async () => {
+        await menuPage.editCategory(TEST_CATEGORY_NAME, TEST_CATEGORY_RENAMED);
+        await allure.parameter("Old name", TEST_CATEGORY_NAME);
+        await allure.parameter("New name", TEST_CATEGORY_RENAMED);
+      }
+    );
+
+    await allure.step("Verify renamed category is visible", async () => {
+      await menuPage.assertCategoryVisible(TEST_CATEGORY_RENAMED);
+    });
+  });
+
+  test("TC-43: owner can edit a menu item name and price", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Owner clicks the edit icon on a menu item, changes the name and price, saves, and verifies the updated item."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const menuPage = createOwnerMenuPage(ownerPage);
+
+    await allure.step("Navigate to Menu tab", async () => {
+      await mgmtPage.goto(restaurantId);
+      await menuPage.navigateToMenuTab();
+    });
+
+    await allure.step(
+      `Edit item "${TEST_ITEM_NAME}" in "${TEST_CATEGORY_RENAMED}"`,
+      async () => {
+        await menuPage.editMenuItem(
+          TEST_CATEGORY_RENAMED,
+          TEST_ITEM_NAME,
+          TEST_ITEM_RENAMED,
+          "12.99"
+        );
+        await allure.parameter("Old name", TEST_ITEM_NAME);
+        await allure.parameter("New name", TEST_ITEM_RENAMED);
+        await allure.parameter("New price", "12.99");
+      }
+    );
+
+    await allure.step("Verify updated item is visible", async () => {
+      await menuPage.assertMenuItemUpdateToast();
+    });
+  });
+
+  test("TC-44: owner can delete a menu item", async ({ ownerPage }) => {
+    await allure.description(
+      "Owner deletes a menu item from a category and verifies it no longer appears."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const menuPage = createOwnerMenuPage(ownerPage);
+
+    await allure.step("Navigate to Menu tab", async () => {
+      await mgmtPage.goto(restaurantId);
+      await menuPage.navigateToMenuTab();
+    });
+
+    await allure.step(
+      `Delete item "${TEST_ITEM_RENAMED}" from "${TEST_CATEGORY_RENAMED}"`,
+      async () => {
+        await menuPage.deleteMenuItem(TEST_CATEGORY_RENAMED, TEST_ITEM_RENAMED);
+        await allure.parameter("Item", TEST_ITEM_RENAMED);
+        await allure.parameter("Category", TEST_CATEGORY_RENAMED);
+      }
+    );
+
+    await allure.step("Verify item is no longer visible", async () => {
+      await menuPage.assertItemDeleted(
+        TEST_CATEGORY_RENAMED,
+        TEST_ITEM_RENAMED
+      );
+    });
+  });
+
+  test("TC-45: owner can delete a menu category", async ({ ownerPage }) => {
+    await allure.description(
+      "Owner deletes an empty category and verifies it no longer appears in the menu list."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const menuPage = createOwnerMenuPage(ownerPage);
+
+    await allure.step("Navigate to Menu tab", async () => {
+      await mgmtPage.goto(restaurantId);
+      await menuPage.navigateToMenuTab();
+    });
+
+    await allure.step(
+      `Delete category "${TEST_CATEGORY_RENAMED}"`,
+      async () => {
+        await menuPage.deleteCategory(TEST_CATEGORY_RENAMED);
+        await allure.parameter("Category", TEST_CATEGORY_RENAMED);
+      }
+    );
+
+    await allure.step("Verify category is no longer visible", async () => {
+      await menuPage.assertCategoryDeleted(TEST_CATEGORY_RENAMED);
     });
   });
 });
