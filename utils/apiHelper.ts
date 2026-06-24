@@ -168,12 +168,60 @@ export async function deleteTestMenuGroup(
 
 export interface ApiMenuGroup {
   id: string;
+  menuItems?: ApiMenuItem[];
 }
 
 export interface ApiMenuItem {
   id: string;
   name: string;
   price: number;
+}
+
+/**
+ * GET /menu/restaurants/:restaurantId/menus — returns all menu groups with
+ * their items. Used by teardown to drain a group before deleting it.
+ */
+export async function getRestaurantMenuGroups(
+  accessToken: string,
+  restaurantId: string
+): Promise<ApiMenuGroup[]> {
+  const data = await apiRequest<{ groups: ApiMenuGroup[] }>(
+    "GET",
+    `/menu/restaurants/${restaurantId}/menus`,
+    undefined,
+    accessToken
+  );
+  return data.groups ?? [];
+}
+
+/**
+ * Delete every menu item in a group, then delete the group.
+ * Gracefully handles the "Cannot Delete Category With Items" error by first
+ * removing any items that tests may have left behind.
+ */
+export async function deleteTestMenuGroupWithItems(
+  accessToken: string,
+  restaurantId: string,
+  menuGroupId: string
+): Promise<void> {
+  const groups = await getRestaurantMenuGroups(accessToken, restaurantId);
+  const group = groups.find((g) => g.id === menuGroupId);
+  if (group?.menuItems?.length) {
+    for (const item of group.menuItems) {
+      await apiRequest<unknown>(
+        "DELETE",
+        `/menu/menuItemId/${item.id}`,
+        undefined,
+        accessToken
+      );
+    }
+  }
+  await apiRequest<unknown>(
+    "DELETE",
+    `/menu/group/${menuGroupId}`,
+    undefined,
+    accessToken
+  );
 }
 
 export async function createTestMenuGroup(

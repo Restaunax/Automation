@@ -12,7 +12,7 @@ import * as path from "path";
 import {
   apiLogin,
   deleteTestMenuItem,
-  deleteTestMenuGroup,
+  deleteTestMenuGroupWithItems,
   deleteRecordedUsers,
 } from "./utils/apiHelper";
 import {
@@ -37,7 +37,8 @@ export default async function globalTeardown(): Promise<void> {
   //    The restaurant itself is an existing owner restaurant — do NOT delete it.
   if (OWNER_EMAIL && OWNER_PASSWORD && fs.existsSync(STATE_FILE)) {
     try {
-      const { menuItemId, menuGroupId, restaurantName } = readSharedState();
+      const { menuItemId, menuGroupId, restaurantId, restaurantName } =
+        readSharedState();
       const { accessToken } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD);
 
       if (menuItemId) {
@@ -45,7 +46,14 @@ export default async function globalTeardown(): Promise<void> {
         console.log(`[globalTeardown] Deleted seed menu item (${menuItemId})`);
       }
       if (menuGroupId) {
-        await deleteTestMenuGroup(accessToken, menuGroupId);
+        // deleteTestMenuGroupWithItems first drains any leftover items (e.g.
+        // from tests that create items in the seed category) before deleting
+        // the group, preventing the "Cannot Delete Category With Items" error.
+        await deleteTestMenuGroupWithItems(
+          accessToken,
+          restaurantId,
+          menuGroupId
+        );
         console.log(
           `[globalTeardown] Deleted seed menu group (${menuGroupId}) from ${restaurantName}`
         );

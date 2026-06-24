@@ -133,12 +133,41 @@ test.describe("Owner — Menu Management", () => {
     );
   });
 
-  test("TC-43: owner can edit a menu item name and price", async () => {
-    test.skip(
-      true,
-      "Edit item navigates to a multi-step wizard at /restaurant/restaurantId/:id/groupId/:groupId/itemId/:itemId/edit. " +
-        "Full edit-item flow is covered by a dedicated edit-item spec when available."
+  test("TC-43: owner can edit a menu item name and price", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Owner clicks Edit Item on an existing menu item, updates name and price in the wizard, and verifies the success toast."
     );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const menuPage = createOwnerMenuPage(ownerPage);
+    const EDITED_NAME = `${TEST_ITEM_NAME} Edited`;
+    const EDITED_PRICE = "12.99";
+
+    await allure.step("Navigate to Menu editor", async () => {
+      await mgmtPage.goto(restaurantId);
+      await menuPage.navigateToMenuTab();
+    });
+
+    await allure.step(`Click Edit on "${TEST_ITEM_NAME}"`, async () => {
+      await menuPage.clickEditItem(TEST_ITEM_NAME);
+      await allure.parameter("Item", TEST_ITEM_NAME);
+    });
+
+    await allure.step(
+      "Update name and price in wizard, then save",
+      async () => {
+        await menuPage.editItemInWizard(EDITED_NAME, EDITED_PRICE);
+        await allure.parameter("New name", EDITED_NAME);
+        await allure.parameter("New price", EDITED_PRICE);
+      }
+    );
+
+    await allure.step("Verify edit success toast", async () => {
+      await menuPage.assertEditSuccessToast();
+    });
   });
 
   test("TC-44: owner can delete a menu item", async () => {

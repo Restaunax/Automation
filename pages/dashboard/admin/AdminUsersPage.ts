@@ -76,21 +76,33 @@ export const createAdminUsersPage = (page: Page) => {
   const goto = async (): Promise<void> => {
     await page.goto("/admin?tab=user", { waitUntil: "domcontentloaded" });
     await searchInput.waitFor({ state: "visible", timeout: 15_000 });
+    // Wait for the initial user-list fetch so the React effect's initialLoadDone
+    // flag is true before any search fill — prevents the debounced search from
+    // being skipped when fill() runs before the initial GET completes.
+    await page
+      .waitForResponse((r) => /\/api\/admin\/users(\?|$)/.test(r.url()), {
+        timeout: 15_000,
+      })
+      .catch(() => {});
   };
 
   // ── list / search / filter ────────────────────────────────────────────────
-  const rows = (): Locator => page.locator("tbody tr");
+  // QA renders UserManagement as a MUI DataGrid (role="grid") — no <tbody>/<tr>.
+  const rows = (): Locator => page.locator('[role="rowgroup"] [role="row"]');
   const findRowByEmail = (email: string): Locator =>
     rows().filter({ hasText: email });
 
   const searchUser = async (q: string): Promise<void> => {
+    // Register BEFORE fill so the promise is already listening when the 500ms
+    // debounce fires — avoids the race where the response arrives before
+    // waitForResponse is set up. URL must contain ?q= to distinguish search
+    // calls from the initial page-load GET /api/admin/users.
+    const responsePromise = page.waitForResponse(
+      (r) => r.url().includes("/api/admin/users?q="),
+      { timeout: 10_000 }
+    );
     await searchInput.fill(q);
-    // 500ms debounce → wait for the list request to settle.
-    await page
-      .waitForResponse((r) => /\/api\/admin\/users(\?|$)/.test(r.url()), {
-        timeout: 8_000,
-      })
-      .catch(() => {});
+    await responsePromise.catch(() => {});
   };
 
   const assertRowExists = async (email: string): Promise<Locator> => {

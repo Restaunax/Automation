@@ -144,6 +144,47 @@ export const createOwnerMenuPage = (page: Page) => {
       page.getByRole("tab", { name: categoryName, exact: true })
     ).toBeHidden({ timeout: 10_000 });
 
+  // Find item card by name, click its Edit button (2nd button in CardActions).
+  const clickEditItem = async (itemName: string) => {
+    const card = page
+      .locator(".MuiCard-root")
+      .filter({ hasText: itemName })
+      .first();
+    await card.waitFor({ state: "visible", timeout: 10_000 });
+    await card.locator(".MuiCardActions-root button").nth(1).click();
+  };
+
+  // In the edit wizard, overwrite name and price in Step 0 then Save.
+  const editItemInWizard = async (newName: string, newPrice: string) => {
+    await page
+      .getByPlaceholder("Enter the menu item name")
+      .waitFor({ state: "visible", timeout: 15_000 });
+    await page.getByPlaceholder("Enter the menu item name").fill(newName);
+    await page.getByPlaceholder("Enter the menu item name").press("Tab");
+    await page.getByPlaceholder("Enter the base price").fill(newPrice);
+    await page.getByPlaceholder("Enter the base price").press("Tab");
+    await page.getByRole("button", { name: "Next" }).click();
+    await page
+      .getByRole("button", { name: "Next" })
+      .waitFor({ state: "visible", timeout: 10_000 });
+    await page.getByRole("button", { name: "Next" }).click();
+    await page
+      .getByRole("button", { name: "Next" })
+      .waitFor({ state: "visible", timeout: 10_000 });
+    await page.getByRole("button", { name: "Next" }).click();
+    await page
+      .getByRole("button", { name: "Save Item" })
+      .waitFor({ state: "visible", timeout: 10_000 });
+    await page
+      .getByRole("button", { name: "Save Item" })
+      .click({ force: true });
+  };
+
+  const assertEditSuccessToast = () =>
+    expect(page.getByText("Menu item updated successfully!")).toBeVisible({
+      timeout: 10_000,
+    });
+
   return {
     navigateToMenuTab,
     addCategoryButton,
@@ -155,6 +196,9 @@ export const createOwnerMenuPage = (page: Page) => {
     assertItemVisible,
     deleteCategory,
     assertCategoryDeleted,
+    clickEditItem,
+    editItemInWizard,
+    assertEditSuccessToast,
   };
 };
 
