@@ -6,11 +6,7 @@
  * All functions throw on non-2xx responses with a clear error message.
  */
 
-import {
-  generateRestaurantData,
-  readUsersForCleanup,
-  clearUsersForCleanup,
-} from "./testData";
+import { readUsersForCleanup, clearUsersForCleanup } from "./testData";
 
 const BACKEND_URL = process.env.BACKEND_URL ?? "https://api.qa.restaunax.com";
 
@@ -105,20 +101,23 @@ export async function apiLogin(
 }
 
 /**
- * Creates a uniquely-named test restaurant owned by the authenticated user.
- * Returns the new restaurant's id and name.
+ * Returns all restaurants owned by the authenticated user.
+ * Uses GET /restaurant/owned — no special permissions required beyond auth.
  */
-export async function createTestRestaurant(
+export async function getOwnerRestaurants(
   accessToken: string
-): Promise<ApiRestaurant> {
-  const payload = generateRestaurantData();
-  const data = await apiRequest<{ id: string; name: string }>(
-    "POST",
-    "/api/restaurant/new",
-    payload,
-    accessToken
-  );
-  return { id: data.id, name: data.name };
+): Promise<ApiRestaurant[]> {
+  const data = await apiRequest<
+    | ApiRestaurant[]
+    | { restaurant: ApiRestaurant[] }
+    | { restaurants: ApiRestaurant[] }
+  >("GET", "/restaurant/owned", undefined, accessToken);
+  if (Array.isArray(data)) return data;
+  if ("restaurant" in data && Array.isArray(data.restaurant))
+    return data.restaurant;
+  if ("restaurants" in data && Array.isArray(data.restaurants))
+    return data.restaurants;
+  return [];
 }
 
 /**
@@ -131,9 +130,39 @@ export async function deleteTestRestaurant(
 ): Promise<void> {
   await apiRequest<unknown>(
     "DELETE",
-    `/api/admin/restaurant/${restaurantId}`,
+    `/api/admin/restaurants/${restaurantId}`,
     undefined,
     adminAccessToken
+  );
+}
+
+/**
+ * Deletes a menu item by ID. Requires auth (owner token is sufficient).
+ */
+export async function deleteTestMenuItem(
+  accessToken: string,
+  menuItemId: string
+): Promise<void> {
+  await apiRequest<unknown>(
+    "DELETE",
+    `/menu/menuItemId/${menuItemId}`,
+    undefined,
+    accessToken
+  );
+}
+
+/**
+ * Deletes a menu group by ID. Requires auth (owner token is sufficient).
+ */
+export async function deleteTestMenuGroup(
+  accessToken: string,
+  menuGroupId: string
+): Promise<void> {
+  await apiRequest<unknown>(
+    "DELETE",
+    `/menu/group/${menuGroupId}`,
+    undefined,
+    accessToken
   );
 }
 
@@ -151,24 +180,26 @@ export async function createTestMenuGroup(
   accessToken: string,
   restaurantId: string
 ): Promise<ApiMenuGroup> {
-  return apiRequest<ApiMenuGroup>(
+  const data = await apiRequest<{ group: ApiMenuGroup }>(
     "POST",
     "/menu/group/new",
     { restaurantId, menuGroup: "Automation Items" },
     accessToken
   );
+  return data.group;
 }
 
 export async function createTestMenuItem(
   accessToken: string,
   groupId: string
 ): Promise<ApiMenuItem> {
-  return apiRequest<ApiMenuItem>(
+  const data = await apiRequest<{ menuItem: ApiMenuItem }>(
     "POST",
     "/menu/item/new",
     { name: "Automation Burger", price: 12.99, groupId },
     accessToken
   );
+  return data.menuItem;
 }
 
 // ── Admin user management ────────────────────────────────────────────────────

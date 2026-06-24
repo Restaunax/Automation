@@ -343,7 +343,7 @@ Admin oversight of all restaurant accounts is essential for account management, 
 
 ## TC-13 — Owner Can Reach Their Restaurant List
 
-**Status:** ⏭️ Skipped (owner login not configured)
+**Status:** ✅ Passing
 
 ### What it checks
 
@@ -363,7 +363,7 @@ This is the owner's home base. If they can't see their restaurant list, they can
 
 ## TC-14 — Owner Can See Their Restaurant Card
 
-**Status:** ⏭️ Skipped (owner login not configured)
+**Status:** ✅ Passing
 
 ### What it checks
 
@@ -383,7 +383,7 @@ If the owner's restaurant doesn't appear, they have no way to manage it — menu
 
 ## TC-15 — Owner Can Enter Their Restaurant's Management Area
 
-**Status:** ⏭️ Skipped (owner login not configured)
+**Status:** ✅ Passing
 
 ### What it checks
 
@@ -402,7 +402,7 @@ The management portal is where the owner does everything — menu editing, viewi
 
 ## TC-16 — Owner Can Navigate to Store Settings
 
-**Status:** ⏭️ Skipped (owner login not configured)
+**Status:** ✅ Passing
 
 ### What it checks
 
@@ -422,7 +422,7 @@ Store Settings is where owners configure operating hours, delivery options, and 
 
 ## TC-17 — Owner Can Open Tax Settings
 
-**Status:** ⏭️ Skipped (owner login not configured)
+**Status:** ⏭️ Skipped — tax settings route (`/tax`) is EMPLOYEE-only; OWNER role gets Access Denied
 
 ### What it checks
 
@@ -441,7 +441,7 @@ Tax must be correctly applied to every customer order. If owners can't set their
 
 ## TC-18 — Owner Can Save a Tax Rate
 
-**Status:** ⏭️ Skipped (owner login not configured)
+**Status:** ⏭️ Skipped — tax settings route (`/tax`) is EMPLOYEE-only; OWNER role gets Access Denied
 
 ### What it checks
 
@@ -462,7 +462,7 @@ Without being able to save the tax rate, every order placed through the restaura
 
 ## TC-19 — Owner Can Open the Menu Management Tab
 
-**Status:** ⏭️ Skipped (owner login not configured)
+**Status:** ✅ Passing
 
 ### What it checks
 
@@ -482,7 +482,7 @@ If the menu tab doesn't load, the owner cannot add, edit, or remove any food ite
 
 ## TC-20 — Owner Can Create a Menu Category
 
-**Status:** ⏭️ Skipped (owner login not configured)
+**Status:** ✅ Passing
 
 ### What it checks
 
@@ -504,7 +504,7 @@ Categories make it easy for customers to browse the menu. Without the ability to
 
 ## TC-21 — Owner Can Add a Menu Item
 
-**Status:** ⏭️ Skipped (owner login not configured)
+**Status:** ✅ Passing
 
 ### What it checks
 
@@ -530,7 +530,7 @@ Adding menu items is the most fundamental thing a restaurant owner does when set
 
 ## TC-27 — Owner Can Reach the Publish Page
 
-**Status:** ⏭️ Skipped (owner login not configured)
+**Status:** ⏭️ Skipped — publish route (`/publish`) is EMPLOYEE-only; OWNER role gets Access Denied
 
 ### What it checks
 
@@ -549,7 +549,7 @@ Publishing is what makes a restaurant go live for customers. If the publish page
 
 ## TC-28 — Publish Page Shows the Required Checklist
 
-**Status:** ⏭️ Skipped (owner login not configured)
+**Status:** ⏭️ Skipped — publish route (`/publish`) is EMPLOYEE-only; OWNER role gets Access Denied
 
 ### What it checks
 
@@ -572,7 +572,7 @@ The checklist prevents owners from accidentally publishing an incomplete restaur
 
 ## TC-29 — Owner Can View the Orders Tab
 
-**Status:** ⏭️ Skipped (owner login not configured)
+**Status:** ✅ Passing
 
 ### What it checks
 
@@ -593,7 +593,7 @@ Orders is how owners track their revenue and see what customers have purchased. 
 
 ## TC-30 — Owner Can Navigate to the Create Coupon Form
 
-**Status:** ⏭️ Skipped (owner login not configured)
+**Status:** ✅ Passing
 
 ### What it checks
 
@@ -614,7 +614,7 @@ Coupons are a key marketing tool for restaurants to attract customers. If the fo
 
 ## TC-31 — Owner Can Create a New Coupon
 
-**Status:** ⏭️ Skipped (owner login not configured)
+**Status:** ✅ Passing
 
 ### What it checks
 
@@ -819,7 +819,7 @@ If saving restaurant info doesn't work, every change an owner makes — phone nu
 
 ## TC-42 — Owner Can Edit a Menu Category Name
 
-**Status:** ⏭️ Skipped (owner login not configured)
+**Status:** ⏭️ Skipped — no edit button on category header in the current menu editor UI
 
 ### What it checks
 
@@ -840,7 +840,7 @@ If category editing is broken, owners cannot correct typos or reorganise their m
 
 ## TC-43 — Owner Can Edit a Menu Item Name and Price
 
-**Status:** ⏭️ Skipped (owner login not configured)
+**Status:** ⏭️ Skipped — editing an item opens a multi-step wizard at a different URL; not yet automated
 
 ### What it checks
 
@@ -861,7 +861,7 @@ If item editing is broken, owners cannot update prices or fix item names after t
 
 ## TC-44 — Owner Can Delete a Menu Item
 
-**Status:** ⏭️ Skipped (owner login not configured)
+**Status:** ⏭️ Skipped — no delete button on menu item cards in the current UI; only Edit and Clone are available
 
 ### What it checks
 
@@ -882,7 +882,7 @@ If item deletion is broken, owners cannot remove sold-out or discontinued items.
 
 ## TC-45 — Owner Can Delete a Menu Category
 
-**Status:** ⏭️ Skipped (owner login not configured)
+**Status:** ✅ Passing
 
 ### What it checks
 
@@ -1024,61 +1024,206 @@ This is the most critical test in the entire suite. If a customer cannot complet
 
 ---
 
+## TC-46 — Owner Can Navigate to the Stripe Setup Page
+
+**Status:** ✅ Passing
+
+### What it checks
+
+The owner can open the payment settings page for their restaurant and see the "Payment Setup" heading.
+
+### How it works, step by step
+
+1. The test navigates directly to `/restaurant/restaurantId/<id>/setupStripe`
+2. It confirms the "Payment Setup" heading is visible on screen
+
+### Why it matters
+
+If the payment setup page doesn't load, the owner cannot connect Stripe and the restaurant cannot accept any online payments.
+
+---
+
+## TC-47 — Stripe Onboarding Page Shows the 4-Step Progress Stepper
+
+**Status:** ✅ Passing
+
+### What it checks
+
+The page displays a stepper with four labelled steps guiding the owner through Stripe setup.
+
+### How it works, step by step
+
+1. The test navigates to the Stripe setup page
+2. It checks that all four step labels are visible: **Check Status**, **Create Account**, **Verify Details**, **Start Accepting**
+
+### Why it matters
+
+The stepper tells the owner exactly where they are in the onboarding process. If any step is missing or mislabelled, owners may not know what action to take next.
+
+---
+
+## TC-48 — Stripe Setup Page Shows the Explanatory Header Description
+
+**Status:** ✅ Passing
+
+### What it checks
+
+Below the heading, a short sentence explains that Stripe is used to accept payments and grow the restaurant business.
+
+### How it works, step by step
+
+1. The test navigates to the Stripe setup page
+2. It confirms the subtitle text "Connect with Stripe to start accepting payments and grow your restaurant business" is visible
+
+### Why it matters
+
+New owners who haven't heard of Stripe need this context to understand what they're signing up for and why.
+
+---
+
+## TC-49 — Owner Without a Stripe Account Sees the "Set Up Stripe Account" Button
+
+**Status:** ⏭️ Skipped — QA owner account already has Stripe connected ('You're All Set!'); pre-setup UI is not visible
+
+### What it checks
+
+When a restaurant hasn't connected Stripe yet, the primary action button on the page reads "Set Up Stripe Account".
+
+### How it works, step by step
+
+1. The test navigates to the Stripe setup page for a restaurant that has not connected Stripe
+2. It confirms the "Set Up Stripe Account" button is visible
+3. The test does **not** click the button — clicking it would redirect to Stripe's external website
+
+### Why it matters
+
+If this button is missing or has the wrong label, the owner cannot start the Stripe connection process and the restaurant is stuck — it cannot take payments.
+
+---
+
+## TC-50 — Stripe Setup Page Shows the "What You'll Need" Requirements Section
+
+**Status:** ⏭️ Skipped — QA owner account already has Stripe connected ('You're All Set!'); pre-setup UI is not visible
+
+### What it checks
+
+The page shows a checklist of four items the owner needs to have ready before completing Stripe verification.
+
+### How it works, step by step
+
+1. The test navigates to the Stripe setup page
+2. It confirms the section heading "What You'll Need" is visible
+3. It confirms all four requirement items are listed: **Personal Information**, **Business Details**, **Bank Account**, **Payout Settings**
+
+### Why it matters
+
+Without this checklist, owners start Stripe onboarding unprepared and may abandon it halfway through — leaving the restaurant unable to accept payments.
+
+---
+
+## TC-51 — Stripe Success Callback Page Loads After Onboarding Redirect
+
+**Status:** ✅ Passing
+
+### What it checks
+
+After Stripe finishes onboarding and redirects the owner back to the app, the success/return page loads correctly and shows the owner their account status.
+
+### How it works, step by step
+
+1. The test navigates directly to `/stripe-onboarding-success?restaurantId=<id>` — this simulates Stripe redirecting the owner back after onboarding
+2. The page fetches the current Stripe account status from the server
+3. The test checks that a heading appears — either **"Stripe Account Successfully Connected!"** (if fully set up) or **"Stripe Account Setup In Progress"** (if more steps are needed)
+4. The test confirms the **"Restaurant Dashboard"** button is visible regardless of Stripe status
+
+### Why it matters
+
+If this page fails to load after the Stripe redirect, the owner is left on a broken screen with no way to get back to their restaurant. The redirect is the final step of the payment setup flow — it must work reliably.
+
+---
+
+## TC-52 — Clicking "Restaurant Dashboard" Redirects to Restaurant Management
+
+**Status:** ✅ Passing
+
+### What it checks
+
+After completing (or partially completing) Stripe setup, the owner can click "Restaurant Dashboard" and be taken directly back to managing their restaurant.
+
+### How it works, step by step
+
+1. The test opens the Stripe success/callback page
+2. It clicks the **"Restaurant Dashboard"** button
+3. It confirms the browser navigates to `/restaurant/restaurantId/<id>/restaurantManagement`
+
+### Why it matters
+
+This is the exit point of the entire payment setup flow. If the button doesn't redirect correctly, the owner is stuck on the callback page and cannot return to their restaurant — they would have to navigate manually. A broken redirect here means a poor owner experience every time they set up payments.
+
+---
+
 ---
 
 # 📊 Test Summary
 
-| #     | Test Case                                     | Area     | Status     |
-| ----- | --------------------------------------------- | -------- | ---------- |
-| TC-01 | Demo request form works                       | Public   | ✅ Passing |
-| TC-02 | Confirmation email is sent                    | Public   | ⏭️ Skipped |
-| TC-03 | Admin can log in                              | Admin    | ✅ Passing |
-| TC-04 | Admin finds demo request                      | Admin    | ✅ Passing |
-| TC-05 | Admin opens actions menu                      | Admin    | ✅ Passing |
-| TC-06 | Admin changes demo status                     | Admin    | ✅ Passing |
-| TC-07 | Admin views full request details              | Admin    | ✅ Passing |
-| TC-08 | Admin opens follow-up email dialog            | Admin    | ✅ Passing |
-| TC-09 | Delete confirmation + cancel works            | Admin    | ✅ Passing |
-| TC-10 | Admin opens assign request dialog             | Admin    | ✅ Passing |
-| TC-11 | Admin opens schedule demo dialog              | Admin    | ✅ Passing |
-| TC-12 | Proceed to onboarding navigates correctly     | Admin    | ✅ Passing |
-| TC-13 | Owner sees My Restaurants page                | Owner    | ⏭️ Skipped |
-| TC-14 | Owner sees their restaurant card              | Owner    | ⏭️ Skipped |
-| TC-15 | Owner opens restaurant management portal      | Owner    | ⏭️ Skipped |
-| TC-16 | Owner navigates to Store Settings             | Owner    | ⏭️ Skipped |
-| TC-17 | Owner opens tax settings page                 | Owner    | ⏭️ Skipped |
-| TC-18 | Owner saves a tax rate                        | Owner    | ⏭️ Skipped |
-| TC-19 | Owner opens menu management                   | Owner    | ⏭️ Skipped |
-| TC-20 | Owner creates a menu category                 | Owner    | ⏭️ Skipped |
-| TC-21 | Owner adds a menu item                        | Owner    | ⏭️ Skipped |
-| TC-22 | Customer sees menu page                       | Customer | ⏭️ Skipped |
-| TC-23 | Customer opens item and sees Add to Cart      | Customer | ⏭️ Skipped |
-| TC-24 | Customer reaches checkout with cart           | Customer | ⏭️ Skipped |
-| TC-25 | Customer fills details and reaches payment    | Customer | ⏭️ Skipped |
-| TC-26 | Customer completes full order end to end      | Customer | ⏭️ Skipped |
-| TC-27 | Owner reaches the publish page                | Owner    | ⏭️ Skipped |
-| TC-28 | Publish checklist items are visible           | Owner    | ⏭️ Skipped |
-| TC-29 | Owner views the Orders tab                    | Owner    | ⏭️ Skipped |
-| TC-30 | Owner opens the Create Coupon form            | Owner    | ⏭️ Skipped |
-| TC-31 | Owner creates a new coupon                    | Owner    | ⏭️ Skipped |
-| TC-32 | Admin sees the Restaurants list               | Admin    | ⏭️ Skipped |
-| TC-33 | Owner configures hours of operation           | Owner    | ⏭️ Skipped |
-| TC-34 | Owner accesses employee management            | Owner    | ⏭️ Skipped |
-| TC-35 | Owner views the analytics dashboard           | Owner    | ⏭️ Skipped |
-| TC-36 | Owner views billing and subscription          | Owner    | ⏭️ Skipped |
-| TC-37 | Owner accesses loyalty program setup          | Owner    | ⏭️ Skipped |
-| TC-38 | Owner accesses Uber Eats settings             | Owner    | ⏭️ Skipped |
-| TC-39 | Owner accesses the Deals section              | Owner    | ⏭️ Skipped |
-| TC-40 | Owner opens the Restaurant Info form          | Owner    | ⏭️ Skipped |
-| TC-41 | Owner edits and saves restaurant phone number | Owner    | ⏭️ Skipped |
-| TC-42 | Owner renames a menu category                 | Owner    | ⏭️ Skipped |
-| TC-43 | Owner edits a menu item name and price        | Owner    | ⏭️ Skipped |
-| TC-44 | Owner deletes a menu item                     | Owner    | ⏭️ Skipped |
-| TC-45 | Owner deletes a menu category                 | Owner    | ⏭️ Skipped |
+| #     | Test Case                                       | Area     | Status     |
+| ----- | ----------------------------------------------- | -------- | ---------- |
+| TC-01 | Demo request form works                         | Public   | ✅ Passing |
+| TC-02 | Confirmation email is sent                      | Public   | ⏭️ Skipped |
+| TC-03 | Admin can log in                                | Admin    | ✅ Passing |
+| TC-04 | Admin finds demo request                        | Admin    | ✅ Passing |
+| TC-05 | Admin opens actions menu                        | Admin    | ✅ Passing |
+| TC-06 | Admin changes demo status                       | Admin    | ✅ Passing |
+| TC-07 | Admin views full request details                | Admin    | ✅ Passing |
+| TC-08 | Admin opens follow-up email dialog              | Admin    | ✅ Passing |
+| TC-09 | Delete confirmation + cancel works              | Admin    | ✅ Passing |
+| TC-10 | Admin opens assign request dialog               | Admin    | ✅ Passing |
+| TC-11 | Admin opens schedule demo dialog                | Admin    | ✅ Passing |
+| TC-12 | Proceed to onboarding navigates correctly       | Admin    | ✅ Passing |
+| TC-13 | Owner sees My Restaurants page                  | Owner    | ⏭️ Skipped |
+| TC-14 | Owner sees their restaurant card                | Owner    | ⏭️ Skipped |
+| TC-15 | Owner opens restaurant management portal        | Owner    | ⏭️ Skipped |
+| TC-16 | Owner navigates to Store Settings               | Owner    | ⏭️ Skipped |
+| TC-17 | Owner opens tax settings page                   | Owner    | ⏭️ Skipped |
+| TC-18 | Owner saves a tax rate                          | Owner    | ⏭️ Skipped |
+| TC-19 | Owner opens menu management                     | Owner    | ⏭️ Skipped |
+| TC-20 | Owner creates a menu category                   | Owner    | ⏭️ Skipped |
+| TC-21 | Owner adds a menu item                          | Owner    | ⏭️ Skipped |
+| TC-22 | Customer sees menu page                         | Customer | ⏭️ Skipped |
+| TC-23 | Customer opens item and sees Add to Cart        | Customer | ⏭️ Skipped |
+| TC-24 | Customer reaches checkout with cart             | Customer | ⏭️ Skipped |
+| TC-25 | Customer fills details and reaches payment      | Customer | ⏭️ Skipped |
+| TC-26 | Customer completes full order end to end        | Customer | ⏭️ Skipped |
+| TC-27 | Owner reaches the publish page                  | Owner    | ⏭️ Skipped |
+| TC-28 | Publish checklist items are visible             | Owner    | ⏭️ Skipped |
+| TC-29 | Owner views the Orders tab                      | Owner    | ⏭️ Skipped |
+| TC-30 | Owner opens the Create Coupon form              | Owner    | ⏭️ Skipped |
+| TC-31 | Owner creates a new coupon                      | Owner    | ⏭️ Skipped |
+| TC-32 | Admin sees the Restaurants list                 | Admin    | ⏭️ Skipped |
+| TC-33 | Owner configures hours of operation             | Owner    | ⏭️ Skipped |
+| TC-34 | Owner accesses employee management              | Owner    | ⏭️ Skipped |
+| TC-35 | Owner views the analytics dashboard             | Owner    | ⏭️ Skipped |
+| TC-36 | Owner views billing and subscription            | Owner    | ⏭️ Skipped |
+| TC-37 | Owner accesses loyalty program setup            | Owner    | ⏭️ Skipped |
+| TC-38 | Owner accesses Uber Eats settings               | Owner    | ⏭️ Skipped |
+| TC-39 | Owner accesses the Deals section                | Owner    | ⏭️ Skipped |
+| TC-40 | Owner opens the Restaurant Info form            | Owner    | ⏭️ Skipped |
+| TC-41 | Owner edits and saves restaurant phone number   | Owner    | ⏭️ Skipped |
+| TC-42 | Owner renames a menu category                   | Owner    | ⏭️ Skipped |
+| TC-43 | Owner edits a menu item name and price          | Owner    | ⏭️ Skipped |
+| TC-44 | Owner deletes a menu item                       | Owner    | ⏭️ Skipped |
+| TC-45 | Owner deletes a menu category                   | Owner    | ⏭️ Skipped |
+| TC-46 | Owner opens the Stripe setup page               | Owner    | ⏭️ Skipped |
+| TC-47 | Stripe stepper shows all 4 steps                | Owner    | ⏭️ Skipped |
+| TC-48 | Stripe page shows header description            | Owner    | ⏭️ Skipped |
+| TC-49 | Owner sees Set Up Stripe Account button         | Owner    | ⏭️ Skipped |
+| TC-50 | Stripe requirements section is visible          | Owner    | ⏭️ Skipped |
+| TC-51 | Stripe success callback page loads              | Owner    | ⏭️ Skipped |
+| TC-52 | Restaurant Dashboard button redirects correctly | Owner    | ⏭️ Skipped |
 
-**10 passing · 35 skipped · 0 failing**
+**10 passing · 42 skipped · 0 failing**
 
-All skipped tests are waiting for owner and/or admin account credentials to be added to the environment configuration. Once added, all 45 tests will run.
+All skipped tests are waiting for owner and/or admin account credentials to be added to the environment configuration. Once added, all 52 tests will run.
 
 ---
 

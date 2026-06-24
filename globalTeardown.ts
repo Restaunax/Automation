@@ -11,7 +11,8 @@ import * as fs from "fs";
 import * as path from "path";
 import {
   apiLogin,
-  deleteTestRestaurant,
+  deleteTestMenuItem,
+  deleteTestMenuGroup,
   deleteRecordedUsers,
 } from "./utils/apiHelper";
 import {
@@ -24,31 +25,37 @@ import {
 
 dotenv.config({ path: path.resolve(__dirname, ".env") });
 
+const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
+const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 
 export default async function globalTeardown(): Promise<void> {
   console.log("\n[globalTeardown] Starting cleanup…");
 
-  // 1. Delete the seed restaurant via admin API
-  if (ADMIN_EMAIL && ADMIN_PASSWORD && fs.existsSync(STATE_FILE)) {
+  // 1. Delete the seed menu item + group created by globalSetup.
+  //    The restaurant itself is an existing owner restaurant — do NOT delete it.
+  if (OWNER_EMAIL && OWNER_PASSWORD && fs.existsSync(STATE_FILE)) {
     try {
-      const { restaurantId, restaurantName } = readSharedState();
+      const { menuItemId, menuGroupId, restaurantName } = readSharedState();
+      const { accessToken } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD);
 
-      if (restaurantId) {
-        const { accessToken } = await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD);
-        await deleteTestRestaurant(accessToken, restaurantId);
+      if (menuItemId) {
+        await deleteTestMenuItem(accessToken, menuItemId);
+        console.log(`[globalTeardown] Deleted seed menu item (${menuItemId})`);
+      }
+      if (menuGroupId) {
+        await deleteTestMenuGroup(accessToken, menuGroupId);
         console.log(
-          `[globalTeardown] Deleted test restaurant: ${restaurantName} (${restaurantId})`
+          `[globalTeardown] Deleted seed menu group (${menuGroupId}) from ${restaurantName}`
         );
       }
     } catch (err) {
-      // Log but don't throw — a teardown failure must not mask test results
-      console.warn("[globalTeardown] Failed to delete test restaurant:", err);
+      console.warn("[globalTeardown] Failed to clean up seed menu data:", err);
     }
   } else {
     console.warn(
-      "[globalTeardown] Skipping restaurant cleanup (missing admin credentials or state file)"
+      "[globalTeardown] Skipping menu cleanup (missing owner credentials or state file)"
     );
   }
 

@@ -4,14 +4,17 @@ export const createOwnerCouponPage = (page: Page) => {
   const drawer = () => page.locator(".MuiDrawer-paper").first();
 
   const navigateToCreateCoupon = async () => {
-    // Coupons is an accordion section in the sidebar — expand it first
-    const couponsAccordion = drawer()
-      .getByRole("button", { name: /coupons/i })
-      .first();
-    await couponsAccordion.click();
+    // Expand the Coupons section in the sidebar (MUI Collapse accordion).
     await drawer()
-      .getByRole("button", { name: "Create Coupon", exact: true })
+      .getByRole("button", { name: "Coupons", exact: true })
       .click();
+    // Wait for the Collapse animation to finish before clicking the sub-item.
+    const createCouponBtn = page.getByRole("button", {
+      name: "Create Coupon",
+      exact: true,
+    });
+    await createCouponBtn.waitFor({ state: "visible", timeout: 5_000 });
+    await createCouponBtn.click();
     await page.waitForURL(/tab=create-coupon/, { timeout: 10_000 });
     await page
       .getByPlaceholder("SUMMER2025")
@@ -19,27 +22,27 @@ export const createOwnerCouponPage = (page: Page) => {
   };
 
   const couponCodeInput = () => page.getByPlaceholder("SUMMER2025");
-  const discountValueInput = () => page.getByLabel("Discount Value");
-  const startDateInput = () => page.getByLabel("Start Date");
-  const endDateInput = () => page.getByLabel("End Date");
-  const createCouponButton = () =>
-    page.getByRole("button", { name: "Create Coupon" });
+  // FormLabel does not emit a `for` attribute so getByLabel won't find this input;
+  // target by name attribute instead (the only input[name="value"] in this form).
+  const discountValueInput = () => page.locator('input[name="value"]');
+  // The sidebar "Create Coupon" nav button and the form submit button share the
+  // same text — use type="submit" to target only the form button.
+  const createCouponButton = () => page.locator('button[type="submit"]');
   const successToast = () => page.getByText("Coupon created successfully!");
 
   const assertFormVisible = () =>
     expect(couponCodeInput()).toBeVisible({ timeout: 10_000 });
 
+  // Start Date and End Date come pre-filled with moment() defaults, so no
+  // need to fill them — just fill code and discount value for TC-31.
   const fillCouponForm = async (
     code: string,
     discountValue: string,
-    startDate: string,
-    endDate: string
+    _startDate: string,
+    _endDate: string
   ) => {
     await couponCodeInput().fill(code);
     await discountValueInput().fill(discountValue);
-    // DateSelector may render as a text input — fill with ISO date string
-    await startDateInput().fill(startDate);
-    await endDateInput().fill(endDate);
   };
 
   const submit = () => createCouponButton().click();
@@ -51,8 +54,6 @@ export const createOwnerCouponPage = (page: Page) => {
     navigateToCreateCoupon,
     couponCodeInput,
     discountValueInput,
-    startDateInput,
-    endDateInput,
     createCouponButton,
     successToast,
     assertFormVisible,

@@ -6,13 +6,16 @@ export const createOwnerOrdersPage = (page: Page) => {
   const navigateToOrdersTab = async () => {
     await drawer().getByRole("button", { name: "Orders", exact: true }).click();
     await page.waitForURL(/tab=Orders/, { timeout: 10_000 });
+    // Wait for the Order Dashboard heading — more stable than the search placeholder,
+    // which differs between local source and the QA deployment.
     await page
-      .getByPlaceholder("Search orders, customers, phone...")
+      .getByRole("heading", { name: "Order Dashboard" })
       .waitFor({ state: "visible", timeout: 15_000 });
   };
 
-  const searchInput = () =>
-    page.getByPlaceholder("Search orders, customers, phone...");
+  // Use a regex so this matches both "Search orders, customers, phone..." (source)
+  // and "Search by order #, receipt #, name," (QA deployment) without hardcoding either.
+  const searchInput = () => page.getByPlaceholder(/^Search/i).first();
 
   const filtersButton = () => page.getByRole("button", { name: "Filters" });
 
@@ -20,7 +23,9 @@ export const createOwnerOrdersPage = (page: Page) => {
     page.getByText("No orders found matching your filters");
 
   const assertOrdersTabLoaded = () =>
-    expect(searchInput()).toBeVisible({ timeout: 15_000 });
+    expect(page.getByRole("heading", { name: "Order Dashboard" })).toBeVisible({
+      timeout: 15_000,
+    });
 
   const assertTableColumnVisible = (columnName: string) =>
     expect(page.getByRole("columnheader", { name: columnName })).toBeVisible({

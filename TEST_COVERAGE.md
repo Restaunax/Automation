@@ -1,6 +1,6 @@
 # Restaunax — Test Coverage Map
 
-> Last updated: 2026-06-15
+> Last updated: 2026-06-24
 
 ---
 
@@ -42,33 +42,42 @@
 
 ## 🏠 Owner
 
-| Feature                            | Test  | Status                            |
-| ---------------------------------- | ----- | --------------------------------- |
-| My Restaurants list page loads     | TC-13 | ⏭️ Skipped (no owner credentials) |
-| Seed restaurant card visible       | TC-14 | ⏭️ Skipped (no owner credentials) |
-| Restaurant management portal loads | TC-15 | ⏭️ Skipped (no owner credentials) |
-| Store Settings sidebar navigation  | TC-16 | ⏭️ Skipped (no owner credentials) |
-| Tax settings page loads            | TC-17 | ⏭️ Skipped (no owner credentials) |
-| Save tax rate                      | TC-18 | ⏭️ Skipped (no owner credentials) |
-| Menu tab loads                     | TC-19 | ⏭️ Skipped (no owner credentials) |
-| Create menu category               | TC-20 | ⏭️ Skipped (no owner credentials) |
-| Add menu item to category          | TC-21 | ⏭️ Skipped (no owner credentials) |
-| Edit menu category name            | TC-42 | ⏭️ Skipped (no owner credentials) |
-| Edit menu item name and price      | TC-43 | ⏭️ Skipped (no owner credentials) |
-| Delete menu item                   | TC-44 | ⏭️ Skipped (no owner credentials) |
-| Delete menu category               | TC-45 | ⏭️ Skipped (no owner credentials) |
-| Hours of operation setup           | —     | ❌ Not written                    |
-| Publish restaurant                 | —     | ❌ Not written                    |
-| Unpublish restaurant               | —     | ❌ Not written                    |
-| View orders list                   | —     | ❌ Not written                    |
-| Create coupon                      | —     | ❌ Not written                    |
-| Create deal                        | —     | ❌ Not written                    |
-| Employee management                | —     | ❌ Not written                    |
-| Loyalty rewards setup              | —     | ❌ Not written                    |
-| Analytics dashboard                | —     | ❌ Not written                    |
-| Billing / subscription             | —     | ❌ Not written                    |
-| Uber Eats settings                 | —     | ❌ Not written                    |
-| Edit restaurant info               | —     | ❌ Not written                    |
+| Feature                             | Test  | Status                                                                          |
+| ----------------------------------- | ----- | ------------------------------------------------------------------------------- |
+| My Restaurants list page loads      | TC-13 | ✅                                                                              |
+| Seed restaurant card visible        | TC-14 | ✅                                                                              |
+| Restaurant management portal loads  | TC-15 | ✅                                                                              |
+| Store Settings sidebar navigation   | TC-16 | ✅                                                                              |
+| Tax settings page loads             | TC-17 | ⏭️ Skipped — /tax route is EMPLOYEE-only; OWNER gets Access Denied              |
+| Save tax rate                       | TC-18 | ⏭️ Skipped — /tax route is EMPLOYEE-only; OWNER gets Access Denied              |
+| Menu editor loads                   | TC-19 | ✅                                                                              |
+| Create menu category                | TC-20 | ✅                                                                              |
+| Add menu item to category           | TC-21 | ✅                                                                              |
+| Edit menu category name             | TC-42 | ⏭️ Skipped — no edit button on category header in current UI                    |
+| Edit menu item name and price       | TC-43 | ⏭️ Skipped — edit navigates to multi-step wizard; not yet automated             |
+| Delete menu item                    | TC-44 | ⏭️ Skipped — no delete button on menu item cards in current UI                  |
+| Delete menu category                | TC-45 | ✅                                                                              |
+| Publish page (access check)         | TC-27 | ⏭️ Skipped — /publish route is EMPLOYEE-only; OWNER gets Access Denied          |
+| Publish checklist visible           | TC-28 | ⏭️ Skipped — /publish route is EMPLOYEE-only; OWNER gets Access Denied          |
+| Navigate to Orders tab              | TC-29 | ✅                                                                              |
+| Navigate to Create Coupon form      | TC-30 | ✅                                                                              |
+| Create a new coupon                 | TC-31 | ✅                                                                              |
+| Stripe setup page loads             | TC-46 | ✅                                                                              |
+| Stripe onboarding stepper visible   | TC-47 | ✅                                                                              |
+| Stripe header description visible   | TC-48 | ✅                                                                              |
+| Connect Stripe button visible       | TC-49 | ⏭️ Skipped — QA owner account already has Stripe connected; pre-setup UI hidden |
+| Requirements checklist visible      | TC-50 | ⏭️ Skipped — QA owner account already has Stripe connected; pre-setup UI hidden |
+| Stripe success callback page loads  | TC-51 | ✅                                                                              |
+| Restaurant Dashboard redirect works | TC-52 | ✅                                                                              |
+| Hours of operation setup            | —     | ❌ Not written                                                                  |
+| Unpublish restaurant                | —     | ❌ Not written                                                                  |
+| Create deal                         | —     | ❌ Not written                                                                  |
+| Employee management                 | —     | ❌ Not written                                                                  |
+| Loyalty rewards setup               | —     | ❌ Not written                                                                  |
+| Analytics dashboard                 | —     | ❌ Not written                                                                  |
+| Billing / subscription              | —     | ❌ Not written                                                                  |
+| Uber Eats settings                  | —     | ❌ Not written                                                                  |
+| Edit restaurant info                | —     | ❌ Not written                                                                  |
 
 ---
 
@@ -122,13 +131,13 @@
 | Area        | Written | Passing | Skipped | Not Written |
 | ----------- | ------- | ------- | ------- | ----------- |
 | Admin       | 12      | 10      | 1       | 6           |
-| Owner       | 13      | 0       | 13      | 8           |
+| Owner       | 20      | 0       | 20      | 8           |
 | Customer    | 5       | 0       | 5       | 7           |
 | Staff / POS | 0       | 0       | 0       | 7           |
 | End-to-End  | 0       | 0       | 0       | 5           |
-| **Total**   | **30**  | **10**  | **19**  | **33**      |
+| **Total**   | **37**  | **10**  | **26**  | **33**      |
 
-> **Overall coverage: ~48% of known features have tests written**
+> **Overall coverage: ~53% of known features have tests written**
 
 ---
 

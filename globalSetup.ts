@@ -17,7 +17,7 @@ import { createDemoBookingPage } from "./pages/dashboard/public/DemoBookingPage"
 import { createSignInPage } from "./pages/dashboard/auth/SignInPage";
 import {
   apiLogin,
-  createTestRestaurant,
+  getOwnerRestaurants,
   createTestMenuGroup,
   createTestMenuItem,
 } from "./utils/apiHelper";
@@ -125,21 +125,30 @@ export default async function globalSetup(): Promise<void> {
   //    so restaurantId is available for shared state)
   let restaurantId = "";
   let restaurantName = "";
+  let menuGroupId = "";
   let menuItemId = "";
   let menuItemName = "";
   let menuItemPrice = 0;
 
   if (OWNER_EMAIL && OWNER_PASSWORD) {
     const { accessToken } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD);
-    const restaurant = await createTestRestaurant(accessToken);
+    const restaurants = await getOwnerRestaurants(accessToken);
+    if (!restaurants.length) {
+      throw new Error(
+        "[globalSetup] Owner account has no restaurants in QA. " +
+          "Ask an admin or employee to create one for this owner first."
+      );
+    }
+    const restaurant = restaurants[0];
     restaurantId = restaurant.id;
     restaurantName = restaurant.name;
     console.log(
-      `[globalSetup] Test restaurant created: ${restaurantName} (${restaurantId})`
+      `[globalSetup] Using existing restaurant: ${restaurantName} (${restaurantId})`
     );
 
     const group = await createTestMenuGroup(accessToken, restaurantId);
     const item = await createTestMenuItem(accessToken, group.id);
+    menuGroupId = group.id;
     menuItemId = item.id;
     menuItemName = item.name;
     menuItemPrice = item.price;
@@ -178,6 +187,7 @@ export default async function globalSetup(): Promise<void> {
     submittedAt: new Date().toISOString(),
     restaurantId,
     restaurantName,
+    menuGroupId,
     menuItemId,
     menuItemName,
     menuItemPrice,

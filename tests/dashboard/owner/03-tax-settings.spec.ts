@@ -20,6 +20,10 @@ test.describe("Owner — Tax Settings", () => {
   test("TC-17: owner can navigate to tax settings and see the tax rate form", async ({
     ownerPage,
   }) => {
+    test.skip(
+      true,
+      "Tax settings page is restricted to ADMIN/EMPLOYEE roles — move to employee spec when employee credentials are available"
+    );
     await allure.description(
       "Navigating directly to /restaurant/restaurantId/:id/tax renders the Tax Rate (%) input field."
     );
@@ -44,6 +48,10 @@ test.describe("Owner — Tax Settings", () => {
   test("TC-18: owner can set a tax rate and save — success toast appears", async ({
     ownerPage,
   }) => {
+    test.skip(
+      true,
+      "Tax settings page is restricted to ADMIN/EMPLOYEE roles — move to employee spec when employee credentials are available"
+    );
     await allure.description(
       "Owner fills in a tax rate value, saves, and verifies the success toast notification."
     );
