@@ -1,6 +1,8 @@
 import { type Page, expect } from "@playwright/test";
 
 export const createOwnerPaymentSettingsPage = (page: Page) => {
+  // ── Setup page (/restaurant/restaurantId/:id/setupStripe) ──────────────────
+
   const goto = async (restaurantId: string) => {
     await page.goto(`/restaurant/restaurantId/${restaurantId}/setupStripe`, {
       waitUntil: "domcontentloaded",
@@ -16,6 +18,7 @@ export const createOwnerPaymentSettingsPage = (page: Page) => {
   const assertPageLoaded = () =>
     expect(pageHeading()).toBeVisible({ timeout: 10_000 });
 
+  // 4-step stepper on the QA setup page.
   const assertStepperVisible = async () => {
     for (const step of [
       "Check Status",
@@ -29,28 +32,6 @@ export const createOwnerPaymentSettingsPage = (page: Page) => {
     }
   };
 
-  const connectStripeButton = () =>
-    page.getByRole("button", { name: "Set Up Stripe Account" });
-
-  const assertConnectButtonVisible = () =>
-    expect(connectStripeButton()).toBeVisible({ timeout: 10_000 });
-
-  const assertRequirementsVisible = async () => {
-    await expect(
-      page.getByText("What You'll Need", { exact: true })
-    ).toBeVisible({ timeout: 10_000 });
-    for (const item of [
-      "Personal Information",
-      "Business Details",
-      "Bank Account",
-      "Payout Settings",
-    ]) {
-      await expect(page.getByText(item, { exact: true })).toBeVisible({
-        timeout: 10_000,
-      });
-    }
-  };
-
   const assertHeaderDescription = () =>
     expect(
       page.getByText(
@@ -59,13 +40,36 @@ export const createOwnerPaymentSettingsPage = (page: Page) => {
       )
     ).toBeVisible({ timeout: 10_000 });
 
+  // Visible only when hasAccount === false (mocked or genuinely unconnected).
+  const connectStripeButton = () =>
+    page.getByRole("button", { name: "Set Up Stripe Account" });
+
+  const assertConnectButtonVisible = () =>
+    expect(connectStripeButton()).toBeVisible({ timeout: 10_000 });
+
+  // Pre-connection: "What You'll Need" checklist rendered when hasAccount: false.
+  const assertRequirementsVisible = async () => {
+    await expect(
+      page.getByRole("heading", { name: "What You'll Need" })
+    ).toBeVisible({ timeout: 10_000 });
+    for (const item of [
+      "Personal Information",
+      "Business Details",
+      "Bank Account",
+      "Payout Settings",
+    ]) {
+      await expect(page.getByRole("heading", { name: item })).toBeVisible({
+        timeout: 10_000,
+      });
+    }
+  };
+
   // ── Success / return page (/stripe-onboarding-success?restaurantId=<id>) ──
 
   const gotoSuccessPage = async (restaurantId: string) => {
     await page.goto(`/stripe-onboarding-success?restaurantId=${restaurantId}`, {
       waitUntil: "domcontentloaded",
     });
-    // Page fetches Stripe status — wait for either heading to settle.
     await page
       .getByRole("heading", {
         name: /Stripe Account Successfully Connected|Stripe Account Setup In Progress/i,
@@ -102,10 +106,10 @@ export const createOwnerPaymentSettingsPage = (page: Page) => {
     pageHeading,
     assertPageLoaded,
     assertStepperVisible,
+    assertHeaderDescription,
     connectStripeButton,
     assertConnectButtonVisible,
     assertRequirementsVisible,
-    assertHeaderDescription,
     gotoSuccessPage,
     successPageHeading,
     restaurantDashboardButton,

@@ -1083,7 +1083,7 @@ New owners who haven't heard of Stripe need this context to understand what they
 
 ## TC-49 — Owner Without a Stripe Account Sees the "Set Up Stripe Account" Button
 
-**Status:** ⏭️ Skipped — QA owner account already has Stripe connected ('You're All Set!'); pre-setup UI is not visible
+**Status:** ✅ Passing
 
 ### What it checks
 
@@ -1091,9 +1091,9 @@ When a restaurant hasn't connected Stripe yet, the primary action button on the 
 
 ### How it works, step by step
 
-1. The test navigates to the Stripe setup page for a restaurant that has not connected Stripe
-2. It confirms the "Set Up Stripe Account" button is visible
-3. The test does **not** click the button — clicking it would redirect to Stripe's external website
+1. The test **intercepts the Stripe status API** before navigating, returning `hasAccount: false` — this forces the page to render the pre-setup UI regardless of the QA account's real Stripe state
+2. It navigates to the Stripe setup page
+3. It confirms the "Set Up Stripe Account" button is visible
 
 ### Why it matters
 
@@ -1103,7 +1103,7 @@ If this button is missing or has the wrong label, the owner cannot start the Str
 
 ## TC-50 — Stripe Setup Page Shows the "What You'll Need" Requirements Section
 
-**Status:** ⏭️ Skipped — QA owner account already has Stripe connected ('You're All Set!'); pre-setup UI is not visible
+**Status:** ✅ Passing
 
 ### What it checks
 
@@ -1111,9 +1111,10 @@ The page shows a checklist of four items the owner needs to have ready before co
 
 ### How it works, step by step
 
-1. The test navigates to the Stripe setup page
-2. It confirms the section heading "What You'll Need" is visible
-3. It confirms all four requirement items are listed: **Personal Information**, **Business Details**, **Bank Account**, **Payout Settings**
+1. The test **intercepts the Stripe status API** before navigating, returning `hasAccount: false` — this forces the page to render the pre-setup UI regardless of the QA account's real Stripe state
+2. It navigates to the Stripe setup page
+3. It confirms the section heading "What You'll Need" is visible
+4. It confirms all four requirement items are listed: **Personal Information**, **Business Details**, **Bank Account**, **Payout Settings**
 
 ### Why it matters
 
@@ -1162,6 +1163,29 @@ This is the exit point of the entire payment setup flow. If the button doesn't r
 
 ---
 
+## TC-53 — Clicking "Set Up Stripe Account" Calls the Create API and Redirects to Stripe
+
+**Status:** ✅ Passing
+
+### What it checks
+
+When the owner clicks "Set Up Stripe Account", the app calls the backend to create a Stripe Connect account and immediately redirects the owner's browser to Stripe's onboarding website.
+
+### How it works, step by step
+
+1. The test intercepts the Stripe status API to return `hasAccount: false`, so the button appears
+2. It intercepts the **create-account API** (`POST /api/stripe/account/restaurant/:id/create`) and returns a fake Stripe Connect URL — this proves the correct endpoint is called without touching the real Stripe API
+3. It intercepts `connect.stripe.com` with a stub response so the browser redirect completes inside the test environment
+4. It clicks the "Set Up Stripe Account" button
+5. It confirms the browser navigated to a `connect.stripe.com` URL
+6. It confirms the create API was called with the correct `restaurantId`
+
+### Why it matters
+
+This is the critical handoff from the app to Stripe. If the button calls the wrong endpoint, or the response URL isn't followed, the owner never reaches Stripe's onboarding and cannot connect payments. This test verifies the entire chain — button click → API call → redirect — without needing a real Stripe account or leaving the test environment.
+
+---
+
 ---
 
 # 📊 Test Summary
@@ -1180,15 +1204,15 @@ This is the exit point of the entire payment setup flow. If the button doesn't r
 | TC-10 | Admin opens assign request dialog               | Admin    | ✅ Passing |
 | TC-11 | Admin opens schedule demo dialog                | Admin    | ✅ Passing |
 | TC-12 | Proceed to onboarding navigates correctly       | Admin    | ✅ Passing |
-| TC-13 | Owner sees My Restaurants page                  | Owner    | ⏭️ Skipped |
-| TC-14 | Owner sees their restaurant card                | Owner    | ⏭️ Skipped |
-| TC-15 | Owner opens restaurant management portal        | Owner    | ⏭️ Skipped |
-| TC-16 | Owner navigates to Store Settings               | Owner    | ⏭️ Skipped |
+| TC-13 | Owner sees My Restaurants page                  | Owner    | ✅ Passing |
+| TC-14 | Owner sees their restaurant card                | Owner    | ✅ Passing |
+| TC-15 | Owner opens restaurant management portal        | Owner    | ✅ Passing |
+| TC-16 | Owner navigates to Store Settings               | Owner    | ✅ Passing |
 | TC-17 | Owner opens tax settings page                   | Owner    | ⏭️ Skipped |
 | TC-18 | Owner saves a tax rate                          | Owner    | ⏭️ Skipped |
-| TC-19 | Owner opens menu management                     | Owner    | ⏭️ Skipped |
-| TC-20 | Owner creates a menu category                   | Owner    | ⏭️ Skipped |
-| TC-21 | Owner adds a menu item                          | Owner    | ⏭️ Skipped |
+| TC-19 | Owner opens menu management                     | Owner    | ✅ Passing |
+| TC-20 | Owner creates a menu category                   | Owner    | ✅ Passing |
+| TC-21 | Owner adds a menu item                          | Owner    | ✅ Passing |
 | TC-22 | Customer sees menu page                         | Customer | ⏭️ Skipped |
 | TC-23 | Customer opens item and sees Add to Cart        | Customer | ⏭️ Skipped |
 | TC-24 | Customer reaches checkout with cart             | Customer | ⏭️ Skipped |
@@ -1196,10 +1220,10 @@ This is the exit point of the entire payment setup flow. If the button doesn't r
 | TC-26 | Customer completes full order end to end        | Customer | ⏭️ Skipped |
 | TC-27 | Owner reaches the publish page                  | Owner    | ⏭️ Skipped |
 | TC-28 | Publish checklist items are visible             | Owner    | ⏭️ Skipped |
-| TC-29 | Owner views the Orders tab                      | Owner    | ⏭️ Skipped |
-| TC-30 | Owner opens the Create Coupon form              | Owner    | ⏭️ Skipped |
-| TC-31 | Owner creates a new coupon                      | Owner    | ⏭️ Skipped |
-| TC-32 | Admin sees the Restaurants list                 | Admin    | ⏭️ Skipped |
+| TC-29 | Owner views the Orders tab                      | Owner    | ✅ Passing |
+| TC-30 | Owner opens the Create Coupon form              | Owner    | ✅ Passing |
+| TC-31 | Owner creates a new coupon                      | Owner    | ✅ Passing |
+| TC-32 | Admin sees the Restaurants list                 | Admin    | ✅ Passing |
 | TC-33 | Owner configures hours of operation             | Owner    | ⏭️ Skipped |
 | TC-34 | Owner accesses employee management              | Owner    | ⏭️ Skipped |
 | TC-35 | Owner views the analytics dashboard             | Owner    | ⏭️ Skipped |
@@ -1210,20 +1234,21 @@ This is the exit point of the entire payment setup flow. If the button doesn't r
 | TC-40 | Owner opens the Restaurant Info form            | Owner    | ⏭️ Skipped |
 | TC-41 | Owner edits and saves restaurant phone number   | Owner    | ⏭️ Skipped |
 | TC-42 | Owner renames a menu category                   | Owner    | ⏭️ Skipped |
-| TC-43 | Owner edits a menu item name and price          | Owner    | ⏭️ Skipped |
+| TC-43 | Owner edits a menu item name and price          | Owner    | ✅ Passing |
 | TC-44 | Owner deletes a menu item                       | Owner    | ⏭️ Skipped |
-| TC-45 | Owner deletes a menu category                   | Owner    | ⏭️ Skipped |
-| TC-46 | Owner opens the Stripe setup page               | Owner    | ⏭️ Skipped |
-| TC-47 | Stripe stepper shows all 4 steps                | Owner    | ⏭️ Skipped |
-| TC-48 | Stripe page shows header description            | Owner    | ⏭️ Skipped |
-| TC-49 | Owner sees Set Up Stripe Account button         | Owner    | ⏭️ Skipped |
-| TC-50 | Stripe requirements section is visible          | Owner    | ⏭️ Skipped |
-| TC-51 | Stripe success callback page loads              | Owner    | ⏭️ Skipped |
-| TC-52 | Restaurant Dashboard button redirects correctly | Owner    | ⏭️ Skipped |
+| TC-45 | Owner deletes a menu category                   | Owner    | ✅ Passing |
+| TC-46 | Owner opens the Stripe setup page               | Owner    | ✅ Passing |
+| TC-47 | Stripe stepper shows all 4 steps                | Owner    | ✅ Passing |
+| TC-48 | Stripe page shows header description            | Owner    | ✅ Passing |
+| TC-49 | Owner sees Set Up Stripe Account button         | Owner    | ✅ Passing |
+| TC-50 | Stripe requirements section is visible          | Owner    | ✅ Passing |
+| TC-51 | Stripe success callback page loads              | Owner    | ✅ Passing |
+| TC-52 | Restaurant Dashboard button redirects correctly | Owner    | ✅ Passing |
+| TC-53 | Connect button calls create API and redirects   | Owner    | ✅ Passing |
 
-**10 passing · 42 skipped · 0 failing**
+**32 passing · 21 skipped · 0 failing**
 
-All skipped tests are waiting for owner and/or admin account credentials to be added to the environment configuration. Once added, all 52 tests will run.
+Owner and customer tests that remain skipped (TC-17, TC-18, TC-27, TC-28) require employee-role credentials or are blocked by route access restrictions. TC-22 to TC-26 and TC-33 to TC-44 require additional environment setup or have not yet been implemented.
 
 ---
 
