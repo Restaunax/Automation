@@ -25,12 +25,12 @@ Each test case includes:
 
 ## The Four Areas We Test
 
-| Area        | Who Uses It              | Tests                                       |
-| ----------- | ------------------------ | ------------------------------------------- |
-| 🌐 Public   | Anyone on the internet   | TC-01, TC-02                                |
-| 🔐 Admin    | Internal Restaunax staff | TC-03 → TC-12, TC-32                        |
-| 🏠 Owner    | Restaurant owners        | TC-13 → TC-21, TC-27 → TC-31, TC-33 → TC-45 |
-| 🛒 Customer | People ordering food     | TC-22 → TC-26                               |
+| Area        | Who Uses It              | Tests                                                        |
+| ----------- | ------------------------ | ------------------------------------------------------------ |
+| 🌐 Public   | Anyone on the internet   | TC-01, TC-02                                                 |
+| 🔐 Admin    | Internal Restaunax staff | TC-03 → TC-12, TC-32                                         |
+| 🏠 Owner    | Restaurant owners        | TC-13 → TC-21, TC-27 → TC-31, TC-33 → TC-53 (excl. TC-22–26) |
+| 🛒 Customer | People ordering food     | TC-22 → TC-26                                                |
 
 ---
 
@@ -315,7 +315,7 @@ This is the moment a prospect becomes a paying customer. A broken link here woul
 
 ## TC-32 — Admin Can See the Restaurants List
 
-**Status:** ⏭️ Skipped (admin login not configured)
+**Status:** ✅ Passing
 
 ### What it checks
 
@@ -639,7 +639,7 @@ If coupon creation fails, the restaurant can't run any promotions. This directly
 
 ## TC-33 — Owner Can Configure Hours of Operation
 
-**Status:** ⏭️ Skipped (owner login not configured)
+**Status:** ⏭️ Skipped (test not yet implemented)
 
 ### What it checks
 
@@ -660,7 +660,7 @@ Without setting hours, the restaurant's online ordering page won't show customer
 
 ## TC-34 — Owner Can Access Employee Management
 
-**Status:** ⏭️ Skipped (owner login not configured)
+**Status:** ⏭️ Skipped (test not yet implemented)
 
 ### What it checks
 
@@ -680,7 +680,7 @@ Owners need to add and manage their restaurant staff on the platform. If this se
 
 ## TC-35 — Owner Can View the Analytics Dashboard
 
-**Status:** ⏭️ Skipped (owner login not configured)
+**Status:** ⏭️ Skipped (test not yet implemented)
 
 ### What it checks
 
@@ -700,7 +700,7 @@ Analytics is how owners track the performance of their restaurant. Without it, t
 
 ## TC-36 — Owner Can View Their Billing and Subscription
 
-**Status:** ⏭️ Skipped (owner login not configured)
+**Status:** ⏭️ Skipped (test not yet implemented)
 
 ### What it checks
 
@@ -719,7 +719,7 @@ Owners need to see what plan they're on, manage their billing, and upgrade if ne
 
 ## TC-37 — Owner Can Access the Loyalty Program Setup
 
-**Status:** ⏭️ Skipped (owner login not configured)
+**Status:** ⏭️ Skipped (test not yet implemented)
 
 ### What it checks
 
@@ -739,7 +739,7 @@ Loyalty programs keep customers coming back. If the loyalty setup page is broken
 
 ## TC-38 — Owner Can Access Uber Eats Settings
 
-**Status:** ⏭️ Skipped (owner login not configured)
+**Status:** ⏭️ Skipped (test not yet implemented)
 
 ### What it checks
 
@@ -758,7 +758,7 @@ Many restaurants use Uber Eats as a delivery channel alongside direct ordering. 
 
 ## TC-39 — Owner Can Access the Deals Section
 
-**Status:** ⏭️ Skipped (owner login not configured)
+**Status:** ⏭️ Skipped (test not yet implemented)
 
 ### What it checks
 
@@ -778,7 +778,7 @@ Deals are time-limited promotions that drive sales. If owners can't access the d
 
 ## TC-40 — Owner Can Open the Restaurant Info Form
 
-**Status:** ⏭️ Skipped (owner login not configured)
+**Status:** ⏭️ Skipped (test not yet implemented)
 
 ### What it checks
 
@@ -798,7 +798,7 @@ Restaurant Info is where owners maintain their core business details — name, c
 
 ## TC-41 — Owner Can Edit and Save the Restaurant Phone Number
 
-**Status:** ⏭️ Skipped (owner login not configured)
+**Status:** ⏭️ Skipped (test not yet implemented)
 
 ### What it checks
 
@@ -840,7 +840,7 @@ If category editing is broken, owners cannot correct typos or reorganise their m
 
 ## TC-43 — Owner Can Edit a Menu Item Name and Price
 
-**Status:** ⏭️ Skipped — editing an item opens a multi-step wizard at a different URL; not yet automated
+**Status:** ✅ Passing
 
 ### What it checks
 
@@ -1248,7 +1248,7 @@ This is the critical handoff from the app to Stripe. If the button calls the wro
 
 **32 passing · 21 skipped · 0 failing**
 
-Owner and customer tests that remain skipped (TC-17, TC-18, TC-27, TC-28) require employee-role credentials or are blocked by route access restrictions. TC-22 to TC-26 and TC-33 to TC-44 require additional environment setup or have not yet been implemented.
+Skipped tests fall into three groups: **route access** (TC-17, TC-18, TC-27, TC-28 — these routes are employee-only and return Access Denied for the owner role); **missing UI** (TC-42, TC-44 — the edit/delete buttons don't exist in the current menu editor); **not yet implemented** (TC-22 to TC-26, TC-33 to TC-41 — test code hasn't been written yet).
 
 ---
 
@@ -1266,5 +1266,5 @@ They can be run manually at any time with one command (`npm run test`). They are
 **Q: What happens when a test fails?**
 A failed test means something in the software is not working as expected. The test suite saves a screenshot and recording of the failure so developers can see exactly what went wrong.
 
-**Q: Why are so many tests skipped?**
-The skipped tests require an "owner" login account for the QA environment. Once the owner email and password are added to the configuration file, those tests will all run automatically.
+**Q: Why are some tests skipped?**
+Skipped tests fall into three categories: (1) the feature is restricted to a different role on QA (e.g. `/tax` and `/publish` are employee-only, so owner tests get Access Denied); (2) the UI doesn't yet expose the needed button or element (e.g. no delete button on menu item cards); or (3) the test case has been documented but the automated test code hasn't been written yet. Each skipped test explains its specific reason in the Status line.

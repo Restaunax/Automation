@@ -6,12 +6,12 @@
 
 ## Legend
 
-| Symbol | Meaning                                                       |
-| ------ | ------------------------------------------------------------- |
-| ✅     | Covered and passing                                           |
-| ⏭️     | Covered but skipped (missing env credentials)                 |
-| ❌     | Not covered — needs to be written                             |
-| ⚠️     | Partially covered — dialog opens but feature not fully tested |
+| Symbol | Meaning                                                                     |
+| ------ | --------------------------------------------------------------------------- |
+| ✅     | Covered and passing                                                         |
+| ⏭️     | Covered but skipped (credentials, role restriction, or not yet implemented) |
+| ❌     | Not covered — needs to be written                                           |
+| ⚠️     | Partially covered — dialog opens but feature not fully tested               |
 
 ---
 
@@ -84,20 +84,20 @@
 
 ## 🛒 Customer
 
-| Feature                                 | Test  | Status                            |
-| --------------------------------------- | ----- | --------------------------------- |
-| Menu page loads                         | TC-22 | ⏭️ Skipped (no owner credentials) |
-| Open item modal + Add to Cart visible   | TC-23 | ⏭️ Skipped (no owner credentials) |
-| Checkout form visible with cart         | TC-24 | ⏭️ Skipped (no owner credentials) |
-| Fill checkout form + proceed to payment | TC-25 | ⏭️ Skipped (no owner credentials) |
-| Complete full order with Stripe card    | TC-26 | ⏭️ Skipped (no owner credentials) |
-| Delivery order (address + delivery fee) | —     | ❌ Not written                    |
-| Apply coupon at checkout                | —     | ❌ Not written                    |
-| OTP member login (phone number)         | —     | ❌ Not written                    |
-| Loyalty points redemption               | —     | ❌ Not written                    |
-| Gift card purchase                      | —     | ❌ Not written                    |
-| Declined payment handling               | —     | ❌ Not written                    |
-| Order with modifiers selected           | —     | ❌ Not written                    |
+| Feature                                 | Test  | Status                                |
+| --------------------------------------- | ----- | ------------------------------------- |
+| Menu page loads                         | TC-22 | ⏭️ Skipped — test not yet implemented |
+| Open item modal + Add to Cart visible   | TC-23 | ⏭️ Skipped — test not yet implemented |
+| Checkout form visible with cart         | TC-24 | ⏭️ Skipped — test not yet implemented |
+| Fill checkout form + proceed to payment | TC-25 | ⏭️ Skipped — test not yet implemented |
+| Complete full order with Stripe card    | TC-26 | ⏭️ Skipped — test not yet implemented |
+| Delivery order (address + delivery fee) | —     | ❌ Not written                        |
+| Apply coupon at checkout                | —     | ❌ Not written                        |
+| OTP member login (phone number)         | —     | ❌ Not written                        |
+| Loyalty points redemption               | —     | ❌ Not written                        |
+| Gift card purchase                      | —     | ❌ Not written                        |
+| Declined payment handling               | —     | ❌ Not written                        |
+| Order with modifiers selected           | —     | ❌ Not written                        |
 
 ---
 
@@ -161,18 +161,13 @@
 
 ## ⚠️ Known Technical Debt
 
-| Issue                                             | Affected Tests      | Risk                                   |
-| ------------------------------------------------- | ------------------- | -------------------------------------- |
-| Submit button label unknown                       | TC-21               | 🔴 High — regex fallback may not match |
-| Category container selector unverified            | TC-20, TC-23        | 🔴 High — may select wrong element     |
-| Pickup radio may be custom styled (not `<input>`) | TC-25, TC-26        | 🔴 High — click may do nothing         |
-| Stripe iframe selector unverified                 | TC-26               | 🔴 High — card fill may silently fail  |
-| Seed restaurant not published                     | TC-22–TC-26         | 🔴 High — menu page may redirect       |
-| TC-12 onboarding URL regex unverified             | TC-12               | 🟡 Medium                              |
-| TC-16 tab URL encoding unverified                 | TC-16               | 🟡 Medium                              |
-| TC-06 leaves status as "Contacted" on QA          | TC-06               | 🟡 Medium — dirty test data            |
-| TC-18 leaves tax rate at 8.5% on QA               | TC-18               | 🟡 Medium — dirty test data            |
-| TC-20/21 leave category + item on QA              | TC-20, TC-21        | 🟡 Medium — dirty test data            |
-| MUI class selectors fragile to upgrades           | TC-14, TC-15, TC-20 | 🟢 Low                                 |
-| TC-03 only checks URL not dashboard content       | TC-03               | 🟢 Low                                 |
-| TC-07–TC-11 only open dialogs, no feature testing | TC-07–TC-11         | 🟢 Low                                 |
+| Issue                                             | Affected Tests      | Risk                                  |
+| ------------------------------------------------- | ------------------- | ------------------------------------- |
+| Pickup radio may be custom styled (not `<input>`) | TC-25, TC-26        | 🔴 High — click may do nothing        |
+| Stripe iframe selector unverified                 | TC-26               | 🔴 High — card fill may silently fail |
+| Seed restaurant not published                     | TC-22–TC-26         | 🔴 High — menu page may redirect      |
+| TC-06 leaves status as "Contacted" on QA          | TC-06               | 🟡 Medium — dirty test data           |
+| TC-18 leaves tax rate at 8.5% on QA               | TC-18               | 🟡 Medium — dirty test data           |
+| MUI class selectors fragile to upgrades           | TC-14, TC-15, TC-20 | 🟢 Low                                |
+| TC-03 only checks URL not dashboard content       | TC-03               | 🟢 Low                                |
+| TC-07–TC-11 only open dialogs, no feature testing | TC-07–TC-11         | 🟢 Low                                |
