@@ -6,11 +6,7 @@
  * All functions throw on non-2xx responses with a clear error message.
  */
 
-import {
-  generateRestaurantData,
-  readUsersForCleanup,
-  clearUsersForCleanup,
-} from "./testData";
+import { readUsersForCleanup, clearUsersForCleanup } from "./testData";
 
 const BACKEND_URL = process.env.BACKEND_URL ?? "https://api.qa.restaunax.com";
 
@@ -105,20 +101,23 @@ export async function apiLogin(
 }
 
 /**
- * Creates a uniquely-named test restaurant owned by the authenticated user.
- * Returns the new restaurant's id and name.
+ * Returns all restaurants owned by the authenticated user.
+ * Uses GET /restaurant/owned — no special permissions required beyond auth.
  */
-export async function createTestRestaurant(
+export async function getOwnerRestaurants(
   accessToken: string
-): Promise<ApiRestaurant> {
-  const payload = generateRestaurantData();
-  const data = await apiRequest<{ id: string; name: string }>(
-    "POST",
-    "/api/restaurant/new",
-    payload,
-    accessToken
-  );
-  return { id: data.id, name: data.name };
+): Promise<ApiRestaurant[]> {
+  const data = await apiRequest<
+    | ApiRestaurant[]
+    | { restaurant: ApiRestaurant[] }
+    | { restaurants: ApiRestaurant[] }
+  >("GET", "/restaurant/owned", undefined, accessToken);
+  if (Array.isArray(data)) return data;
+  if ("restaurant" in data && Array.isArray(data.restaurant))
+    return data.restaurant;
+  if ("restaurants" in data && Array.isArray(data.restaurants))
+    return data.restaurants;
+  return [];
 }
 
 /**
@@ -131,14 +130,45 @@ export async function deleteTestRestaurant(
 ): Promise<void> {
   await apiRequest<unknown>(
     "DELETE",
-    `/api/admin/restaurant/${restaurantId}`,
+    `/api/admin/restaurants/${restaurantId}`,
     undefined,
     adminAccessToken
   );
 }
 
+/**
+ * Deletes a menu item by ID. Requires auth (owner token is sufficient).
+ */
+export async function deleteTestMenuItem(
+  accessToken: string,
+  menuItemId: string
+): Promise<void> {
+  await apiRequest<unknown>(
+    "DELETE",
+    `/menu/menuItemId/${menuItemId}`,
+    undefined,
+    accessToken
+  );
+}
+
+/**
+ * Deletes a menu group by ID. Requires auth (owner token is sufficient).
+ */
+export async function deleteTestMenuGroup(
+  accessToken: string,
+  menuGroupId: string
+): Promise<void> {
+  await apiRequest<unknown>(
+    "DELETE",
+    `/menu/group/${menuGroupId}`,
+    undefined,
+    accessToken
+  );
+}
+
 export interface ApiMenuGroup {
   id: string;
+  menuItems?: ApiMenuItem[];
 }
 
 export interface ApiMenuItem {
@@ -147,28 +177,77 @@ export interface ApiMenuItem {
   price: number;
 }
 
+/**
+ * GET /menu/restaurants/:restaurantId/menus — returns all menu groups with
+ * their items. Used by teardown to drain a group before deleting it.
+ */
+export async function getRestaurantMenuGroups(
+  accessToken: string,
+  restaurantId: string
+): Promise<ApiMenuGroup[]> {
+  const data = await apiRequest<{ groups: ApiMenuGroup[] }>(
+    "GET",
+    `/menu/restaurants/${restaurantId}/menus`,
+    undefined,
+    accessToken
+  );
+  return data.groups ?? [];
+}
+
+/**
+ * Delete every menu item in a group, then delete the group.
+ * Gracefully handles the "Cannot Delete Category With Items" error by first
+ * removing any items that tests may have left behind.
+ */
+export async function deleteTestMenuGroupWithItems(
+  accessToken: string,
+  restaurantId: string,
+  menuGroupId: string
+): Promise<void> {
+  const groups = await getRestaurantMenuGroups(accessToken, restaurantId);
+  const group = groups.find((g) => g.id === menuGroupId);
+  if (group?.menuItems?.length) {
+    for (const item of group.menuItems) {
+      await apiRequest<unknown>(
+        "DELETE",
+        `/menu/menuItemId/${item.id}`,
+        undefined,
+        accessToken
+      );
+    }
+  }
+  await apiRequest<unknown>(
+    "DELETE",
+    `/menu/group/${menuGroupId}`,
+    undefined,
+    accessToken
+  );
+}
+
 export async function createTestMenuGroup(
   accessToken: string,
   restaurantId: string
 ): Promise<ApiMenuGroup> {
-  return apiRequest<ApiMenuGroup>(
+  const data = await apiRequest<{ group: ApiMenuGroup }>(
     "POST",
     "/menu/group/new",
     { restaurantId, menuGroup: "Automation Items" },
     accessToken
   );
+  return data.group;
 }
 
 export async function createTestMenuItem(
   accessToken: string,
   groupId: string
 ): Promise<ApiMenuItem> {
-  return apiRequest<ApiMenuItem>(
+  const data = await apiRequest<{ menuItem: ApiMenuItem }>(
     "POST",
     "/menu/item/new",
     { name: "Automation Burger", price: 12.99, groupId },
     accessToken
   );
+  return data.menuItem;
 }
 
 // ── Admin user management ────────────────────────────────────────────────────

@@ -5,18 +5,18 @@ export const createAdminRestaurantsPage = (page: Page) => {
     page.locator('input[placeholder*="Search"]').first();
 
   const goto = async () => {
-    await page.goto("/admin?tab=restaurants", {
+    await page.goto("/admin?tab=restaurant", {
       waitUntil: "domcontentloaded",
     });
     await page
-      .getByRole("heading", { name: /restaurants/i })
+      .getByRole("heading", { name: /restaurant management/i })
       .waitFor({ state: "visible", timeout: 15_000 });
   };
 
   const assertPageLoaded = () =>
-    expect(page.getByRole("heading", { name: /restaurants/i })).toBeVisible({
-      timeout: 15_000,
-    });
+    expect(
+      page.getByRole("heading", { name: /restaurant management/i })
+    ).toBeVisible({ timeout: 15_000 });
 
   const assertTableColumnVisible = (columnName: string) =>
     expect(page.getByRole("columnheader", { name: columnName })).toBeVisible({

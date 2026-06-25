@@ -217,10 +217,11 @@ test.describe("Admin — User Management", () => {
       await users.searchUser(target.email);
       await users.assertRowExists(target.email);
 
-      // Our seeded user is active → the Inactive filter hides it.
+      // Filtering to "Inactive" hides our active USER row…
       await users.filterByStatus("Inactive");
       await expect(users.findRowByEmail(target.email)).toHaveCount(0);
-      await users.filterByStatus("Active");
+      // …and resetting brings it back.
+      await users.filterByStatus("All Statuses");
       await users.assertRowExists(target.email);
     });
   });
