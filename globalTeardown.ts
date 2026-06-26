@@ -19,6 +19,7 @@ import {
   STATE_FILE,
   OWNER_AUTH_FILE,
   ADMIN_AUTH_FILE,
+  EMPLOYEE_AUTH_FILE,
   USERS_CLEANUP_FILE,
   readSharedState,
 } from "./utils/testData";
@@ -83,6 +84,7 @@ export default async function globalTeardown(): Promise<void> {
     STATE_FILE,
     OWNER_AUTH_FILE,
     ADMIN_AUTH_FILE,
+    EMPLOYEE_AUTH_FILE,
     USERS_CLEANUP_FILE,
   ]) {
     if (fs.existsSync(f)) {

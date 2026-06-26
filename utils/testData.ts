@@ -22,6 +22,10 @@ export const ADMIN_AUTH_FILE = path.resolve(
   __dirname,
   "../admin-auth.tmp.json"
 );
+export const EMPLOYEE_AUTH_FILE = path.resolve(
+  __dirname,
+  "../employee-auth.tmp.json"
+);
 
 // Records users created by the admin user-management suite so globalTeardown
 // (and spec afterAll hooks) can delete them even if a test crashes mid-run.
@@ -36,6 +40,10 @@ export const USERS_CLEANUP_FILE = path.resolve(
 export const TEST_USER_MARKER = "autouser";
 
 // ── Test data generators ─────────────────────────────────────────────────────
+
+// Single source of truth for unique run suffixes used in test names/data.
+export const generateRunId = () => Date.now().toString().slice(-6);
+
 export function generateDemoFormData(): DemoFormData & { uniqueId: string } {
   const uniqueId = uuidv4().split("-")[0];
   return {

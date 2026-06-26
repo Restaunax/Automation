@@ -1,4 +1,6 @@
 import { type Page, expect } from "@playwright/test";
+import { fillStripePaymentElement } from "../../utils/stripeHelper";
+import { STRIPE_CARDS, STRIPE_DEFAULTS } from "../../utils/stripeCards";
 
 const TEMPLATE_WIND_URL =
   process.env.TEMPLATE_WIND_URL ?? "https://qa.restaunax.com";
@@ -85,17 +87,11 @@ export const createCustomerCheckoutPage = (page: Page) => {
     });
 
   const fillStripeCard = async (
-    cardNumber: string,
-    expiry: string,
-    cvc: string
+    cardNumber = STRIPE_CARDS.VISA_SUCCESS,
+    expiry = `${STRIPE_DEFAULTS.EXPIRY_MONTH} / ${STRIPE_DEFAULTS.EXPIRY_YEAR}`,
+    cvc = STRIPE_DEFAULTS.CVC
   ) => {
-    // Stripe PaymentElement renders card fields inside an iframe with a stripe.com src
-    const stripeFrame = page.frameLocator('iframe[src*="stripe.com"]').first();
-    await stripeFrame
-      .locator('[placeholder="1234 1234 1234 1234"]')
-      .fill(cardNumber);
-    await stripeFrame.locator('[placeholder="MM / YY"]').fill(expiry);
-    await stripeFrame.locator('[placeholder="CVC"]').fill(cvc);
+    await fillStripePaymentElement(page, cardNumber, expiry, cvc);
   };
 
   const completeOrder = () =>

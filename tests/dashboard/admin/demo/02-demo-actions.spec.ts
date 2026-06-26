@@ -58,6 +58,9 @@ test.describe("Admin — Demo Request Actions", () => {
     await expect(
       demoPage.findRowByEmail(email).locator('[role="combobox"] .MuiChip-label')
     ).toContainText("Contacted", { timeout: 10_000 });
+
+    // Reset status so TC-04 (which asserts "NEW") is not affected on re-runs.
+    await demoPage.changeStatusInline(email, "New");
   });
 
   test("TC-07: admin can open View/Edit Details side sheet", async ({

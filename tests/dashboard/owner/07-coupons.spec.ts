@@ -2,7 +2,7 @@ import * as allure from "allure-js-commons";
 import { test } from "../../../fixtures/base";
 import { createOwnerRestaurantManagementPage } from "../../../pages/dashboard/owner/OwnerRestaurantManagementPage";
 import { createOwnerCouponPage } from "../../../pages/dashboard/owner/OwnerCouponPage";
-import { readSharedState } from "../../../utils/testData";
+import { readSharedState, generateRunId } from "../../../utils/testData";
 
 const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
@@ -60,7 +60,7 @@ test.describe("Owner — Coupons", () => {
     const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
     const couponPage = createOwnerCouponPage(ownerPage);
 
-    const couponCode = `AUTO${Date.now().toString().slice(-6)}`;
+    const couponCode = `AUTO${generateRunId()}`;
 
     await allure.step(
       `Navigate to restaurant management (id: ${restaurantId})`,

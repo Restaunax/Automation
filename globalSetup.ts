@@ -25,6 +25,7 @@ import {
   STATE_FILE,
   OWNER_AUTH_FILE,
   ADMIN_AUTH_FILE,
+  EMPLOYEE_AUTH_FILE,
   FRONTEND_URL,
   writeSharedState,
   generateDemoFormData,
@@ -36,6 +37,8 @@ const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
+const EMPLOYEE_EMAIL = process.env.EMPLOYEE_EMAIL ?? "";
+const EMPLOYEE_PASSWORD = process.env.EMPLOYEE_PASSWORD ?? "";
 
 // ── Shared browser lifecycle ──────────────────────────────────────────────────
 async function withBrowser<T>(
@@ -117,7 +120,12 @@ export default async function globalSetup(): Promise<void> {
   fs.mkdirSync(path.resolve(__dirname, "test-results"), { recursive: true });
 
   // Clean all stale tmp files from previous runs
-  for (const f of [STATE_FILE, OWNER_AUTH_FILE, ADMIN_AUTH_FILE]) {
+  for (const f of [
+    STATE_FILE,
+    OWNER_AUTH_FILE,
+    ADMIN_AUTH_FILE,
+    EMPLOYEE_AUTH_FILE,
+  ]) {
     if (fs.existsSync(f)) fs.unlinkSync(f);
   }
 
@@ -161,9 +169,9 @@ export default async function globalSetup(): Promise<void> {
     );
   }
 
-  // 2-4. Owner auth, admin auth, and demo submission are fully independent —
-  //      run all three browser sessions in parallel to cut setup time ~3x.
-  const [, , demoResult] = await Promise.all([
+  // 2-5. Owner auth, admin auth, employee auth, and demo submission are fully
+  //      independent — run all four browser sessions in parallel to cut setup time.
+  const [, , , demoResult] = await Promise.all([
     OWNER_EMAIL && OWNER_PASSWORD
       ? saveAuthState(OWNER_EMAIL, OWNER_PASSWORD, OWNER_AUTH_FILE, "owner")
       : Promise.resolve(),
@@ -172,6 +180,18 @@ export default async function globalSetup(): Promise<void> {
       : Promise.resolve(
           console.warn(
             "[globalSetup] ADMIN_EMAIL/PASSWORD not set — skipping admin auth"
+          )
+        ),
+    EMPLOYEE_EMAIL && EMPLOYEE_PASSWORD
+      ? saveAuthState(
+          EMPLOYEE_EMAIL,
+          EMPLOYEE_PASSWORD,
+          EMPLOYEE_AUTH_FILE,
+          "employee"
+        )
+      : Promise.resolve(
+          console.warn(
+            "[globalSetup] EMPLOYEE_EMAIL/PASSWORD not set — skipping employee auth"
           )
         ),
     submitDemoRequest(),
