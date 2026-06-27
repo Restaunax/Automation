@@ -17,6 +17,7 @@ import {
 import {
   OWNER_AUTH_FILE,
   ADMIN_AUTH_FILE,
+  EMPLOYEE_AUTH_FILE,
   FRONTEND_URL,
   TEMPLATE_WIND_URL,
 } from "../utils/testData";
@@ -28,14 +29,16 @@ export type DashboardRole = "owner" | "admin" | "employee";
 export type PageForRole = (role: DashboardRole) => Promise<Page>;
 
 export type Fixtures = {
-  // ownerContext / adminContext: full session (use when a test needs multiple tabs)
-  // ownerPage   / adminPage:    convenience single-tab shortcut for the common case
+  // ownerContext / adminContext / employeeContext: full session (use when a test needs multiple tabs)
+  // ownerPage / adminPage / employeePage: convenience single-tab shortcut for the common case
   demoBookingPage: DemoBookingPage;
   signInPage: SignInPage;
   ownerContext: BrowserContext;
   ownerPage: Page;
   adminContext: BrowserContext;
   adminPage: Page;
+  employeeContext: BrowserContext;
+  employeePage: Page;
   // pageForRole(role): an authenticated page for any dashboard role — for the
   // access-control matrix. Contexts it opens are closed at test end.
   pageForRole: PageForRole;
@@ -95,6 +98,16 @@ export const test = base.extend<Fixtures>({
     await page.close();
   },
 
+  employeeContext: async ({ browser }, use) => {
+    await loadAuthContext(browser, EMPLOYEE_AUTH_FILE, "EMPLOYEE", use);
+  },
+
+  employeePage: async ({ employeeContext }, use) => {
+    const page = await employeeContext.newPage();
+    await use(page);
+    await page.close();
+  },
+
   // Guest customer on Template Wind — no auth, no storageState. POMs append
   // ?restaurantId=<id> (via readRestaurantId) so the location picker is skipped.
   customerContext: async ({ browser }, use) => {
@@ -112,19 +125,12 @@ export const test = base.extend<Fixtures>({
   pageForRole: async ({ browser }, use) => {
     const opened: BrowserContext[] = [];
     const resolve: PageForRole = async (role) => {
-      // employee has no stored session yet — that's future infrastructure.
       const authFile =
         role === "admin"
           ? ADMIN_AUTH_FILE
           : role === "owner"
             ? OWNER_AUTH_FILE
-            : null;
-      if (!authFile) {
-        throw new Error(
-          `pageForRole("${role}") is not available yet — no ${role} session is stored. ` +
-            `Add an ${role.toUpperCase()} account + storageState (see TEST_PLAN.md → "Future infrastructure").`
-        );
-      }
+            : EMPLOYEE_AUTH_FILE;
       if (!fs.existsSync(authFile)) {
         throw new Error(
           `${path.basename(authFile)} not found for role "${role}". ` +

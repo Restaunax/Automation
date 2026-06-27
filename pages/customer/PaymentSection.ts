@@ -1,28 +1,16 @@
-import { type Page, type FrameLocator } from "@playwright/test";
+import { type Page } from "@playwright/test";
+import { fillStripePaymentElement } from "../../utils/stripeHelper";
+import { STRIPE_CARDS, STRIPE_DEFAULTS } from "../../utils/stripeCards";
 
-/**
- * Template Wind — Stripe payment step (Stripe PaymentElement, rendered in an
- * iframe). STUB POM. Card data lives in utils/stripeCards.ts. A reusable
- * Stripe payment-element fill helper is planned — see TEST_PLAN.md →
- * "Future infrastructure".
- */
 export const createPaymentSection = (page: Page) => {
   const payButton = page.getByRole("button", { name: /pay/i });
 
-  // Stripe renders its card inputs inside a private iframe.
-  const stripeFrame = (): FrameLocator =>
-    page.frameLocator('iframe[name^="__privateStripeFrame"]');
-
   const fillCard = async (
-    number: string,
-    expiry: string,
-    cvc: string
+    number = STRIPE_CARDS.VISA_SUCCESS,
+    expiry = `${STRIPE_DEFAULTS.EXPIRY_MONTH} / ${STRIPE_DEFAULTS.EXPIRY_YEAR}`,
+    cvc = STRIPE_DEFAULTS.CVC
   ): Promise<void> => {
-    // TODO: fill the Stripe PaymentElement fields (see utils/stripeCards.ts)
-    const frame = stripeFrame();
-    await frame.getByPlaceholder(/card number/i).fill(number);
-    await frame.getByPlaceholder(/MM ?\/ ?YY/i).fill(expiry);
-    await frame.getByPlaceholder(/CVC/i).fill(cvc);
+    await fillStripePaymentElement(page, number, expiry, cvc);
   };
 
   const pay = async (): Promise<void> => {
