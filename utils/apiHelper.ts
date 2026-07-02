@@ -250,6 +250,28 @@ export async function createTestMenuItem(
   return data.menuItem;
 }
 
+/** Raw menu item create — for negative cases (e.g. missing name → 400). */
+export function createMenuItemRaw(
+  accessToken: string,
+  body: Record<string, unknown>
+): Promise<RawResponse> {
+  return apiRequestRaw("POST", "/menu/item/new", body, accessToken);
+}
+
+/** Raw coupon create — for negative cases (e.g. invalid discount → 400). */
+export function createCouponRaw(
+  accessToken: string,
+  restaurantId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "POST",
+    `/api/coupons/restaurant/${restaurantId}`,
+    body,
+    accessToken
+  );
+}
+
 // ── Admin user management ────────────────────────────────────────────────────
 //
 // Helpers for tests/dashboard/admin/users.spec.ts. They seed/inspect/clean up

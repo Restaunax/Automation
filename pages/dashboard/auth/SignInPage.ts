@@ -4,6 +4,7 @@ const buildLocators = (page: Page) => ({
   emailInput: page.locator('input[name="email"]'),
   passwordInput: page.locator('input[name="password"]'),
   submitButton: page.locator('button[type="submit"]'),
+  errorAlert: page.locator('[role="alert"]'),
 });
 
 export const createSignInPage = (page: Page) => {
@@ -35,7 +36,15 @@ export const createSignInPage = (page: Page) => {
     await waitForDashboard();
   };
 
-  return { goto, login, waitForDashboard, loginAndWait };
+  // Login failure (any reason) surfaces as a role="alert" banner on /sign-in
+  // rather than a redirect. The banner text is generic ("session expired")
+  // even for bad credentials — assert presence, not exact wording.
+  const assertLoginError = async (): Promise<void> => {
+    await expect(els.errorAlert).toBeVisible({ timeout: 10_000 });
+    await expect(page).toHaveURL(/\/sign-in/);
+  };
+
+  return { goto, login, waitForDashboard, loginAndWait, assertLoginError };
 };
 
 export type SignInPage = ReturnType<typeof createSignInPage>;

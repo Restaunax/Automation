@@ -10,7 +10,7 @@ import { STRIPE_CARDS, STRIPE_DEFAULTS } from "./stripeCards";
  */
 export async function fillStripePaymentElement(
   page: Page,
-  cardNumber = STRIPE_CARDS.VISA_SUCCESS,
+  cardNumber: string = STRIPE_CARDS.VISA_SUCCESS,
   expiry: string = STRIPE_DEFAULTS.EXPIRY_MM_YY,
   cvc = STRIPE_DEFAULTS.CVC
 ): Promise<void> {

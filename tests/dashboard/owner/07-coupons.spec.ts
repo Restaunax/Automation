@@ -84,4 +84,41 @@ test.describe("Owner — Coupons", () => {
       await couponPage.assertSuccessToast();
     });
   });
+
+  test("TC-63: an invalid discount percentage is rejected", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Submitting a coupon with a discount value outside 1-100 shows a validation error and does " +
+        "not create the coupon."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const couponPage = createOwnerCouponPage(ownerPage);
+
+    await allure.step(
+      `Navigate to restaurant management (id: ${restaurantId})`,
+      async () => {
+        await mgmtPage.goto(restaurantId);
+      }
+    );
+
+    await allure.step("Navigate to Create Coupon form", async () => {
+      await couponPage.navigateToCreateCoupon();
+    });
+
+    await allure.step("Fill an out-of-range discount value", async () => {
+      await couponPage.fillCouponForm(`AUTO${generateRunId()}`, "-10");
+      await couponPage.discountValueInput().press("Tab");
+    });
+
+    await allure.step(
+      "Submit and verify the validation error, no success toast",
+      async () => {
+        await couponPage.submit();
+        await couponPage.assertInvalidDiscountError();
+      }
+    );
+  });
 });

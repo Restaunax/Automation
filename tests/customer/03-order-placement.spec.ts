@@ -81,4 +81,58 @@ test.describe("Customer — Order Placement", () => {
       await allure.parameter("URL", page.url());
     });
   });
+
+  test("TC-64: a declined card shows a payment error and does not place the order", async ({
+    page,
+  }) => {
+    await allure.description(
+      "Filling in a Stripe DECLINED test card and clicking Complete Order shows a Payment Error " +
+        "on the checkout page instead of reaching Order Confirmed."
+    );
+
+    const { restaurantId, menuItemId, menuItemName, menuItemPrice } =
+      readSharedState();
+    const checkoutPage = createCustomerCheckoutPage(page);
+
+    await allure.step("Seed cart and navigate to checkout", async () => {
+      await checkoutPage.seedCart(
+        restaurantId,
+        menuItemId,
+        menuItemName,
+        menuItemPrice
+      );
+    });
+
+    await allure.step("Fill customer info", async () => {
+      await checkoutPage.fillCustomerInfo(
+        "Jane",
+        "Tester",
+        "jane@restaunax-test.com",
+        "5559876543"
+      );
+    });
+
+    await allure.step("Select Pickup service type", async () => {
+      await checkoutPage.selectPickup();
+    });
+
+    await allure.step("Click Proceed to Payment", async () => {
+      await checkoutPage.clickProceedToPayment();
+      await checkoutPage.assertPaymentSectionVisible();
+    });
+
+    await allure.step("Fill a declined Stripe test card", async () => {
+      await checkoutPage.fillStripeCard(STRIPE_CARDS.DECLINED);
+      await allure.parameter("Card", STRIPE_CARDS.DECLINED);
+    });
+
+    await allure.step(
+      "Click Complete Order and verify the payment error, no confirmation",
+      async () => {
+        await checkoutPage.completeOrder();
+        await checkoutPage.assertPaymentError();
+        await allure.parameter("URL", page.url());
+      }
+    );
+  });
 });

@@ -109,6 +109,19 @@ export const createOwnerMenuPage = (page: Page) => {
     }
   };
 
+  // Opens the Add Item wizard and stops at Step 0 (Basic Information) —
+  // caller drives the fields/assertions from there.
+  const openAddItemWizard = async (categoryName: string) => {
+    await addItemButton(categoryName).click();
+    await page
+      .getByPlaceholder("Enter the menu item name")
+      .waitFor({ state: "visible", timeout: 15_000 });
+  };
+
+  const nextButton = () => page.getByRole("button", { name: "Next" });
+
+  const fieldErrors = () => page.locator(".MuiFormHelperText-root");
+
   const assertMenuItemSuccessToast = () =>
     expect(page.getByText("Menu item created successfully!")).toBeVisible({
       timeout: 10_000,
@@ -204,6 +217,9 @@ export const createOwnerMenuPage = (page: Page) => {
     assertCategoryVisible,
     createCategory,
     addItemButton,
+    openAddItemWizard,
+    nextButton,
+    fieldErrors,
     createMenuItem,
     assertMenuItemSuccessToast,
     assertItemVisible,

@@ -126,6 +126,40 @@ test.describe("Owner — Menu Management", () => {
       });
     });
 
+    test("TC-62: menu item wizard blocks Next when name and price are blank", async ({
+      ownerPage,
+    }) => {
+      await allure.description(
+        "Opening the Add Item wizard and blurring name/price with both left blank shows inline " +
+          "required-field errors and keeps the Next button disabled."
+      );
+
+      await allure.step("Open Add Item wizard for a category", async () => {
+        await menuPage.openAddItemWizard(TEST_CATEGORY_NAME);
+      });
+
+      await allure.step(
+        "Blur name and price without filling them",
+        async () => {
+          await ownerPage
+            .getByPlaceholder("Enter the menu item name")
+            .press("Tab");
+          await ownerPage.getByPlaceholder("Enter the base price").press("Tab");
+        }
+      );
+
+      await allure.step(
+        "Verify required-field errors and disabled Next button",
+        async () => {
+          await expect(menuPage.fieldErrors()).toContainText([
+            "Item name is required",
+            "Price is required",
+          ]);
+          await expect(menuPage.nextButton()).toBeDisabled();
+        }
+      );
+    });
+
     test("TC-42: owner can edit a menu category name", async () => {
       test.skip(
         true,

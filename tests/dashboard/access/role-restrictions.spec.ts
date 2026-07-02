@@ -8,10 +8,9 @@ import { readSharedState } from "../../../utils/testData";
  * OWNER — the clearest evidence that EMPLOYEE is a distinct company-side role,
  * not "owner with fewer permissions". See TEST_PLAN.md → role model.
  *
- * SCAFFOLD: test.fixme placeholders.
  */
 test.describe("Access — Role restrictions", () => {
-  test.fixme("TC-XXX: OWNER is denied the publish route (EMPLOYEE/ADMIN only)", async ({
+  test("TC-54: OWNER is denied the publish route (EMPLOYEE/ADMIN only)", async ({
     pageForRole,
   }) => {
     const { restaurantId } = readSharedState();
@@ -22,7 +21,7 @@ test.describe("Access — Role restrictions", () => {
     await expect(page).toHaveURL(/access-denied/);
   });
 
-  test.fixme("TC-XXX: OWNER is denied the tax route (EMPLOYEE/ADMIN only)", async ({
+  test("TC-55: OWNER is denied the tax route (EMPLOYEE/ADMIN only)", async ({
     pageForRole,
   }) => {
     const { restaurantId } = readSharedState();

@@ -90,7 +90,7 @@ export const createCustomerCheckoutPage = (page: Page) => {
     });
 
   const fillStripeCard = async (
-    cardNumber = STRIPE_CARDS.VISA_SUCCESS,
+    cardNumber: string = STRIPE_CARDS.VISA_SUCCESS,
     expiry: string = STRIPE_DEFAULTS.EXPIRY_MM_YY,
     cvc = STRIPE_DEFAULTS.CVC
   ) => {
@@ -99,6 +99,14 @@ export const createCustomerCheckoutPage = (page: Page) => {
 
   const completeOrder = () =>
     page.getByRole("button", { name: "Complete Order" }).click();
+
+  // On a Stripe decline, PaymentSection renders a "Payment Error" card with
+  // the decline message underneath — the checkout form stays visible so the
+  // customer can retry with a different card.
+  const assertPaymentError = () =>
+    expect(page.getByRole("heading", { name: "Payment Error" })).toBeVisible({
+      timeout: 20_000,
+    });
 
   return {
     seedCart,
@@ -110,5 +118,6 @@ export const createCustomerCheckoutPage = (page: Page) => {
     assertPaymentSectionVisible,
     fillStripeCard,
     completeOrder,
+    assertPaymentError,
   };
 };

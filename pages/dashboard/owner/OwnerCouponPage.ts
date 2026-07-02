@@ -45,6 +45,21 @@ export const createOwnerCouponPage = (page: Page) => {
   const assertSuccessToast = () =>
     expect(successToast()).toBeVisible({ timeout: 10_000 });
 
+  const errorAlert = () => page.getByRole("alert");
+  const fieldErrors = () => page.locator(".MuiFormHelperText-root");
+
+  // Submitting an invalid discount value stays on the create form and shows
+  // both a top-level alert and an inline percentage-range error.
+  const assertInvalidDiscountError = async () => {
+    await expect(errorAlert()).toContainText(
+      "Please fix the errors before submitting"
+    );
+    await expect(fieldErrors().first()).toContainText(
+      "Percentage must be between 1 and 100"
+    );
+    await expect(couponCodeInput()).toBeVisible();
+  };
+
   return {
     navigateToCreateCoupon,
     couponCodeInput,
@@ -55,5 +70,8 @@ export const createOwnerCouponPage = (page: Page) => {
     fillCouponForm,
     submit,
     assertSuccessToast,
+    errorAlert,
+    fieldErrors,
+    assertInvalidDiscountError,
   };
 };
