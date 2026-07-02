@@ -1,6 +1,6 @@
 # Restaunax — Test Coverage Map
 
-> Last updated: 2026-06-25
+> Last updated: 2026-07-02
 
 ---
 
@@ -48,8 +48,6 @@
 | Seed restaurant card visible           | TC-14 | ✅                                                                     |
 | Restaurant management portal loads     | TC-15 | ✅                                                                     |
 | Store Settings sidebar navigation      | TC-16 | ✅                                                                     |
-| Tax settings page loads                | TC-17 | ⏭️ Skipped — /tax route is EMPLOYEE-only; OWNER gets Access Denied     |
-| Save tax rate                          | TC-18 | ⏭️ Skipped — /tax route is EMPLOYEE-only; OWNER gets Access Denied     |
 | Menu editor loads                      | TC-19 | ✅                                                                     |
 | Create menu category                   | TC-20 | ✅                                                                     |
 | Add menu item to category              | TC-21 | ✅                                                                     |
@@ -82,22 +80,38 @@
 
 ---
 
+## 👔 Employee
+
+| Feature                 | Test  | Status                                                  |
+| ----------------------- | ----- | ------------------------------------------------------- |
+| Tax settings page loads | TC-17 | ✅ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` in `.env` |
+| Save tax rate           | TC-18 | ✅ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` in `.env` |
+| Create restaurant       | —     | ❌ Not written (`test.fixme` scaffold exists)           |
+| Publish menu            | —     | ❌ Not written (`test.fixme` scaffold exists)           |
+
+> These were originally written under `tests/dashboard/owner/03-tax-settings.spec.ts`
+> as permanent skips — `/tax` is an EMPLOYEE/ADMIN-only route and OWNER gets
+> Access Denied. Moved to `tests/dashboard/employee/tax-settings.spec.ts` once
+> the `employeePage` fixture (an authenticated EMPLOYEE session) existed.
+
+---
+
 ## 🛒 Customer
 
-| Feature                                 | Test  | Status                                |
-| --------------------------------------- | ----- | ------------------------------------- |
-| Menu page loads                         | TC-22 | ⏭️ Skipped — test not yet implemented |
-| Open item modal + Add to Cart visible   | TC-23 | ⏭️ Skipped — test not yet implemented |
-| Checkout form visible with cart         | TC-24 | ⏭️ Skipped — test not yet implemented |
-| Fill checkout form + proceed to payment | TC-25 | ⏭️ Skipped — test not yet implemented |
-| Complete full order with Stripe card    | TC-26 | ⏭️ Skipped — test not yet implemented |
-| Delivery order (address + delivery fee) | —     | ❌ Not written                        |
-| Apply coupon at checkout                | —     | ❌ Not written                        |
-| OTP member login (phone number)         | —     | ❌ Not written                        |
-| Loyalty points redemption               | —     | ❌ Not written                        |
-| Gift card purchase                      | —     | ❌ Not written                        |
-| Declined payment handling               | —     | ❌ Not written                        |
-| Order with modifiers selected           | —     | ❌ Not written                        |
+| Feature                                 | Test  | Status                                                               |
+| --------------------------------------- | ----- | -------------------------------------------------------------------- |
+| Menu page loads                         | TC-22 | ✅ Needs `TEMPLATE_WIND_URL` set to a real per-restaurant deployment |
+| Open item modal + Add to Cart visible   | TC-23 | ✅ Needs `TEMPLATE_WIND_URL` set to a real per-restaurant deployment |
+| Checkout form visible with cart         | TC-24 | ✅ Needs `TEMPLATE_WIND_URL` set to a real per-restaurant deployment |
+| Fill checkout form + proceed to payment | TC-25 | ✅ Needs `TEMPLATE_WIND_URL` set to a real per-restaurant deployment |
+| Complete full order with Stripe card    | TC-26 | ✅ Needs `TEMPLATE_WIND_URL` set to a real per-restaurant deployment |
+| Delivery order (address + delivery fee) | —     | ❌ Not written                                                       |
+| Apply coupon at checkout                | —     | ❌ Not written                                                       |
+| OTP member login (phone number)         | —     | ❌ Not written                                                       |
+| Loyalty points redemption               | —     | ❌ Not written                                                       |
+| Gift card purchase                      | —     | ❌ Not written                                                       |
+| Declined payment handling               | —     | ❌ Not written                                                       |
+| Order with modifiers selected           | —     | ❌ Not written                                                       |
 
 ---
 
@@ -131,43 +145,58 @@
 
 | Area        | Written | Passing | Skipped | Not Written |
 | ----------- | ------- | ------- | ------- | ----------- |
-| Admin       | 13      | 11      | 1       | 5           |
-| Owner       | 22      | 17      | 5       | 8           |
-| Customer    | 5       | 0       | 5       | 7           |
+| Admin       | 13      | 12      | 1       | 5           |
+| Owner       | 20      | 17      | 3       | 8           |
+| Employee    | 2       | 2       | 0       | 0           |
+| Customer    | 5       | 5       | 0       | 7           |
 | Staff / POS | 0       | 0       | 0       | 7           |
 | End-to-End  | 0       | 0       | 0       | 5           |
-| **Total**   | **40**  | **28**  | **11**  | **32**      |
+| **Total**   | **40**  | **36**  | **4**   | **32**      |
 
 > **Overall coverage: ~56% of known features have tests written**
+>
+> TC-17/TC-18 moved from the Owner row to a new Employee row (they run under
+> `tests/dashboard/employee/tax-settings.spec.ts` now); the Owner row's
+> written/passing counts have been adjusted accordingly.
 
 ---
 
 ## 🎯 Recommended Next Batch — Priority Order
 
-| Priority | Area                                          | Reason                                    |
-| -------- | --------------------------------------------- | ----------------------------------------- |
-| 🔴 1     | Staff / POS — order lifecycle                 | Zero coverage on core business flow       |
-| 🔴 2     | Owner — publish restaurant                    | Blocker for customer tests to work        |
-| 🔴 3     | Owner — hours of operation                    | Required before orders can be accepted    |
-| 🟡 4     | Customer — menu → checkout → order E2E        | Validates the full customer ordering path |
-| 🟡 5     | Customer — delivery order                     | Second most common order type             |
-| 🟡 6     | Customer — apply coupon                       | Common checkout variation                 |
-| 🟡 7     | Admin dialogs — actually test features inside | Current tests only check dialogs open     |
-| 🟢 8     | Owner — employee management                   | Frequently used operational feature       |
-| 🟢 9     | Full E2E — customer orders → staff accepts    | Validates entire platform works together  |
-| 🟢 10    | Admin — subscription management               | Billing coverage for admin oversight      |
+| Priority | Area                                          | Reason                                   |
+| -------- | --------------------------------------------- | ---------------------------------------- |
+| 🔴 1     | Staff / POS — order lifecycle                 | Zero coverage on core business flow      |
+| 🔴 2     | Owner — hours of operation                    | Required before orders can be accepted   |
+| 🟡 3     | Customer — delivery order                     | Second most common order type            |
+| 🟡 4     | Customer — apply coupon                       | Common checkout variation                |
+| 🟡 5     | Admin dialogs — actually test features inside | Current tests only check dialogs open    |
+| 🟢 6     | Owner — employee management                   | Frequently used operational feature      |
+| 🟢 7     | Full E2E — customer orders → staff accepts    | Validates entire platform works together |
+| 🟢 8     | Admin — subscription management               | Billing coverage for admin oversight     |
+
+> Formerly-listed items now done: "Owner — publish restaurant" (was thought to
+> block customer tests; TC-22–TC-26 pass without it — publish gates a
+> different concern) and "Customer — menu → checkout → order E2E" (TC-26
+> covers the full guest happy path with a real Stripe test card).
 
 ---
 
 ## ⚠️ Known Technical Debt
 
-| Issue                                             | Affected Tests      | Risk                                  |
-| ------------------------------------------------- | ------------------- | ------------------------------------- |
-| Pickup radio may be custom styled (not `<input>`) | TC-25, TC-26        | 🔴 High — click may do nothing        |
-| Stripe iframe selector unverified                 | TC-26               | 🔴 High — card fill may silently fail |
-| Seed restaurant not published                     | TC-22–TC-26         | 🔴 High — menu page may redirect      |
-| TC-06 leaves status as "Contacted" on QA          | TC-06               | 🟡 Medium — dirty test data           |
-| TC-18 leaves tax rate at 8.5% on QA               | TC-18               | 🟡 Medium — dirty test data           |
-| MUI class selectors fragile to upgrades           | TC-14, TC-15, TC-20 | 🟢 Low                                |
-| TC-03 only checks URL not dashboard content       | TC-03               | 🟢 Low                                |
-| TC-07–TC-11 only open dialogs, no feature testing | TC-07–TC-11         | 🟢 Low                                |
+| Issue                                             | Affected Tests      | Risk                                                                                                                                                                                 |
+| ------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| TC-06 leaves status as "Contacted" on QA          | TC-06               | 🟡 Medium — dirty test data                                                                                                                                                          |
+| TC-18 leaves tax rate at 8.5% on QA               | TC-18               | 🟡 Medium — dirty test data                                                                                                                                                          |
+| MUI class selectors fragile to upgrades           | TC-14, TC-15, TC-20 | 🟢 Low                                                                                                                                                                               |
+| TC-03 only checks URL not dashboard content       | TC-03               | 🟢 Low                                                                                                                                                                               |
+| TC-07–TC-11 only open dialogs, no feature testing | TC-07–TC-11         | 🟢 Low                                                                                                                                                                               |
+| Add-item wizard auto-submits on entering Review   | TC-21, TC-43        | 🟢 Low — POM waits for the success toast instead of clicking the (permanently disabled) Save Item button; if a future build changes this, the fallback click path needs re-verifying |
+
+> Three previously-listed "risk" items are resolved now that the customer
+> suite actually runs and passes: the Pickup radio is a real `<input>` (click
+> works), the Stripe iframe selector is correct (verified via a live payment
+> in TC-26), and the seed restaurant doesn't need to be published for
+> TC-22–26 to pass. A real bug _was_ found and fixed in the same area: the
+> Stripe expiry default (`"12 / 2030"`) got silently truncated to `12/20` —
+> an expired card — by the "MM / YY" masked input; see `utils/stripeCards.ts`
+> → `STRIPE_DEFAULTS.EXPIRY_MM_YY`.

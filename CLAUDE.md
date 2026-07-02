@@ -198,7 +198,8 @@ tests/
 pages/
   dashboard/
     auth/  public/  admin/  owner/   — POMs mirror the test axis
-  customer/                          — Template Wind POMs (MenuPage, CheckoutPage, …)
+    restaurant/                      — role-agnostic POMs shared by owner/employee/admin (e.g. MenuManagementPage)
+  customer/                          — Template Wind POMs (CustomerMenuPage, CustomerCheckoutPage, CustomerOrderConfirmationPage)
 ```
 
 ---

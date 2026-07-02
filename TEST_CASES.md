@@ -25,12 +25,17 @@ Each test case includes:
 
 ## The Four Areas We Test
 
-| Area        | Who Uses It              | Tests                                                        |
-| ----------- | ------------------------ | ------------------------------------------------------------ |
-| 🌐 Public   | Anyone on the internet   | TC-01, TC-02                                                 |
-| 🔐 Admin    | Internal Restaunax staff | TC-03 → TC-12, TC-32                                         |
-| 🏠 Owner    | Restaurant owners        | TC-13 → TC-21, TC-27 → TC-31, TC-33 → TC-53 (excl. TC-22–26) |
-| 🛒 Customer | People ordering food     | TC-22 → TC-26                                                |
+| Area        | Who Uses It              | Tests                                                                       |
+| ----------- | ------------------------ | --------------------------------------------------------------------------- |
+| 🌐 Public   | Anyone on the internet   | TC-01, TC-02                                                                |
+| 🔐 Admin    | Internal Restaunax staff | TC-03 → TC-12, TC-32                                                        |
+| 🏠 Owner    | Restaurant owners        | TC-13 → TC-16, TC-19 → TC-21, TC-27 → TC-31, TC-33 → TC-53 (excl. TC-22–26) |
+| 🛒 Customer | People ordering food     | TC-22 → TC-26                                                               |
+
+TC-17 and TC-18 (tax settings) run under the **Employee** role, not Owner —
+`/tax` is an EMPLOYEE/ADMIN-only route and the OWNER role gets Access Denied.
+They're kept in the Owner Dashboard section below since that's where the
+narrative flow for restaurant setup naturally continues.
 
 ---
 
@@ -420,36 +425,43 @@ Store Settings is where owners configure operating hours, delivery options, and 
 
 ---
 
-## TC-17 — Owner Can Open Tax Settings
+## TC-17 — Employee Can Open Tax Settings
 
-**Status:** ⏭️ Skipped — tax settings route (`/tax`) is EMPLOYEE-only; OWNER role gets Access Denied
+**Status:** ✅ Passing — `tests/dashboard/employee/tax-settings.spec.ts` (needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` in `.env`, else skipped)
+
+**Note:** this test originally lived under `tests/dashboard/owner/` as a
+permanent skip, because the tax settings route (`/tax`) is EMPLOYEE/ADMIN-only
+and OWNER gets Access Denied. It moved to the employee suite once the
+`employeePage` fixture (an authenticated EMPLOYEE browser session) was added.
 
 ### What it checks
 
-The owner can navigate to the Tax Settings page for their restaurant and see a form to enter their sales tax rate.
+The employee can navigate to the Tax Settings page for a restaurant and see a form to enter its sales tax rate.
 
 ### How it works, step by step
 
-1. The test goes directly to the tax settings page for the test restaurant
+1. The test goes directly to the tax settings page for the test restaurant, authenticated as the employee
 2. It confirms the tax rate input field is visible (showing placeholder text "e.g., 7.5")
 
 ### Why it matters
 
-Tax must be correctly applied to every customer order. If owners can't set their tax rate, either customers are charged the wrong amount or the restaurant loses money.
+Tax must be correctly applied to every customer order. If the employee setting up a restaurant can't set its tax rate, either customers are charged the wrong amount or the restaurant loses money.
 
 ---
 
-## TC-18 — Owner Can Save a Tax Rate
+## TC-18 — Employee Can Save a Tax Rate
 
-**Status:** ⏭️ Skipped — tax settings route (`/tax`) is EMPLOYEE-only; OWNER role gets Access Denied
+**Status:** ✅ Passing — `tests/dashboard/employee/tax-settings.spec.ts` (needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` in `.env`, else skipped)
+
+**Note:** moved from `tests/dashboard/owner/` — see TC-17.
 
 ### What it checks
 
-An owner can type a tax rate (like 8.5%) and save it — receiving a success confirmation message.
+An employee can type a tax rate (like 8.5%) and save it — receiving a success confirmation message.
 
 ### How it works, step by step
 
-1. The test opens the tax settings page
+1. The test opens the tax settings page as the employee
 2. It types "8.5" into the tax rate field
 3. It clicks the "Save Tax Settings" button
 4. It confirms the message "Tax settings updated successfully!" appears on screen
@@ -911,7 +923,7 @@ If category deletion is broken, owners are left with empty or outdated sections 
 
 ## TC-22 — Customer Can See the Menu Page
 
-**Status:** ⏭️ Skipped (owner login not configured — needed to seed test data)
+**Status:** ✅ Passing (needs `OWNER_EMAIL`/`OWNER_PASSWORD` and `TEMPLATE_WIND_URL` pointing at a real per-restaurant Template Wind deployment — the bare `qa.restaunax.com` root only serves the marketing site)
 
 ### What it checks
 
@@ -930,7 +942,7 @@ If the menu page doesn't load, no customer can see what's available to order. Th
 
 ## TC-23 — Customer Can Click a Menu Item and See Add to Cart
 
-**Status:** ⏭️ Skipped (owner login not configured — needed to seed test data)
+**Status:** ✅ Passing (needs `OWNER_EMAIL`/`OWNER_PASSWORD` and `TEMPLATE_WIND_URL` pointing at a real per-restaurant Template Wind deployment — the bare `qa.restaunax.com` root only serves the marketing site)
 
 ### What it checks
 
@@ -951,7 +963,7 @@ If clicking an item doesn't open the details pop-up, customers can't add anythin
 
 ## TC-24 — Customer Can Reach the Checkout Page With Items in Cart
 
-**Status:** ⏭️ Skipped (owner login not configured — needed to seed test data)
+**Status:** ✅ Passing (needs `OWNER_EMAIL`/`OWNER_PASSWORD` and `TEMPLATE_WIND_URL` pointing at a real per-restaurant Template Wind deployment — the bare `qa.restaunax.com` root only serves the marketing site)
 
 ### What it checks
 
@@ -971,7 +983,7 @@ If the checkout page doesn't load with cart contents, no customer can complete a
 
 ## TC-25 — Customer Can Fill in Their Details and Reach the Payment Step
 
-**Status:** ⏭️ Skipped (owner login not configured — needed to seed test data)
+**Status:** ✅ Passing (needs `OWNER_EMAIL`/`OWNER_PASSWORD` and `TEMPLATE_WIND_URL` pointing at a real per-restaurant Template Wind deployment — the bare `qa.restaunax.com` root only serves the marketing site)
 
 ### What it checks
 
@@ -997,7 +1009,7 @@ If the form doesn't accept customer details or the Proceed button doesn't work, 
 
 ## TC-26 — Customer Can Complete a Full Order and See Order Confirmation
 
-**Status:** ⏭️ Skipped (owner login not configured — needed to seed test data)
+**Status:** ✅ Passing (needs `OWNER_EMAIL`/`OWNER_PASSWORD` and `TEMPLATE_WIND_URL` pointing at a real per-restaurant Template Wind deployment — the bare `qa.restaunax.com` root only serves the marketing site)
 
 ### What it checks
 
@@ -1208,16 +1220,16 @@ This is the critical handoff from the app to Stripe. If the button calls the wro
 | TC-14 | Owner sees their restaurant card                | Owner    | ✅ Passing |
 | TC-15 | Owner opens restaurant management portal        | Owner    | ✅ Passing |
 | TC-16 | Owner navigates to Store Settings               | Owner    | ✅ Passing |
-| TC-17 | Owner opens tax settings page                   | Owner    | ⏭️ Skipped |
-| TC-18 | Owner saves a tax rate                          | Owner    | ⏭️ Skipped |
+| TC-17 | Employee opens tax settings page                | Employee | ✅ Passing |
+| TC-18 | Employee saves a tax rate                       | Employee | ✅ Passing |
 | TC-19 | Owner opens menu management                     | Owner    | ✅ Passing |
 | TC-20 | Owner creates a menu category                   | Owner    | ✅ Passing |
 | TC-21 | Owner adds a menu item                          | Owner    | ✅ Passing |
-| TC-22 | Customer sees menu page                         | Customer | ⏭️ Skipped |
-| TC-23 | Customer opens item and sees Add to Cart        | Customer | ⏭️ Skipped |
-| TC-24 | Customer reaches checkout with cart             | Customer | ⏭️ Skipped |
-| TC-25 | Customer fills details and reaches payment      | Customer | ⏭️ Skipped |
-| TC-26 | Customer completes full order end to end        | Customer | ⏭️ Skipped |
+| TC-22 | Customer sees menu page                         | Customer | ✅ Passing |
+| TC-23 | Customer opens item and sees Add to Cart        | Customer | ✅ Passing |
+| TC-24 | Customer reaches checkout with cart             | Customer | ✅ Passing |
+| TC-25 | Customer fills details and reaches payment      | Customer | ✅ Passing |
+| TC-26 | Customer completes full order end to end        | Customer | ✅ Passing |
 | TC-27 | Owner reaches the publish page                  | Owner    | ⏭️ Skipped |
 | TC-28 | Publish checklist items are visible             | Owner    | ⏭️ Skipped |
 | TC-29 | Owner views the Orders tab                      | Owner    | ✅ Passing |
@@ -1246,9 +1258,9 @@ This is the critical handoff from the app to Stripe. If the button calls the wro
 | TC-52 | Restaurant Dashboard button redirects correctly | Owner    | ✅ Passing |
 | TC-53 | Connect button calls create API and redirects   | Owner    | ✅ Passing |
 
-**32 passing · 21 skipped · 0 failing**
+**39 passing · 14 skipped · 0 failing**
 
-Skipped tests fall into three groups: **route access** (TC-17, TC-18, TC-27, TC-28 — these routes are employee-only and return Access Denied for the owner role); **missing UI** (TC-42, TC-44 — the edit/delete buttons don't exist in the current menu editor); **not yet implemented** (TC-22 to TC-26, TC-33 to TC-41 — test code hasn't been written yet).
+Skipped tests fall into three groups: **route access** (TC-27, TC-28 — the publish route is employee-only and returns Access Denied for the owner role; TC-17/TC-18 were also in this group until they moved to the employee suite); **missing UI** (TC-42, TC-44 — the edit/delete buttons don't exist in the current menu editor); **not yet implemented** (TC-33 to TC-41 — test code hasn't been written yet).
 
 ---
 
@@ -1267,4 +1279,4 @@ They can be run manually at any time with one command (`npm run test`). They are
 A failed test means something in the software is not working as expected. The test suite saves a screenshot and recording of the failure so developers can see exactly what went wrong.
 
 **Q: Why are some tests skipped?**
-Skipped tests fall into three categories: (1) the feature is restricted to a different role on QA (e.g. `/tax` and `/publish` are employee-only, so owner tests get Access Denied); (2) the UI doesn't yet expose the needed button or element (e.g. no delete button on menu item cards); or (3) the test case has been documented but the automated test code hasn't been written yet. Each skipped test explains its specific reason in the Status line.
+Skipped tests fall into three categories: (1) the feature is restricted to a different role on QA (e.g. `/publish` is employee-only, so owner tests get Access Denied — the tax settings tests used to be in this category too, but they've since been moved to run under the employee role instead, where they pass); (2) the UI doesn't yet expose the needed button or element (e.g. no delete button on menu item cards); or (3) the test case has been documented but the automated test code hasn't been written yet. Each skipped test explains its specific reason in the Status line.
