@@ -3,13 +3,16 @@ import { test } from "../../fixtures/base";
 import { createCustomerCheckoutPage } from "../../pages/customer/CustomerCheckoutPage";
 import { createCustomerOrderConfirmationPage } from "../../pages/customer/CustomerOrderConfirmationPage";
 import { readSharedState } from "../../utils/testData";
-import { STRIPE_CARDS, STRIPE_DEFAULTS } from "../../utils/stripeCards";
+import { STRIPE_CARDS } from "../../utils/stripeCards";
 
 const TEMPLATE_WIND_URL = process.env.TEMPLATE_WIND_URL ?? "";
 const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
 
 test.describe("Customer — Order Placement", () => {
+  // No default here on purpose: Template Wind is deployed per-restaurant, and
+  // the qa.restaunax.com root serves the marketing site — the env var must
+  // point at a real customer-site deployment.
   test.skip(
     !TEMPLATE_WIND_URL || !OWNER_EMAIL || !OWNER_PASSWORD,
     "TEMPLATE_WIND_URL, OWNER_EMAIL, and OWNER_PASSWORD must all be set in .env"
@@ -62,11 +65,8 @@ test.describe("Customer — Order Placement", () => {
     });
 
     await allure.step("Fill Stripe test card", async () => {
-      await checkoutPage.fillStripeCard(
-        STRIPE_CARDS.VISA_SUCCESS,
-        `${STRIPE_DEFAULTS.EXPIRY_MONTH} / ${STRIPE_DEFAULTS.EXPIRY_YEAR.slice(-2)}`,
-        STRIPE_DEFAULTS.CVC
-      );
+      // Defaults come from STRIPE_DEFAULTS (incl. the MM / YY-safe expiry).
+      await checkoutPage.fillStripeCard(STRIPE_CARDS.VISA_SUCCESS);
       await allure.parameter("Card", STRIPE_CARDS.VISA_SUCCESS);
     });
 

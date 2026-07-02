@@ -11,7 +11,7 @@ import { STRIPE_CARDS, STRIPE_DEFAULTS } from "./stripeCards";
 export async function fillStripePaymentElement(
   page: Page,
   cardNumber = STRIPE_CARDS.VISA_SUCCESS,
-  expiry = `${STRIPE_DEFAULTS.EXPIRY_MONTH} / ${STRIPE_DEFAULTS.EXPIRY_YEAR}`,
+  expiry: string = STRIPE_DEFAULTS.EXPIRY_MM_YY,
   cvc = STRIPE_DEFAULTS.CVC
 ): Promise<void> {
   const frame = page.frameLocator('iframe[src*="stripe.com"]').first();

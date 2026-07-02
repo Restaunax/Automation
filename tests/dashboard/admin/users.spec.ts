@@ -188,15 +188,6 @@ test.describe("Admin — User Management", () => {
       await users.assertRowExists(target.email);
     });
 
-    // test("TC-08: search with no matches shows the empty state", async ({
-    //   adminPage,
-    // }) => {
-    //   const users = createAdminUsersPage(adminPage);
-    //   await users.goto();
-    //   await users.searchUser("no-such-user-zzz-000000");
-    //   await users.assertNoResults();
-    // });
-
     test("TC-09: role filter narrows the list", async ({ adminPage }) => {
       const users = createAdminUsersPage(adminPage);
       await users.goto();

@@ -74,12 +74,8 @@ test.describe("Owner — Coupons", () => {
     });
 
     await allure.step("Fill coupon details", async () => {
-      await couponPage.fillCouponForm(
-        couponCode,
-        "10",
-        "2026-07-01",
-        "2026-12-31"
-      );
+      // Start/end dates are left at the form's moment() defaults.
+      await couponPage.fillCouponForm(couponCode, "10");
       await allure.parameter("Coupon code", couponCode);
     });
 

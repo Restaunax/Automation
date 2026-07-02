@@ -65,8 +65,11 @@ async function loadAuthContext(
     storageState: authFile,
     baseURL: FRONTEND_URL,
   });
-  await use(context);
-  await context.close();
+  try {
+    await use(context);
+  } finally {
+    await context.close();
+  }
 }
 
 export const test = base.extend<Fixtures>({
@@ -144,8 +147,11 @@ export const test = base.extend<Fixtures>({
       opened.push(context);
       return context.newPage();
     };
-    await use(resolve);
-    for (const ctx of opened) await ctx.close();
+    try {
+      await use(resolve);
+    } finally {
+      for (const ctx of opened) await ctx.close();
+    }
   },
 });
 

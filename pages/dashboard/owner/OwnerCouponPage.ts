@@ -35,12 +35,7 @@ export const createOwnerCouponPage = (page: Page) => {
 
   // Start Date and End Date come pre-filled with moment() defaults, so no
   // need to fill them — just fill code and discount value for TC-31.
-  const fillCouponForm = async (
-    code: string,
-    discountValue: string,
-    _startDate: string,
-    _endDate: string
-  ) => {
+  const fillCouponForm = async (code: string, discountValue: string) => {
     await couponCodeInput().fill(code);
     await discountValueInput().fill(discountValue);
   };

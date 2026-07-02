@@ -280,12 +280,23 @@ async function apiRequestRaw<T = unknown>(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    const res = await fetch(`${BACKEND_URL}${path}`, {
-      method,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal: controller.signal,
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${BACKEND_URL}${path}`, {
+        method,
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: controller.signal,
+      });
+    } catch (err) {
+      if (controller.signal.aborted) {
+        throw new Error(
+          `API ${method} ${path} timed out after ${REQUEST_TIMEOUT_MS}ms. ` +
+            `Is BACKEND_URL=${BACKEND_URL} correct and reachable?`
+        );
+      }
+      throw err;
+    }
     const text = await res.text();
     let data: unknown = text;
     try {

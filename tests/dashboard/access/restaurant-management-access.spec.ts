@@ -12,8 +12,9 @@ import { readSharedState } from "../../../utils/testData";
  * This suite only asserts REACHABILITY per role via the pageForRole fixture — it
  * does not re-run the full feature flow. See TEST_PLAN.md → "Shared capabilities".
  *
- * SCAFFOLD: test.fixme placeholders. (`employee` needs the future employeePage
- * session — see TEST_PLAN.md → "Future infrastructure".)
+ * SCAFFOLD: test.fixme placeholders. All three role sessions now exist
+ * (globalSetup saves owner/admin/employee auth; pageForRole resolves each) —
+ * implement by renaming fixme→test.
  */
 const ROLES_WITH_MENU_ACCESS = ["owner", "admin", "employee"] as const;
 

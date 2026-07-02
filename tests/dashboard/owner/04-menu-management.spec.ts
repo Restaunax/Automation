@@ -9,7 +9,10 @@ const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
 
 const RUN_ID = generateRunId();
 const TEST_CATEGORY_NAME = `Test Starters ${RUN_ID}`;
-const TEST_ITEM_NAME = "Automation Bruschetta";
+// Include RUN_ID so each run creates a unique item; old runs leave items behind
+// (teardown can't delete categories with items) and substring matching would
+// otherwise find "Automation Bruschetta Edited" from a prior run.
+const TEST_ITEM_NAME = `Automation Bruschetta ${RUN_ID}`;
 const TEST_ITEM_PRICE = "9.99";
 const TEST_ITEM_DESCRIPTION = "Test item created by Playwright automation";
 const DELETE_CATEGORY_NAME = `TC45 Delete ${RUN_ID}`;
@@ -55,8 +58,15 @@ test.describe("Owner — Menu Management", () => {
   // ── Category & item CRUD ─────────────────────────────────────────────────
   // Navigation to the menu tab is shared via beforeEach so individual tests
   // focus on their specific assertion rather than repeating setup.
+  //
+  // Serial: TC-21 needs the category TC-20 created, and TC-43 needs the item
+  // TC-21 created. Serial mode makes that dependency explicit — dependents are
+  // skipped (not failed confusingly) when a predecessor fails, and the chain
+  // survives --grep / retries / future parallelization changes.
 
   test.describe("Category and item CRUD", () => {
+    test.describe.configure({ mode: "serial" });
+
     let restaurantId: string;
     let mgmtPage: ReturnType<typeof createOwnerRestaurantManagementPage>;
     let menuPage: ReturnType<typeof createOwnerMenuPage>;
@@ -124,7 +134,9 @@ test.describe("Owner — Menu Management", () => {
       );
     });
 
-    test("TC-43: owner can edit a menu item name and price", async () => {
+    test("TC-43: owner can edit a menu item name and price", async ({
+      ownerPage,
+    }) => {
       await allure.description(
         "Owner clicks Edit Item on an existing menu item, updates name and price in the wizard, and verifies the success toast."
       );
@@ -133,6 +145,11 @@ test.describe("Owner — Menu Management", () => {
       const EDITED_PRICE = "12.99";
 
       await allure.step(`Click Edit on "${TEST_ITEM_NAME}"`, async () => {
+        // Activate the category tab so its items are rendered in the DOM
+        // before looking for the card — non-active panels may be unmounted.
+        await ownerPage
+          .getByRole("tab", { name: TEST_CATEGORY_NAME, exact: true })
+          .click();
         await menuPage.clickEditItem(TEST_ITEM_NAME);
         await allure.parameter("Item", TEST_ITEM_NAME);
       });

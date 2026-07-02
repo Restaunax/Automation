@@ -6,9 +6,8 @@ import { test } from "../../../fixtures/base";
  * Gated by the CREATE_RESTAURANT permission — held by EMPLOYEE/ADMIN, NOT OWNER
  * (see TEST_PLAN.md role model). EMPLOYEE is the company-side setup role.
  *
- * SCAFFOLD placeholder.
- * NOTE: needs an EMPLOYEE-role session. Fixtures provide owner/admin today; an
- * `employeePage` fixture is future infrastructure (see TEST_PLAN.md).
+ * SCAFFOLD placeholder. The `employeePage` fixture now exists (fixtures/base.ts,
+ * auth saved by globalSetup) — implement with it.
  */
 test.describe("Employee — Create restaurant", () => {
   test.fixme("TC-XXX: employee creates a restaurant on behalf of a client", async () => {
