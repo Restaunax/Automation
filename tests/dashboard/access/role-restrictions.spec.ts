@@ -31,4 +31,14 @@ test.describe("Access — Role restrictions", () => {
     });
     await expect(page).toHaveURL(/access-denied/);
   });
+
+  test("TC-81: OWNER is denied the loyalty route (EMPLOYEE/ADMIN only)", async ({
+    pageForRole,
+  }) => {
+    const page = await pageForRole("owner");
+    await page.goto("/restaurant/loyalty", {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page).toHaveURL(/access-denied/);
+  });
 });

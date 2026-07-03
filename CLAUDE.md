@@ -86,20 +86,20 @@ Restaunax is a SaaS platform that provides software for restaurants. It has five
 
 ## Key Frontend Routes (Restaunax Dashboard)
 
-| Who    | Path                                                | Screen              |
-| ------ | --------------------------------------------------- | ------------------- |
-| Owner  | `/restaurant/stores`                                | My restaurants list |
-| Owner  | `/restaurant/restaurantId/:id/restaurantManagement` | Restaurant editor   |
-| Owner  | `/restaurant/restaurantId/:id/subscription`         | Billing & plan      |
-| Owner  | `/restaurant/restaurantId/:id/publish`              | Menu publishing     |
-| Owner  | `/restaurant/restaurantId/:id/tax`                  | Tax settings        |
-| Owner  | `/restaurant/restaurantId/:id/uber`                 | Uber Eats settings  |
-| Owner  | `/restaurant/loyalty`                               | Loyalty program     |
-| Admin  | `/admin`                                            | Admin dashboard     |
-| Staff  | `/staff`                                            | Staff portal        |
-| Public | `/sign-in`, `/sign-up`                              | Auth pages          |
-| Public | `/demo`                                             | Demo booking form   |
-| Public | `/affiliate`                                        | Affiliate signup    |
+| Who                    | Path                                                | Screen              |
+| ---------------------- | --------------------------------------------------- | ------------------- |
+| Owner                  | `/restaurant/stores`                                | My restaurants list |
+| Owner                  | `/restaurant/restaurantId/:id/restaurantManagement` | Restaurant editor   |
+| Owner                  | `/restaurant/restaurantId/:id/subscription`         | Billing & plan      |
+| Employee, Admin        | `/restaurant/restaurantId/:id/publish`              | Menu publishing     |
+| Employee, Admin        | `/restaurant/restaurantId/:id/tax`                  | Tax settings        |
+| Owner, Employee, Admin | `/restaurant/restaurantId/:id/uber`                 | Uber Eats settings  |
+| Employee, Admin        | `/restaurant/loyalty`                               | Loyalty program     |
+| Admin                  | `/admin`                                            | Admin dashboard     |
+| Staff                  | `/staff`                                            | Staff portal        |
+| Public                 | `/sign-in`, `/sign-up`                              | Auth pages          |
+| Public                 | `/demo`                                             | Demo booking form   |
+| Public                 | `/affiliate`                                        | Affiliate signup    |
 
 ---
 

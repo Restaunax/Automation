@@ -86,4 +86,61 @@ test.describe("Owner — Orders Tab", () => {
       });
     });
   });
+
+  test("TC-89: the Filters button opens the filter panel", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Clicking Filters actually opens the Filter Orders panel, not just a visible-but-inert button " +
+        "(TC-29 only asserted visibility, never exercised the click)."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const ordersPage = createOwnerOrdersPage(ownerPage);
+
+    await allure.step("Navigate to Orders tab", async () => {
+      await mgmtPage.goto(restaurantId);
+      await ordersPage.navigateToOrdersTab();
+    });
+
+    await allure.step("Open Filters and verify the panel appears", async () => {
+      await ordersPage.openFilters();
+      await ordersPage.assertFilterPanelVisible();
+    });
+  });
+
+  test("TC-90: opening an order shows its detail view", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Clicking a row in the orders grid opens a detail dialog with order info, items, and totals — " +
+        "read-only assertions only; no status change/cancel/refund against this real, possibly " +
+        "shared order. Skips if the QA restaurant currently has zero orders."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const ordersPage = createOwnerOrdersPage(ownerPage);
+
+    await allure.step("Navigate to Orders tab", async () => {
+      await mgmtPage.goto(restaurantId);
+      await ordersPage.navigateToOrdersTab();
+    });
+
+    const rowCount = await ordersPage.firstOrderRow().count();
+    test.skip(
+      rowCount === 0,
+      "No orders exist on the seed restaurant right now"
+    );
+
+    await allure.step("Open the first order's detail view", async () => {
+      await ordersPage.openFirstOrderDetail();
+      await ordersPage.assertOrderDetailVisible();
+    });
+
+    await allure.step("Close the detail view", async () => {
+      await ordersPage.closeOrderDetail();
+    });
+  });
 });
