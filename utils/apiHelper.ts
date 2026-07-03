@@ -573,6 +573,44 @@ export async function registerWithInvite(
   return res.data;
 }
 
+export interface PlainRegisterBody {
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+}
+
+/**
+ * POST /register — plain self-serve sign-up, no invite token. A fresh account
+ * registers as role USER with only VIEW_RESTAURANT (confirmed live) — it does
+ * NOT become OWNER until the user creates a restaurant. Used for setup/cleanup
+ * in sign-up tests; UI-level negative cases (duplicate email, password
+ * mismatch, weak password) are driven through the browser instead, matching
+ * how the live form actually validates them.
+ */
+export async function register(
+  body: PlainRegisterBody
+): Promise<RegisterResult> {
+  let res = await apiRequestRaw<RegisterResult & { message?: string }>(
+    "POST",
+    "/register",
+    body
+  );
+  if (res.status === 404) {
+    res = await apiRequestRaw<RegisterResult & { message?: string }>(
+      "POST",
+      "/api/register",
+      body
+    );
+  }
+  if (!res.ok) {
+    throw new Error(
+      `register failed → ${res.status}: ${JSON.stringify(res.data)}`
+    );
+  }
+  return res.data;
+}
+
 /** Raw register — for negative cases (e.g. garbage invite token). */
 export async function registerRaw(
   body: RegisterWithInviteBody
