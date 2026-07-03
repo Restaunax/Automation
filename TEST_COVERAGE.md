@@ -17,45 +17,46 @@
 
 ## 🔐 Admin
 
-| Feature                                    | Test                  | Status                                                                   |
-| ------------------------------------------ | --------------------- | ------------------------------------------------------------------------ |
-| Demo form submission                       | TC-01                 | ✅                                                                       |
-| Confirmation email sent                    | TC-02                 | ⏭️ Skipped (Mailtrap not configured)                                     |
-| Admin login                                | TC-03                 | ✅                                                                       |
-| Find demo request by email                 | TC-04                 | ✅                                                                       |
-| Demo action menu items visible             | TC-05                 | ✅                                                                       |
-| Change demo status inline                  | TC-06                 | ✅                                                                       |
-| View/Edit details side sheet               | TC-07                 | ⚠️ Opens only — fields not verified                                      |
-| Send follow-up email dialog                | TC-08                 | ⚠️ Opens only — email not sent                                           |
-| Assign request dialog                      | TC-10                 | ⚠️ Opens only — assignment not tested                                    |
-| Schedule demo dialog                       | TC-11                 | ⚠️ Opens only — date not set                                             |
-| Delete confirmation + cancel               | TC-09                 | ⚠️ Cancel path only — actual delete not tested                           |
-| Proceed to onboarding navigation           | TC-12                 | ✅                                                                       |
-| Admin restaurant list                      | TC-32                 | ✅                                                                       |
-| Invite a new user                          | TC-01 (users.spec.ts) | ✅                                                                       |
-| Invalid email → error, no request          | TC-02 (users.spec.ts) | ✅                                                                       |
-| Invite submit disabled w/o role            | TC-03 (users.spec.ts) | ✅                                                                       |
-| Inviting existing email rejected           | TC-04 (users.spec.ts) | ✅                                                                       |
-| Owner role reveals restaurant autocomplete | TC-05                 | ✅                                                                       |
-| Cancel resets invite form                  | TC-06 (users.spec.ts) | ✅                                                                       |
-| Search finds user by email                 | TC-07                 | ✅                                                                       |
-| Role filter narrows list                   | TC-09                 | ✅                                                                       |
-| Status filter narrows list                 | TC-10 (users.spec.ts) | ✅                                                                       |
-| Detail side sheet opens/closes             | TC-11, TC-14          | ✅                                                                       |
-| USER/OWNER detail tabs correct             | TC-12, TC-13          | ✅                                                                       |
-| Change user role                           | TC-15 (users.spec.ts) | ✅                                                                       |
-| Deactivate/reactivate user                 | TC-16 (users.spec.ts) | ✅                                                                       |
-| Send password reset email                  | TC-17 (users.spec.ts) | ✅                                                                       |
-| Add/remove user-specific permission        | TC-18                 | ✅                                                                       |
-| Bogus invite token grants no access        | TC-24                 | ✅                                                                       |
-| Full invite → claim → login journey        | TC-23                 | ✅ Needs Mailtrap (`MAILTRAP_API_TOKEN`/`MAILTRAP_INBOX_ID`)             |
-| Role change to unknown value rejected      | TC-76                 | ✅ (400, role unchanged server-side)                                     |
-| Status toggle on nonexistent user rejected | TC-77                 | ✅ (404)                                                                 |
-| Admin subscription management              | —                     | ❌ Not written                                                           |
-| Admin finance reports                      | —                     | ❌ Not written                                                           |
-| Admin system logs                          | —                     | ❌ Not written                                                           |
-| Admin leads management                     | —                     | ❌ Not written — see "Lead onboarding" note below                        |
-| Admin chains management                    | —                     | ❌ `test.fixme` scaffold exists (`tests/dashboard/admin/chains.spec.ts`) |
+| Feature                                     | Test                  | Status                                                                                            |
+| ------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------- |
+| Demo form submission                        | TC-01                 | ✅                                                                                                |
+| Confirmation email sent                     | TC-02                 | ⏭️ Skipped (Mailtrap not configured)                                                              |
+| Admin login                                 | TC-03                 | ✅                                                                                                |
+| Find demo request by email                  | TC-04                 | ✅                                                                                                |
+| Demo action menu items visible              | TC-05                 | ✅                                                                                                |
+| Change demo status inline                   | TC-06                 | ✅                                                                                                |
+| View/Edit details — notes field edit & save | TC-07                 | ✅ PUTs `/api/demo-requests/:id`; drawer auto-closes on success, verified by reopening            |
+| Send follow-up email                        | TC-08                 | ✅ Flips status NEW→CONTACTED; verified via Mailtrap `waitForEmail()` when configured             |
+| Assign request to a team member             | TC-10                 | ✅ Verified via the PUT response body (`assignedToId`) — UI doesn't surface the assignee anywhere |
+| Schedule a demo                             | TC-11                 | ✅ Types into the masked MM/DD/YYYY hh:mm aa field; flips status to Scheduled                     |
+| Delete confirmation + cancel                | TC-09                 | ✅ Cancel path                                                                                    |
+| Permanently delete a demo request           | TC-98                 | ✅ Uses a seeded throwaway demo request (not the shared one TC-04–TC-12 depend on)                |
+| Proceed to onboarding navigation            | TC-12                 | ✅                                                                                                |
+| Admin restaurant list                       | TC-32                 | ✅                                                                                                |
+| Invite a new user                           | TC-01 (users.spec.ts) | ✅                                                                                                |
+| Invalid email → error, no request           | TC-02 (users.spec.ts) | ✅                                                                                                |
+| Invite submit disabled w/o role             | TC-03 (users.spec.ts) | ✅                                                                                                |
+| Inviting existing email rejected            | TC-04 (users.spec.ts) | ✅                                                                                                |
+| Owner role reveals restaurant autocomplete  | TC-05                 | ✅                                                                                                |
+| Cancel resets invite form                   | TC-06 (users.spec.ts) | ✅                                                                                                |
+| Search finds user by email                  | TC-07                 | ✅                                                                                                |
+| Role filter narrows list                    | TC-09                 | ✅                                                                                                |
+| Status filter narrows list                  | TC-10 (users.spec.ts) | ✅                                                                                                |
+| Detail side sheet opens/closes              | TC-11, TC-14          | ✅                                                                                                |
+| USER/OWNER detail tabs correct              | TC-12, TC-13          | ✅                                                                                                |
+| Change user role                            | TC-15 (users.spec.ts) | ✅                                                                                                |
+| Deactivate/reactivate user                  | TC-16 (users.spec.ts) | ✅                                                                                                |
+| Send password reset email                   | TC-17 (users.spec.ts) | ✅                                                                                                |
+| Add/remove user-specific permission         | TC-18                 | ✅                                                                                                |
+| Bogus invite token grants no access         | TC-24                 | ✅                                                                                                |
+| Full invite → claim → login journey         | TC-23                 | ✅ Needs Mailtrap (`MAILTRAP_API_TOKEN`/`MAILTRAP_INBOX_ID`)                                      |
+| Role change to unknown value rejected       | TC-76                 | ✅ (400, role unchanged server-side)                                                              |
+| Status toggle on nonexistent user rejected  | TC-77                 | ✅ (404)                                                                                          |
+| Admin subscription management               | —                     | ❌ Not written                                                                                    |
+| Admin finance reports                       | —                     | ❌ Not written                                                                                    |
+| Admin system logs                           | —                     | ❌ Not written                                                                                    |
+| Admin leads management                      | —                     | ❌ Not written — see "Lead onboarding" note below                                                 |
+| Admin chains management                     | —                     | ❌ `test.fixme` scaffold exists (`tests/dashboard/admin/chains.spec.ts`)                          |
 
 > **Lead onboarding / demo-to-restaurant AI conversion wizard** (`LeadOnboarding.tsx`, `/restaurant/manage` → "Lead Onboarding" tab): investigated but **not implemented**. The live QA deployment's `/restaurant/manage` page doesn't match the checked-out frontend source at all — no "Lead Onboarding" tab exists, and QA shows a "STAFF CONSOLE" layout that isn't present anywhere in the local frontend source tree. QA appears to be running a build that's diverged from what's on disk. Needs someone to confirm which frontend branch/commit QA is actually deployed from before this path can be tested.
 
@@ -232,11 +233,11 @@ Onboarding is **four distinct, unconnected paths** in the app — not one flow.
 
 ## 📊 Coverage Summary
 
-Full suite as of 2026-07-03: **90 passed / 18 skipped / 1 failed** (`TC-58`, fails only because `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` aren't set in this local `.env` — passes wherever those creds exist).
+Full suite as of 2026-07-03: **91 passed / 18 skipped / 1 failed** (`TC-58`, fails only because `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` aren't set in this local `.env` — passes wherever those creds exist).
 
 | Area                      | Written | Passing | Skipped/Fixme                      | Not Written         |
 | ------------------------- | ------- | ------- | ---------------------------------- | ------------------- |
-| Admin                     | 32      | 31      | 2 (TC-02, chains fixme)            | 4                   |
+| Admin                     | 33      | 32      | 2 (TC-02, chains fixme)            | 4                   |
 | Owner                     | 36      | 34      | 2 (TC-42, TC-44) + 1 fixme (TC-92) | 6                   |
 | Onboarding                | 5       | 4       | 1 (needs EMPLOYEE creds)           | 1 (lead onboarding) |
 | Access Control            | 8       | 7       | 1 (TC-58 needs EMPLOYEE creds)     | 0                   |
@@ -259,10 +260,9 @@ Full suite as of 2026-07-03: **90 passed / 18 skipped / 1 failed** (`TC-58`, fai
 | 🔴 2     | Confirm QA's actual deployed frontend branch               | Blocks Lead Onboarding coverage entirely — can't test a UI that doesn't match source |
 | 🟡 3     | Customer — delivery order                                  | Second most common order type                                                        |
 | 🟡 4     | Customer — apply coupon                                    | Common checkout variation                                                            |
-| 🟡 5     | Admin dialogs — actually test features inside              | Current tests only check dialogs open                                                |
-| 🟢 6     | Owner — employee management                                | Needs product clarification on which UI this maps to first                           |
-| 🟢 7     | Full E2E — customer orders → owner sees it → staff accepts | Validates entire platform works together                                             |
-| 🟢 8     | Fix the coupon-edit backend bug (TC-92)                    | Blocks re-enabling a `test.fixme`                                                    |
+| 🟢 5     | Owner — employee management                                | Needs product clarification on which UI this maps to first                           |
+| 🟢 6     | Full E2E — customer orders → owner sees it → staff accepts | Validates entire platform works together                                             |
+| 🟢 7     | Fix the coupon-edit backend bug (TC-92)                    | Blocks re-enabling a `test.fixme`                                                    |
 
 ---
 
@@ -270,11 +270,9 @@ Full suite as of 2026-07-03: **90 passed / 18 skipped / 1 failed** (`TC-58`, fai
 
 | Issue                                                          | Affected Tests                | Risk                                                                                                                                                                                                                                      |
 | -------------------------------------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| TC-06 leaves status as "Contacted" on QA                       | TC-06                         | 🟡 Medium — dirty test data                                                                                                                                                                                                               |
 | TC-18 leaves tax rate at 8.5% on QA                            | TC-18                         | 🟡 Medium — dirty test data                                                                                                                                                                                                               |
 | MUI class selectors fragile to upgrades                        | TC-14, TC-15, TC-20           | 🟢 Low                                                                                                                                                                                                                                    |
 | TC-03 only checks URL not dashboard content                    | TC-03                         | 🟢 Low                                                                                                                                                                                                                                    |
-| TC-07–TC-11 only open dialogs, no feature testing              | TC-07–TC-11                   | 🟢 Low                                                                                                                                                                                                                                    |
 | Add-item wizard auto-submits on entering Review                | TC-21, TC-43                  | 🟢 Low — POM waits for the success toast instead of clicking the (permanently disabled) Save Item button; if a future build changes this, the fallback click path needs re-verifying                                                      |
 | **Coupon edit 500s server-side**                               | TC-92 (fixme)                 | 🔴 High — real backend bug: `POST /api/coupons/:id` (edit) sends `value` as a string but Prisma's `coupon.update()` expects a Float. Blocks any coupon-edit coverage until fixed.                                                         |
 | **Coupon create backend doesn't validate % bounds**            | TC-63 (create only)           | 🟡 Medium — the "1–100%" rule is enforced client-side only; a raw API call with `value: 500` is accepted. `TC-66`/`TC-68` test fields the backend _does_ validate (missing code, negative value) instead.                                 |

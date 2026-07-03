@@ -83,6 +83,64 @@ export const createAdminDemoManagementPage = (page: Page) => {
       .waitFor({ state: "hidden", timeout: 5_000 });
   };
 
+  // ── View/Edit Details — notes field ─────────────────────────────────────
+  // Saving PUTs /api/demo-requests/:id and the drawer auto-closes on success
+  // (no visible toast) — waiting for the drawer to hide is the success signal.
+  const drawer = () => page.locator(".MuiDrawer-paper");
+  const notesInput = () => drawer().locator("#notes");
+
+  const fillNotesAndSave = async (notes: string) => {
+    await notesInput().fill(notes);
+    await drawer().getByRole("button", { name: "Save Changes" }).click();
+    await drawer().waitFor({ state: "hidden", timeout: 10_000 });
+  };
+
+  // ── Send Follow-up Email — pre-filled subject/body, Send via Mailtrap ───
+  const followupSubjectInput = () => page.locator("#followup-subject");
+  const followupBodyInput = () => page.locator("#followup-body");
+
+  const sendFollowupEmail = async () => {
+    const dialog = page.locator('[role="dialog"]');
+    await dialog.getByRole("button", { name: "Send Email" }).click();
+    await dialog.waitFor({ state: "hidden", timeout: 10_000 });
+  };
+
+  // ── Assign Request — autocomplete search + select ───────────────────────
+  const assignToUser = async (searchTerm: string, optionPattern: RegExp) => {
+    const dialog = page.locator('[role="dialog"]');
+    const combo = dialog.getByRole("combobox");
+    await combo.click();
+    await combo.pressSequentially(searchTerm, { delay: 80 });
+    await page
+      .getByRole("option", { name: optionPattern })
+      .waitFor({ state: "visible", timeout: 10_000 });
+    await page.getByRole("option", { name: optionPattern }).click();
+    await dialog.getByRole("button", { name: "Assign", exact: true }).click();
+    await dialog.waitFor({ state: "hidden", timeout: 10_000 });
+  };
+
+  // ── Schedule Demo — masked MM/DD/YYYY hh:mm aa datetime field ───────────
+  // The visible widget is a MUI X DatePicker section list, not a plain text
+  // input — clicking the (hidden) proxy input doesn't work; click the
+  // sections container and type through the keyboard instead.
+  const scheduleDemo = async (mmddyyyy: string, hhmmaa: string) => {
+    const dialog = page.locator('[role="dialog"]');
+    await dialog.locator(".MuiPickersSectionList-root").click();
+    await page.keyboard.type(mmddyyyy, { delay: 60 });
+    await page.keyboard.type(hhmmaa, { delay: 60 });
+    await dialog
+      .getByRole("button", { name: "Schedule Demo", exact: true })
+      .click();
+    await dialog.waitFor({ state: "hidden", timeout: 10_000 });
+  };
+
+  // ── Delete — real confirm (distinct from the existing Cancel-only path) ─
+  const confirmDelete = async () => {
+    const dialog = page.locator('[role="dialog"]');
+    await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+    await dialog.waitFor({ state: "hidden", timeout: 10_000 });
+  };
+
   return {
     searchInput,
     goto,
@@ -98,6 +156,14 @@ export const createAdminDemoManagementPage = (page: Page) => {
     assertDialogOpen,
     closeSideSheet,
     closeDialog,
+    notesInput,
+    fillNotesAndSave,
+    followupSubjectInput,
+    followupBodyInput,
+    sendFollowupEmail,
+    assignToUser,
+    scheduleDemo,
+    confirmDelete,
   };
 };
 

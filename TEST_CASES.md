@@ -28,7 +28,7 @@ Each test case includes:
 | Area              | Who Uses It                        | Tests                                                                                                            |
 | ----------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | 🌐 Public         | Anyone on the internet             | TC-01, TC-02, TC-59 → TC-61, TC-74, TC-75, TC-93 → TC-96                                                         |
-| 🔐 Admin          | Internal Restaunax staff           | TC-03 → TC-12, TC-32, TC-76, TC-77 (plus TC-01 → TC-24 under `users.spec.ts` — see that section)                 |
+| 🔐 Admin          | Internal Restaunax staff           | TC-03 → TC-12, TC-32, TC-76, TC-77, TC-98 (plus TC-01 → TC-24 under `users.spec.ts` — see that section)          |
 | 🏠 Owner          | Restaurant owners                  | TC-13 → TC-16, TC-19 → TC-21, TC-27 → TC-31, TC-42 → TC-53 (excl. TC-22–26), TC-62 → TC-70, TC-78, TC-82 → TC-92 |
 | 🛒 Customer       | People ordering food               | TC-22 → TC-26, TC-64                                                                                             |
 | 🔒 Access Control | Testing role/permission boundaries | TC-54 → TC-58, TC-71 → TC-73, TC-81                                                                              |
@@ -196,45 +196,50 @@ Status tracking lets the admin team know where each prospect is in the sales pro
 
 ---
 
-## TC-07 — Admin Can View Full Details of a Demo Request
+## TC-07 — Admin Can Edit and Save Notes on a Demo Request
 
 **Status:** ✅ Passing
 
 ### What it checks
 
-Clicking "View/Edit Details" from the Actions menu opens a side panel showing the full information about that demo request.
+Clicking "View/Edit Details" opens a side panel where the admin can write internal notes about a prospect and save them — and the note is still there next time the panel is opened.
 
 ### How it works, step by step
 
-1. The test opens the Actions menu on the demo row
-2. It clicks "View/Edit Details"
-3. It confirms a panel slides in from the right side of the screen showing "Request Details"
-4. It closes the panel
+1. The test opens the Actions menu on the demo row and clicks "View/Edit Details"
+2. It types a test note into the Notes field and clicks "Save Changes"
+3. The panel closes automatically on a successful save (there's no separate success message — the panel closing is the signal)
+4. The test reopens the panel and confirms the note it typed is still there
 
 ### Why it matters
 
-The main table only shows basic info. Admins need the full picture — number of locations, business needs, preferred contact time — to have an informed conversation with the prospect.
+Notes are how admins track what's been discussed with a prospect across multiple conversations. If saving silently failed, that history would be lost without anyone noticing.
+
+> Previously this test only confirmed the panel opened, without ever typing into or saving the Notes field.
 
 ---
 
-## TC-08 — Admin Can Open the Send Follow-up Email Dialog
+## TC-08 — Admin Can Send a Follow-up Email
 
 **Status:** ✅ Passing
 
 ### What it checks
 
-Clicking "Send Follow-up Email" opens a dialog (pop-up window) where the admin can write and send an email to the prospect.
+Clicking "Send Follow-up Email" opens a pre-filled email (subject and body already written from a template) that the admin can send — and sending it actually delivers an email and updates the request's status.
 
 ### How it works, step by step
 
-1. The test opens the Actions menu
-2. It clicks "Send Follow-up Email"
-3. It confirms a dialog box appears with "Send Follow-up Email" as the title
-4. It closes the dialog without sending
+1. The test opens the Actions menu and clicks "Send Follow-up Email"
+2. It clicks "Send Email" on the pre-filled dialog
+3. It confirms the request's status badge changes from "New" to "Contacted"
+4. If email testing is configured (Mailtrap), it also confirms a real email actually arrived in the test inbox
+5. It resets the status back to "New" so it doesn't affect other tests that expect a fresh request
 
 ### Why it matters
 
-Quick email follow-up is critical in sales. If this dialog doesn't open, admins have to leave the platform to send emails, slowing down their response time.
+This is the core outreach action in the sales process. If sending silently failed, prospects would never hear back and the admin would have no way of knowing — the status change is what previously made this dialog untested beyond "does it open."
+
+> Previously this test only confirmed the dialog opened, without ever clicking Send.
 
 ---
 
@@ -260,45 +265,68 @@ Accidental deletion of a demo request means losing a potential client permanentl
 
 ---
 
-## TC-10 — Admin Can Open the Assign Request Dialog
+## TC-98 — Admin Can Permanently Delete a Demo Request
 
 **Status:** ✅ Passing
 
 ### What it checks
 
-Clicking "Assign Request" opens a dialog where the admin can hand the demo request off to a specific team member.
+Confirming the delete dialog (instead of cancelling) actually removes the demo request — it disappears from the list and can no longer be found.
 
 ### How it works, step by step
 
-1. The test opens the Actions menu
-2. It clicks "Assign Request"
-3. It confirms the "Assign Demo Request" dialog appears
-4. It closes the dialog
+1. The test creates its own throwaway demo request first (via a direct API call, not through the demo form) — this way it isn't deleting the shared request that TC-04 through TC-12 all rely on
+2. It searches for that throwaway request, opens Delete, and clicks the real "Delete" button (not Cancel)
+3. It searches again and confirms the row is gone
 
 ### Why it matters
 
-When teams are busy, requests need to be distributed among staff. If assignment doesn't work, there's no accountability for who's handling which prospect.
+TC-09 only proved the _cancel_ path works. This proves the delete button itself actually works — without it, this test suite had no evidence the delete feature functioned at all, only that backing out of it did.
 
 ---
 
-## TC-11 — Admin Can Open the Schedule Demo Dialog
+## TC-10 — Admin Can Assign a Demo Request to a Team Member
 
 **Status:** ✅ Passing
 
 ### What it checks
 
-Clicking "Schedule Demo" opens a dialog where the admin can pick a date and time for the product demo meeting.
+Clicking "Assign Request" opens a dialog where the admin can search for a team member by name or email and hand the request off to them.
 
 ### How it works, step by step
 
-1. The test opens the Actions menu
-2. It clicks "Schedule Demo"
-3. It confirms the "Schedule Demo" dialog appears
-4. It closes the dialog
+1. The test opens the Actions menu and clicks "Assign Request"
+2. It types the admin test account's email into the search box, waits for it to appear as a suggestion, and clicks it
+3. It clicks "Assign" and confirms (from the server's response) that the request now has that person as the assignee
+
+### Why it matters
+
+When teams are busy, requests need to be distributed among staff. If assignment doesn't work, there's no accountability for who's handling which prospect. (The dashboard doesn't show the assignee's name anywhere visible after assigning, so this test checks the server's response directly rather than something on screen.)
+
+> Previously this test only confirmed the dialog opened, without ever searching for or selecting anyone.
+
+---
+
+## TC-11 — Admin Can Schedule a Demo
+
+**Status:** ✅ Passing
+
+### What it checks
+
+Clicking "Schedule Demo" opens a dialog where the admin can pick a date and time for the product demo meeting — and actually scheduling it updates the request's status.
+
+### How it works, step by step
+
+1. The test opens the Actions menu and clicks "Schedule Demo"
+2. It types a date and time into the date/time field
+3. It clicks "Schedule Demo" to confirm and checks the request's status badge changed to "Scheduled"
+4. It resets the status back to "New" so it doesn't affect other tests that expect a fresh request
 
 ### Why it matters
 
 Scheduling is the most important step in converting a lead. If this dialog is broken, admins can't book meetings directly from the platform.
+
+> Previously this test only confirmed the dialog opened, without ever picking a date or clicking Schedule.
 
 ---
 
@@ -1225,11 +1253,12 @@ This is the critical handoff from the app to Stripe. If the button calls the wro
 | TC-04 | Admin finds demo request                                            | Admin                 | ✅ Passing                                                   |
 | TC-05 | Admin opens actions menu                                            | Admin                 | ✅ Passing                                                   |
 | TC-06 | Admin changes demo status                                           | Admin                 | ✅ Passing                                                   |
-| TC-07 | Admin views full request details                                    | Admin                 | ✅ Passing                                                   |
-| TC-08 | Admin opens follow-up email dialog                                  | Admin                 | ✅ Passing                                                   |
+| TC-07 | Admin edits and saves notes on a demo request                       | Admin                 | ✅ Passing                                                   |
+| TC-08 | Admin sends a follow-up email (status flips, email delivered)       | Admin                 | ✅ Passing                                                   |
 | TC-09 | Delete confirmation + cancel works                                  | Admin                 | ✅ Passing                                                   |
-| TC-10 | Admin opens assign request dialog                                   | Admin                 | ✅ Passing                                                   |
-| TC-11 | Admin opens schedule demo dialog                                    | Admin                 | ✅ Passing                                                   |
+| TC-98 | Admin permanently deletes a demo request                            | Admin                 | ✅ Passing                                                   |
+| TC-10 | Admin assigns a demo request to a team member                       | Admin                 | ✅ Passing                                                   |
+| TC-11 | Admin schedules a demo (status flips to Scheduled)                  | Admin                 | ✅ Passing                                                   |
 | TC-12 | Proceed to onboarding navigates correctly                           | Admin                 | ✅ Passing                                                   |
 | TC-13 | Owner sees My Restaurants page                                      | Owner                 | ✅ Passing                                                   |
 | TC-14 | Owner sees their restaurant card                                    | Owner                 | ✅ Passing                                                   |
@@ -1310,7 +1339,7 @@ This is the critical handoff from the app to Stripe. If the button calls the wro
 | TC-96 | Sign-up — weak password rejected client-side                        | Onboarding / Public   | ✅ Passing                                                   |
 | TC-97 | Employee creates a restaurant on behalf of a client                 | Onboarding / Employee | ⏭️ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD`                |
 
-**90 passing · 18 skipped · 1 failing (env-only)** — as of 2026-07-03. The one failure (TC-58) fails only in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` set; it passes wherever those credentials exist.
+**91 passing · 18 skipped · 1 failing (env-only)** — as of 2026-07-03. The one failure (TC-58) fails only in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` set; it passes wherever those credentials exist.
 
 Skipped tests fall into four groups: **route access** (TC-27, TC-28, TC-81 — publish/tax/loyalty are employee/admin-only and return Access Denied for the owner role); **missing UI** (TC-42, TC-44 — the edit/delete buttons don't exist in the current menu editor); **missing credentials in this environment** (TC-58, TC-97, plus TC-17/TC-18 in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD`; TC-02 without Mailtrap); and **a real backend bug** (TC-92 — editing any coupon 500s server-side, filed as `test.fixme` with the exact error rather than asserting broken behavior as correct). TC-33 to TC-35 remain narrative-only placeholders with no test code at all — not the same as a skipped/fixme test.
 
