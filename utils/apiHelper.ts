@@ -250,6 +250,21 @@ export async function createTestMenuItem(
   return data.menuItem;
 }
 
+/** Raw restaurant create — for negative cases (e.g. missing name → 400). */
+export function createRestaurantRaw(
+  accessToken: string,
+  body: Record<string, unknown>
+): Promise<RawResponse> {
+  return apiRequestRaw("POST", "/restaurant/new", body, accessToken);
+}
+
+/** Raw demo-request submit — for negative cases (e.g. invalid email → 400). */
+export function submitDemoRequestRaw(
+  body: Record<string, unknown>
+): Promise<RawResponse> {
+  return apiRequestRaw("POST", "/api/demo-requests", body);
+}
+
 /** Raw menu item create — for negative cases (e.g. missing name → 400). */
 export function createMenuItemRaw(
   accessToken: string,
@@ -423,6 +438,33 @@ export async function adminListUsers(
     adminToken
   );
   return data.users ?? [];
+}
+
+/** Raw role change — for negative cases (e.g. a nonexistent role name → 400). */
+export function updateUserRoleRaw(
+  adminToken: string,
+  userId: string,
+  role: string
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "PUT",
+    `/api/roles/users/${userId}`,
+    { role },
+    adminToken
+  );
+}
+
+/** Raw toggle-status — for negative cases (e.g. a nonexistent user id → 404). */
+export function toggleUserStatusRaw(
+  adminToken: string,
+  userId: string
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "PUT",
+    `/api/admin/users/${userId}/toggle-status`,
+    undefined,
+    adminToken
+  );
 }
 
 /** GET /api/admin/users/:id — full user detail (role, isActive, restaurants…). */

@@ -5,7 +5,10 @@ import {
   apiLogin,
   createMenuItemRaw,
   createCouponRaw,
+  createRestaurantRaw,
+  submitDemoRequestRaw,
 } from "../../../utils/apiHelper";
+import { generateDemoFormData } from "../../../utils/testData";
 
 const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
@@ -76,6 +79,41 @@ test.describe("API — Negative cases", () => {
       startDate: new Date().toISOString(),
       endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       status: "ACTIVE",
+    });
+
+    await allure.parameter("status", String(res.status));
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(400);
+  });
+
+  test("TC-79: a restaurant owner without CREATE_RESTAURANT permission cannot self-serve create one", async () => {
+    await allure.description(
+      "POST /restaurant/new with the seed OWNER's token is rejected — restaurant creation requires " +
+        "a permission this account doesn't hold, confirming the API enforces it (not just the UI)."
+    );
+
+    const { accessToken } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD);
+    const res = await createRestaurantRaw(accessToken, {
+      name: "Should Not Be Created",
+      cuisineType: "American",
+    });
+
+    await allure.parameter("status", String(res.status));
+    expect(res.ok).toBe(false);
+    expect(res.status).toBe(403);
+  });
+
+  test("TC-80: submitting a demo request with no email is rejected", async () => {
+    await allure.description(
+      "POST /api/demo-requests with the email field omitted entirely is rejected with a 4xx status, " +
+        "bypassing the frontend's HTML5 required-field check."
+    );
+
+    const formData = generateDemoFormData();
+    const { email: _email, ...withoutEmail } = formData;
+    const res = await submitDemoRequestRaw({
+      ...withoutEmail,
+      planType: "restaurant",
     });
 
     await allure.parameter("status", String(res.status));

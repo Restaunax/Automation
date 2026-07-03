@@ -30,6 +30,8 @@ import {
   registerRaw,
   getMe,
   deleteRecordedUsers,
+  updateUserRoleRaw,
+  toggleUserStatusRaw,
 } from "../../../utils/apiHelper";
 import { waitForEmail, extractInviteToken } from "../../../utils/emailHelper";
 import { loginViaUi } from "../../../utils/auth";
@@ -378,6 +380,32 @@ test.describe("Admin — User Management", () => {
       const afterRemove = (await getUserPermissions(adminToken, id))
         .userSpecificPermissions.length;
       expect(afterRemove).toBe(before);
+    });
+  });
+
+  // ── Group F0 — API-level negative cases ─────────────────────────────────────
+  // Self-deactivation is deliberately NOT tested here: it would risk locking
+  // out the shared ADMIN_EMAIL account this whole suite depends on if the
+  // backend doesn't guard against it.
+  test.describe("Settings tab — negative", () => {
+    test("TC-76: changing a user's role to an unknown value is rejected", async () => {
+      const { id } = await createTargetUser("USER");
+      const res = await updateUserRoleRaw(adminToken, id, "NOT_A_ROLE");
+
+      expect(res.ok).toBe(false);
+      expect(res.status).toBe(400);
+      // Role must be unchanged on the server.
+      expect((await adminGetUser(adminToken, id)).role).toBe("USER");
+    });
+
+    test("TC-77: toggling status of a nonexistent user id is rejected", async () => {
+      const res = await toggleUserStatusRaw(
+        adminToken,
+        "00000000-0000-0000-0000-000000000000"
+      );
+
+      expect(res.ok).toBe(false);
+      expect(res.status).toBe(404);
     });
   });
 

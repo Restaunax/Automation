@@ -56,6 +56,17 @@ export const createDemoBookingPage = (page: Page) => {
     await expect(els.successDialog).toBeVisible({ timeout: 15_000 });
   };
 
+  // Neither the missing-terms-checkbox nor invalid-email case renders a
+  // visible inline error — the form just silently declines to submit
+  // (native HTML5 validation blocks it). Assert the negative by absence:
+  // no success dialog, still on /demo.
+  const assertNotSubmitted = async (): Promise<void> => {
+    // Give the (never-arriving) success dialog its full timeout to prove it
+    // really doesn't appear, rather than a fixed sleep.
+    await expect(els.successDialog).toBeHidden({ timeout: 5_000 });
+    await expect(page).toHaveURL(/\/demo$/);
+  };
+
   const fillAndSubmit = async (data: DemoFormData): Promise<void> => {
     await goto();
     await fillForm(data);
@@ -69,6 +80,7 @@ export const createDemoBookingPage = (page: Page) => {
     fillForm,
     submit,
     waitForSuccess,
+    assertNotSubmitted,
     fillAndSubmit,
   };
 };

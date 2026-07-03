@@ -19,8 +19,9 @@ export const createOwnerOrdersPage = (page: Page) => {
 
   const filtersButton = () => page.getByRole("button", { name: "Filters" });
 
-  const emptyStateMessage = () =>
-    page.getByText("No orders found matching your filters");
+  // The orders grid is a MUI DataGrid — an unmatched search renders its
+  // built-in "No rows" overlay, not a custom empty-state message.
+  const emptyStateMessage = () => page.getByText("No rows");
 
   const assertOrdersTabLoaded = () =>
     expect(page.getByRole("heading", { name: "Order Dashboard" })).toBeVisible({
@@ -34,6 +35,7 @@ export const createOwnerOrdersPage = (page: Page) => {
 
   const searchOrders = async (query: string) => {
     await searchInput().fill(query);
+    await searchInput().press("Enter");
   };
 
   return {
