@@ -8,6 +8,9 @@ const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
 
 test.describe("Customer — Menu Browsing", () => {
+  // No default here on purpose: Template Wind is deployed per-restaurant, and
+  // the qa.restaunax.com root serves the marketing site — the env var must
+  // point at a real customer-site deployment.
   test.skip(
     !TEMPLATE_WIND_URL || !OWNER_EMAIL || !OWNER_PASSWORD,
     "TEMPLATE_WIND_URL, OWNER_EMAIL, and OWNER_PASSWORD must all be set in .env"

@@ -10,10 +10,12 @@ export const createCustomerMenuPage = (page: Page) => {
     });
   };
 
+  // MenuItemCard renders the item name as an <h3> inside a clickable card div
+  // (template-wind src/components/menu/MenuItemCard.tsx). There is no
+  // data-testid / .menu-item-card class / <article> in that tree — target the
+  // heading; the click bubbles up to the card's onClick.
   const menuItemCard = (name: string) =>
-    page
-      .locator('[data-testid="menu-item-card"], .menu-item-card, article')
-      .filter({ hasText: name });
+    page.getByRole("heading", { name, exact: true });
 
   const floatingCartButton = () =>
     page.getByRole("button", { name: /view cart/i });
@@ -23,10 +25,11 @@ export const createCustomerMenuPage = (page: Page) => {
 
   const openItemModal = (itemName: string) => menuItemCard(itemName).click();
 
+  // ItemModal has no role="dialog" or testid (plain motion.div overlay) — the
+  // "Add to Cart — $…" button only exists while the modal is open, so it is
+  // the modal-open signal.
   const assertItemModalOpen = () =>
-    expect(
-      page.locator('[role="dialog"], [data-testid="item-modal"]')
-    ).toBeVisible({ timeout: 10_000 });
+    expect(addToCartButton()).toBeVisible({ timeout: 10_000 });
 
   const addToCartButton = () =>
     page.getByRole("button", { name: /add to cart/i });

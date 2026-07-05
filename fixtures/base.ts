@@ -15,6 +15,10 @@ import {
   type SignInPage,
 } from "../pages/dashboard/auth/SignInPage";
 import {
+  createSignUpPage,
+  type SignUpPage,
+} from "../pages/dashboard/auth/SignUpPage";
+import {
   OWNER_AUTH_FILE,
   ADMIN_AUTH_FILE,
   EMPLOYEE_AUTH_FILE,
@@ -33,6 +37,7 @@ export type Fixtures = {
   // ownerPage / adminPage / employeePage: convenience single-tab shortcut for the common case
   demoBookingPage: DemoBookingPage;
   signInPage: SignInPage;
+  signUpPage: SignUpPage;
   ownerContext: BrowserContext;
   ownerPage: Page;
   adminContext: BrowserContext;
@@ -65,8 +70,11 @@ async function loadAuthContext(
     storageState: authFile,
     baseURL: FRONTEND_URL,
   });
-  await use(context);
-  await context.close();
+  try {
+    await use(context);
+  } finally {
+    await context.close();
+  }
 }
 
 export const test = base.extend<Fixtures>({
@@ -76,6 +84,10 @@ export const test = base.extend<Fixtures>({
 
   signInPage: async ({ page }, use) => {
     await use(createSignInPage(page));
+  },
+
+  signUpPage: async ({ page }, use) => {
+    await use(createSignUpPage(page));
   },
 
   ownerContext: async ({ browser }, use) => {
@@ -144,8 +156,11 @@ export const test = base.extend<Fixtures>({
       opened.push(context);
       return context.newPage();
     };
-    await use(resolve);
-    for (const ctx of opened) await ctx.close();
+    try {
+      await use(resolve);
+    } finally {
+      for (const ctx of opened) await ctx.close();
+    }
   },
 });
 

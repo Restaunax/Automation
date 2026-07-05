@@ -35,12 +35,7 @@ export const createOwnerCouponPage = (page: Page) => {
 
   // Start Date and End Date come pre-filled with moment() defaults, so no
   // need to fill them — just fill code and discount value for TC-31.
-  const fillCouponForm = async (
-    code: string,
-    discountValue: string,
-    _startDate: string,
-    _endDate: string
-  ) => {
+  const fillCouponForm = async (code: string, discountValue: string) => {
     await couponCodeInput().fill(code);
     await discountValueInput().fill(discountValue);
   };
@@ -49,6 +44,46 @@ export const createOwnerCouponPage = (page: Page) => {
 
   const assertSuccessToast = () =>
     expect(successToast()).toBeVisible({ timeout: 10_000 });
+
+  const errorAlert = () => page.getByRole("alert");
+  const fieldErrors = () => page.locator(".MuiFormHelperText-root");
+
+  // ── Manage Coupons list ──────────────────────────────────────────────────
+  const navigateToManageCoupons = async () => {
+    await drawer()
+      .getByRole("button", { name: "Coupons", exact: true })
+      .click();
+    const manageCouponsBtn = page.getByRole("button", {
+      name: "Manage Coupons",
+      exact: true,
+    });
+    await manageCouponsBtn.waitFor({ state: "visible", timeout: 5_000 });
+    await manageCouponsBtn.click();
+    await page.waitForURL(/tab=coupons/, { timeout: 10_000 });
+    await page
+      .getByRole("heading", { name: "Coupon Management" })
+      .waitFor({ state: "visible", timeout: 15_000 });
+  };
+
+  const assertManageCouponsLoaded = () =>
+    expect(
+      page.getByRole("heading", { name: "Coupon Management" })
+    ).toBeVisible({ timeout: 10_000 });
+
+  const couponRowByCode = (code: string) =>
+    page.locator("tr", { hasText: code });
+
+  // Submitting an invalid discount value stays on the create form and shows
+  // both a top-level alert and an inline percentage-range error.
+  const assertInvalidDiscountError = async () => {
+    await expect(errorAlert()).toContainText(
+      "Please fix the errors before submitting"
+    );
+    await expect(fieldErrors().first()).toContainText(
+      "Percentage must be between 1 and 100"
+    );
+    await expect(couponCodeInput()).toBeVisible();
+  };
 
   return {
     navigateToCreateCoupon,
@@ -60,5 +95,11 @@ export const createOwnerCouponPage = (page: Page) => {
     fillCouponForm,
     submit,
     assertSuccessToast,
+    errorAlert,
+    fieldErrors,
+    assertInvalidDiscountError,
+    navigateToManageCoupons,
+    assertManageCouponsLoaded,
+    couponRowByCode,
   };
 };

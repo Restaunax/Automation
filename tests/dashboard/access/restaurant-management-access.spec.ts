@@ -12,14 +12,17 @@ import { readSharedState } from "../../../utils/testData";
  * This suite only asserts REACHABILITY per role via the pageForRole fixture — it
  * does not re-run the full feature flow. See TEST_PLAN.md → "Shared capabilities".
  *
- * SCAFFOLD: test.fixme placeholders. (`employee` needs the future employeePage
- * session — see TEST_PLAN.md → "Future infrastructure".)
  */
 const ROLES_WITH_MENU_ACCESS = ["owner", "admin", "employee"] as const;
+const TC_NUMBERS: Record<(typeof ROLES_WITH_MENU_ACCESS)[number], number> = {
+  owner: 56,
+  admin: 57,
+  employee: 58,
+};
 
 test.describe("Access — Restaurant management (shared screens)", () => {
   for (const role of ROLES_WITH_MENU_ACCESS) {
-    test.fixme(`TC-XXX: ${role} can reach menu management`, async ({
+    test(`TC-${TC_NUMBERS[role]}: ${role} can reach menu management`, async ({
       pageForRole,
     }) => {
       const { restaurantId } = readSharedState();

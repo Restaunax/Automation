@@ -250,6 +250,43 @@ export async function createTestMenuItem(
   return data.menuItem;
 }
 
+/** Raw restaurant create — for negative cases (e.g. missing name → 400). */
+export function createRestaurantRaw(
+  accessToken: string,
+  body: Record<string, unknown>
+): Promise<RawResponse> {
+  return apiRequestRaw("POST", "/restaurant/new", body, accessToken);
+}
+
+/** Raw demo-request submit — for negative cases (e.g. invalid email → 400). */
+export function submitDemoRequestRaw(
+  body: Record<string, unknown>
+): Promise<RawResponse> {
+  return apiRequestRaw("POST", "/api/demo-requests", body);
+}
+
+/** Raw menu item create — for negative cases (e.g. missing name → 400). */
+export function createMenuItemRaw(
+  accessToken: string,
+  body: Record<string, unknown>
+): Promise<RawResponse> {
+  return apiRequestRaw("POST", "/menu/item/new", body, accessToken);
+}
+
+/** Raw coupon create — for negative cases (e.g. invalid discount → 400). */
+export function createCouponRaw(
+  accessToken: string,
+  restaurantId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "POST",
+    `/api/coupons/restaurant/${restaurantId}`,
+    body,
+    accessToken
+  );
+}
+
 // ── Admin user management ────────────────────────────────────────────────────
 //
 // Helpers for tests/dashboard/admin/users.spec.ts. They seed/inspect/clean up
@@ -280,12 +317,23 @@ async function apiRequestRaw<T = unknown>(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    const res = await fetch(`${BACKEND_URL}${path}`, {
-      method,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal: controller.signal,
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${BACKEND_URL}${path}`, {
+        method,
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: controller.signal,
+      });
+    } catch (err) {
+      if (controller.signal.aborted) {
+        throw new Error(
+          `API ${method} ${path} timed out after ${REQUEST_TIMEOUT_MS}ms. ` +
+            `Is BACKEND_URL=${BACKEND_URL} correct and reachable?`
+        );
+      }
+      throw err;
+    }
     const text = await res.text();
     let data: unknown = text;
     try {
@@ -392,6 +440,33 @@ export async function adminListUsers(
   return data.users ?? [];
 }
 
+/** Raw role change — for negative cases (e.g. a nonexistent role name → 400). */
+export function updateUserRoleRaw(
+  adminToken: string,
+  userId: string,
+  role: string
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "PUT",
+    `/api/roles/users/${userId}`,
+    { role },
+    adminToken
+  );
+}
+
+/** Raw toggle-status — for negative cases (e.g. a nonexistent user id → 404). */
+export function toggleUserStatusRaw(
+  adminToken: string,
+  userId: string
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "PUT",
+    `/api/admin/users/${userId}/toggle-status`,
+    undefined,
+    adminToken
+  );
+}
+
 /** GET /api/admin/users/:id — full user detail (role, isActive, restaurants…). */
 export function adminGetUser(
   adminToken: string,
@@ -493,6 +568,44 @@ export async function registerWithInvite(
   if (!res.ok) {
     throw new Error(
       `registerWithInvite failed → ${res.status}: ${JSON.stringify(res.data)}`
+    );
+  }
+  return res.data;
+}
+
+export interface PlainRegisterBody {
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+}
+
+/**
+ * POST /register — plain self-serve sign-up, no invite token. A fresh account
+ * registers as role USER with only VIEW_RESTAURANT (confirmed live) — it does
+ * NOT become OWNER until the user creates a restaurant. Used for setup/cleanup
+ * in sign-up tests; UI-level negative cases (duplicate email, password
+ * mismatch, weak password) are driven through the browser instead, matching
+ * how the live form actually validates them.
+ */
+export async function register(
+  body: PlainRegisterBody
+): Promise<RegisterResult> {
+  let res = await apiRequestRaw<RegisterResult & { message?: string }>(
+    "POST",
+    "/register",
+    body
+  );
+  if (res.status === 404) {
+    res = await apiRequestRaw<RegisterResult & { message?: string }>(
+      "POST",
+      "/api/register",
+      body
+    );
+  }
+  if (!res.ok) {
+    throw new Error(
+      `register failed → ${res.status}: ${JSON.stringify(res.data)}`
     );
   }
   return res.data;

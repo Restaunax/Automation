@@ -19,8 +19,9 @@ export const createOwnerOrdersPage = (page: Page) => {
 
   const filtersButton = () => page.getByRole("button", { name: "Filters" });
 
-  const emptyStateMessage = () =>
-    page.getByText("No orders found matching your filters");
+  // The orders grid is a MUI DataGrid — an unmatched search renders its
+  // built-in "No rows" overlay, not a custom empty-state message.
+  const emptyStateMessage = () => page.getByText("No rows");
 
   const assertOrdersTabLoaded = () =>
     expect(page.getByRole("heading", { name: "Order Dashboard" })).toBeVisible({
@@ -34,6 +35,43 @@ export const createOwnerOrdersPage = (page: Page) => {
 
   const searchOrders = async (query: string) => {
     await searchInput().fill(query);
+    await searchInput().press("Enter");
+  };
+
+  // ── Filters panel ────────────────────────────────────────────────────────
+  const openFilters = () => filtersButton().click();
+
+  const assertFilterPanelVisible = () =>
+    expect(page.getByRole("heading", { name: "Filter Orders" })).toBeVisible({
+      timeout: 10_000,
+    });
+
+  // ── Order detail dialog ──────────────────────────────────────────────────
+  // Clicking a data row (not the header) opens a detail dialog and appends
+  // ?detailOrderId=<id>. Grid rows render as MUI DataGrid rows; grab the
+  // first one under the column-header row.
+  const firstOrderRow = () =>
+    page.locator('.MuiDataGrid-row[role="row"]').first();
+
+  const openFirstOrderDetail = async () => {
+    await firstOrderRow().click();
+    await page
+      .getByRole("dialog")
+      .waitFor({ state: "visible", timeout: 10_000 });
+  };
+
+  const assertOrderDetailVisible = () =>
+    expect(page.getByRole("dialog").getByText("Order Information")).toBeVisible(
+      {
+        timeout: 10_000,
+      }
+    );
+
+  const closeOrderDetail = async () => {
+    await page.keyboard.press("Escape");
+    await page
+      .getByRole("dialog")
+      .waitFor({ state: "hidden", timeout: 10_000 });
   };
 
   return {
@@ -44,5 +82,11 @@ export const createOwnerOrdersPage = (page: Page) => {
     assertOrdersTabLoaded,
     assertTableColumnVisible,
     searchOrders,
+    openFilters,
+    assertFilterPanelVisible,
+    firstOrderRow,
+    openFirstOrderDetail,
+    assertOrderDetailVisible,
+    closeOrderDetail,
   };
 };

@@ -2,14 +2,9 @@ import { test, expect } from "../../../fixtures/base";
 
 /**
  * Public — Sign in.
- *
- * SCAFFOLD: test.fixme placeholders define the structure + intent without
- * running (they show as skipped). To make real: rename fixme→test, fill the
- * Arrange-Act-Assert body, and add allure labels — see the worked example in
- * tests/dashboard/admin/demo/01-demo-management.spec.ts and TEST_PLAN.md.
  */
 test.describe("Public — Sign in", () => {
-  test.fixme("TC-XXX: valid credentials reach the dashboard", async ({
+  test("TC-59: valid credentials reach the dashboard", async ({
     signInPage,
     page,
   }) => {
@@ -22,10 +17,21 @@ test.describe("Public — Sign in", () => {
     await expect(page).not.toHaveURL(/\/sign-in/);
   });
 
-  test.fixme("TC-XXX: invalid credentials show an error", async ({
-    signInPage,
-  }) => {
+  test("TC-60: invalid credentials show an error", async ({ signInPage }) => {
     await signInPage.goto();
-    // TODO: submit bad credentials and assert an error message is shown
+    await signInPage.login(
+      process.env.OWNER_EMAIL ?? "",
+      "definitely-wrong-password"
+    );
+    await signInPage.assertLoginError();
+  });
+
+  test("TC-61: unknown email shows an error", async ({ signInPage }) => {
+    await signInPage.goto();
+    await signInPage.login(
+      "no-such-user@restaunax-test.com",
+      "whatever-password"
+    );
+    await signInPage.assertLoginError();
   });
 });

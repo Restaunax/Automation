@@ -254,6 +254,58 @@ test.describe("Owner — Payment Settings (Stripe Setup)", () => {
         }
       );
     });
+
+    test("TC-78: a failed Stripe account-create call shows an error and does not redirect", async ({
+      ownerPage,
+    }) => {
+      await allure.description(
+        "When POST /api/stripe/account/restaurant/:id/create fails, the page shows an inline error " +
+          "alert and stays on /setupStripe instead of redirecting to Stripe."
+      );
+      const paymentPage = createOwnerPaymentSettingsPage(ownerPage);
+
+      await allure.step("Mock Stripe status as not connected", async () => {
+        await mockStripeNotConnected(ownerPage);
+      });
+
+      await allure.step(
+        "Mock a failing Stripe create-account endpoint",
+        async () => {
+          await ownerPage.route(
+            (url) =>
+              url.pathname.includes("/api/stripe/account/") &&
+              url.pathname.endsWith("/create"),
+            (route) =>
+              route.fulfill({
+                status: 500,
+                contentType: "application/json",
+                body: JSON.stringify({
+                  success: false,
+                  message: "Stripe account creation failed",
+                }),
+              })
+          );
+        }
+      );
+
+      await allure.step(
+        "Navigate to setup page and click Set Up Stripe Account",
+        async () => {
+          await paymentPage.goto(restaurantId);
+          await paymentPage.connectStripeButton().click();
+        }
+      );
+
+      await allure.step(
+        "Verify the error alert appears and the page did not redirect to Stripe",
+        async () => {
+          await expect(ownerPage.getByRole("alert")).toContainText(
+            "Failed to create Stripe account"
+          );
+          await expect(ownerPage).toHaveURL(/setupStripe/);
+        }
+      );
+    });
   });
 
   // ── Success / return page (/stripe-onboarding-success?restaurantId=<id>) ──

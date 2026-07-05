@@ -50,9 +50,12 @@ export const createCustomerCheckoutPage = (page: Page) => {
         iprice: menuItemPrice,
       }
     );
-    await page.goto(`${TEMPLATE_WIND_URL}/checkout`, {
-      waitUntil: "domcontentloaded",
-    });
+    // Same ?restaurantId= QA override as /menu — without it a multi-location
+    // deployment shows the location picker instead of the checkout form.
+    await page.goto(
+      `${TEMPLATE_WIND_URL}/checkout?restaurantId=${restaurantId}`,
+      { waitUntil: "domcontentloaded" }
+    );
     await page
       .getByPlaceholder("John")
       .waitFor({ state: "visible", timeout: 15_000 });
@@ -87,8 +90,8 @@ export const createCustomerCheckoutPage = (page: Page) => {
     });
 
   const fillStripeCard = async (
-    cardNumber = STRIPE_CARDS.VISA_SUCCESS,
-    expiry = `${STRIPE_DEFAULTS.EXPIRY_MONTH} / ${STRIPE_DEFAULTS.EXPIRY_YEAR}`,
+    cardNumber: string = STRIPE_CARDS.VISA_SUCCESS,
+    expiry: string = STRIPE_DEFAULTS.EXPIRY_MM_YY,
     cvc = STRIPE_DEFAULTS.CVC
   ) => {
     await fillStripePaymentElement(page, cardNumber, expiry, cvc);
@@ -96,6 +99,14 @@ export const createCustomerCheckoutPage = (page: Page) => {
 
   const completeOrder = () =>
     page.getByRole("button", { name: "Complete Order" }).click();
+
+  // On a Stripe decline, PaymentSection renders a "Payment Error" card with
+  // the decline message underneath — the checkout form stays visible so the
+  // customer can retry with a different card.
+  const assertPaymentError = () =>
+    expect(page.getByRole("heading", { name: "Payment Error" })).toBeVisible({
+      timeout: 20_000,
+    });
 
   return {
     seedCart,
@@ -107,5 +118,6 @@ export const createCustomerCheckoutPage = (page: Page) => {
     assertPaymentSectionVisible,
     fillStripeCard,
     completeOrder,
+    assertPaymentError,
   };
 };

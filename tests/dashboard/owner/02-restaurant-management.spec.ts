@@ -64,4 +64,41 @@ test.describe("Owner — Restaurant Management Portal", () => {
       await allure.parameter("URL after click", ownerPage.url());
     });
   });
+
+  test("TC-88: owner can edit and save a Store Settings field", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Changing the delivery order standard prep time and clicking Save changes PUTs the update and " +
+        "shows a success toast. The test restores the original value afterward so it doesn't leave " +
+        "the shared QA restaurant's data mutated."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    let originalValue = "";
+
+    await allure.step("Navigate to Store Settings", async () => {
+      await mgmtPage.goto(restaurantId);
+      await mgmtPage.navigateToStoreSettings();
+    });
+
+    await allure.step("Change the delivery prep time and save", async () => {
+      originalValue = await mgmtPage.deliveryPrepTimeInput().inputValue();
+      const changedValue = String(Number(originalValue) + 1);
+      await mgmtPage.setDeliveryPrepTime(changedValue);
+      await mgmtPage.saveStoreSettings();
+    });
+
+    await allure.step("Verify the save succeeded", async () => {
+      await mgmtPage.assertSettingsSavedToast();
+    });
+
+    await allure.step("Restore the original value", async () => {
+      await mgmtPage.setDeliveryPrepTime(originalValue);
+      await mgmtPage.saveStoreSettings();
+      await mgmtPage.assertSettingsSavedToast();
+      await expect(mgmtPage.deliveryPrepTimeInput()).toHaveValue(originalValue);
+    });
+  });
 });

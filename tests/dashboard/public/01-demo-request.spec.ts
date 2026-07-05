@@ -44,6 +44,60 @@ test.describe("Demo Request — Public Form", () => {
     });
   });
 
+  test("TC-74: submitting without agreeing to terms does not submit the form", async ({
+    demoBookingPage,
+  }) => {
+    await allure.description(
+      "Filling every field but leaving 'agree to terms' unchecked and clicking submit leaves the " +
+        "visitor on /demo with no success dialog (native validation blocks it)."
+    );
+
+    const formData = generateDemoFormData();
+
+    await allure.step(
+      "Navigate and fill the form without agreeing to terms",
+      async () => {
+        await demoBookingPage.goto();
+        await demoBookingPage.fillForm({ ...formData, agreeToTerms: false });
+      }
+    );
+
+    await allure.step(
+      "Submit and verify the form was not accepted",
+      async () => {
+        await demoBookingPage.submit();
+        await demoBookingPage.assertNotSubmitted();
+      }
+    );
+  });
+
+  test("TC-75: submitting an invalid email format does not submit the form", async ({
+    demoBookingPage,
+  }) => {
+    await allure.description(
+      "Filling the form with a malformed email and clicking submit leaves the visitor on /demo with " +
+        "no success dialog (native email-type validation blocks it)."
+    );
+
+    const formData = generateDemoFormData();
+
+    await allure.step(
+      "Navigate and fill the form with a bad email",
+      async () => {
+        await demoBookingPage.goto();
+        await demoBookingPage.fillForm({ ...formData, email: "not-an-email" });
+      }
+    );
+
+    await allure.step(
+      "Submit and verify the form was not accepted",
+      async () => {
+        await demoBookingPage.submit();
+        await demoBookingPage.assertNotSubmitted();
+      }
+    );
+  });
+
   // TODO: enable once MAILTRAP_API_TOKEN + MAILTRAP_INBOX_ID are available in CI.
   // Track at: https://github.com/Restaunax/RestauNax/issues (open a ticket when wiring up Mailtrap)
   test.skip("TC-02: receive confirmation email after demo request submission", async () => {

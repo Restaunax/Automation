@@ -11,11 +11,15 @@ the role model it mirrors, the conventions every test follows, and how to add a
 new test. Read the **Conventions** and **How to add a new test** sections before
 writing a spec.
 
-> **State of the suite:** the framework (dual-role auth, API seeding/teardown,
-> fixtures, Allure) is in place and the structure is fully scaffolded. Most spec
-> and POM files are **placeholders** (`test.fixme`, stub POMs) that establish the
-> pattern — only the demo-request flow is implemented end-to-end so far. See
-> **Project Structure** for which files are real vs scaffolded.
+> **State of the suite:** the framework (three-role auth, API seeding/teardown,
+> fixtures, Allure) is in place, and ~50 real test cases cover public demo
+> requests, admin (demo management, restaurants, full user management), owner
+> (restaurant list/management, menu CRUD, orders, coupons, Stripe payment
+> settings), employee (tax settings), and customer (menu browsing, checkout,
+> full Stripe order placement). What remains is `test.fixme` placeholders —
+> sign-in/sign-up, chains, employee restaurant-create/menu-publish, staff
+> portal, and the access-control matrix. See **Project Structure** and
+> **Implemented Today** for which files are real vs scaffolded.
 
 ---
 
@@ -136,66 +140,76 @@ Rules of thumb:
 ```
 Automation/
 ├── tests/
-│   ├── dashboard/                       # PROJECT: dashboard (baseURL = FRONTEND_URL)
-│   │   ├── public/                      # unauthenticated
-│   │   │   ├── 01-demo-request.spec.ts  # ✅ real
-│   │   │   ├── sign-in.spec.ts          # scaffold
-│   │   │   └── sign-up.spec.ts          # scaffold
-│   │   ├── admin/                       # the company manages everything
+│   ├── dashboard/                            # PROJECT: dashboard (baseURL = FRONTEND_URL)
+│   │   ├── public/                           # unauthenticated
+│   │   │   ├── 01-demo-request.spec.ts       # ✅ real (incl. negative: unchecked terms, invalid email)
+│   │   │   ├── sign-in.spec.ts               # ✅ real (incl. negative: wrong password, unknown email)
+│   │   │   └── sign-up.spec.ts               # ✅ real (incl. negative: duplicate email, mismatched/weak password)
+│   │   ├── admin/                            # the company manages everything
 │   │   │   ├── demo/
 │   │   │   │   ├── 01-demo-management.spec.ts  # ✅ real
 │   │   │   │   └── 02-demo-actions.spec.ts     # ✅ real
-│   │   │   ├── restaurants.spec.ts      # scaffold
-│   │   │   ├── users.spec.ts            # scaffold
-│   │   │   └── chains.spec.ts           # scaffold
-│   │   ├── owner/                       # feature tests, owner as primary actor (shared screens)
-│   │   │   ├── menu.spec.ts             # scaffold (POM: restaurant/MenuManagementPage)
-│   │   │   ├── orders.spec.ts           # scaffold (POM: restaurant/OrdersPage)
-│   │   │   ├── coupons.spec.ts          # scaffold (POM: restaurant/CouponsPage)
-│   │   │   ├── deals.spec.ts            # scaffold
-│   │   │   ├── rewards.spec.ts          # scaffold
-│   │   │   ├── staff-invite.spec.ts     # scaffold (OWNER-only)
-│   │   │   └── settings.spec.ts         # scaffold
-│   │   ├── employee/                    # company-side setup staff
-│   │   │   ├── restaurant-create.spec.ts  # scaffold (EMPLOYEE/ADMIN only)
-│   │   │   ├── menu-publish.spec.ts        # scaffold (EMPLOYEE/ADMIN only — OWNER denied)
-│   │   │   └── tax-settings.spec.ts        # scaffold (EMPLOYEE/ADMIN only — OWNER denied)
-│   │   ├── staff/                       # thin /staff PIN-card stub (web)
-│   │   │   └── staff-portal.spec.ts     # scaffold
-│   │   └── access/                      # who-can-reach-what matrix (uses pageForRole)
-│   │       ├── restaurant-management-access.spec.ts  # scaffold (owner/employee/admin reach shared screens)
-│   │       └── role-restrictions.spec.ts             # scaffold (OWNER denied publish/tax)
-│   ├── customer/                        # PROJECT: customer (baseURL = TEMPLATE_WIND_URL)
-│   │   ├── menu.spec.ts                 # scaffold (POM: MenuPage, ItemModal)
-│   │   ├── cart.spec.ts                 # scaffold (POM: CartSummary)
-│   │   ├── checkout.spec.ts             # scaffold (POM: CheckoutPage)
-│   │   ├── payment.spec.ts              # scaffold (POM: PaymentSection)
-│   │   ├── confirmation.spec.ts         # scaffold (POM: OrderConfirmationPage)
-│   │   ├── deals.spec.ts                # scaffold
-│   │   └── flows/
-│   │       └── complete-order.spec.ts   # scaffold (full guest happy path)
-│   └── pos/                             # NOT a project — API-level placeholder
-│       └── README.md
-├── pages/                               # Page Object Models (factory functions)
+│   │   │   ├── restaurants.spec.ts           # ✅ real
+│   │   │   ├── users.spec.ts                 # ✅ real — full CRUD + invite/claim/login journey + negative role/status API cases
+│   │   │   └── chains.spec.ts                # scaffold (test.fixme)
+│   │   ├── owner/                            # feature tests, owner as primary actor (shared screens)
+│   │   │   ├── 01-restaurant-list.spec.ts    # ✅ real
+│   │   │   ├── 02-restaurant-management.spec.ts  # ✅ real (incl. real Store Settings field edit/save, self-reverting)
+│   │   │   ├── 04-menu-management.spec.ts    # ✅ real (POM: OwnerMenuPage; TC-20→21→43 run serial; incl. blank-field validation)
+│   │   │   ├── 05-publish.spec.ts            # ⏭️ skipped — /publish is EMPLOYEE/ADMIN-only, OWNER denied
+│   │   │   ├── 06-orders.spec.ts             # ✅ real (incl. empty-state search, Filters panel, order detail view)
+│   │   │   ├── 07-coupons.spec.ts            # ✅ real (incl. Manage Coupons list; coupon-edit is test.fixme — real backend bug)
+│   │   │   ├── 08-payment-settings.spec.ts   # ✅ real (route mocks Stripe status/create for pre-connection + failure states)
+│   │   │   ├── 09-uber-settings.spec.ts      # ✅ real — Uber Eats delivery settings (owner-reachable, unlike publish/tax/loyalty)
+│   │   │   ├── 10-subscription.spec.ts       # ✅ real — Subscription/Billing page (permission-gated, not role-gated)
+│   │   │   ├── 11-deals.spec.ts              # ✅ real — Manage Deals tab (navigation-only; no deals API helper yet)
+│   │   │   └── api-negative.spec.ts          # ✅ real — raw API negative cases across menu/coupon/restaurant/demo/auth
+│   │   ├── employee/                         # company-side setup staff
+│   │   │   ├── restaurant-create.spec.ts     # ✅ real — needs EMPLOYEE_EMAIL/PASSWORD (POM: OwnerCreateRestaurantPage)
+│   │   │   ├── menu-publish.spec.ts          # scaffold (test.fixme)
+│   │   │   └── tax-settings.spec.ts          # ✅ real — moved from owner/03-tax-settings; needs EMPLOYEE_EMAIL/PASSWORD
+│   │   ├── staff/                            # thin /staff PIN-card stub (web)
+│   │   │   └── staff-portal.spec.ts          # scaffold (test.fixme)
+│   │   └── access/                           # who-can-reach-what matrix (uses pageForRole)
+│   │       ├── restaurant-management-access.spec.ts  # ✅ real — owner/employee/admin reach shared screens
+│   │       ├── role-restrictions.spec.ts             # ✅ real — OWNER denied publish/tax/loyalty
+│   │       └── unauthenticated-access.spec.ts        # ✅ real — zero-session visitor redirected to /sign-in from protected routes
+│   └── customer/                             # PROJECT: customer (baseURL = TEMPLATE_WIND_URL)
+│       ├── 01-menu-browsing.spec.ts          # ✅ real (POM: CustomerMenuPage)
+│       ├── 02-checkout.spec.ts               # ✅ real (POM: CustomerCheckoutPage)
+│       └── 03-order-placement.spec.ts        # ✅ real — full Stripe checkout → Order Confirmed, incl. DECLINED-card negative
+├── pages/                                    # Page Object Models (factory functions)
 │   ├── dashboard/
-│   │   ├── auth/SignInPage.ts           # ✅ real
-│   │   ├── public/DemoBookingPage.ts    # ✅ real
-│   │   ├── admin/AdminDemoManagementPage.ts  # ✅ real
-│   │   └── restaurant/{MenuManagementPage,OrdersPage,CouponsPage}.ts  # stubs — role-agnostic (shared by owner/employee/admin)
+│   │   ├── auth/{SignInPage,SignUpPage}.ts   # ✅ real
+│   │   ├── public/DemoBookingPage.ts         # ✅ real
+│   │   ├── admin/{AdminDemoManagementPage,AdminRestaurantsPage,AdminUsersPage}.ts  # ✅ real
+│   │   ├── owner/{OwnerRestaurantListPage,OwnerRestaurantManagementPage,OwnerMenuPage,
+│   │   │   OwnerOrdersPage,OwnerCouponPage,OwnerPublishPage,OwnerTaxPage,
+│   │   │   OwnerPaymentSettingsPage,OwnerUberSettingsPage,OwnerSubscriptionPage,
+│   │   │   OwnerDealsPage,OwnerCreateRestaurantPage}.ts  # ✅ real
+│   │   └── restaurant/MenuManagementPage.ts  # ✅ real — role-agnostic (shared by owner/employee/admin access tests)
 │   └── customer/
-│       └── {MenuPage,ItemModal,CartSummary,CheckoutPage,PaymentSection,OrderConfirmationPage}.ts  # stubs
+│       └── {CustomerMenuPage,CustomerCheckoutPage,CustomerOrderConfirmationPage}.ts  # ✅ real
 ├── fixtures/
-│   └── base.ts          # ownerPage, adminPage, customerPage, demoBookingPage, signInPage
+│   └── base.ts          # ownerPage, adminPage, employeePage, customerPage, pageForRole, demoBookingPage, signInPage, signUpPage
 ├── utils/
-│   ├── apiHelper.ts     # direct HTTP for setup/teardown (login, seed/delete restaurant)
-│   ├── emailHelper.ts   # Mailtrap inbox polling
-│   ├── testData.ts      # generators, shared-state, readRestaurantId(), URLs
-│   └── stripeCards.ts   # Stripe test card constants
+│   ├── apiHelper.ts     # direct HTTP for setup/teardown (login, seed/delete restaurant, admin user mgmt) + raw negative-case helpers (createMenuItemRaw, createCouponRaw, createRestaurantRaw, submitDemoRequestRaw, updateUserRoleRaw, toggleUserStatusRaw, register)
+│   ├── emailHelper.ts   # Mailtrap inbox polling + invite-token extraction
+│   ├── auth.ts          # loginViaUi() — fresh-context UI login for arbitrary (non-seeded) users
+│   ├── testData.ts      # generators, shared-state, readRestaurantId(), URLs, cleanup tracking
+│   ├── stripeCards.ts   # Stripe test card + expiry/CVC constants (STRIPE_DEFAULTS.EXPIRY_MM_YY)
+│   └── stripeHelper.ts  # fillStripePaymentElement() — fills the Stripe iframe
 ├── globalSetup.ts       # runs once before all tests
 ├── globalTeardown.ts    # runs once after all tests
 ├── playwright.config.ts # two projects: dashboard + customer
 └── TEST_PLAN.md         # this file
 ```
+
+`tests/pos/` is a placeholder folder (just a `README.md`) — it is intentionally
+excluded from both Playwright projects in `playwright.config.ts`, since the
+POS lives in device-in-store (React Native) and is tested at the API level,
+not through browser automation. `tests/auth/` is an empty stub folder with no
+files yet.
 
 **Design principle:** the tree mirrors **app → role → feature** (how users
 experience the product and how access is gated), **not** the React component
@@ -258,32 +272,44 @@ export type ExamplePage = ReturnType<typeof createExamplePage>;
 
 ### Worked example — an owner coupon test
 
+Adapted from the real `tests/dashboard/owner/07-coupons.spec.ts`:
+
 ```ts
-// tests/dashboard/owner/coupons.spec.ts
+// tests/dashboard/owner/07-coupons.spec.ts
 import * as allure from "allure-js-commons";
-import { test, expect } from "../../../fixtures/base";
-import { createCouponsPage } from "../../../pages/dashboard/restaurant/CouponsPage";
-import { readSharedState } from "../../../utils/testData";
+import { test } from "../../../fixtures/base";
+import { createOwnerRestaurantManagementPage } from "../../../pages/dashboard/owner/OwnerRestaurantManagementPage";
+import { createOwnerCouponPage } from "../../../pages/dashboard/owner/OwnerCouponPage";
+import { readSharedState, generateRunId } from "../../../utils/testData";
 
 test.describe("Owner — Coupons", () => {
   test.beforeEach(async () => {
-    await allure.label("feature", "Owner / Coupons");
+    await allure.label("feature", "Owner Coupons");
     await allure.label("severity", "normal");
   });
 
-  test("TC-NN: owner can create a coupon", async ({ ownerPage }) => {
+  test("TC-31: owner can fill and submit a new coupon", async ({
+    ownerPage,
+  }) => {
     const { restaurantId } = readSharedState(); // Arrange
-    const coupons = createCouponsPage(ownerPage);
-    await coupons.goto(restaurantId);
-    await coupons.startCreateCoupon(); // Act
-    // …fill the form…
-    await expect(ownerPage.getByText("SAVE10")).toBeVisible(); // Assert
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const couponPage = createOwnerCouponPage(ownerPage);
+    const couponCode = `AUTO${generateRunId()}`;
+
+    await mgmtPage.goto(restaurantId);
+    await couponPage.navigateToCreateCoupon(); // Act
+    await couponPage.fillCouponForm(couponCode, "10");
+    await couponPage.submit();
+
+    await couponPage.assertSuccessToast(); // Assert
   });
 });
 ```
 
-> Remember the **entitlement gotcha**: the Coupons tab only exists if the target
-> restaurant is entitled to `COUPONS` and isn't a shipping/email-only store.
+Note the assertion helpers (`assertSuccessToast`, `assertFormVisible`, …) live
+on the POM and return a `Promise<void>` from an `expect(...)` expression —
+specs `await` them rather than reaching into `page.getByText(...)` directly.
+This keeps every selector in one place per screen.
 
 ---
 
@@ -296,13 +322,18 @@ saves browser sessions to disk; `fixtures/base.ts` restores them.
 | ---------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------- |
 | `ownerPage` / `ownerContext`       | Owner (storageState from `owner-auth.tmp.json`)                      | `tests/dashboard/owner/**`                              |
 | `adminPage` / `adminContext`       | Admin (storageState from `admin-auth.tmp.json`)                      | `tests/dashboard/admin/**`                              |
+| `employeePage` / `employeeContext` | Employee (storageState from `employee-auth.tmp.json`)                | `tests/dashboard/employee/**`                           |
 | `customerPage` / `customerContext` | **Guest** (no auth), baseURL = Template Wind                         | `tests/customer/**`                                     |
 | `pageForRole(role)`                | Resolver → authenticated page for `"owner" \| "admin" \| "employee"` | `tests/dashboard/access/**` (who-can-reach-what matrix) |
 | `signInPage`                       | Unauthenticated sign-in POM                                          | auth tests                                              |
+| `signUpPage`                       | Unauthenticated sign-up POM                                          | onboarding / sign-up tests                              |
 | `demoBookingPage`                  | Unauthenticated `/demo` POM                                          | public demo tests                                       |
 
-> `pageForRole("employee")` currently throws — there's no stored EMPLOYEE
-> session yet (future infrastructure). `owner` and `admin` resolve today.
+`globalSetup` saves owner/admin/employee sessions in parallel and warns (not
+fails) when a role's `*_EMAIL`/`*_PASSWORD` pair is unset in `.env` — specs
+for that role then skip via `test.skip(!EMAIL || !PASSWORD, ...)` rather than
+throwing. `pageForRole("employee")` resolves once `EMPLOYEE_EMAIL` /
+`EMPLOYEE_PASSWORD` are set.
 
 **Customer restaurant target:** Template Wind is deployed per-restaurant.
 `utils/testData.ts` → `readRestaurantId()` returns `TEMPLATE_WIND_RESTAURANT_ID`
@@ -315,63 +346,70 @@ saves browser sessions to disk; `fixtures/base.ts` restores them.
 
 `globalSetup.ts` runs **once before all tests**:
 
-1. **API login as owner** → creates a uniquely-named seed test restaurant
-   (`POST /api/restaurant/new`).
-2. **Three browser tasks run in parallel** (~3x faster):
-   - Owner browser login → `owner-auth.tmp.json` (storageState)
-   - Admin browser login → `admin-auth.tmp.json` (storageState)
-   - Submit a demo request via browser → captures the email for the demo tests
+1. **API login as owner** (if `OWNER_EMAIL`/`OWNER_PASSWORD` are set) → looks
+   up the owner's existing QA restaurant (`GET /restaurant/owned`; throws if
+   the owner has none — an admin/employee must create one first), then seeds a
+   test menu category + item via `createTestMenuGroup()` / `createTestMenuItem()`.
+2. **Four tasks run in parallel** (~4x faster): owner browser login →
+   `owner-auth.tmp.json`, admin browser login → `admin-auth.tmp.json`,
+   employee browser login → `employee-auth.tmp.json` (each skipped with a
+   console warning if its `*_EMAIL`/`*_PASSWORD` pair is unset), and submitting
+   a demo request via browser to capture the email for the demo tests.
 3. Writes `shared-state.tmp.json`:
-   `{ email, firstName, lastName, submittedAt, restaurantId, restaurantName }`.
+   `{ email, firstName, lastName, submittedAt, restaurantId, restaurantName, menuGroupId, menuItemId, menuItemName, menuItemPrice }`.
 
-`globalTeardown.ts` runs **once after all tests**: API-logs in as admin, deletes
-the seed restaurant (`DELETE /api/admin/restaurant/:id`), and removes all
-`*.tmp.json` files. Teardown errors are logged, never fail the run.
+`globalTeardown.ts` runs **once after all tests**: deletes the seed menu item
+
+- group (draining any leftover items first to avoid "Cannot Delete Category
+  With Items"), deletes any users the admin user-management suite created
+  (tracked via `recordUserForCleanup()` in `utils/testData.ts`), and removes all
+  `*.tmp.json` files. Teardown errors are logged, never fail the run.
 
 ---
 
-## Helpers & Future Infrastructure
+## Helpers
 
-**Available today** (`utils/`):
+`utils/`:
 
-| Helper           | Provides                                                                                                                                   |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `apiHelper.ts`   | `apiLogin()`, `createTestRestaurant()`, `deleteTestRestaurant()`                                                                           |
-| `testData.ts`    | `generateDemoFormData()`, `generateRestaurantData()`, `read/writeSharedState()`, `readRestaurantId()`, `FRONTEND_URL`, `TEMPLATE_WIND_URL` |
-| `emailHelper.ts` | `waitForEmail()` (Mailtrap inbox polling)                                                                                                  |
-| `stripeCards.ts` | Stripe test card numbers + `STRIPE_DEFAULTS`                                                                                               |
+| Helper            | Provides                                                                                                                                                                                              |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apiHelper.ts`    | `apiLogin()`, restaurant/menu seed + cleanup, and the admin user-management API (`inviteUserApi`, `adminCreateUser`, `registerWithInvite`, `getMe`, role/permission discovery, `deleteRecordedUsers`) |
+| `testData.ts`     | `generateDemoFormData()`, `generateRestaurantData()`, `generateUserEmail()`, `read/writeSharedState()`, `readRestaurantId()`, cleanup-file tracking, `FRONTEND_URL`, `TEMPLATE_WIND_URL`              |
+| `emailHelper.ts`  | `waitForEmail()` (Mailtrap inbox polling), `extractInviteToken()`                                                                                                                                     |
+| `auth.ts`         | `loginViaUi()` — fresh-context UI login for an arbitrary (non-seeded) user, e.g. an invitee who just claimed their account                                                                            |
+| `stripeCards.ts`  | Stripe test card numbers + `STRIPE_DEFAULTS` (incl. `EXPIRY_MM_YY` — the only expiry value the "MM / YY" masked input accepts without truncating to the wrong year)                                   |
+| `stripeHelper.ts` | `fillStripePaymentElement()` — fills the Stripe iframe fields                                                                                                                                         |
 
-**Needed before the customer / payment / member suites become real (TODO):**
+**Still open:**
 
-- [ ] **Customer OTP login helper** — drive `POST /login/send-otp` +
-      `/login/verify-otp` (or read OTP via Mailtrap) to produce a reward-member
-      session, then add `customerMemberPage` / `customerMemberContext` fixtures.
-- [ ] **Stripe payment-element fill helper** — robustly fill the Stripe iframe
-      (`PaymentSection` POM is a stub today). Card data is in `stripeCards.ts`.
-- [ ] **Wire Mailtrap in CI** — set an **Email Testing** token (not a Sending
-      token, which 403s) so the demo email check (currently skipped) can run.
-- [ ] **`employeePage` fixture** — an EMPLOYEE-role session for the
-      `tests/dashboard/employee/**` specs (publish/tax/create).
-- [ ] **POS / tablet API harness** — for `tests/pos/` (`POST /api/tablet/login`,
-      order-status transitions, register/capability flows).
+- **Customer OTP login** — no helper yet for `POST /login/send-otp` +
+  `/login/verify-otp` (reward-member sessions). Customer tests today are
+  guest-only.
+- **Wire Mailtrap in CI** — set an **Email Testing** token (not a Sending
+  token, which 403s) so the demo-confirmation-email check (currently skipped)
+  and the admin invite→claim→login journey test (also Mailtrap-gated) can run.
+- **POS / tablet API harness** — for `tests/pos/` (`POST /api/tablet/login`,
+  order-status transitions, register/capability flows).
 
 ---
 
 ## Environment Variables
 
-Configured in `Automation/.env` (copy from `.env.example`).
+Configured in `Automation/.env`.
 
-| Variable                         | Description                                               | Example                        |
-| -------------------------------- | --------------------------------------------------------- | ------------------------------ |
-| `FRONTEND_URL`                   | Dashboard base URL (project `dashboard`)                  | `https://app.qa.restaunax.com` |
-| `TEMPLATE_WIND_URL`              | Template Wind base URL (project `customer`)               | `https://qa.restaunax.com`     |
-| `TEMPLATE_WIND_RESTAURANT_ID`    | Optional override for the customer-site restaurant target | _(restaurant id)_              |
-| `BACKEND_URL`                    | Backend API base URL (used by `apiHelper`)                | `https://api.qa.restaunax.com` |
-| `OWNER_EMAIL` / `OWNER_PASSWORD` | Owner account (seeds data, owner-flow tests)              | _(secret)_                     |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Admin account (admin-flow tests, teardown cleanup)        | _(secret)_                     |
-| `MAILTRAP_API_TOKEN`             | **Email Testing** token (not a Sending token — those 403) | _(secret)_                     |
-| `MAILTRAP_INBOX_ID`              | Mailtrap inbox where test emails land                     | _(secret)_                     |
-| `TEST_EMAIL_DOMAIN`              | Domain for generated unique test emails                   | `restaunax-test.com`           |
+| Variable                               | Description                                                                                                                                  | Example                                 |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `FRONTEND_URL`                         | Dashboard base URL (project `dashboard`)                                                                                                     | `https://app.qa.restaunax.com`          |
+| `TEMPLATE_WIND_URL`                    | Template Wind base URL (project `customer`) — no code default; `qa.restaunax.com` serves the marketing site, not a per-restaurant deployment | `https://<restaurant>.qa.restaunax.com` |
+| `TEMPLATE_WIND_RESTAURANT_ID`          | Optional override for the customer-site restaurant target                                                                                    | _(restaurant id)_                       |
+| `BACKEND_URL`                          | Backend API base URL (used by `apiHelper`)                                                                                                   | `https://api.qa.restaunax.com`          |
+| `OWNER_EMAIL` / `OWNER_PASSWORD`       | Owner account — must already own ≥1 QA restaurant                                                                                            | _(secret)_                              |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD`       | Admin account (admin-flow tests, teardown cleanup)                                                                                           | _(secret)_                              |
+| `EMPLOYEE_EMAIL` / `EMPLOYEE_PASSWORD` | Employee account — gates `tests/dashboard/employee/**`                                                                                       | _(secret)_                              |
+| `MAILTRAP_API_TOKEN`                   | **Email Testing** token (not a Sending token — those 403)                                                                                    | _(secret)_                              |
+| `MAILTRAP_INBOX_ID`                    | Mailtrap inbox where test emails land                                                                                                        | _(secret)_                              |
+| `MAILTRAP_ACCOUNT_ID`                  | Optional — skips the account-lookup API call if set                                                                                          | _(secret)_                              |
+| `TEST_EMAIL_DOMAIN`                    | Domain for generated unique test emails                                                                                                      | `restaunax-test.com`                    |
 
 ---
 
@@ -384,7 +422,8 @@ npm install
 npx playwright install chromium
 
 # 2. Configure environment
-cp .env.example .env       # then fill in credentials
+# Create Automation/.env with the variables listed above (no .env.example
+# is checked in — .env holds live QA credentials, see the table above).
 
 # 3. Run
 npm test                           # all tests, headless
@@ -399,57 +438,80 @@ npm run clean                      # delete artifacts
 
 ---
 
-## Implemented Today — Demo Request Flow (Phase 1)
+## Implemented Today
 
-| ID       | Spec                                                    | What it verifies                                                                   | Status                                 |
-| -------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------- |
-| TC-01    | `tests/dashboard/public/01-demo-request.spec.ts`        | Submit `/demo` form → success dialog                                               | ✅                                     |
-| TC-02    | (same file)                                             | Confirmation email arrives in Mailtrap                                             | ⏭ skipped (needs Email Testing token) |
-| TC-03    | `tests/dashboard/admin/demo/01-demo-management.spec.ts` | Admin reaches dashboard after login                                                | ✅                                     |
-| TC-04    | (same file)                                             | Admin finds the demo request (name, status NEW, timestamp)                         | ✅                                     |
-| TC-05–12 | `tests/dashboard/admin/demo/02-demo-actions.spec.ts`    | Demo row actions (status, view/edit, follow-up, delete, assign, schedule, onboard) | ✅                                     |
+~99 real (non-scaffold) test cases across public, admin, owner, employee,
+customer, access-control, API-level, and onboarding flows. TC numbers aren't
+contiguous — some IDs were reserved for cases that turned out to be
+inapplicable (route access denied, no UI to test), and new negative/gap-fill
+cases picked up wherever the highest number left off, not by area. For the
+current pass/skip status of every TC, see `TEST_CASES.md` and
+`TEST_COVERAGE.md`; this is a by-area summary:
 
-Everything else in the tree is a **scaffolded placeholder** following the
-conventions above.
+| Area                                              | Specs                                                                                              | What's covered                                                                                                                                                                                              |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Public demo request                               | `dashboard/public/01-demo-request.spec.ts`                                                         | Submit `/demo` → success dialog (email confirmation skipped, needs Mailtrap); negative: unchecked terms, invalid email                                                                                      |
+| Public sign-in / sign-up                          | `dashboard/public/{sign-in,sign-up}.spec.ts`                                                       | Valid/invalid login; registration + duplicate email, password mismatch, weak password                                                                                                                       |
+| Admin demo management                             | `dashboard/admin/demo/{01-demo-management,02-demo-actions}.spec.ts`                                | Find request, status changes, proceed-to-onboarding; every action dialog exercises its real feature (notes save, follow-up email + Mailtrap delivery, assign, schedule, real delete via a throwaway record) |
+| Admin restaurants                                 | `dashboard/admin/restaurants.spec.ts`                                                              | List loads, seed restaurant row visible                                                                                                                                                                     |
+| Admin user management                             | `dashboard/admin/users.spec.ts`                                                                    | Full CRUD: invite dialog, list/search/filter, detail side sheet, role/status/permissions, invite→claim→login journey (Mailtrap-gated); negative: invalid role, nonexistent-user status toggle               |
+| Owner restaurant list + management portal         | `dashboard/owner/{01-restaurant-list,02-restaurant-management}.spec.ts`                            | List page, portal shell, sidebar navigation, real Store Settings field edit/save (self-reverting)                                                                                                           |
+| Owner menu management                             | `dashboard/owner/04-menu-management.spec.ts`                                                       | Create category, add item, edit item (TC-20→21→43 run serial); blank-field validation; category/item delete not exposed in current UI                                                                       |
+| Owner orders                                      | `dashboard/owner/06-orders.spec.ts`                                                                | Orders tab loads, search bar + filters visible; empty-state search, Filters panel, order detail view                                                                                                        |
+| Owner coupons                                     | `dashboard/owner/07-coupons.spec.ts`                                                               | Create Coupon form, fill + submit, Manage Coupons list; invalid discount % rejected; edit is `test.fixme` (real backend 500 bug)                                                                            |
+| Owner payment settings (Stripe)                   | `dashboard/owner/08-payment-settings.spec.ts`                                                      | Setup page, stepper, pre-connection state (route-mocked), success/return page, failed create-account (route-mocked)                                                                                         |
+| Owner Uber Eats / Subscription / Deals            | `dashboard/owner/{09-uber-settings,10-subscription,11-deals}.spec.ts`                              | Three previously-untested owner-reachable screens - page loads + a key section on each                                                                                                                      |
+| Owner API-level negatives                         | `dashboard/owner/api-negative.spec.ts`                                                             | Raw backend calls: menu item no-name, coupon no-code/negative-value, garbage token, no-permission restaurant create, demo no-email                                                                          |
+| Employee tax settings                             | `dashboard/employee/tax-settings.spec.ts`                                                          | Tax rate form loads, set + save (needs `EMPLOYEE_EMAIL`/`PASSWORD`)                                                                                                                                         |
+| Employee restaurant creation                      | `dashboard/employee/restaurant-create.spec.ts`                                                     | Fills `CreateStore.tsx` Step 0, confirms `POST /restaurant/new` fires and the restaurant exists (needs `EMPLOYEE_EMAIL`/`PASSWORD`)                                                                         |
+| Access control                                    | `dashboard/access/{role-restrictions,restaurant-management-access,unauthenticated-access}.spec.ts` | OWNER denied publish/tax/loyalty; owner/admin/employee reach shared screens; zero-session visitor redirected to sign-in                                                                                     |
+| Customer menu browsing, checkout, order placement | `customer/{01-menu-browsing,02-checkout,03-order-placement}.spec.ts`                               | Reach menu, open item modal, seed cart, fill checkout form, full Stripe payment → Order Confirmed; DECLINED-card negative                                                                                   |
+
+Still `test.fixme` / `test.skip` scaffolds: `dashboard/admin/chains.spec.ts`,
+`dashboard/employee/menu-publish.spec.ts`, `dashboard/staff/staff-portal.spec.ts`,
+`dashboard/owner/05-publish.spec.ts` (permanently skipped — OWNER is denied
+that route), `dashboard/owner/07-coupons.spec.ts`'s coupon-edit case (real
+backend bug, not a missing-test gap), and a few individual cases with no
+corresponding UI (`TC-42` edit-category-name, `TC-44` delete-item).
+
+**Not attempted:** the admin-side AI lead-onboarding wizard
+(`LeadOnboarding.tsx`, reached via a "Lead Onboarding" tab under
+`/restaurant/manage`) — the live QA deployment's `/restaurant/manage` page
+doesn't match the checked-out frontend source at all (no such tab exists on
+QA; QA instead shows a "STAFF CONSOLE" layout absent from the local frontend
+repo). Needs someone to confirm which frontend branch/commit QA is actually
+built from before this path is testable.
 
 ---
 
 ## Roadmap
 
-Each suite lands by filling the existing scaffolded placeholders (and adding the
-helpers noted above).
+Each remaining suite lands by filling its existing `test.fixme` placeholder
+(or writing one where none exists yet) following the conventions above.
 
-### Phase 2 — Auth + Owner Menu/Orders
+### Next up — remaining scaffolds
 
-| Suite                                    | Key cases                                  |
-| ---------------------------------------- | ------------------------------------------ |
-| `tests/dashboard/public/sign-in.spec.ts` | Valid login, invalid credentials, redirect |
-| `tests/dashboard/public/sign-up.spec.ts` | New account registration                   |
-| `tests/dashboard/owner/menu.spec.ts`     | Add / edit / delete category + item        |
-| `tests/dashboard/owner/orders.spec.ts`   | Order list, status transitions             |
+| Suite                                           | Key cases                                                            |
+| ----------------------------------------------- | -------------------------------------------------------------------- |
+| `tests/dashboard/employee/menu-publish.spec.ts` | Employee publishes a menu; OWNER-denied already covered in `access/` |
+| `tests/dashboard/admin/chains.spec.ts`          | Chain management (needs an `AdminChainsPage` POM)                    |
+| `tests/dashboard/staff/staff-portal.spec.ts`    | RESTAURANT_STAFF PIN card                                            |
 
-### Phase 3 — Customer Ordering (Template Wind) — highest business value
+### Then — deeper coverage on existing screens
 
-| Suite                                         | Key cases                             |
-| --------------------------------------------- | ------------------------------------- |
-| `tests/customer/menu.spec.ts`                 | Browse, item modifiers, add to cart   |
-| `tests/customer/cart.spec.ts`                 | sessionStorage persistence, qty edits |
-| `tests/customer/checkout.spec.ts`             | Guest info, service type, tip         |
-| `tests/customer/payment.spec.ts`              | Stripe success + declined cards       |
-| `tests/customer/flows/complete-order.spec.ts` | Full guest happy path E2E             |
+| Suite                                      | Key cases                                                                                      |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `tests/dashboard/owner/06-orders.spec.ts`  | Order status change, refund flow (needs an order-creation API helper)                          |
+| `tests/dashboard/owner/07-coupons.spec.ts` | Re-enable the coupon-edit `test.fixme` once the backend `value`-as-string bug is fixed         |
+| `tests/dashboard/owner/11-deals.spec.ts`   | Full create-deal flow (needs a deals API helper for setup/cleanup)                             |
+| Admin/Employee lead onboarding             | Confirm QA's deployed frontend branch first; only then build coverage for `LeadOnboarding.tsx` |
 
-### Phase 4 — Marketing + Company-side (Employee/Admin)
+### Later — Member ordering, POS, hardening
 
-| Suite                                                                    | Key cases                             |
-| ------------------------------------------------------------------------ | ------------------------------------- |
-| `tests/dashboard/owner/coupons.spec.ts` / `deals.spec.ts`                | Create + verify (entitlement-gated)   |
-| `tests/dashboard/employee/menu-publish.spec.ts` / `tax-settings.spec.ts` | Publish/tax (and OWNER-denied checks) |
-| `tests/dashboard/admin/{restaurants,users,chains}.spec.ts`               | Admin management                      |
+### Later — Member ordering, POS, hardening
 
-### Phase 5 — Member ordering, POS, Hardening + CI
-
-- Reward-member checkout (OTP helper) + `tests/customer/deals.spec.ts`
-- `tests/pos/**` API-level POS lifecycle
+- Reward-member checkout (needs the OTP login helper noted above)
+- `tests/pos/**` API-level POS lifecycle (`POST /api/tablet/login`, status transitions)
 - Cross-browser matrix, GitHub Actions on every PR, Allure flakiness trend
 
 ### Explicitly out of scope (all phases)
@@ -465,4 +527,4 @@ helpers noted above).
 
 ---
 
-_Last updated: 2026-06-15_
+_Last updated: 2026-07-03_

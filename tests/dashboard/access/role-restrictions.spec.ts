@@ -8,10 +8,9 @@ import { readSharedState } from "../../../utils/testData";
  * OWNER — the clearest evidence that EMPLOYEE is a distinct company-side role,
  * not "owner with fewer permissions". See TEST_PLAN.md → role model.
  *
- * SCAFFOLD: test.fixme placeholders.
  */
 test.describe("Access — Role restrictions", () => {
-  test.fixme("TC-XXX: OWNER is denied the publish route (EMPLOYEE/ADMIN only)", async ({
+  test("TC-54: OWNER is denied the publish route (EMPLOYEE/ADMIN only)", async ({
     pageForRole,
   }) => {
     const { restaurantId } = readSharedState();
@@ -22,12 +21,22 @@ test.describe("Access — Role restrictions", () => {
     await expect(page).toHaveURL(/access-denied/);
   });
 
-  test.fixme("TC-XXX: OWNER is denied the tax route (EMPLOYEE/ADMIN only)", async ({
+  test("TC-55: OWNER is denied the tax route (EMPLOYEE/ADMIN only)", async ({
     pageForRole,
   }) => {
     const { restaurantId } = readSharedState();
     const page = await pageForRole("owner");
     await page.goto(`/restaurant/restaurantId/${restaurantId}/tax`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(page).toHaveURL(/access-denied/);
+  });
+
+  test("TC-81: OWNER is denied the loyalty route (EMPLOYEE/ADMIN only)", async ({
+    pageForRole,
+  }) => {
+    const page = await pageForRole("owner");
+    await page.goto("/restaurant/loyalty", {
       waitUntil: "domcontentloaded",
     });
     await expect(page).toHaveURL(/access-denied/);

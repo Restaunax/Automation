@@ -94,17 +94,33 @@ export const createOwnerMenuPage = (page: Page) => {
       .waitFor({ state: "visible", timeout: 10_000 });
     await page.getByRole("button", { name: "Next" }).click();
 
-    // Step 3 — Review → Save
-    // The button may briefly appear disabled while RHF isValid resolves;
-    // force:true bypasses the disabled attribute so the form submit fires,
-    // and the Yup resolver inside handleSubmit validates the filled fields.
-    await page
-      .getByRole("button", { name: "Save Item" })
-      .waitFor({ state: "visible", timeout: 10_000 });
-    await page
-      .getByRole("button", { name: "Save Item" })
-      .click({ force: true });
+    // Step 3 — Review. The current build auto-submits on entering Review
+    // (same behavior as the edit wizard): the Save Item button stays disabled
+    // and the wizard navigates back to the menu page, firing the success
+    // toast. Wait for that; if a future build stops auto-submitting, fall
+    // back to clicking Save Item once RHF validation enables it.
+    const successToast = page.getByText("Menu item created successfully!");
+    try {
+      await successToast.waitFor({ state: "visible", timeout: 10_000 });
+    } catch {
+      const saveItemButton = page.getByRole("button", { name: "Save Item" });
+      await expect(saveItemButton).toBeEnabled({ timeout: 10_000 });
+      await saveItemButton.click();
+    }
   };
+
+  // Opens the Add Item wizard and stops at Step 0 (Basic Information) —
+  // caller drives the fields/assertions from there.
+  const openAddItemWizard = async (categoryName: string) => {
+    await addItemButton(categoryName).click();
+    await page
+      .getByPlaceholder("Enter the menu item name")
+      .waitFor({ state: "visible", timeout: 15_000 });
+  };
+
+  const nextButton = () => page.getByRole("button", { name: "Next" });
+
+  const fieldErrors = () => page.locator(".MuiFormHelperText-root");
 
   const assertMenuItemSuccessToast = () =>
     expect(page.getByText("Menu item created successfully!")).toBeVisible({
@@ -145,39 +161,49 @@ export const createOwnerMenuPage = (page: Page) => {
     ).toBeHidden({ timeout: 10_000 });
 
   // Find item card by name, click its Edit button (2nd button in CardActions).
+  // The response-wait for the wizard's item fetch (/menu/itemId/:id) is
+  // registered BEFORE the click that triggers it — subscribing after
+  // navigation races the fetch and times out when the response lands first.
   const clickEditItem = async (itemName: string) => {
     const card = page
       .locator(".MuiCard-root")
       .filter({ hasText: itemName })
       .first();
     await card.waitFor({ state: "visible", timeout: 10_000 });
-    await card.locator(".MuiCardActions-root button").nth(1).click();
+    await Promise.all([
+      page.waitForResponse(
+        (r) => /\/menu\/itemId\/[^/?]+/.test(r.url()) && r.status() === 200,
+        { timeout: 20_000 }
+      ),
+      card.locator(".MuiCardActions-root button").nth(1).click(),
+    ]);
   };
 
-  // In the edit wizard, overwrite name and price in Step 0 then Save.
+  // In the edit wizard, overwrite name and price in Step 0 then save.
+  // The wizard's useEffect fetches item data from /menu/itemId/:id and calls
+  // reset() with the API data (awaited in clickEditItem). Waiting for the name
+  // input to hold a non-empty value confirms reset() has run, so our fills
+  // can't be wiped by a late reset.
+  //
+  // Navigating to step 3 (Review) triggers an automatic form submission in the
+  // current build; we rely on that auto-submit rather than clicking Save Item.
   const editItemInWizard = async (newName: string, newPrice: string) => {
-    await page
-      .getByPlaceholder("Enter the menu item name")
-      .waitFor({ state: "visible", timeout: 15_000 });
-    await page.getByPlaceholder("Enter the menu item name").fill(newName);
-    await page.getByPlaceholder("Enter the menu item name").press("Tab");
-    await page.getByPlaceholder("Enter the base price").fill(newPrice);
-    await page.getByPlaceholder("Enter the base price").press("Tab");
-    await page.getByRole("button", { name: "Next" }).click();
-    await page
-      .getByRole("button", { name: "Next" })
-      .waitFor({ state: "visible", timeout: 10_000 });
-    await page.getByRole("button", { name: "Next" }).click();
-    await page
-      .getByRole("button", { name: "Next" })
-      .waitFor({ state: "visible", timeout: 10_000 });
-    await page.getByRole("button", { name: "Next" }).click();
-    await page
-      .getByRole("button", { name: "Save Item" })
-      .waitFor({ state: "visible", timeout: 10_000 });
-    await page
-      .getByRole("button", { name: "Save Item" })
-      .click({ force: true });
+    const nameInput = page.getByPlaceholder("Enter the menu item name");
+    await nameInput.waitFor({ state: "visible", timeout: 15_000 });
+    await expect(nameInput).not.toHaveValue("", { timeout: 15_000 });
+
+    await nameInput.fill(newName);
+    await nameInput.press("Tab");
+    const priceInput = page.getByPlaceholder("Enter the base price");
+    await priceInput.fill(newPrice);
+    await priceInput.press("Tab");
+
+    const nextBtn = page.getByRole("button", { name: "Next" });
+    await nextBtn.click();
+    await nextBtn.waitFor({ state: "visible", timeout: 10_000 });
+    await nextBtn.click();
+    await nextBtn.waitFor({ state: "visible", timeout: 10_000 });
+    await nextBtn.click();
   };
 
   const assertEditSuccessToast = () =>
@@ -191,6 +217,9 @@ export const createOwnerMenuPage = (page: Page) => {
     assertCategoryVisible,
     createCategory,
     addItemButton,
+    openAddItemWizard,
+    nextButton,
+    fieldErrors,
     createMenuItem,
     assertMenuItemSuccessToast,
     assertItemVisible,

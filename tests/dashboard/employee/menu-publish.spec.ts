@@ -6,8 +6,8 @@ import { test } from "../../../fixtures/base";
  * Route allows [ADMIN, EMPLOYEE] only — OWNER is denied (see TEST_PLAN.md role
  * model). This is a key OWNER-vs-EMPLOYEE difference worth a dedicated test.
  *
- * SCAFFOLD placeholder.
- * NOTE: needs an EMPLOYEE-role session (future `employeePage` fixture).
+ * SCAFFOLD placeholder. The `employeePage` fixture now exists (fixtures/base.ts,
+ * auth saved by globalSetup) — implement with it.
  */
 // The OWNER-is-denied-publish check lives in the access matrix
 // (tests/dashboard/access/role-restrictions.spec.ts), not here.

@@ -1,6 +1,6 @@
 # Restaunax — Test Coverage Map
 
-> Last updated: 2026-06-25
+> Last updated: 2026-07-03
 
 ---
 
@@ -17,157 +17,273 @@
 
 ## 🔐 Admin
 
-| Feature                          | Test  | Status                                         |
-| -------------------------------- | ----- | ---------------------------------------------- |
-| Demo form submission             | TC-01 | ✅                                             |
-| Confirmation email sent          | TC-02 | ⏭️ Skipped (Mailtrap not configured)           |
-| Admin login                      | TC-03 | ✅                                             |
-| Find demo request by email       | TC-04 | ✅                                             |
-| Demo action menu items visible   | TC-05 | ✅                                             |
-| Change demo status inline        | TC-06 | ✅                                             |
-| View/Edit details side sheet     | TC-07 | ⚠️ Opens only — fields not verified            |
-| Send follow-up email dialog      | TC-08 | ⚠️ Opens only — email not sent                 |
-| Assign request dialog            | TC-10 | ⚠️ Opens only — assignment not tested          |
-| Schedule demo dialog             | TC-11 | ⚠️ Opens only — date not set                   |
-| Delete confirmation + cancel     | TC-09 | ⚠️ Cancel path only — actual delete not tested |
-| Proceed to onboarding navigation | TC-12 | ✅                                             |
-| Admin restaurant list            | TC-32 | ✅                                             |
-| Admin subscription management    | —     | ❌ Not written                                 |
-| Admin finance reports            | —     | ❌ Not written                                 |
-| Admin system logs                | —     | ❌ Not written                                 |
-| Admin leads management           | —     | ❌ Not written                                 |
-| Admin chains management          | —     | ❌ Not written                                 |
+| Feature                                     | Test                  | Status                                                                                            |
+| ------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------- |
+| Demo form submission                        | TC-01                 | ✅                                                                                                |
+| Confirmation email sent                     | TC-02                 | ⏭️ Skipped (Mailtrap not configured)                                                              |
+| Admin login                                 | TC-03                 | ✅                                                                                                |
+| Find demo request by email                  | TC-04                 | ✅                                                                                                |
+| Demo action menu items visible              | TC-05                 | ✅                                                                                                |
+| Change demo status inline                   | TC-06                 | ✅                                                                                                |
+| View/Edit details — notes field edit & save | TC-07                 | ✅ PUTs `/api/demo-requests/:id`; drawer auto-closes on success, verified by reopening            |
+| Send follow-up email                        | TC-08                 | ✅ Flips status NEW→CONTACTED; verified via Mailtrap `waitForEmail()` when configured             |
+| Assign request to a team member             | TC-10                 | ✅ Verified via the PUT response body (`assignedToId`) — UI doesn't surface the assignee anywhere |
+| Schedule a demo                             | TC-11                 | ✅ Types into the masked MM/DD/YYYY hh:mm aa field; flips status to Scheduled                     |
+| Delete confirmation + cancel                | TC-09                 | ✅ Cancel path                                                                                    |
+| Permanently delete a demo request           | TC-98                 | ✅ Uses a seeded throwaway demo request (not the shared one TC-04–TC-12 depend on)                |
+| Proceed to onboarding navigation            | TC-12                 | ✅                                                                                                |
+| Admin restaurant list                       | TC-32                 | ✅                                                                                                |
+| Invite a new user                           | TC-01 (users.spec.ts) | ✅                                                                                                |
+| Invalid email → error, no request           | TC-02 (users.spec.ts) | ✅                                                                                                |
+| Invite submit disabled w/o role             | TC-03 (users.spec.ts) | ✅                                                                                                |
+| Inviting existing email rejected            | TC-04 (users.spec.ts) | ✅                                                                                                |
+| Owner role reveals restaurant autocomplete  | TC-05                 | ✅                                                                                                |
+| Cancel resets invite form                   | TC-06 (users.spec.ts) | ✅                                                                                                |
+| Search finds user by email                  | TC-07                 | ✅                                                                                                |
+| Role filter narrows list                    | TC-09                 | ✅                                                                                                |
+| Status filter narrows list                  | TC-10 (users.spec.ts) | ✅                                                                                                |
+| Detail side sheet opens/closes              | TC-11, TC-14          | ✅                                                                                                |
+| USER/OWNER detail tabs correct              | TC-12, TC-13          | ✅                                                                                                |
+| Change user role                            | TC-15 (users.spec.ts) | ✅                                                                                                |
+| Deactivate/reactivate user                  | TC-16 (users.spec.ts) | ✅                                                                                                |
+| Send password reset email                   | TC-17 (users.spec.ts) | ✅                                                                                                |
+| Add/remove user-specific permission         | TC-18                 | ✅                                                                                                |
+| Bogus invite token grants no access         | TC-24                 | ✅                                                                                                |
+| Full invite → claim → login journey         | TC-23                 | ✅ Needs Mailtrap (`MAILTRAP_API_TOKEN`/`MAILTRAP_INBOX_ID`)                                      |
+| Role change to unknown value rejected       | TC-76                 | ✅ (400, role unchanged server-side)                                                              |
+| Status toggle on nonexistent user rejected  | TC-77                 | ✅ (404)                                                                                          |
+| Admin subscription management               | —                     | ❌ Not written                                                                                    |
+| Admin finance reports                       | —                     | ❌ Not written                                                                                    |
+| Admin system logs                           | —                     | ❌ Not written                                                                                    |
+| Admin leads management                      | —                     | ❌ Not written — see "Lead onboarding" note below                                                 |
+| Admin chains management                     | —                     | ❌ `test.fixme` scaffold exists (`tests/dashboard/admin/chains.spec.ts`)                          |
+
+> **Lead onboarding / demo-to-restaurant AI conversion wizard** (`LeadOnboarding.tsx`, `/restaurant/manage` → "Lead Onboarding" tab): investigated but **not implemented**. The live QA deployment's `/restaurant/manage` page doesn't match the checked-out frontend source at all — no "Lead Onboarding" tab exists, and QA shows a "STAFF CONSOLE" layout that isn't present anywhere in the local frontend source tree. QA appears to be running a build that's diverged from what's on disk. Needs someone to confirm which frontend branch/commit QA is actually deployed from before this path can be tested.
 
 ---
 
 ## 🏠 Owner
 
-| Feature                                | Test  | Status                                                                 |
-| -------------------------------------- | ----- | ---------------------------------------------------------------------- |
-| My Restaurants list page loads         | TC-13 | ✅                                                                     |
-| Seed restaurant card visible           | TC-14 | ✅                                                                     |
-| Restaurant management portal loads     | TC-15 | ✅                                                                     |
-| Store Settings sidebar navigation      | TC-16 | ✅                                                                     |
-| Tax settings page loads                | TC-17 | ⏭️ Skipped — /tax route is EMPLOYEE-only; OWNER gets Access Denied     |
-| Save tax rate                          | TC-18 | ⏭️ Skipped — /tax route is EMPLOYEE-only; OWNER gets Access Denied     |
-| Menu editor loads                      | TC-19 | ✅                                                                     |
-| Create menu category                   | TC-20 | ✅                                                                     |
-| Add menu item to category              | TC-21 | ✅                                                                     |
-| Edit menu category name                | TC-42 | ⏭️ Skipped — no edit button on category header in current UI           |
-| Edit menu item name and price          | TC-43 | ✅                                                                     |
-| Delete menu item                       | TC-44 | ⏭️ Skipped — no delete button on menu item cards in current UI         |
-| Delete menu category                   | TC-45 | ✅                                                                     |
-| Publish page (access check)            | TC-27 | ⏭️ Skipped — /publish route is EMPLOYEE-only; OWNER gets Access Denied |
-| Publish checklist visible              | TC-28 | ⏭️ Skipped — /publish route is EMPLOYEE-only; OWNER gets Access Denied |
-| Navigate to Orders tab                 | TC-29 | ✅                                                                     |
-| Navigate to Create Coupon form         | TC-30 | ✅                                                                     |
-| Create a new coupon                    | TC-31 | ✅                                                                     |
-| Stripe setup page loads                | TC-46 | ✅                                                                     |
-| Stripe onboarding stepper visible      | TC-47 | ✅                                                                     |
-| Stripe header description visible      | TC-48 | ✅                                                                     |
-| Connect Stripe button visible          | TC-49 | ✅ (route-mocked — status API returns hasAccount: false)               |
-| Requirements checklist visible         | TC-50 | ✅ (route-mocked — status API returns hasAccount: false)               |
-| Stripe success callback page loads     | TC-51 | ✅                                                                     |
-| Restaurant Dashboard redirect works    | TC-52 | ✅                                                                     |
-| Connect button → create API → redirect | TC-53 | ✅ (route-mocked — verifies POST + window.location redirect to Stripe) |
-| Hours of operation setup               | —     | ❌ Not written                                                         |
-| Unpublish restaurant                   | —     | ❌ Not written                                                         |
-| Create deal                            | —     | ❌ Not written                                                         |
-| Employee management                    | —     | ❌ Not written                                                         |
-| Loyalty rewards setup                  | —     | ❌ Not written                                                         |
-| Analytics dashboard                    | —     | ❌ Not written                                                         |
-| Billing / subscription                 | —     | ❌ Not written                                                         |
-| Uber Eats settings                     | —     | ❌ Not written                                                         |
-| Edit restaurant info                   | —     | ❌ Not written                                                         |
+| Feature                                                   | Test                              | Status                                                                                                                          |
+| --------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| My Restaurants list page loads                            | TC-13                             | ✅                                                                                                                              |
+| Seed restaurant card visible                              | TC-14                             | ✅                                                                                                                              |
+| Restaurant management portal loads                        | TC-15                             | ✅                                                                                                                              |
+| Store Settings sidebar navigation                         | TC-16                             | ✅                                                                                                                              |
+| Store Settings — edit & save a field                      | TC-88                             | ✅ (self-reverting; doesn't leave shared QA data mutated)                                                                       |
+| Menu editor loads                                         | TC-19                             | ✅                                                                                                                              |
+| Create menu category                                      | TC-20                             | ✅                                                                                                                              |
+| Add menu item to category                                 | TC-21                             | ✅                                                                                                                              |
+| Add-item wizard blocks blank name/price                   | TC-62                             | ✅                                                                                                                              |
+| Edit menu category name                                   | TC-42                             | ⏭️ Skipped — no edit button on category header in current UI                                                                    |
+| Edit menu item name and price                             | TC-43                             | ✅                                                                                                                              |
+| Delete menu item                                          | TC-44                             | ⏭️ Skipped — no delete button on menu item cards in current UI                                                                  |
+| Delete menu category                                      | TC-45                             | ✅                                                                                                                              |
+| Publish page (access check)                               | TC-27                             | ⏭️ Skipped — /publish route is EMPLOYEE-only; OWNER gets Access Denied                                                          |
+| Publish checklist visible                                 | TC-28                             | ⏭️ Skipped — /publish route is EMPLOYEE-only; OWNER gets Access Denied                                                          |
+| Navigate to Orders tab                                    | TC-29                             | ✅                                                                                                                              |
+| Orders — nonexistent search shows empty state             | TC-70                             | ✅ (MUI DataGrid "No rows" overlay)                                                                                             |
+| Orders — Filters button opens panel                       | TC-89                             | ✅                                                                                                                              |
+| Orders — order detail view                                | TC-90                             | ✅ Read-only; skips if the seed restaurant has zero orders                                                                      |
+| Navigate to Create Coupon form                            | TC-30                             | ✅                                                                                                                              |
+| Create a new coupon                                       | TC-31                             | ✅                                                                                                                              |
+| Invalid discount % rejected                               | TC-63                             | ✅                                                                                                                              |
+| Manage Coupons list shows created coupon                  | TC-91                             | ✅                                                                                                                              |
+| Edit an existing coupon                                   | TC-92                             | ⏭️ `test.fixme` — editing ANY coupon 500s server-side (frontend sends `value` as a string, Prisma expects Float)                |
+| Stripe setup page loads                                   | TC-46                             | ✅                                                                                                                              |
+| Stripe onboarding stepper visible                         | TC-47                             | ✅                                                                                                                              |
+| Stripe header description visible                         | TC-48                             | ✅                                                                                                                              |
+| Connect Stripe button visible                             | TC-49                             | ✅ (route-mocked — status API returns hasAccount: false)                                                                        |
+| Requirements checklist visible                            | TC-50                             | ✅ (route-mocked — status API returns hasAccount: false)                                                                        |
+| Stripe success callback page loads                        | TC-51                             | ✅                                                                                                                              |
+| Restaurant Dashboard redirect works                       | TC-52                             | ✅                                                                                                                              |
+| Connect button → create API → redirect                    | TC-53                             | ✅ (route-mocked — verifies POST + window.location redirect to Stripe)                                                          |
+| Failed Stripe create-account shows error                  | TC-78                             | ✅ (route-mocked 500 — inline alert, no redirect)                                                                               |
+| Uber Eats delivery settings page loads                    | TC-82                             | ✅ (owner-reachable — guard is `[ADMIN, EMPLOYEE, OWNER]`)                                                                      |
+| Uber Eats delivery config section visible                 | TC-83                             | ✅                                                                                                                              |
+| Subscription/Billing page loads                           | TC-84                             | ✅ (permission-gated `MODIFY_RESTAURANT`, not role-gated)                                                                       |
+| Subscription page shows plan details                      | TC-85                             | ✅ Read-only                                                                                                                    |
+| Manage Deals tab loads                                    | TC-86                             | ✅                                                                                                                              |
+| Manage Deals — Create Deal action visible                 | TC-87                             | ✅ Navigation-only — no create-deal API helper exists yet                                                                       |
+| Loyalty page (access check)                               | TC-81 (role-restrictions.spec.ts) | ✅ OWNER denied — `/restaurant/loyalty` is EMPLOYEE/ADMIN-only (CLAUDE.md previously listed this incorrectly as an Owner route) |
+| Hours of operation setup                                  | —                                 | ❌ Not written (reachable as Step 1 of `CreateStore.tsx` — see Onboarding below)                                                |
+| Unpublish restaurant                                      | —                                 | ❌ Not written                                                                                                                  |
+| Create deal (full form)                                   | —                                 | ❌ Not written — needs a deals API helper for setup/cleanup                                                                     |
+| Employee management (owner-side)                          | —                                 | ❌ Not written — no distinct owner-facing UI confirmed yet, needs product clarification                                         |
+| Analytics dashboard                                       | —                                 | ❌ Not written — deliberately out of scope (read-only, low regression risk)                                                     |
+| Edit restaurant info (name/address/etc, beyond prep time) | —                                 | ❌ Not written                                                                                                                  |
+
+---
+
+## 🚪 Onboarding (new restaurant owners)
+
+Onboarding is **four distinct, unconnected paths** in the app — not one flow.
+
+| Path                                                                                       | Test(s) | Status                                                                                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Self-serve sign-up (`/sign-up` → `POST /register`)                                         | TC-93   | ✅ Happy path. Confirmed a fresh account is role `USER` (only `VIEW_RESTAURANT`) — **not** `OWNER` — until it creates a restaurant.                                                                                                    |
+| Sign-up — duplicate email rejected                                                         | TC-94   | ✅                                                                                                                                                                                                                                     |
+| Sign-up — mismatched confirm-password blocks submit                                        | TC-95   | ✅ Client-side (yup) validation                                                                                                                                                                                                        |
+| Sign-up — weak password rejected client-side                                               | TC-96   | ✅                                                                                                                                                                                                                                     |
+| Employee-creates-restaurant-for-client (`/restaurant/new`, `CREATE_RESTAURANT` permission) | TC-97   | ✅ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD`. Confirmed Step 0 alone `POST`s `/restaurant/new` and the restaurant exists immediately — Steps 1/2 (hours, menu) just continue editing it. Cleans up via admin-token restaurant delete. |
+| Demo/lead-to-restaurant AI conversion wizard                                               | —       | ❌ Not implemented — QA deployment doesn't match local frontend source (see Admin section note)                                                                                                                                        |
+| Post-creation first-run setup (menu + Stripe + publish)                                    | —       | ⚠️ Not one flow — three disconnected screens. Menu (✅ covered), Stripe (✅ covered), Publish (⏭️ owner is denied; no EMPLOYEE/ADMIN publish test exists either)                                                                       |
+
+---
+
+## 🔒 Access Control
+
+| Feature                                                                           | Test                | Status                                                                                             |
+| --------------------------------------------------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------- |
+| OWNER denied `/publish` route                                                     | TC-54               | ✅                                                                                                 |
+| OWNER denied `/tax` route                                                         | TC-55               | ✅                                                                                                 |
+| OWNER denied `/restaurant/loyalty` route                                          | TC-81               | ✅                                                                                                 |
+| owner/admin/employee can reach menu management                                    | TC-56, TC-57, TC-58 | ✅ (TC-58 needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` — fails locally without them, not a real bug) |
+| Unauthenticated visitor → `/restaurant/stores` redirects to sign-in               | TC-71               | ✅                                                                                                 |
+| Unauthenticated visitor → `/admin` redirects to sign-in                           | TC-72               | ✅                                                                                                 |
+| Unauthenticated visitor → specific restaurant management URL redirects to sign-in | TC-73               | ✅                                                                                                 |
+
+---
+
+## 🔑 Public — Sign in / Sign up / Demo request
+
+| Feature                                      | Test                            | Status                               |
+| -------------------------------------------- | ------------------------------- | ------------------------------------ |
+| Valid credentials reach dashboard            | TC-59                           | ✅                                   |
+| Invalid credentials show error, stay on page | TC-60                           | ✅                                   |
+| Unknown email shows error                    | TC-61                           | ✅                                   |
+| Demo form submission + success dialog        | TC-01 (01-demo-request.spec.ts) | ✅                                   |
+| Demo confirmation email received             | TC-02 (01-demo-request.spec.ts) | ⏭️ Skipped (Mailtrap not configured) |
+| Demo form — unchecked terms blocks submit    | TC-74                           | ✅                                   |
+| Demo form — invalid email blocks submit      | TC-75                           | ✅                                   |
+| Sign-up happy path (see Onboarding above)    | TC-93–96                        | ✅                                   |
+
+---
+
+## 🌐 API-Level Negative Cases (`tests/dashboard/owner/api-negative.spec.ts`)
+
+| Case                                                                 | Test  | Status |
+| -------------------------------------------------------------------- | ----- | ------ |
+| Menu item with no name → 4xx                                         | TC-65 | ✅     |
+| Coupon with no code → 400                                            | TC-66 | ✅     |
+| Coupon with negative discount value → 400                            | TC-68 | ✅     |
+| Owner without `CREATE_RESTAURANT` can't self-create restaurant → 403 | TC-79 | ✅     |
+| Demo request with no email → 400                                     | TC-80 | ✅     |
+| Garbage Bearer token → 401                                           | TC-69 | ✅     |
+
+---
+
+## 👔 Employee
+
+| Feature                               | Test  | Status                                                                         |
+| ------------------------------------- | ----- | ------------------------------------------------------------------------------ |
+| Tax settings page loads               | TC-17 | ✅ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` in `.env`                        |
+| Save tax rate                         | TC-18 | ✅ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` in `.env`                        |
+| Create restaurant on behalf of client | TC-97 | ✅ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` in `.env` (see Onboarding above) |
+| Publish menu                          | —     | ❌ Not written (`test.fixme` scaffold exists)                                  |
 
 ---
 
 ## 🛒 Customer
 
-| Feature                                 | Test  | Status                                |
-| --------------------------------------- | ----- | ------------------------------------- |
-| Menu page loads                         | TC-22 | ⏭️ Skipped — test not yet implemented |
-| Open item modal + Add to Cart visible   | TC-23 | ⏭️ Skipped — test not yet implemented |
-| Checkout form visible with cart         | TC-24 | ⏭️ Skipped — test not yet implemented |
-| Fill checkout form + proceed to payment | TC-25 | ⏭️ Skipped — test not yet implemented |
-| Complete full order with Stripe card    | TC-26 | ⏭️ Skipped — test not yet implemented |
-| Delivery order (address + delivery fee) | —     | ❌ Not written                        |
-| Apply coupon at checkout                | —     | ❌ Not written                        |
-| OTP member login (phone number)         | —     | ❌ Not written                        |
-| Loyalty points redemption               | —     | ❌ Not written                        |
-| Gift card purchase                      | —     | ❌ Not written                        |
-| Declined payment handling               | —     | ❌ Not written                        |
-| Order with modifiers selected           | —     | ❌ Not written                        |
+| Feature                                 | Test  | Status                                                                    |
+| --------------------------------------- | ----- | ------------------------------------------------------------------------- |
+| Menu page loads                         | TC-22 | ✅ Needs `TEMPLATE_WIND_URL` set to a real per-restaurant deployment      |
+| Open item modal + Add to Cart visible   | TC-23 | ✅ Needs `TEMPLATE_WIND_URL` set to a real per-restaurant deployment      |
+| Checkout form visible with cart         | TC-24 | ✅ Needs `TEMPLATE_WIND_URL` set to a real per-restaurant deployment      |
+| Fill checkout form + proceed to payment | TC-25 | ✅ Needs `TEMPLATE_WIND_URL` set to a real per-restaurant deployment      |
+| Complete full order with Stripe card    | TC-26 | ✅ Needs `TEMPLATE_WIND_URL` set to a real per-restaurant deployment      |
+| Declined card shows payment error       | TC-64 | ✅ Needs `TEMPLATE_WIND_URL` — Stripe DECLINED test card, no order placed |
+| Delivery order (address + delivery fee) | —     | ❌ Not written                                                            |
+| Apply coupon at checkout                | —     | ❌ Not written                                                            |
+| OTP member login (phone number)         | —     | ❌ Not written                                                            |
+| Loyalty points redemption               | —     | ❌ Not written                                                            |
+| Gift card purchase                      | —     | ❌ Not written                                                            |
+| Order with modifiers selected           | —     | ❌ Not written                                                            |
 
 ---
 
 ## 📱 Staff / POS (Device In Store)
 
-| Feature                             | Test | Status         |
-| ----------------------------------- | ---- | -------------- |
-| Tablet login with name + code       | —    | ❌ Not written |
-| View incoming orders                | —    | ❌ Not written |
-| Accept / confirm an order           | —    | ❌ Not written |
-| Mark order as preparing             | —    | ❌ Not written |
-| Mark order as ready                 | —    | ❌ Not written |
-| Mark order as picked up / delivered | —    | ❌ Not written |
-| Cancel an order                     | —    | ❌ Not written |
+| Feature                             | Test | Status                                                                         |
+| ----------------------------------- | ---- | ------------------------------------------------------------------------------ |
+| Tablet login with name + code       | —    | ❌ Not written                                                                 |
+| View incoming orders                | —    | ❌ Not written                                                                 |
+| Accept / confirm an order           | —    | ❌ Not written                                                                 |
+| Mark order as preparing             | —    | ❌ Not written                                                                 |
+| Mark order as ready                 | —    | ❌ Not written                                                                 |
+| Mark order as picked up / delivered | —    | ❌ Not written                                                                 |
+| Cancel an order                     | —    | ❌ Not written                                                                 |
+| Staff web portal (POS PIN)          | —    | ❌ `test.fixme` scaffold exists (`tests/dashboard/staff/staff-portal.spec.ts`) |
 
 ---
 
 ## 🔗 End-to-End Journeys
 
-| Journey                                               | Status                          |
-| ----------------------------------------------------- | ------------------------------- |
-| Demo submitted → Admin finds and processes it         | ⚠️ Partial (TC-01, TC-04–TC-12) |
-| Owner publishes menu → Customer can see and order     | ❌ Not written                  |
-| Customer places order → Staff sees it → Staff accepts | ❌ Not written                  |
-| Customer places order → Owner views it in dashboard   | ❌ Not written                  |
-| Admin onboards demo → Restaurant is live              | ❌ Not written                  |
+| Journey                                                 | Status                                                                                                                                                                        |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Demo submitted → Admin finds and processes it           | ⚠️ Partial (TC-01, TC-04–TC-12)                                                                                                                                               |
+| Owner publishes menu → Customer can see and order       | ❌ Not written                                                                                                                                                                |
+| Customer places order → Staff sees it → Staff accepts   | ❌ Not written                                                                                                                                                                |
+| Customer places order → Owner views it in dashboard     | ⚠️ Partial — TC-90 views an existing order's detail, but no test drives a customer order end-to-end into the owner's Orders tab                                               |
+| Admin onboards demo → Restaurant is live                | ❌ Not written (blocked on Lead Onboarding — see Admin section)                                                                                                               |
+| Visitor signs up → creates a restaurant → becomes OWNER | ❌ Not written — TC-93 (sign-up) and TC-97 (restaurant creation) are separate tests; no single test chains a fresh sign-up into that same account creating its own restaurant |
 
 ---
 
 ## 📊 Coverage Summary
 
-| Area        | Written | Passing | Skipped | Not Written |
-| ----------- | ------- | ------- | ------- | ----------- |
-| Admin       | 13      | 11      | 1       | 5           |
-| Owner       | 22      | 17      | 5       | 8           |
-| Customer    | 5       | 0       | 5       | 7           |
-| Staff / POS | 0       | 0       | 0       | 7           |
-| End-to-End  | 0       | 0       | 0       | 5           |
-| **Total**   | **40**  | **28**  | **11**  | **32**      |
+Full suite as of 2026-07-03: **91 passed / 18 skipped / 1 failed** (`TC-58`, fails only because `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` aren't set in this local `.env` — passes wherever those creds exist).
 
-> **Overall coverage: ~56% of known features have tests written**
+| Area                      | Written | Passing | Skipped/Fixme                      | Not Written         |
+| ------------------------- | ------- | ------- | ---------------------------------- | ------------------- |
+| Admin                     | 33      | 32      | 2 (TC-02, chains fixme)            | 4                   |
+| Owner                     | 36      | 34      | 2 (TC-42, TC-44) + 1 fixme (TC-92) | 6                   |
+| Onboarding                | 5       | 4       | 1 (needs EMPLOYEE creds)           | 1 (lead onboarding) |
+| Access Control            | 8       | 7       | 1 (TC-58 needs EMPLOYEE creds)     | 0                   |
+| Public (sign-in/up, demo) | 10      | 10      | 1 (TC-02, Mailtrap)                | 0                   |
+| API-Level Negative        | 6       | 6       | 0                                  | 0                   |
+| Employee                  | 4       | 2       | 2 (need EMPLOYEE creds)            | 1 (publish, fixme)  |
+| Customer                  | 6       | 6       | 0                                  | 6                   |
+| Staff / POS               | 0       | 0       | 1 (fixme)                          | 7                   |
+| End-to-End                | 0       | 0       | 0                                  | 6                   |
+
+> Some tests are counted under both their feature area and Onboarding/Access Control (e.g. TC-97 appears under Employee and Onboarding) — totals above reflect the full-suite run count, not a naive per-row sum.
 
 ---
 
 ## 🎯 Recommended Next Batch — Priority Order
 
-| Priority | Area                                          | Reason                                    |
-| -------- | --------------------------------------------- | ----------------------------------------- |
-| 🔴 1     | Staff / POS — order lifecycle                 | Zero coverage on core business flow       |
-| 🔴 2     | Owner — publish restaurant                    | Blocker for customer tests to work        |
-| 🔴 3     | Owner — hours of operation                    | Required before orders can be accepted    |
-| 🟡 4     | Customer — menu → checkout → order E2E        | Validates the full customer ordering path |
-| 🟡 5     | Customer — delivery order                     | Second most common order type             |
-| 🟡 6     | Customer — apply coupon                       | Common checkout variation                 |
-| 🟡 7     | Admin dialogs — actually test features inside | Current tests only check dialogs open     |
-| 🟢 8     | Owner — employee management                   | Frequently used operational feature       |
-| 🟢 9     | Full E2E — customer orders → staff accepts    | Validates entire platform works together  |
-| 🟢 10    | Admin — subscription management               | Billing coverage for admin oversight      |
+| Priority | Area                                                       | Reason                                                                               |
+| -------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| 🔴 1     | Staff / POS — order lifecycle                              | Zero coverage on core business flow                                                  |
+| 🔴 2     | Confirm QA's actual deployed frontend branch               | Blocks Lead Onboarding coverage entirely — can't test a UI that doesn't match source |
+| 🟡 3     | Customer — delivery order                                  | Second most common order type                                                        |
+| 🟡 4     | Customer — apply coupon                                    | Common checkout variation                                                            |
+| 🟢 5     | Owner — employee management                                | Needs product clarification on which UI this maps to first                           |
+| 🟢 6     | Full E2E — customer orders → owner sees it → staff accepts | Validates entire platform works together                                             |
+| 🟢 7     | Fix the coupon-edit backend bug (TC-92)                    | Blocks re-enabling a `test.fixme`                                                    |
 
 ---
 
 ## ⚠️ Known Technical Debt
 
-| Issue                                             | Affected Tests      | Risk                                  |
-| ------------------------------------------------- | ------------------- | ------------------------------------- |
-| Pickup radio may be custom styled (not `<input>`) | TC-25, TC-26        | 🔴 High — click may do nothing        |
-| Stripe iframe selector unverified                 | TC-26               | 🔴 High — card fill may silently fail |
-| Seed restaurant not published                     | TC-22–TC-26         | 🔴 High — menu page may redirect      |
-| TC-06 leaves status as "Contacted" on QA          | TC-06               | 🟡 Medium — dirty test data           |
-| TC-18 leaves tax rate at 8.5% on QA               | TC-18               | 🟡 Medium — dirty test data           |
-| MUI class selectors fragile to upgrades           | TC-14, TC-15, TC-20 | 🟢 Low                                |
-| TC-03 only checks URL not dashboard content       | TC-03               | 🟢 Low                                |
-| TC-07–TC-11 only open dialogs, no feature testing | TC-07–TC-11         | 🟢 Low                                |
+| Issue                                                          | Affected Tests                | Risk                                                                                                                                                                                                                                      |
+| -------------------------------------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TC-18 leaves tax rate at 8.5% on QA                            | TC-18                         | 🟡 Medium — dirty test data                                                                                                                                                                                                               |
+| MUI class selectors fragile to upgrades                        | TC-14, TC-15, TC-20           | 🟢 Low                                                                                                                                                                                                                                    |
+| TC-03 only checks URL not dashboard content                    | TC-03                         | 🟢 Low                                                                                                                                                                                                                                    |
+| Add-item wizard auto-submits on entering Review                | TC-21, TC-43                  | 🟢 Low — POM waits for the success toast instead of clicking the (permanently disabled) Save Item button; if a future build changes this, the fallback click path needs re-verifying                                                      |
+| **Coupon edit 500s server-side**                               | TC-92 (fixme)                 | 🔴 High — real backend bug: `POST /api/coupons/:id` (edit) sends `value` as a string but Prisma's `coupon.update()` expects a Float. Blocks any coupon-edit coverage until fixed.                                                         |
+| **Coupon create backend doesn't validate % bounds**            | TC-63 (create only)           | 🟡 Medium — the "1–100%" rule is enforced client-side only; a raw API call with `value: 500` is accepted. `TC-66`/`TC-68` test fields the backend _does_ validate (missing code, negative value) instead.                                 |
+| **Demo-requests backend validates email presence, not format** | TC-75, TC-80                  | 🟡 Medium — a malformed-but-present email is accepted (201) by `POST /api/demo-requests`; only a missing email field is rejected (400).                                                                                                   |
+| QA frontend deployment diverged from local source              | Lead Onboarding (not written) | 🔴 High for that feature — `/restaurant/manage` on QA shows a different layout ("STAFF CONSOLE") than what `DemoAndRestaurant.tsx` describes in the checked-out frontend source. Needs investigation before any test targets that screen. |
+
+> Three previously-listed "risk" items are resolved now that the customer
+> suite actually runs and passes: the Pickup radio is a real `<input>` (click
+> works), the Stripe iframe selector is correct (verified via a live payment
+> in TC-26), and the seed restaurant doesn't need to be published for
+> TC-22–26 to pass. A real bug _was_ found and fixed in the same area: the
+> Stripe expiry default (`"12 / 2030"`) got silently truncated to `12/20` —
+> an expired card — by the "MM / YY" masked input; see `utils/stripeCards.ts`
+> → `STRIPE_DEFAULTS.EXPIRY_MM_YY`.
