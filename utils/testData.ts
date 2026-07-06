@@ -42,7 +42,17 @@ export const TEST_USER_MARKER = "autouser";
 // ── Test data generators ─────────────────────────────────────────────────────
 
 // Single source of truth for unique run suffixes used in test names/data.
-export const generateRunId = () => Date.now().toString().slice(-6);
+// uuid-based: the previous Date.now()-digits suffix cycled every ~16.7 minutes,
+// so a later run could regenerate a value already left behind by an earlier
+// run (e.g. a duplicate coupon code → 400 on create).
+export const generateRunId = () => uuidv4().split("-")[0];
+
+// Coupon codes created by automation. The shared prefix is the sweep marker
+// globalTeardown uses to delete this run's coupons AND leftovers from
+// interrupted runs — see apiHelper.deleteAutomationCoupons.
+export const AUTOMATION_COUPON_PREFIX = "AUTO";
+export const generateCouponCode = () =>
+  `${AUTOMATION_COUPON_PREFIX}${generateRunId().toUpperCase()}`;
 
 export function generateDemoFormData(): DemoFormData & { uniqueId: string } {
   const uniqueId = uuidv4().split("-")[0];
@@ -67,22 +77,29 @@ export function generateUserEmail(label = "u"): string {
 }
 
 // ── Created-user cleanup tracking ────────────────────────────────────────────
+// Append-only, one email per line: multiple worker processes record users
+// concurrently, and a JSON read-modify-write would lose entries to races.
+// O_APPEND writes of a short line are atomic enough; readUsersForCleanup
+// dedupes at read time instead.
 export function recordUserForCleanup(email: string): void {
-  const current = readUsersForCleanup();
-  if (!current.includes(email)) {
-    current.push(email);
-    fs.writeFileSync(
-      USERS_CLEANUP_FILE,
-      JSON.stringify(current, null, 2),
-      "utf-8"
-    );
-  }
+  fs.appendFileSync(USERS_CLEANUP_FILE, `${email}\n`, "utf-8");
 }
 
 export function readUsersForCleanup(): string[] {
   if (!fs.existsSync(USERS_CLEANUP_FILE)) return [];
   try {
-    return JSON.parse(fs.readFileSync(USERS_CLEANUP_FILE, "utf-8")) as string[];
+    const raw = fs.readFileSync(USERS_CLEANUP_FILE, "utf-8").trim();
+    if (!raw) return [];
+    // Legacy format (JSON array) from a run interrupted before this change.
+    if (raw.startsWith("[")) return JSON.parse(raw) as string[];
+    return [
+      ...new Set(
+        raw
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean)
+      ),
+    ];
   } catch {
     return [];
   }
@@ -136,9 +153,11 @@ export function writeSharedState(state: SharedState): void {
   fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), "utf-8");
 }
 
-// restaurantId for Template Wind customer tests. Template Wind is deployed
-// per-restaurant; appending ?restaurantId=<id> skips the location picker in QA.
-// Prefers an explicit env override, else the restaurant seeded by globalSetup.
+// restaurantId for Template Wind customer tests — every tests/customer spec
+// resolves the restaurant through this (and passes it to the POM gotos, which
+// append ?restaurantId=<id> to skip the location picker in QA).
+// Prefers the TEMPLATE_WIND_RESTAURANT_ID env override, else the restaurant
+// seeded by globalSetup.
 export function readRestaurantId(): string {
   return (
     process.env.TEMPLATE_WIND_RESTAURANT_ID ?? readSharedState().restaurantId

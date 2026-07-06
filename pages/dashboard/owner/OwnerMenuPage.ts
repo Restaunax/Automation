@@ -128,9 +128,15 @@ export const createOwnerMenuPage = (page: Page) => {
     });
 
   // After save, page navigates back to /restaurant/restaurantId/:id.
-  // Item name appears as a card in the category section.
+  // Item name appears as a card in the category section. Activate the category
+  // tab first (non-active panels may be unmounted) — see activateCategory.
+  // .first(): the name can render in more than one node inside the card.
   const assertItemVisible = (_categoryName: string, itemName: string) =>
-    expect(page.getByText(itemName)).toBeVisible({ timeout: 15_000 });
+    expect(page.getByText(itemName).first()).toBeVisible({ timeout: 15_000 });
+
+  // Activate a category tab so its item cards are rendered in the DOM.
+  const activateCategory = (categoryName: string) =>
+    page.getByRole("tab", { name: categoryName, exact: true }).click();
 
   // "Delete" category button only appears when the category has no items.
   // Scoped to the MuiPaper-root for that category — each category section
@@ -160,22 +166,31 @@ export const createOwnerMenuPage = (page: Page) => {
       page.getByRole("tab", { name: categoryName, exact: true })
     ).toBeHidden({ timeout: 10_000 });
 
-  // Find item card by name, click its Edit button (2nd button in CardActions).
+  // Find item card by name, click its Edit button.
+  // Locator is testid-first with a legacy fallback (see TEST_PLAN → "Locator
+  // strategy"): [data-testid=menu-item-edit] exists in frontend source but may
+  // not be on the QA deployment yet; until it is, fall back to the positional
+  // 2nd CardActions button (order: featured, edit, clone). Post-deploy both
+  // branches resolve to the SAME node, so .or() stays strict-mode safe.
   // The response-wait for the wizard's item fetch (/menu/itemId/:id) is
   // registered BEFORE the click that triggers it — subscribing after
   // navigation races the fetch and times out when the response lands first.
   const clickEditItem = async (itemName: string) => {
     const card = page
-      .locator(".MuiCard-root")
+      .getByTestId("menu-item-card")
       .filter({ hasText: itemName })
+      .or(page.locator(".MuiCard-root").filter({ hasText: itemName }))
       .first();
     await card.waitFor({ state: "visible", timeout: 10_000 });
+    const editButton = card
+      .getByTestId("menu-item-edit")
+      .or(card.locator(".MuiCardActions-root button").nth(1));
     await Promise.all([
       page.waitForResponse(
         (r) => /\/menu\/itemId\/[^/?]+/.test(r.url()) && r.status() === 200,
         { timeout: 20_000 }
       ),
-      card.locator(".MuiCardActions-root button").nth(1).click(),
+      editButton.click(),
     ]);
   };
 
@@ -223,6 +238,7 @@ export const createOwnerMenuPage = (page: Page) => {
     createMenuItem,
     assertMenuItemSuccessToast,
     assertItemVisible,
+    activateCategory,
     deleteCategory,
     assertCategoryDeleted,
     clickEditItem,

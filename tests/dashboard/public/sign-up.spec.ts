@@ -97,7 +97,7 @@ test.describe("Public — Sign up", () => {
   }) => {
     await allure.description(
       "Filling password/confirmPassword with different values shows an inline 'Passwords must match' " +
-        "error and never fires the /register request."
+        "error on blur (client-side validation; submit is never attempted here)."
     );
 
     await allure.step("Fill the form with mismatched passwords", async () => {
@@ -124,7 +124,8 @@ test.describe("Public — Sign up", () => {
     signUpPage,
   }) => {
     await allure.description(
-      "A password under 8 characters shows an inline validation error before any request is sent."
+      "A password under 8 characters shows an inline validation error on blur " +
+        "(client-side validation; submit is never attempted here)."
     );
 
     await allure.step("Fill the form with a weak password", async () => {

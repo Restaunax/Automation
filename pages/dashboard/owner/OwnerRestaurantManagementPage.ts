@@ -23,17 +23,27 @@ export const createOwnerRestaurantManagementPage = (page: Page) => {
   // a field is dirty, and saving PUTs /api/restaurantId/:id/settings.
   const navigateToStoreSettings = async () => {
     await clickSidebarItem("Store Settings");
-    await page
-      .locator('input[type="number"]')
-      .first()
-      .waitFor({ state: "visible", timeout: 10_000 });
+    await deliveryPrepTimeInput().waitFor({
+      state: "visible",
+      timeout: 10_000,
+    });
   };
 
+  // Testid-first with legacy fallback (TEST_PLAN → "Locator strategy"):
+  // #delivery-prep-time is a stable id in the frontend source
+  // (OrderPreparationTab.tsx); the positional input[type=number] fallback
+  // covers a QA deployment that predates it. Same node when both match.
   const deliveryPrepTimeInput = () =>
-    page.locator('input[type="number"]').first();
+    page
+      .locator("#delivery-prep-time")
+      .or(page.locator('input[type="number"]').first())
+      .first();
 
   const saveChangesButton = () =>
-    page.locator("#root").getByRole("button", { name: "Save changes" });
+    page
+      .getByTestId("unsaved-changes-save")
+      .or(page.locator("#root").getByRole("button", { name: "Save changes" }))
+      .first();
 
   const setDeliveryPrepTime = async (minutes: string) => {
     await deliveryPrepTimeInput().fill(minutes);

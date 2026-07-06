@@ -46,8 +46,9 @@ npx playwright test --project=customer       # Template Wind only
 npx playwright test                          # both
 ```
 
-> `tests/pos/` (Device In Store / POS) is **not** a Playwright project — it's an
-> API-level placeholder. See **Role & Permission Model** and `tests/pos/README.md`.
+> `tests/pos/` (Device In Store / POS) is the **`pos` project** — API-level
+> order-lifecycle tests (no browser UI). Run with `--project=pos`. See
+> **Role & Permission Model** and `tests/pos/README.md`.
 
 ---
 
@@ -191,7 +192,7 @@ Automation/
 │   └── customer/
 │       └── {CustomerMenuPage,CustomerCheckoutPage,CustomerOrderConfirmationPage}.ts  # ✅ real
 ├── fixtures/
-│   └── base.ts          # ownerPage, adminPage, employeePage, customerPage, pageForRole, demoBookingPage, signInPage, signUpPage
+│   └── base.ts          # ownerPage, adminPage, employeePage, pageForRole, demoBookingPage, signInPage, signUpPage
 ├── utils/
 │   ├── apiHelper.ts     # direct HTTP for setup/teardown (login, seed/delete restaurant, admin user mgmt) + raw negative-case helpers (createMenuItemRaw, createCouponRaw, createRestaurantRaw, submitDemoRequestRaw, updateUserRoleRaw, toggleUserStatusRaw, register)
 │   ├── emailHelper.ts   # Mailtrap inbox polling + invite-token extraction
@@ -205,11 +206,12 @@ Automation/
 └── TEST_PLAN.md         # this file
 ```
 
-`tests/pos/` is a placeholder folder (just a `README.md`) — it is intentionally
-excluded from both Playwright projects in `playwright.config.ts`, since the
-POS lives in device-in-store (React Native) and is tested at the API level,
-not through browser automation. `tests/auth/` is an empty stub folder with no
-files yet.
+`tests/pos/` is the **`pos` Playwright project** — API-level order-lifecycle
+coverage (the POS lives in device-in-store / React Native, so it's tested
+through the backend, not a browser). Helpers: `createZeroTotalOrder` (Stripe-
+free `total:0` order), `createTabletDevice` / `tabletLogin`, `updateOrderStatus`,
+`getCurrentOrders` in `utils/apiHelper.ts`. See `tests/pos/README.md`.
+`tests/auth/` is an empty stub folder with no files yet.
 
 **Design principle:** the tree mirrors **app → role → feature** (how users
 experience the product and how access is gated), **not** the React component
@@ -220,18 +222,20 @@ folder layout (which would couple tests to implementation details). POMs model
 
 ## Conventions
 
-| Topic                 | Convention                                                                                                                                                                                                                                                                                                                                                                 |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Folder axis**       | `tests/<app>/<role>/<feature>.spec.ts`. App first (different URLs/auth), then role (how access is gated), then feature.                                                                                                                                                                                                                                                    |
-| **POM location**      | `pages/<app>/<role>/<Screen>Page.ts` — mirrors the test axis.                                                                                                                                                                                                                                                                                                              |
-| **POM style**         | A **factory function** `create<Name>Page(page)` returning `{ goto, ...actions }`, plus an exported `type` via `ReturnType`. No classes. See `pages/dashboard/auth/SignInPage.ts`.                                                                                                                                                                                          |
-| **Locators**          | Prefer role / name / label / placeholder. Template Wind has almost no `data-testid` → use role/text. Dashboard is MUI → role selectors (`[role="dialog"]`, `getByRole`). CSS class is a last resort.                                                                                                                                                                       |
-| **Test titles**       | `TC-NN: description`. Add Allure `feature` / `severity` labels and wrap steps in `allure.step()` for readable reports (see the demo specs).                                                                                                                                                                                                                                |
-| **Placeholders**      | Scaffolded specs use `test.fixme("TC-XXX: …", async ({ fixture }) => { … })`. They appear in `--list` as skipped and **never run or fail CI**. Each holds an Arrange-Act-Assert skeleton + the POM import so it's copy-paste-ready.                                                                                                                                        |
-| **Imports**           | Relative paths (matching existing code). The `@pages/*`, `@utils/*`, `@fixtures/*` aliases exist in `tsconfig.json` if you prefer them.                                                                                                                                                                                                                                    |
-| **Fixtures**          | Never log in inside a spec. Use `ownerPage` / `adminPage` / `customerPage`; auth is restored from storageState by `globalSetup` + `fixtures/base.ts`.                                                                                                                                                                                                                      |
-| **Shared screens**    | A screen reachable by multiple roles gets a **role-agnostic POM** in `pages/dashboard/restaurant/`. Test the feature once (primary actor); cover cross-role access in `tests/dashboard/access/`. See "Shared capabilities".                                                                                                                                                |
-| **Permissions/roles** | **Never hardcode** a permission name, an expected permission list, or the role set. Discover them at runtime (`GET /api/roles`, `/api/roles/:role/permissions`, `/api/roles/users/:id/permissions`) and assert on relationships — the catalog evolves. See `tests/dashboard/admin/users.spec.ts` and the `getRoles` / `getRolePermissions` / `getUserPermissions` helpers. |
+| Topic                 | Convention                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Folder axis**       | `tests/<app>/<role>/<feature>.spec.ts`. App first (different URLs/auth), then role (how access is gated), then feature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| **POM location**      | `pages/<app>/<role>/<Screen>Page.ts` — mirrors the test axis.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| **POM style**         | A **factory function** `create<Name>Page(page)` returning `{ goto, ...actions }`, plus an exported `type` via `ReturnType`. No classes. See `pages/dashboard/auth/SignInPage.ts`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| **Locators**          | Priority: `data-testid` > role/name > stable `id`/`name` attribute > label > placeholder > CSS class (last resort). Hot components in both frontends now carry testids (`menu-item-card`, `menu-item-edit`, `unsaved-changes-save`, `user-role-filter`, `add-to-cart`, `view-cart`, …) — **but the QA deployment may lag the frontend source**, so POMs use the testid-first-with-legacy-fallback pattern: `page.getByTestId("x").or(legacyLocator).first()`. Both branches must resolve to the SAME node once deployed (or `.first()` must pick a clickable ancestor) to stay strict-mode safe. When a component you need has no testid, add one to the frontend in the same change — never add another `.nth()`. |
+| **Test titles**       | `TC-NN: description`. Add Allure `feature` / `severity` labels and wrap steps in `allure.step()` for readable reports (see the demo specs).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **Placeholders**      | Scaffolded specs use `test.fixme("TC-XXX: …", async ({ fixture }) => { … })`. They appear in `--list` as skipped and **never run or fail CI**. Each holds an Arrange-Act-Assert skeleton + the POM import so it's copy-paste-ready.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| **Imports**           | Relative paths only. (Path aliases were removed from `tsconfig.json` — they were never used, and Playwright doesn't resolve them at runtime without extra setup.)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| **Fixtures**          | Never log in inside a spec. Use `ownerPage` / `adminPage` / `employeePage`; auth is restored from storageState by `globalSetup` + `fixtures/base.ts`. Customer tests use the plain `page` fixture (the `customer` project's baseURL is Template Wind).                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| **Shared screens**    | A screen reachable by multiple roles gets a **role-agnostic POM** in `pages/dashboard/restaurant/`. Test the feature once (primary actor); cover cross-role access in `tests/dashboard/access/`. See "Shared capabilities".                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **Swallowed errors**  | Every `.catch(() => {})` must sit next to a comment saying why the failure is safe to ignore (usually: a best-effort wait where the caller's own assertion is the real check, or best-effort cleanup that must not mask the test result). A bare swallow with no justification is a review defect.                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| **Timeouts**          | Don't restate defaults: `expect()` already waits 10s (config `expect.timeout`), actions 15s, navigation 30s, tests 90s. Pass an explicit `{ timeout }` ONLY when a step legitimately needs longer (Stripe iframes, email delivery, wizard fetches) — that way a nonstandard timeout signals intent instead of drowning in noise.                                                                                                                                                                                                                                                                                                                                                                                   |
+| **Permissions/roles** | **Never hardcode** a permission name, an expected permission list, or the role set. Discover them at runtime (`GET /api/roles`, `/api/roles/:role/permissions`, `/api/roles/users/:id/permissions`) and assert on relationships — the catalog evolves. See `tests/dashboard/admin/users.spec.ts` and the `getRoles` / `getRolePermissions` / `getUserPermissions` helpers.                                                                                                                                                                                                                                                                                                                                         |
 
 ### The POM factory pattern
 
@@ -280,7 +284,7 @@ import * as allure from "allure-js-commons";
 import { test } from "../../../fixtures/base";
 import { createOwnerRestaurantManagementPage } from "../../../pages/dashboard/owner/OwnerRestaurantManagementPage";
 import { createOwnerCouponPage } from "../../../pages/dashboard/owner/OwnerCouponPage";
-import { readSharedState, generateRunId } from "../../../utils/testData";
+import { readSharedState, generateCouponCode } from "../../../utils/testData";
 
 test.describe("Owner — Coupons", () => {
   test.beforeEach(async () => {
@@ -294,7 +298,7 @@ test.describe("Owner — Coupons", () => {
     const { restaurantId } = readSharedState(); // Arrange
     const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
     const couponPage = createOwnerCouponPage(ownerPage);
-    const couponCode = `AUTO${generateRunId()}`;
+    const couponCode = generateCouponCode();
 
     await mgmtPage.goto(restaurantId);
     await couponPage.navigateToCreateCoupon(); // Act
@@ -323,7 +327,6 @@ saves browser sessions to disk; `fixtures/base.ts` restores them.
 | `ownerPage` / `ownerContext`       | Owner (storageState from `owner-auth.tmp.json`)                      | `tests/dashboard/owner/**`                              |
 | `adminPage` / `adminContext`       | Admin (storageState from `admin-auth.tmp.json`)                      | `tests/dashboard/admin/**`                              |
 | `employeePage` / `employeeContext` | Employee (storageState from `employee-auth.tmp.json`)                | `tests/dashboard/employee/**`                           |
-| `customerPage` / `customerContext` | **Guest** (no auth), baseURL = Template Wind                         | `tests/customer/**`                                     |
 | `pageForRole(role)`                | Resolver → authenticated page for `"owner" \| "admin" \| "employee"` | `tests/dashboard/access/**` (who-can-reach-what matrix) |
 | `signInPage`                       | Unauthenticated sign-in POM                                          | auth tests                                              |
 | `signUpPage`                       | Unauthenticated sign-up POM                                          | onboarding / sign-up tests                              |
@@ -336,9 +339,35 @@ throwing. `pageForRole("employee")` resolves once `EMPLOYEE_EMAIL` /
 `EMPLOYEE_PASSWORD` are set.
 
 **Customer restaurant target:** Template Wind is deployed per-restaurant.
-`utils/testData.ts` → `readRestaurantId()` returns `TEMPLATE_WIND_RESTAURANT_ID`
-(env override) or the restaurant seeded by `globalSetup`. Customer POMs append
+Customer specs use the plain `page` fixture (the `customer` project's baseURL
+is Template Wind) and resolve the restaurant via `utils/testData.ts` →
+`readRestaurantId()`, which returns `TEMPLATE_WIND_RESTAURANT_ID` (env
+override) or the restaurant seeded by `globalSetup`. Customer POMs append
 `?restaurantId=<id>` to skip the location picker.
+
+**Test-case IDs are globally unique across the whole suite** — never reuse a
+TC number that exists in any other spec (the admin user-management suite uses
+the TC-101+ block for this reason). Duplicate IDs break TEST_CASES.md
+traceability and make Allure results ambiguous.
+
+**Session lifetime** (measured from the backend source, 2026-07-05):
+
+| Token              | TTL        | Carrier                                                   |
+| ------------------ | ---------- | --------------------------------------------------------- |
+| Access token (JWT) | 15 minutes | `Authorization: Bearer` / localStorage `user.accessToken` |
+| Refresh token      | 30 days    | localStorage `user.refreshToken` + httpOnly cookie        |
+
+Browser sessions restored from storageState survive arbitrarily long runs
+because the saved localStorage carries the 30-day refresh token and the
+dashboard auto-refreshes on page load (`POST /api/auth/refresh`). globalSetup
+**fails fast** if a saved auth file is missing the refresh token
+(`verifyAuthStateLifetime`) — that's the condition under which tests starting
+more than 15 minutes into a run would begin failing with mysterious
+redirects to `/sign-in`.
+
+Raw `apiLogin()` tokens have **no refresh path**: caching one in a
+`beforeAll` is fine for a normal spec file, but never reuse one across more
+than ~10 minutes of test execution — re-login instead.
 
 ---
 
@@ -358,12 +387,55 @@ throwing. `pageForRole("employee")` resolves once `EMPLOYEE_EMAIL` /
 3. Writes `shared-state.tmp.json`:
    `{ email, firstName, lastName, submittedAt, restaurantId, restaurantName, menuGroupId, menuItemId, menuItemName, menuItemPrice }`.
 
-`globalTeardown.ts` runs **once after all tests**: deletes the seed menu item
+`globalTeardown.ts` runs **once after all tests**:
 
-- group (draining any leftover items first to avoid "Cannot Delete Category
-  With Items"), deletes any users the admin user-management suite created
-  (tracked via `recordUserForCleanup()` in `utils/testData.ts`), and removes all
-  `*.tmp.json` files. Teardown errors are logged, never fail the run.
+- deletes the seed menu item + group (draining any leftover items first to
+  avoid "Cannot Delete Category With Items")
+- sweeps automation-created menu categories (`Test Starters *` / `TC45 Delete *`)
+  and `AUTO*` coupons — this run's **and** leftovers from interrupted runs
+- deletes any users the admin user-management suite created (tracked via
+  `recordUserForCleanup()` in `utils/testData.ts`)
+- deletes this run's demo request (admin token; globalSetup submits one per run)
+- removes all `*.tmp.json` files
+
+Teardown errors are logged, never fail the run.
+
+---
+
+## Parallel Execution
+
+The suite runs **multiple spec files concurrently** (`workers: 3` locally,
+`2` in CI; override with `--workers=N`). `fullyParallel` stays **false**, so a
+spec file is the isolation unit: tests inside a file always run in order, in
+one worker — serial CRUD chains and `beforeAll` seeding keep working. The
+counts were tuned empirically: 4 local workers pushed combined Chromium + QA
+load past action budgets (pure slowness, no data races); 3 is the sweet spot,
+paired with a 90s per-test budget.
+
+**The contract every spec file must honor** (this is what makes parallelism
+safe against one shared QA environment):
+
+1. **Own your data.** Create what you need with unique names
+   (`generateRunId()` / `generateUserEmail()` / `generateCouponCode()`), and
+   never assume another file has or hasn't run. Cross-file dependencies are
+   forbidden.
+2. **Restore what you mutate.** Any change to a shared QA setting (tax rate,
+   prep time, restaurant config) must snapshot the original and restore it in
+   a `finally`.
+3. **Never mutate a row another file asserts against.** `02-demo-actions`
+   seeds its own private demo request precisely because `01-demo-management`
+   asserts the shared one's status is NEW.
+4. **Shared temp files must be append-safe.** `users-cleanup.tmp.json` is
+   append-only JSONL (concurrent workers can't lose entries to a JSON
+   read-modify-write race). Only `globalTeardown` drains it — never drain it
+   from a spec's `afterAll`, which could delete a user a concurrently-running
+   file still needs.
+
+**Known accepted overlap:** the tax-rate and prep-time tests briefly change
+settings that in principle affect concurrent customer-order pricing. No
+current test asserts totals, so this is safe today — if a totals-asserting
+test is ever added, it must either pin its own restaurant or move into the
+same file as the settings mutations.
 
 ---
 
@@ -397,19 +469,20 @@ throwing. `pageForRole("employee")` resolves once `EMPLOYEE_EMAIL` /
 
 Configured in `Automation/.env`.
 
-| Variable                               | Description                                                                                                                                  | Example                                 |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| `FRONTEND_URL`                         | Dashboard base URL (project `dashboard`)                                                                                                     | `https://app.qa.restaunax.com`          |
-| `TEMPLATE_WIND_URL`                    | Template Wind base URL (project `customer`) — no code default; `qa.restaunax.com` serves the marketing site, not a per-restaurant deployment | `https://<restaurant>.qa.restaunax.com` |
-| `TEMPLATE_WIND_RESTAURANT_ID`          | Optional override for the customer-site restaurant target                                                                                    | _(restaurant id)_                       |
-| `BACKEND_URL`                          | Backend API base URL (used by `apiHelper`)                                                                                                   | `https://api.qa.restaunax.com`          |
-| `OWNER_EMAIL` / `OWNER_PASSWORD`       | Owner account — must already own ≥1 QA restaurant                                                                                            | _(secret)_                              |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD`       | Admin account (admin-flow tests, teardown cleanup)                                                                                           | _(secret)_                              |
-| `EMPLOYEE_EMAIL` / `EMPLOYEE_PASSWORD` | Employee account — gates `tests/dashboard/employee/**`                                                                                       | _(secret)_                              |
-| `MAILTRAP_API_TOKEN`                   | **Email Testing** token (not a Sending token — those 403)                                                                                    | _(secret)_                              |
-| `MAILTRAP_INBOX_ID`                    | Mailtrap inbox where test emails land                                                                                                        | _(secret)_                              |
-| `MAILTRAP_ACCOUNT_ID`                  | Optional — skips the account-lookup API call if set                                                                                          | _(secret)_                              |
-| `TEST_EMAIL_DOMAIN`                    | Domain for generated unique test emails                                                                                                      | `restaunax-test.com`                    |
+| Variable                                      | Description                                                                                                                                  | Example                                 |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `FRONTEND_URL`                                | Dashboard base URL (project `dashboard`)                                                                                                     | `https://app.qa.restaunax.com`          |
+| `TEMPLATE_WIND_URL`                           | Template Wind base URL (project `customer`) — no code default; `qa.restaunax.com` serves the marketing site, not a per-restaurant deployment | `https://<restaurant>.qa.restaunax.com` |
+| `TEMPLATE_WIND_RESTAURANT_ID`                 | Optional override for the customer-site restaurant target                                                                                    | _(restaurant id)_                       |
+| `SEED_RESTAURANT_ID` / `SEED_RESTAURANT_NAME` | Optional pin for the seed restaurant globalSetup targets (default: first owned restaurant — order-dependent if the owner has several)        | _(restaurant id / exact name)_          |
+| `BACKEND_URL`                                 | Backend API base URL (used by `apiHelper`)                                                                                                   | `https://api.qa.restaunax.com`          |
+| `OWNER_EMAIL` / `OWNER_PASSWORD`              | Owner account — must already own ≥1 QA restaurant                                                                                            | _(secret)_                              |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD`              | Admin account (admin-flow tests, teardown cleanup)                                                                                           | _(secret)_                              |
+| `EMPLOYEE_EMAIL` / `EMPLOYEE_PASSWORD`        | Employee account — gates `tests/dashboard/employee/**`                                                                                       | _(secret)_                              |
+| `MAILTRAP_API_TOKEN`                          | **Email Testing** token (not a Sending token — those 403)                                                                                    | _(secret)_                              |
+| `MAILTRAP_INBOX_ID`                           | Mailtrap inbox where test emails land                                                                                                        | _(secret)_                              |
+| `MAILTRAP_ACCOUNT_ID`                         | Optional — skips the account-lookup API call if set                                                                                          | _(secret)_                              |
+| `TEST_EMAIL_DOMAIN`                           | Domain for generated unique test emails                                                                                                      | `restaunax-test.com`                    |
 
 ---
 

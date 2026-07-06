@@ -3,6 +3,7 @@ import { test, expect } from "../../../fixtures/base";
 import { createOwnerRestaurantManagementPage } from "../../../pages/dashboard/owner/OwnerRestaurantManagementPage";
 import { createOwnerOrdersPage } from "../../../pages/dashboard/owner/OwnerOrdersPage";
 import { readSharedState } from "../../../utils/testData";
+import { createZeroTotalOrder } from "../../../utils/apiHelper";
 
 const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
@@ -12,6 +13,21 @@ test.describe("Owner — Orders Tab", () => {
     !OWNER_EMAIL || !OWNER_PASSWORD,
     "OWNER_EMAIL / OWNER_PASSWORD not set in .env"
   );
+
+  // Seed one order via the API (total:0 → paid, no Stripe) so TC-90 has a
+  // guaranteed row to open. Previously it depended on a prior run's residue
+  // lingering in QA — non-deterministic coverage. Left as residue like TC-26
+  // (there's no order-delete API); doubles as extra Orders-tab seed data.
+  test.beforeAll(async () => {
+    if (!OWNER_EMAIL || !OWNER_PASSWORD) return;
+    const { restaurantId, menuItemId, menuItemName, menuItemPrice } =
+      readSharedState();
+    await createZeroTotalOrder(restaurantId, {
+      menuItemId,
+      name: menuItemName,
+      price: menuItemPrice,
+    });
+  });
 
   test.beforeEach(async () => {
     await allure.label("feature", "Owner Orders");
@@ -115,8 +131,8 @@ test.describe("Owner — Orders Tab", () => {
   }) => {
     await allure.description(
       "Clicking a row in the orders grid opens a detail dialog with order info, items, and totals — " +
-        "read-only assertions only; no status change/cancel/refund against this real, possibly " +
-        "shared order. Skips if the QA restaurant currently has zero orders."
+        "read-only assertions only; no status change/cancel/refund. An order is seeded via the API " +
+        "in beforeAll so a row is always present (no longer dependent on QA residue)."
     );
 
     const { restaurantId } = readSharedState();
@@ -128,11 +144,10 @@ test.describe("Owner — Orders Tab", () => {
       await ordersPage.navigateToOrdersTab();
     });
 
-    const rowCount = await ordersPage.firstOrderRow().count();
-    test.skip(
-      rowCount === 0,
-      "No orders exist on the seed restaurant right now"
-    );
+    // The beforeAll-seeded order guarantees at least one row.
+    await expect(ordersPage.firstOrderRow().first()).toBeVisible({
+      timeout: 15_000,
+    });
 
     await allure.step("Open the first order's detail view", async () => {
       await ordersPage.openFirstOrderDetail();

@@ -11,12 +11,19 @@ export const createAdminDemoManagementPage = (page: Page) => {
   };
 
   const searchByEmail = async (email: string) => {
+    // Register BEFORE fill so the promise is already listening when the
+    // debounced (~800ms) search GET fires. networkidle is deliberately NOT
+    // used anywhere in this suite — the dashboard has background polling that
+    // never settles (see SignInPage.waitForDashboard). `q=` distinguishes the
+    // search call from the initial page-load GET. Swallowing the timeout is
+    // safe: the caller's row assertion is the real check.
+    const responsePromise = page.waitForResponse(
+      (r) => r.url().includes("/api/demo-requests") && r.url().includes("q="),
+      { timeout: 10_000 }
+    );
     await searchInput.clear();
     await searchInput.fill(email);
-    // ~800ms debounce; networkidle confirms the search request settled.
-    await page
-      .waitForLoadState("networkidle", { timeout: 5_000 })
-      .catch(() => {});
+    await responsePromise.catch(() => {});
   };
 
   const findRowByEmail = (email: string): Locator =>
@@ -45,10 +52,17 @@ export const createAdminDemoManagementPage = (page: Page) => {
   const changeStatusInline = async (email: string, status: string) => {
     await findRowByEmail(email).locator('[role="combobox"]').click();
     await listbox.waitFor({ state: "visible", timeout: 5_000 });
+    // Wait for the status PUT the option click fires (registered before the
+    // click; networkidle never settles on this dashboard — see searchByEmail).
+    // Swallowing the timeout is safe: callers assert the chip text after.
+    const responsePromise = page.waitForResponse(
+      (r) =>
+        r.request().method() === "PUT" &&
+        r.url().includes("/api/demo-requests/"),
+      { timeout: 10_000 }
+    );
     await listbox.getByRole("option", { name: status, exact: true }).click();
-    await page
-      .waitForLoadState("networkidle", { timeout: 5_000 })
-      .catch(() => {});
+    await responsePromise.catch(() => {});
   };
 
   // SideSheet = right-anchored MUI Drawer; Dialog = standard MUI modal.

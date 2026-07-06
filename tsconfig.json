@@ -8,13 +8,7 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "outDir": "dist",
-    "rootDir": ".",
-    "baseUrl": ".",
-    "paths": {
-      "@pages/*": ["pages/*"],
-      "@utils/*": ["utils/*"],
-      "@fixtures/*": ["fixtures/*"]
-    }
+    "rootDir": "."
   },
   "include": ["**/*.ts"],
   "exclude": [

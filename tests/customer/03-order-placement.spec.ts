@@ -2,7 +2,7 @@ import * as allure from "allure-js-commons";
 import { test } from "../../fixtures/base";
 import { createCustomerCheckoutPage } from "../../pages/customer/CustomerCheckoutPage";
 import { createCustomerOrderConfirmationPage } from "../../pages/customer/CustomerOrderConfirmationPage";
-import { readSharedState } from "../../utils/testData";
+import { readSharedState, readRestaurantId } from "../../utils/testData";
 import { STRIPE_CARDS } from "../../utils/stripeCards";
 
 const TEMPLATE_WIND_URL = process.env.TEMPLATE_WIND_URL ?? "";
@@ -13,6 +13,11 @@ test.describe("Customer — Order Placement", () => {
   // No default here on purpose: Template Wind is deployed per-restaurant, and
   // the qa.restaunax.com root serves the marketing site — the env var must
   // point at a real customer-site deployment.
+  //
+  // DATA RESIDUE (accepted): TC-26 places a real order (Stripe test mode) that
+  // is deliberately NOT cancelled — cancelling needs the tablet/POS token flow,
+  // and leftover orders double as seed data for the owner Orders-tab detail
+  // test (TC-90). Revisit if QA order volume ever becomes a problem.
   test.skip(
     !TEMPLATE_WIND_URL || !OWNER_EMAIL || !OWNER_PASSWORD,
     "TEMPLATE_WIND_URL, OWNER_EMAIL, and OWNER_PASSWORD must all be set in .env"
@@ -30,8 +35,8 @@ test.describe("Customer — Order Placement", () => {
       "Full happy path: pre-seeded cart → fill form → Proceed to Payment → fill Stripe VISA test card → Complete Order → Order Confirmed page."
     );
 
-    const { restaurantId, menuItemId, menuItemName, menuItemPrice } =
-      readSharedState();
+    const restaurantId = readRestaurantId();
+    const { menuItemId, menuItemName, menuItemPrice } = readSharedState();
     const checkoutPage = createCustomerCheckoutPage(page);
     const confirmationPage = createCustomerOrderConfirmationPage(page);
 
@@ -90,8 +95,8 @@ test.describe("Customer — Order Placement", () => {
         "on the checkout page instead of reaching Order Confirmed."
     );
 
-    const { restaurantId, menuItemId, menuItemName, menuItemPrice } =
-      readSharedState();
+    const restaurantId = readRestaurantId();
+    const { menuItemId, menuItemName, menuItemPrice } = readSharedState();
     const checkoutPage = createCustomerCheckoutPage(page);
 
     await allure.step("Seed cart and navigate to checkout", async () => {

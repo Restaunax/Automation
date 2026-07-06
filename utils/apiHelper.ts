@@ -4,6 +4,12 @@
  * Direct HTTP calls to the RestauNax backend for test data setup and teardown.
  * Uses Bearer token auth — no browser required.
  * All functions throw on non-2xx responses with a clear error message.
+ *
+ * TOKEN LIFETIME: apiLogin() returns a raw access token that expires after
+ * 15 MINUTES with no refresh path (unlike browser sessions, which carry the
+ * 30-day refresh token — see utils/auth.ts). Caching a token in beforeAll is
+ * fine for a normal-length spec file; never reuse one across more than ~10
+ * minutes of test execution — re-login instead.
  */
 
 import { readUsersForCleanup, clearUsersForCleanup } from "./testData";
@@ -29,46 +35,27 @@ export interface ApiRestaurant {
 
 const REQUEST_TIMEOUT_MS = 30_000;
 
+/**
+ * Throwing wrapper around apiRequestRaw — the single fetch implementation
+ * lives there; this variant turns any non-2xx into a descriptive Error.
+ * Use apiRequest for setup/teardown (failures should abort loudly) and
+ * apiRequestRaw-based helpers for negative tests (status is the assertion).
+ */
 async function apiRequest<T>(
   method: string,
   path: string,
   body?: unknown,
   accessToken?: string
 ): Promise<T> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-  let res: Response;
-  try {
-    res = await fetch(`${BACKEND_URL}${path}`, {
-      method,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal: controller.signal,
-    });
-  } catch (err) {
-    if (controller.signal.aborted) {
-      throw new Error(
-        `API ${method} ${path} timed out after ${REQUEST_TIMEOUT_MS}ms. ` +
-          `Is BACKEND_URL=${BACKEND_URL} correct and reachable?`
-      );
-    }
-    throw err;
-  } finally {
-    clearTimeout(timer);
-  }
-
+  const res = await apiRequestRaw<T>(method, path, body, accessToken);
   if (!res.ok) {
-    const text = await res.text().catch(() => "(no body)");
-    throw new Error(`API ${method} ${path} → ${res.status}: ${text}`);
+    const detail =
+      typeof res.data === "string" ? res.data : JSON.stringify(res.data);
+    throw new Error(
+      `API ${method} ${path} → ${res.status}: ${detail || "(no body)"}`
+    );
   }
-
-  return res.json() as Promise<T>;
+  return res.data;
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
@@ -138,6 +125,10 @@ export async function deleteTestRestaurant(
 
 /**
  * Deletes a menu item by ID. Requires auth (owner token is sufficient).
+ * NOTE: this is a SOFT delete (backend sets isActive=false) — and the
+ * category-delete endpoint counts soft-deleted items, so a group containing
+ * one can never be deleted afterwards. Prefer permanentlyDeleteMenuItemApi
+ * (admin token) when the item's category must be deletable.
  */
 export async function deleteTestMenuItem(
   accessToken: string,
@@ -148,6 +139,23 @@ export async function deleteTestMenuItem(
     `/menu/menuItemId/${menuItemId}`,
     undefined,
     accessToken
+  );
+}
+
+/**
+ * HARD-deletes a menu item — DELETE /menu/menuItemId/:id/permanent.
+ * ADMIN role required. Unlike the soft delete, this removes the row, so the
+ * item's category can subsequently be deleted.
+ */
+export async function permanentlyDeleteMenuItemApi(
+  adminToken: string,
+  menuItemId: string
+): Promise<void> {
+  await apiRequest<unknown>(
+    "DELETE",
+    `/menu/menuItemId/${menuItemId}/permanent`,
+    undefined,
+    adminToken
   );
 }
 
@@ -168,6 +176,7 @@ export async function deleteTestMenuGroup(
 
 export interface ApiMenuGroup {
   id: string;
+  name?: string;
   menuItems?: ApiMenuItem[];
 }
 
@@ -180,40 +189,56 @@ export interface ApiMenuItem {
 /**
  * GET /menu/restaurants/:restaurantId/menus — returns all menu groups with
  * their items. Used by teardown to drain a group before deleting it.
+ *
+ * Response shape (backend getRestaurantMenus → getMergedMenuForRestaurant):
+ * { success, menus: [{ groups: [{ id, name, items: [...] }] }], chain }.
+ * NOTE: an earlier version of this helper read a top-level `groups` key that
+ * the endpoint never returns — it always yielded [] and the drain-before-
+ * delete silently no-opped. Parse the real nested shape.
  */
 export async function getRestaurantMenuGroups(
   accessToken: string,
   restaurantId: string
 ): Promise<ApiMenuGroup[]> {
-  const data = await apiRequest<{ groups: ApiMenuGroup[] }>(
-    "GET",
-    `/menu/restaurants/${restaurantId}/menus`,
-    undefined,
-    accessToken
+  const data = await apiRequest<{
+    menus?: {
+      groups?: { id: string; name?: string; items?: ApiMenuItem[] }[];
+    }[];
+  }>("GET", `/menu/restaurants/${restaurantId}/menus`, undefined, accessToken);
+  return (data.menus ?? []).flatMap((menu) =>
+    (menu.groups ?? []).map((g) => ({
+      id: g.id,
+      name: g.name,
+      menuItems: g.items ?? [],
+    }))
   );
-  return data.groups ?? [];
 }
 
 /**
  * Delete every menu item in a group, then delete the group.
- * Gracefully handles the "Cannot Delete Category With Items" error by first
- * removing any items that tests may have left behind.
+ *
+ * When `adminToken` is provided the items are HARD-deleted — necessary
+ * because the plain item delete only soft-deletes (isActive=false), and the
+ * category-delete endpoint counts soft-deleted items too, so a soft-drained
+ * group still 400s with "Cannot Delete Category With Items". Without an
+ * admin token the soft-delete drain is attempted, but the group delete will
+ * fail if the group ever contained a (now soft-deleted) item.
  */
 export async function deleteTestMenuGroupWithItems(
   accessToken: string,
   restaurantId: string,
-  menuGroupId: string
+  menuGroupId: string,
+  adminToken?: string
 ): Promise<void> {
   const groups = await getRestaurantMenuGroups(accessToken, restaurantId);
   const group = groups.find((g) => g.id === menuGroupId);
   if (group?.menuItems?.length) {
     for (const item of group.menuItems) {
-      await apiRequest<unknown>(
-        "DELETE",
-        `/menu/menuItemId/${item.id}`,
-        undefined,
-        accessToken
-      );
+      if (adminToken) {
+        await permanentlyDeleteMenuItemApi(adminToken, item.id);
+      } else {
+        await deleteTestMenuItem(accessToken, item.id);
+      }
     }
   }
   await apiRequest<unknown>(
@@ -248,6 +273,133 @@ export async function createTestMenuItem(
     accessToken
   );
   return data.menuItem;
+}
+
+/**
+ * Delete every automation-created menu group (name matches the UI-test naming
+ * patterns) from a restaurant — this run's AND leftovers from interrupted
+ * runs. Best-effort per group; never throws.
+ */
+export async function deleteAutomationMenuGroups(
+  accessToken: string,
+  restaurantId: string,
+  adminToken?: string,
+  namePattern = /^(Test Starters|TC45 Delete|Automation Items) ?/
+): Promise<number> {
+  const groups = await getRestaurantMenuGroups(accessToken, restaurantId);
+  let deleted = 0;
+  for (const group of groups) {
+    if (!group.name || !namePattern.test(group.name)) continue;
+    try {
+      await deleteTestMenuGroupWithItems(
+        accessToken,
+        restaurantId,
+        group.id,
+        adminToken
+      );
+      deleted++;
+    } catch (err) {
+      console.warn(
+        `[apiHelper] Failed to delete leftover menu group "${group.name}" (${group.id}):`,
+        err
+      );
+    }
+  }
+  return deleted;
+}
+
+// ── Coupons ──────────────────────────────────────────────────────────────────
+
+export interface ApiCoupon {
+  id: string;
+  code: string;
+  /** "restaurant" | "organization" — org coupons are shared, never delete. */
+  source?: string;
+}
+
+/** GET /api/coupons/restaurant/:id — response is { success, coupons: [...] }. */
+export async function getRestaurantCoupons(
+  accessToken: string,
+  restaurantId: string
+): Promise<ApiCoupon[]> {
+  const data = await apiRequest<{ coupons?: ApiCoupon[] }>(
+    "GET",
+    `/api/coupons/restaurant/${restaurantId}`,
+    undefined,
+    accessToken
+  );
+  return data.coupons ?? [];
+}
+
+/** DELETE /api/coupons/:id — requires MODIFY_RESTAURANT (owner token). */
+export async function deleteCouponApi(
+  accessToken: string,
+  couponId: string
+): Promise<void> {
+  await apiRequest<unknown>(
+    "DELETE",
+    `/api/coupons/${couponId}`,
+    undefined,
+    accessToken
+  );
+}
+
+/**
+ * Sweep all automation-created coupons (codes starting with `codePrefix`)
+ * from a restaurant — this run's AND leftovers from interrupted runs.
+ * Organization-level coupons are skipped. Best-effort per coupon.
+ */
+export async function deleteAutomationCoupons(
+  accessToken: string,
+  restaurantId: string,
+  codePrefix = "AUTO"
+): Promise<number> {
+  const coupons = await getRestaurantCoupons(accessToken, restaurantId);
+  let deleted = 0;
+  for (const coupon of coupons) {
+    if (!coupon.code?.startsWith(codePrefix)) continue;
+    if (coupon.source === "organization") continue;
+    try {
+      await deleteCouponApi(accessToken, coupon.id);
+      deleted++;
+    } catch (err) {
+      console.warn(
+        `[apiHelper] Failed to delete coupon ${coupon.code} (${coupon.id}):`,
+        err
+      );
+    }
+  }
+  return deleted;
+}
+
+// ── Demo requests ────────────────────────────────────────────────────────────
+
+/**
+ * DELETE the demo request matching `email` (exact, case-insensitive).
+ * ADMIN-only route. Returns true if a matching request was found and deleted.
+ * Used by globalTeardown so each run's seeded demo request doesn't accumulate.
+ */
+export async function deleteDemoRequestByEmail(
+  adminToken: string,
+  email: string
+): Promise<boolean> {
+  const data = await apiRequest<{ data?: { id: string; email: string }[] }>(
+    "GET",
+    `/api/demo-requests?q=${encodeURIComponent(email)}`,
+    undefined,
+    adminToken
+  );
+  const match = (data.data ?? []).find(
+    (d) => d.email.toLowerCase() === email.toLowerCase()
+  );
+  if (!match) return false;
+  await apiRequest<unknown>(
+    "DELETE",
+    `/api/demo-requests/${match.id}`,
+    undefined,
+    adminToken
+  );
+  return true;
 }
 
 /** Raw restaurant create — for negative cases (e.g. missing name → 400). */
@@ -285,6 +437,172 @@ export function createCouponRaw(
     body,
     accessToken
   );
+}
+
+// ── Orders & POS (tablet) ────────────────────────────────────────────────────
+//
+// Order seeding + the POS/tablet order-lifecycle surface. Backend specifics
+// verified 2026-07-06:
+//   • POST /api/order/new/restaurantId/:id with total:0 creates a paid order
+//     immediately (status=PENDING, paymentStatus=COMPLETED) — no Stripe. This
+//     is the only Stripe-free order path on the customer web endpoint.
+//   • Order status routes take NO auth and accept free-form transitions from a
+//     flat allowlist (not a state machine). Path param is :id.
+//   • Tablet device create returns the plaintext login code ONCE. There is no
+//     delete — devices are deactivated (toggle) for cleanup.
+
+export interface ApiOrder {
+  id: string;
+  status: string;
+  paymentStatus?: string;
+  orderType?: string;
+  total?: number;
+}
+
+export interface SeedOrderItem {
+  menuItemId: string;
+  name: string;
+  price: number;
+}
+
+/**
+ * Create a $0 PICKUP order via the public customer endpoint. total:0 makes the
+ * backend mark it PENDING/COMPLETED with no Stripe intent — ideal seed data.
+ * The restaurant must have settings.acceptingOrders=true (the seed restaurant
+ * does). No order-delete API exists, so these are left as residue (like the
+ * TC-26 real order) and double as seed data for the owner Orders tab.
+ */
+export async function createZeroTotalOrder(
+  restaurantId: string,
+  item: SeedOrderItem,
+  customerEmail = `autoorder_${Date.now()}@restaunax-test.com`
+): Promise<ApiOrder> {
+  const data = await apiRequest<{ order?: ApiOrder } & ApiOrder>(
+    "POST",
+    `/api/order/new/restaurantId/${restaurantId}`,
+    {
+      orderType: "PICKUP",
+      subtotal: 0,
+      tax: 0,
+      deliveryFee: 0,
+      tip: 0,
+      total: 0,
+      customerEmail,
+      customerPhone: "+15550000000",
+      firstName: "Auto",
+      lastName: "Order",
+      orderItems: [
+        {
+          menuItemId: item.menuItemId,
+          menuItemName: item.name,
+          quantity: 1,
+          price: item.price,
+        },
+      ],
+    }
+  );
+  // Response may be the order directly or wrapped in { order }.
+  return (data.order ?? (data as ApiOrder)) as ApiOrder;
+}
+
+/**
+ * GET /api/order/restaurants/:id/orders/current — the kitchen/POS live feed.
+ * Staff/POS-only: pass a tablet JWT (mirrors the device) or an owner/admin
+ * token with MODIFY_RESTAURANT. Normalizes the two documented shapes: a bare
+ * array (normal) or { orders: [] } (no active business-day range).
+ */
+export async function getCurrentOrders(
+  accessToken: string,
+  restaurantId: string
+): Promise<ApiOrder[]> {
+  const data = await apiRequest<ApiOrder[] | { orders: ApiOrder[] }>(
+    "GET",
+    `/api/order/restaurants/${restaurantId}/orders/current`,
+    undefined,
+    accessToken
+  );
+  if (Array.isArray(data)) return data;
+  return data.orders ?? [];
+}
+
+/**
+ * PUT /api/order/orderId/:id/status — drive an order through the lifecycle.
+ * Staff/POS-only: pass a tablet JWT or an owner/admin token with
+ * MODIFY_RESTAURANT. The backend validates only membership in a flat allowlist,
+ * so any transition between listed statuses is accepted. Returns the order.
+ */
+export async function updateOrderStatus(
+  accessToken: string,
+  orderId: string,
+  status: string
+): Promise<ApiOrder> {
+  return apiRequest<ApiOrder>(
+    "PUT",
+    `/api/order/orderId/${orderId}/status`,
+    { status },
+    accessToken
+  );
+}
+
+export interface TabletDevice {
+  id: string;
+  name: string;
+  /** Plaintext login code — the backend returns it only on create. */
+  code: string;
+}
+
+/**
+ * POST /api/tablet/restaurant/:id/device — provision a POS device.
+ * Requires an owner/admin token (MODIFY_RESTAURANT). Device names are
+ * GLOBALLY unique, so callers pass a run-unique name. The response carries the
+ * plaintext code exactly once (stored encrypted thereafter).
+ */
+export async function createTabletDevice(
+  ownerToken: string,
+  restaurantId: string,
+  name: string
+): Promise<TabletDevice> {
+  const data = await apiRequest<{ device: TabletDevice }>(
+    "POST",
+    `/api/tablet/restaurant/${restaurantId}/device`,
+    { name },
+    ownerToken
+  );
+  return data.device;
+}
+
+/** POST /api/tablet/login — tablet name + plaintext code → tablet JWT. */
+export async function tabletLogin(name: string, code: string): Promise<string> {
+  const data = await apiRequest<{ accessToken: string }>(
+    "POST",
+    "/api/tablet/login",
+    { name, code }
+  );
+  return data.accessToken;
+}
+
+/**
+ * PATCH .../device/:deviceId/toggle — deactivate a device. There is no delete
+ * endpoint; deactivation is the cleanup path. Best-effort; never throws.
+ */
+export async function deactivateTabletDevice(
+  ownerToken: string,
+  restaurantId: string,
+  deviceId: string
+): Promise<void> {
+  try {
+    await apiRequestRaw(
+      "PATCH",
+      `/api/tablet/restaurant/${restaurantId}/device/${deviceId}/toggle`,
+      undefined,
+      ownerToken
+    );
+  } catch (err) {
+    console.warn(
+      `[apiHelper] Failed to deactivate tablet device ${deviceId}:`,
+      err
+    );
+  }
 }
 
 // ── Admin user management ────────────────────────────────────────────────────

@@ -1,11 +1,12 @@
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../../fixtures/base";
 import { createAdminDemoManagementPage } from "../../../../pages/dashboard/admin/AdminDemoManagementPage";
+import { generateDemoFormData } from "../../../../utils/testData";
 import {
-  readSharedState,
-  generateDemoFormData,
-} from "../../../../utils/testData";
-import { submitDemoRequestRaw } from "../../../../utils/apiHelper";
+  apiLogin,
+  submitDemoRequestRaw,
+  deleteDemoRequestByEmail,
+} from "../../../../utils/apiHelper";
 import { waitForEmail } from "../../../../utils/emailHelper";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
@@ -16,27 +17,73 @@ const mailtrapReady = !!(
 
 const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+// A schedule date must always be in the future — compute it per run instead of
+// hardcoding one that silently becomes "in the past" and breaks the test.
+// Format matches the masked MM/DD/YYYY picker input (digits only).
+const futureScheduleDate = (daysFromNow = 7): string => {
+  const d = new Date(Date.now() + daysFromNow * 24 * 60 * 60 * 1000);
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${mm}${dd}${d.getFullYear()}`;
+};
+
 test.describe("Admin — Demo Request Actions", () => {
   test.skip(
     !ADMIN_EMAIL || !ADMIN_PASSWORD,
     "ADMIN_EMAIL / ADMIN_PASSWORD not set in .env"
   );
 
+  // This file MUTATES its demo request (status, notes, schedule, assignment),
+  // so it seeds a private one instead of using the shared globalSetup request
+  // that 01-demo-management asserts against — files run in parallel now, and
+  // sharing a mutable row across files is a race. Deleted in afterAll.
+  let demoEmail = "";
+  let demoFirstName = "";
+  let demoLastName = "";
+
+  test.beforeAll(async () => {
+    const formData = generateDemoFormData();
+    const res = await submitDemoRequestRaw({
+      ...formData,
+      planType: "restaurant",
+    });
+    if (!res.ok) {
+      throw new Error(
+        `Failed to seed demo request for demo-actions: ${res.status} ${JSON.stringify(res.data)}`
+      );
+    }
+    demoEmail = formData.email;
+    demoFirstName = formData.firstName;
+    demoLastName = formData.lastName;
+  });
+
+  test.afterAll(async () => {
+    if (!demoEmail || !ADMIN_EMAIL || !ADMIN_PASSWORD) return;
+    try {
+      const { accessToken } = await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD);
+      await deleteDemoRequestByEmail(accessToken, demoEmail);
+    } catch (err) {
+      console.warn(
+        `[demo-actions] Failed to delete seeded demo request (${demoEmail}):`,
+        err
+      );
+    }
+  });
+
   test.beforeEach(async ({ adminPage }) => {
     await allure.label("feature", "Demo Request Flow");
     await allure.label("severity", "critical");
 
-    const { email } = readSharedState();
     const demoPage = createAdminDemoManagementPage(adminPage);
     await demoPage.goto();
-    await demoPage.searchByEmail(email);
-    await demoPage.assertRowExists(email);
+    await demoPage.searchByEmail(demoEmail);
+    await demoPage.assertRowExists(demoEmail);
   });
 
   test("TC-05: admin can open the action menu on a demo row", async ({
     adminPage,
   }) => {
-    const { email } = readSharedState();
+    const email = demoEmail;
     const demoPage = createAdminDemoManagementPage(adminPage);
 
     await demoPage.openActionMenu(email);
@@ -60,17 +107,23 @@ test.describe("Admin — Demo Request Actions", () => {
   test("TC-06: admin can change demo status via inline dropdown", async ({
     adminPage,
   }) => {
-    const { email } = readSharedState();
+    const email = demoEmail;
     const demoPage = createAdminDemoManagementPage(adminPage);
 
-    await demoPage.changeStatusInline(email, "Contacted");
+    try {
+      await demoPage.changeStatusInline(email, "Contacted");
 
-    await expect(
-      demoPage.findRowByEmail(email).locator('[role="combobox"] .MuiChip-label')
-    ).toContainText("Contacted", { timeout: 10_000 });
-
-    // Reset status so TC-04 (which asserts "NEW") is not affected on re-runs.
-    await demoPage.changeStatusInline(email, "New");
+      await expect(
+        demoPage
+          .findRowByEmail(email)
+          .locator('[role="combobox"] .MuiChip-label')
+      ).toContainText("Contacted", { timeout: 10_000 });
+    } finally {
+      // Reset to "New" so later tests in this file start from a known state —
+      // in a finally so a mid-test failure can't leave the row wrong.
+      // Best-effort: never mask the original failure.
+      await demoPage.changeStatusInline(email, "New").catch(() => {});
+    }
   });
 
   test("TC-07: admin can edit and save notes in the View/Edit Details side sheet", async ({
@@ -81,7 +134,7 @@ test.describe("Admin — Demo Request Actions", () => {
         "sheet auto-closes on success (no toast). Reopening confirms the note persisted server-side."
     );
 
-    const { email } = readSharedState();
+    const email = demoEmail;
     const demoPage = createAdminDemoManagementPage(adminPage);
     const note = `Automation note ${Date.now()}`;
 
@@ -108,40 +161,43 @@ test.describe("Admin — Demo Request Actions", () => {
         "real email through the Mailtrap sandbox (verified via waitForEmail, gated on Mailtrap creds)."
     );
 
-    const { email } = readSharedState();
+    const email = demoEmail;
     const demoPage = createAdminDemoManagementPage(adminPage);
 
-    await allure.step("Open Send Follow-up Email and send it", async () => {
-      await demoPage.openActionMenu(email);
-      await demoPage.clickMenuAction("Send Follow-up Email");
-      await demoPage.assertDialogOpen("Send Follow-up Email");
-      await demoPage.sendFollowupEmail();
-    });
-
-    await allure.step("Verify status flips to Contacted", async () => {
-      await expect(
-        demoPage
-          .findRowByEmail(email)
-          .locator('[role="combobox"] .MuiChip-label')
-      ).toContainText("Contacted", { timeout: 10_000 });
-    });
-
-    if (mailtrapReady) {
-      await allure.step("Verify the email actually arrived", async () => {
-        const msg = await waitForEmail(email, { timeoutMs: 20_000 });
-        expect(msg.subject).toBeTruthy();
-        await allure.parameter("Email subject", msg.subject);
+    try {
+      await allure.step("Open Send Follow-up Email and send it", async () => {
+        await demoPage.openActionMenu(email);
+        await demoPage.clickMenuAction("Send Follow-up Email");
+        await demoPage.assertDialogOpen("Send Follow-up Email");
+        await demoPage.sendFollowupEmail();
       });
-    }
 
-    // Reset status so TC-04 (which asserts "NEW") is not affected on re-runs.
-    await demoPage.changeStatusInline(email, "New");
+      await allure.step("Verify status flips to Contacted", async () => {
+        await expect(
+          demoPage
+            .findRowByEmail(email)
+            .locator('[role="combobox"] .MuiChip-label')
+        ).toContainText("Contacted", { timeout: 10_000 });
+      });
+
+      if (mailtrapReady) {
+        await allure.step("Verify the email actually arrived", async () => {
+          const msg = await waitForEmail(email, { timeoutMs: 20_000 });
+          expect(msg.subject).toBeTruthy();
+          await allure.parameter("Email subject", msg.subject);
+        });
+      }
+    } finally {
+      // Reset to "New" so later tests in this file start from a known state —
+      // in a finally so a mid-test failure can't leave the row wrong.
+      await demoPage.changeStatusInline(email, "New").catch(() => {});
+    }
   });
 
   test("TC-09: admin sees delete confirmation and can cancel", async ({
     adminPage,
   }) => {
-    const { email, firstName, lastName } = readSharedState();
+    const email = demoEmail;
     const demoPage = createAdminDemoManagementPage(adminPage);
 
     await demoPage.openActionMenu(email);
@@ -149,7 +205,7 @@ test.describe("Admin — Demo Request Actions", () => {
 
     const dialog = adminPage.locator('[role="dialog"]');
     await expect(dialog).toBeVisible({ timeout: 5_000 });
-    await expect(dialog).toContainText(`${firstName} ${lastName}`);
+    await expect(dialog).toContainText(`${demoFirstName} ${demoLastName}`);
 
     await dialog.getByRole("button", { name: /cancel/i }).click();
     await demoPage.assertRowExists(email);
@@ -160,8 +216,8 @@ test.describe("Admin — Demo Request Actions", () => {
   }) => {
     await allure.description(
       "Confirming the delete dialog actually removes the row, verified via the DELETE response and " +
-        "a re-search. Uses a throwaway seeded demo request rather than the shared one TC-04→TC-12 " +
-        "depend on, so it doesn't disrupt the rest of the file."
+        "a re-search. Uses its own throwaway seeded demo request (separate even from this file's " +
+        "main seeded row) so the delete doesn't disrupt the other tests."
     );
 
     const formData = generateDemoFormData();
@@ -202,7 +258,7 @@ test.describe("Admin — Demo Request Actions", () => {
         "the assignee anywhere else)."
     );
 
-    const { email } = readSharedState();
+    const email = demoEmail;
     const demoPage = createAdminDemoManagementPage(adminPage);
 
     await demoPage.openActionMenu(email);
@@ -230,26 +286,31 @@ test.describe("Admin — Demo Request Actions", () => {
         "flips status to Scheduled and sets scheduledDemoAt."
     );
 
-    const { email } = readSharedState();
+    const email = demoEmail;
     const demoPage = createAdminDemoManagementPage(adminPage);
 
-    await demoPage.openActionMenu(email);
-    await demoPage.clickMenuAction("Schedule Demo");
-    await demoPage.assertDialogOpen("Schedule Demo");
-    await demoPage.scheduleDemo("07102026", "1000AM");
+    try {
+      await demoPage.openActionMenu(email);
+      await demoPage.clickMenuAction("Schedule Demo");
+      await demoPage.assertDialogOpen("Schedule Demo");
+      await demoPage.scheduleDemo(futureScheduleDate(), "1000AM");
 
-    await expect(
-      demoPage.findRowByEmail(email).locator('[role="combobox"] .MuiChip-label')
-    ).toContainText("Scheduled", { timeout: 10_000 });
-
-    // Reset status so TC-04 (which asserts "NEW") is not affected on re-runs.
-    await demoPage.changeStatusInline(email, "New");
+      await expect(
+        demoPage
+          .findRowByEmail(email)
+          .locator('[role="combobox"] .MuiChip-label')
+      ).toContainText("Scheduled", { timeout: 10_000 });
+    } finally {
+      // Reset to "New" so later tests in this file start from a known state —
+      // in a finally so a mid-test failure can't leave the row wrong.
+      await demoPage.changeStatusInline(email, "New").catch(() => {});
+    }
   });
 
   test("TC-12: Proceed to Onboarding navigates to restaurant setup", async ({
     adminPage,
   }) => {
-    const { email } = readSharedState();
+    const email = demoEmail;
     const demoPage = createAdminDemoManagementPage(adminPage);
 
     await demoPage.openActionMenu(email);

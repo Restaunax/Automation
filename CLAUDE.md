@@ -223,7 +223,7 @@ pages/
 - **Customer (web):** No auth for guest; OTP for reward member (`POST /login/send-otp`)
 - **Customer (mobile):** OTP via `POST /login/mobile/send-otp`
 
-`globalSetup.ts` creates owner + admin sessions before tests run. `globalTeardown.ts` cleans up test data.
+`globalSetup.ts` creates owner + admin + employee sessions before tests run. `globalTeardown.ts` cleans up test data: seed menu item/group, automation-created categories (`Test Starters *`/`TC45 Delete *`), `AUTO*` coupons, recorded test users, and this run's demo request.
 
 ---
 
@@ -242,6 +242,9 @@ ADMIN_PASSWORD=...
 
 # Customer storefront
 TEMPLATE_WIND_URL=https://qa.restaunax.com
+# Optional: pin the customer-site restaurant / the seed restaurant
+TEMPLATE_WIND_RESTAURANT_ID=...
+SEED_RESTAURANT_ID=...
 
 # Email testing
 MAILTRAP_API_TOKEN=...

@@ -1,3 +1,4 @@
+import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
 import { readSharedState } from "../../../utils/testData";
 
@@ -10,6 +11,18 @@ import { readSharedState } from "../../../utils/testData";
  *
  */
 test.describe("Access — Role restrictions", () => {
+  // Skip (not fail) when owner creds aren't configured — pageForRole throws
+  // when the auth file is missing.
+  test.skip(
+    !process.env.OWNER_EMAIL || !process.env.OWNER_PASSWORD,
+    "OWNER_EMAIL / OWNER_PASSWORD not set in .env"
+  );
+
+  test.beforeEach(async () => {
+    await allure.label("feature", "Access Control");
+    await allure.label("severity", "critical");
+  });
+
   test("TC-54: OWNER is denied the publish route (EMPLOYEE/ADMIN only)", async ({
     pageForRole,
   }) => {

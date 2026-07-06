@@ -2,7 +2,8 @@ import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
 import { createOwnerRestaurantManagementPage } from "../../../pages/dashboard/owner/OwnerRestaurantManagementPage";
 import { createOwnerCouponPage } from "../../../pages/dashboard/owner/OwnerCouponPage";
-import { readSharedState, generateRunId } from "../../../utils/testData";
+import { readSharedState, generateCouponCode } from "../../../utils/testData";
+import { apiLogin, getRestaurantCoupons } from "../../../utils/apiHelper";
 
 const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
@@ -60,7 +61,7 @@ test.describe("Owner — Coupons", () => {
     const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
     const couponPage = createOwnerCouponPage(ownerPage);
 
-    const couponCode = `AUTO${generateRunId()}`;
+    const couponCode = generateCouponCode();
 
     await allure.step(
       `Navigate to restaurant management (id: ${restaurantId})`,
@@ -82,6 +83,16 @@ test.describe("Owner — Coupons", () => {
     await allure.step("Submit and verify success toast", async () => {
       await couponPage.submit();
       await couponPage.assertSuccessToast();
+    });
+
+    await allure.step("Verify the coupon persisted server-side", async () => {
+      // Not just the toast: the coupon must exist at the API source of truth.
+      const { accessToken } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD);
+      const coupons = await getRestaurantCoupons(accessToken, restaurantId);
+      expect(
+        coupons.some((c) => c.code === couponCode),
+        `coupon ${couponCode} should be in GET /api/coupons/restaurant/${restaurantId}`
+      ).toBe(true);
     });
   });
 
@@ -109,7 +120,7 @@ test.describe("Owner — Coupons", () => {
     });
 
     await allure.step("Fill an out-of-range discount value", async () => {
-      await couponPage.fillCouponForm(`AUTO${generateRunId()}`, "-10");
+      await couponPage.fillCouponForm(generateCouponCode(), "-10");
       await couponPage.discountValueInput().press("Tab");
     });
 
@@ -133,7 +144,7 @@ test.describe("Owner — Coupons", () => {
     const { restaurantId } = readSharedState();
     const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
     const couponPage = createOwnerCouponPage(ownerPage);
-    const couponCode = `AUTO${generateRunId()}`;
+    const couponCode = generateCouponCode();
 
     await allure.step("Create a coupon", async () => {
       await mgmtPage.goto(restaurantId);
@@ -164,5 +175,6 @@ test.describe("Owner — Coupons", () => {
   // value, and inspecting the PUT /api/coupons/:id response (500). Filed as
   // fixme rather than asserting the broken 500 as expected behavior — flip
   // back to a real test once the backend fix ships.
+  // Tracked: https://github.com/Restaunax/RestauNax/issues/481
   test.fixme("TC-92: owner can edit an existing coupon's discount value", async () => {});
 });

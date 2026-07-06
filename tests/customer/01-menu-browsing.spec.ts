@@ -1,7 +1,8 @@
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../fixtures/base";
 import { createCustomerMenuPage } from "../../pages/customer/CustomerMenuPage";
-import { readSharedState } from "../../utils/testData";
+import { createCustomerCheckoutPage } from "../../pages/customer/CustomerCheckoutPage";
+import { readSharedState, readRestaurantId } from "../../utils/testData";
 
 const TEMPLATE_WIND_URL = process.env.TEMPLATE_WIND_URL ?? "";
 const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
@@ -28,7 +29,7 @@ test.describe("Customer — Menu Browsing", () => {
       "Unauthenticated customer navigates to /menu?restaurantId=<id> and the page loads."
     );
 
-    const { restaurantId } = readSharedState();
+    const restaurantId = readRestaurantId();
     const menuPage = createCustomerMenuPage(page);
 
     await allure.step(
@@ -52,7 +53,8 @@ test.describe("Customer — Menu Browsing", () => {
       "Customer clicks the seed menu item card, the item modal opens, and the Add to Cart button is visible."
     );
 
-    const { restaurantId, menuItemName } = readSharedState();
+    const restaurantId = readRestaurantId();
+    const { menuItemName } = readSharedState();
     const menuPage = createCustomerMenuPage(page);
 
     await allure.step("Navigate to menu page", async () => {
@@ -70,6 +72,45 @@ test.describe("Customer — Menu Browsing", () => {
 
     await allure.step("Verify Add to Cart button is visible", async () => {
       await expect(menuPage.addToCartButton()).toBeVisible({ timeout: 10_000 });
+    });
+  });
+
+  test("TC-99: customer can add an item to the cart and reach checkout through the real UI flow", async ({
+    page,
+  }) => {
+    await allure.description(
+      "The one true end-to-end cart path: open the item modal, click Add to Cart, open the cart via " +
+        "the floating View Cart button, and click through to /checkout. Every other checkout test " +
+        "seeds the cart via sessionStorage for speed — this test is the safety net that the real " +
+        "add-to-cart wiring (and the cart storage schema seedCart mimics) actually works."
+    );
+
+    const restaurantId = readRestaurantId();
+    const { menuItemName } = readSharedState();
+    const menuPage = createCustomerMenuPage(page);
+    const checkoutPage = createCustomerCheckoutPage(page);
+
+    await allure.step("Navigate to menu and open the item modal", async () => {
+      await menuPage.goto(restaurantId);
+      await menuPage.openItemModal(menuItemName);
+      await menuPage.assertItemModalOpen();
+      await allure.parameter("Item", menuItemName);
+    });
+
+    await allure.step("Add the item to the cart", async () => {
+      await menuPage.clickAddToCart();
+      await menuPage.assertCartButtonVisible();
+    });
+
+    await allure.step("Open the cart and proceed to checkout", async () => {
+      await menuPage.openCart();
+      await menuPage.proceedToCheckout();
+      await expect(page).toHaveURL(/\/checkout/, { timeout: 15_000 });
+    });
+
+    await allure.step("Verify the checkout form renders", async () => {
+      await checkoutPage.assertFormVisible();
+      await allure.parameter("URL", page.url());
     });
   });
 });

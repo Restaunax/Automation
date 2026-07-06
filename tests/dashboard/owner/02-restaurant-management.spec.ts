@@ -83,22 +83,35 @@ test.describe("Owner — Restaurant Management Portal", () => {
       await mgmtPage.navigateToStoreSettings();
     });
 
-    await allure.step("Change the delivery prep time and save", async () => {
-      originalValue = await mgmtPage.deliveryPrepTimeInput().inputValue();
-      const changedValue = String(Number(originalValue) + 1);
-      await mgmtPage.setDeliveryPrepTime(changedValue);
-      await mgmtPage.saveStoreSettings();
-    });
+    try {
+      await allure.step("Change the delivery prep time and save", async () => {
+        originalValue = await mgmtPage.deliveryPrepTimeInput().inputValue();
+        const changedValue = String(Number(originalValue) + 1);
+        await mgmtPage.setDeliveryPrepTime(changedValue);
+        await mgmtPage.saveStoreSettings();
+      });
 
-    await allure.step("Verify the save succeeded", async () => {
-      await mgmtPage.assertSettingsSavedToast();
-    });
-
-    await allure.step("Restore the original value", async () => {
-      await mgmtPage.setDeliveryPrepTime(originalValue);
-      await mgmtPage.saveStoreSettings();
-      await mgmtPage.assertSettingsSavedToast();
-      await expect(mgmtPage.deliveryPrepTimeInput()).toHaveValue(originalValue);
-    });
+      await allure.step("Verify the save succeeded", async () => {
+        await mgmtPage.assertSettingsSavedToast();
+      });
+    } finally {
+      // Restore in a finally so a mid-test failure can't leave the shared QA
+      // restaurant's settings mutated. Best-effort: never mask the real result.
+      if (originalValue) {
+        try {
+          await mgmtPage.setDeliveryPrepTime(originalValue);
+          await mgmtPage.saveStoreSettings();
+          await mgmtPage.assertSettingsSavedToast();
+          await expect(mgmtPage.deliveryPrepTimeInput()).toHaveValue(
+            originalValue
+          );
+        } catch (err) {
+          console.warn(
+            `[restaurant-management] Failed to restore prep time (${originalValue}):`,
+            err
+          );
+        }
+      }
+    }
   });
 });

@@ -74,9 +74,23 @@ test.describe("Employee — Create restaurant", () => {
         }
       );
     } finally {
-      if (restaurantId) {
-        const { accessToken } = await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD);
-        await deleteTestRestaurant(accessToken, restaurantId);
+      // Guarded + best-effort: a cleanup failure (or missing admin creds)
+      // must not mask the real test result — but it must be loud, because a
+      // leaked restaurant accumulates in QA.
+      if (restaurantId && ADMIN_EMAIL && ADMIN_PASSWORD) {
+        try {
+          const { accessToken } = await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD);
+          await deleteTestRestaurant(accessToken, restaurantId);
+        } catch (err) {
+          console.warn(
+            `[restaurant-create] Failed to delete test restaurant ${restaurantId} — clean it up manually:`,
+            err
+          );
+        }
+      } else if (restaurantId) {
+        console.warn(
+          `[restaurant-create] ADMIN_EMAIL/PASSWORD not set — restaurant ${restaurantId} left behind in QA`
+        );
       }
     }
   });

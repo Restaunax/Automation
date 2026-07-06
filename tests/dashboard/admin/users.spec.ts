@@ -29,7 +29,6 @@ import {
   registerWithInvite,
   registerRaw,
   getMe,
-  deleteRecordedUsers,
   updateUserRoleRaw,
   toggleUserStatusRaw,
 } from "../../../utils/apiHelper";
@@ -77,10 +76,11 @@ test.describe("Admin — User Management", () => {
     adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
   });
 
-  test.afterAll(async () => {
-    // Best-effort: delete every user this suite created (survives mid-run crashes).
-    if (adminToken) await deleteRecordedUsers(adminToken);
-  });
+  // NOTE: deliberately no afterAll drain of the recorded-users file. That
+  // file is GLOBAL — sign-up/sign-in specs record into it too, and with spec
+  // files running in parallel a drain from here could delete a user another
+  // file just created and still needs (e.g. sign-up TC-94's duplicate-email
+  // flow). globalTeardown drains it once, after all workers finish.
 
   test.beforeEach(async () => {
     await allure.label("feature", "Admin / User Management");
@@ -89,7 +89,7 @@ test.describe("Admin — User Management", () => {
 
   // ── Group A — Invite dialog ────────────────────────────────────────────────
   test.describe("Invite dialog", () => {
-    test("TC-01: admin can invite a new user", async ({ adminPage }) => {
+    test("TC-101: admin can invite a new user", async ({ adminPage }) => {
       const users = createAdminUsersPage(adminPage);
       const email = generateUserEmail("invite");
       recordUserForCleanup(email);
@@ -103,7 +103,7 @@ test.describe("Admin — User Management", () => {
       await users.assertSnackbar(users.S.invitationSentSnackbar);
     });
 
-    test("TC-02: invalid email shows an error and sends no request", async ({
+    test("TC-102: invalid email shows an error and sends no request", async ({
       adminPage,
     }) => {
       const users = createAdminUsersPage(adminPage);
@@ -121,7 +121,7 @@ test.describe("Admin — User Management", () => {
       expect(invited).toBe(false);
     });
 
-    test("TC-03: submit is disabled until a role is selected", async ({
+    test("TC-103: submit is disabled until a role is selected", async ({
       adminPage,
     }) => {
       const users = createAdminUsersPage(adminPage);
@@ -132,7 +132,7 @@ test.describe("Admin — User Management", () => {
       await expect(users.inviteSubmitButton()).toBeDisabled();
     });
 
-    test("TC-04: inviting an existing email is rejected", async ({
+    test("TC-104: inviting an existing email is rejected", async ({
       adminPage,
     }) => {
       // Seed a real user, then try to invite the same email via the UI.
@@ -148,7 +148,7 @@ test.describe("Admin — User Management", () => {
       await users.assertInviteError(/already|in use|exists/i);
     });
 
-    test("TC-05: Owner role reveals the restaurant autocomplete", async ({
+    test("TC-105: Owner role reveals the restaurant autocomplete", async ({
       adminPage,
     }) => {
       const users = createAdminUsersPage(adminPage);
@@ -163,7 +163,7 @@ test.describe("Admin — User Management", () => {
       await expect(users.ownerRestaurantAutocomplete()).toHaveCount(0);
     });
 
-    test("TC-06: cancel resets the invite form", async ({ adminPage }) => {
+    test("TC-106: cancel resets the invite form", async ({ adminPage }) => {
       const users = createAdminUsersPage(adminPage);
       await users.goto();
       await users.openInviteDialog();
@@ -183,14 +183,14 @@ test.describe("Admin — User Management", () => {
       if (adminToken) target = await createTargetUser("USER");
     });
 
-    test("TC-07: search finds a user by email", async ({ adminPage }) => {
+    test("TC-107: search finds a user by email", async ({ adminPage }) => {
       const users = createAdminUsersPage(adminPage);
       await users.goto();
       await users.searchUser(target.email);
       await users.assertRowExists(target.email);
     });
 
-    test("TC-09: role filter narrows the list", async ({ adminPage }) => {
+    test("TC-109: role filter narrows the list", async ({ adminPage }) => {
       const users = createAdminUsersPage(adminPage);
       await users.goto();
       await users.searchUser(target.email);
@@ -204,7 +204,7 @@ test.describe("Admin — User Management", () => {
       await users.assertRowExists(target.email);
     });
 
-    test("TC-10: status filter narrows the list", async ({ adminPage }) => {
+    test("TC-110: status filter narrows the list", async ({ adminPage }) => {
       const users = createAdminUsersPage(adminPage);
       await users.goto();
       await users.searchUser(target.email);
@@ -221,7 +221,7 @@ test.describe("Admin — User Management", () => {
 
   // ── Group C — Detail side sheet & tabs ─────────────────────────────────────
   test.describe("Detail side sheet", () => {
-    test("TC-11: clicking a row opens the detail side sheet", async ({
+    test("TC-111: clicking a row opens the detail side sheet", async ({
       adminPage,
     }) => {
       const { email } = await createTargetUser("USER");
@@ -232,7 +232,7 @@ test.describe("Admin — User Management", () => {
       await users.assertTabPresent(users.S.tabOverview);
     });
 
-    test("TC-12: USER detail shows the role-appropriate tabs", async ({
+    test("TC-112: USER detail shows the role-appropriate tabs", async ({
       adminPage,
     }) => {
       const { email } = await createTargetUser("USER");
@@ -255,7 +255,7 @@ test.describe("Admin — User Management", () => {
       ).toBeVisible();
     });
 
-    test("TC-13: OWNER detail exposes all tabs incl. read-only Restaurants", async ({
+    test("TC-113: OWNER detail exposes all tabs incl. read-only Restaurants", async ({
       adminPage,
     }) => {
       const { email } = await createTargetUser("OWNER");
@@ -278,7 +278,7 @@ test.describe("Admin — User Management", () => {
       await expect(adminPage.locator(".MuiDrawer-paper")).toBeVisible();
     });
 
-    test("TC-14: the side sheet can be closed", async ({ adminPage }) => {
+    test("TC-114: the side sheet can be closed", async ({ adminPage }) => {
       const { email } = await createTargetUser("USER");
       const users = createAdminUsersPage(adminPage);
       await users.goto();
@@ -290,7 +290,7 @@ test.describe("Admin — User Management", () => {
 
   // ── Group D — Settings tab actions ─────────────────────────────────────────
   test.describe("Settings tab", () => {
-    test("TC-15: admin can change a user's role", async ({ adminPage }) => {
+    test("TC-115: admin can change a user's role", async ({ adminPage }) => {
       const { id, email } = await createTargetUser("USER");
       const users = createAdminUsersPage(adminPage);
       await users.goto();
@@ -307,7 +307,7 @@ test.describe("Admin — User Management", () => {
       expect(updated.role).toBe("EMPLOYEE");
     });
 
-    test("TC-16: admin can deactivate then reactivate a user", async ({
+    test("TC-116: admin can deactivate then reactivate a user", async ({
       adminPage,
     }) => {
       const { id, email } = await createTargetUser("USER");
@@ -328,7 +328,7 @@ test.describe("Admin — User Management", () => {
       expect((await adminGetUser(adminToken, id)).isActive).toBe(true);
     });
 
-    test("TC-17: admin can send a password reset email", async ({
+    test("TC-117: admin can send a password reset email", async ({
       adminPage,
     }) => {
       const { email } = await createTargetUser("USER");
@@ -346,7 +346,7 @@ test.describe("Admin — User Management", () => {
 
   // ── Group E — Permissions tab (fully dynamic) ──────────────────────────────
   test.describe("Permissions tab", () => {
-    test("TC-18: admin can add then remove a user-specific permission", async ({
+    test("TC-118: admin can add then remove a user-specific permission", async ({
       adminPage,
     }) => {
       await allure.description(
@@ -411,7 +411,7 @@ test.describe("Admin — User Management", () => {
 
   // ── Group F — Negative claim (API, no Mailtrap needed) ─────────────────────
   test.describe("Invite claim — defensive", () => {
-    test("TC-24: a bogus invite token grants no elevated access", async () => {
+    test("TC-124: a bogus invite token grants no elevated access", async () => {
       const email = generateUserEmail("badtoken");
       recordUserForCleanup(email);
 
@@ -440,7 +440,7 @@ test.describe("Admin — User Management", () => {
       "Requires Mailtrap Email Testing token (MAILTRAP_API_TOKEN / MAILTRAP_INBOX_ID)"
     );
 
-    test("TC-23: invited user claims access, and sees their access level", async ({
+    test("TC-123: invited user claims access, and sees their access level", async ({
       adminPage,
       browser,
     }) => {

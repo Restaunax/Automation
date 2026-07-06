@@ -7,6 +7,7 @@ import { test } from "../../../fixtures/base";
  * PIN card. The substantive POS authority (staffRole / StaffCapability:
  * registers, approvals, daily close) lives in device-in-store and is tested at
  * the API level — see tests/pos/README.md. SCAFFOLD placeholder.
+ * Tracked: https://github.com/Restaunax/Automation/issues/13
  */
 test.describe("Staff — Portal", () => {
   test.fixme("TC-XXX: a user can view/set their POS PIN", async ({

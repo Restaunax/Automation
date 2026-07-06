@@ -63,10 +63,9 @@ test.describe("Demo Request — Public Form", () => {
     );
 
     await allure.step(
-      "Submit and verify the form was not accepted",
+      "Submit and verify no request fires and no success dialog appears",
       async () => {
-        await demoBookingPage.submit();
-        await demoBookingPage.assertNotSubmitted();
+        await demoBookingPage.submitExpectingNoRequest();
       }
     );
   });
@@ -90,10 +89,9 @@ test.describe("Demo Request — Public Form", () => {
     );
 
     await allure.step(
-      "Submit and verify the form was not accepted",
+      "Submit and verify no request fires and no success dialog appears",
       async () => {
-        await demoBookingPage.submit();
-        await demoBookingPage.assertNotSubmitted();
+        await demoBookingPage.submitExpectingNoRequest();
       }
     );
   });

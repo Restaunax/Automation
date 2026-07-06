@@ -8,6 +8,7 @@ import { test } from "../../../fixtures/base";
  *
  * SCAFFOLD placeholder. The `employeePage` fixture now exists (fixtures/base.ts,
  * auth saved by globalSetup) — implement with it.
+ * Tracked: https://github.com/Restaunax/Automation/issues/14
  */
 // The OWNER-is-denied-publish check lives in the access matrix
 // (tests/dashboard/access/role-restrictions.spec.ts), not here.

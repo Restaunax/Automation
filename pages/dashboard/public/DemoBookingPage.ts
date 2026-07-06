@@ -58,12 +58,21 @@ export const createDemoBookingPage = (page: Page) => {
 
   // Neither the missing-terms-checkbox nor invalid-email case renders a
   // visible inline error — the form just silently declines to submit
-  // (native HTML5 validation blocks it). Assert the negative by absence:
-  // no success dialog, still on /demo.
-  const assertNotSubmitted = async (): Promise<void> => {
-    // Give the (never-arriving) success dialog its full timeout to prove it
-    // really doesn't appear, rather than a fixed sleep.
-    await expect(els.successDialog).toBeHidden({ timeout: 5_000 });
+  // (native HTML5 validation blocks it). toBeHidden alone proves nothing
+  // here (it resolves immediately while the dialog is still hidden), so the
+  // authoritative negative signal is that no POST /api/demo-requests fires
+  // within a real observation window after the click.
+  const submitExpectingNoRequest = async (): Promise<void> => {
+    await els.submitButton.scrollIntoViewIfNeeded();
+    const requestPromise = page
+      .waitForRequest((r) => r.url().includes("/api/demo-requests"), {
+        timeout: 2_500,
+      })
+      .catch(() => null);
+    await els.submitButton.click();
+    const fired = await requestPromise;
+    expect(fired, "form must not POST /api/demo-requests").toBeNull();
+    await expect(els.successDialog).toBeHidden();
     await expect(page).toHaveURL(/\/demo$/);
   };
 
@@ -80,7 +89,7 @@ export const createDemoBookingPage = (page: Page) => {
     fillForm,
     submit,
     waitForSuccess,
-    assertNotSubmitted,
+    submitExpectingNoRequest,
     fillAndSubmit,
   };
 };
