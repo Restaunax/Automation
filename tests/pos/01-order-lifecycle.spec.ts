@@ -136,7 +136,7 @@ test.describe("POS — Order Lifecycle", () => {
   // Permission on order status + current-orders). Kept as fixme until the fix
   // is deployed to QA — asserting a 401 now would fail against the still-open
   // endpoints. Flip to a real test once the backend PR lands on QA.
-  // Tracking: https://github.com/Restaunax/Automation/issues/16
+  // Tracking: https://github.com/Restaunax/Automation/issues/17
   test.fixme("TC-101: current-orders + status reject an unauthenticated caller", async () => {
     // const noAuth = await getCurrentOrdersRaw(restaurantId); // no token
     // expect(noAuth.status).toBe(401);
