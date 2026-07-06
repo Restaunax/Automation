@@ -19,6 +19,14 @@ const EMAIL_DOMAIN = process.env.TEST_EMAIL_DOMAIN ?? "restaunax-test.com";
 // actions specs). See TEST_PLAN → "Email-sending tests".
 export const DEMO_EMAILS_ENABLED = process.env.SEND_DEMO_EMAILS === "true";
 
+// Account-lifecycle emails (admin invite, password reset, self-serve sign-up)
+// also deliver real mail to the quota-limited Mailtrap sandbox — lower volume
+// than demos, but held the same way. Set SEND_ACCOUNT_EMAILS=true to run them.
+// Negative cases that never send (duplicate-invite 400, client-side password
+// validation) are NOT gated. See TEST_PLAN → "Email-sending tests".
+export const ACCOUNT_EMAILS_ENABLED =
+  process.env.SEND_ACCOUNT_EMAILS === "true";
+
 // ── Shared temp file paths (all relative to Automation/) ────────────────────
 export const STATE_FILE = path.resolve(__dirname, "../shared-state.tmp.json");
 export const OWNER_AUTH_FILE = path.resolve(

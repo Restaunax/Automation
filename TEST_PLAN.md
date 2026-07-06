@@ -484,6 +484,7 @@ Configured in `Automation/.env`.
 | `MAILTRAP_ACCOUNT_ID`                         | Optional — skips the account-lookup API call if set                                                                                          | _(secret)_                              |
 | `TEST_EMAIL_DOMAIN`                           | Domain for generated unique test emails                                                                                                      | `restaunax-test.com`                    |
 | `SEND_DEMO_EMAILS`                            | `true` to run the demo-email surface (see "Email-sending tests" below). Unset/false = held, to protect the Mailtrap inbox quota              | `true`                                  |
+| `SEND_ACCOUNT_EMAILS`                         | `true` to run account-email tests (invite / password reset / sign-up). Unset/false = held                                                    | `true`                                  |
 
 ---
 
@@ -503,10 +504,15 @@ default** and gated behind `SEND_DEMO_EMAILS=true` (`DEMO_EMAILS_ENABLED` in
 Set `SEND_DEMO_EMAILS=true` in `.env` to exercise them (e.g. when the inbox
 quota has reset or you specifically need demo-email coverage).
 
-> Other tests also send email but at far lower volume and aren't gated:
-> admin **invite** (`users.spec`), **password reset** (TC-117), and self-serve
-> **sign-up**. If the inbox quota is under pressure, `--grep-invert` those or
-> hold them the same way.
+**Account-lifecycle emails** (admin **invite** TC-101 + journey TC-123,
+**password reset** TC-117, self-serve **sign-up** TC-93/94) are lower volume
+but held the same way, behind `SEND_ACCOUNT_EMAILS=true`
+(`ACCOUNT_EMAILS_ENABLED`). Negative cases that never send are **not** gated and
+keep running: duplicate-invite (TC-104, 400 before send) and the client-side
+password checks (TC-95/96, no request).
+
+> Both flags default off, so a routine run sends **zero** test emails. Enable
+> the surface you need when the quota allows.
 
 ---
 

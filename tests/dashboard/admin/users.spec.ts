@@ -37,6 +37,7 @@ import { loginViaUi } from "../../../utils/auth";
 import {
   generateUserEmail,
   recordUserForCleanup,
+  ACCOUNT_EMAILS_ENABLED,
 } from "../../../utils/testData";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
@@ -90,6 +91,10 @@ test.describe("Admin — User Management", () => {
   // ── Group A — Invite dialog ────────────────────────────────────────────────
   test.describe("Invite dialog", () => {
     test("TC-101: admin can invite a new user", async ({ adminPage }) => {
+      test.skip(
+        !ACCOUNT_EMAILS_ENABLED,
+        "Account emails held (Mailtrap quota) — invite sends mail; set SEND_ACCOUNT_EMAILS=true"
+      );
       const users = createAdminUsersPage(adminPage);
       const email = generateUserEmail("invite");
       recordUserForCleanup(email);
@@ -331,6 +336,10 @@ test.describe("Admin — User Management", () => {
     test("TC-117: admin can send a password reset email", async ({
       adminPage,
     }) => {
+      test.skip(
+        !ACCOUNT_EMAILS_ENABLED,
+        "Account emails held (Mailtrap quota) — reset sends mail; set SEND_ACCOUNT_EMAILS=true"
+      );
       const { email } = await createTargetUser("USER");
       const users = createAdminUsersPage(adminPage);
       await users.goto();
@@ -438,6 +447,11 @@ test.describe("Admin — User Management", () => {
     test.skip(
       !mailtrapReady,
       "Requires Mailtrap Email Testing token (MAILTRAP_API_TOKEN / MAILTRAP_INBOX_ID)"
+    );
+    // Sends a real invite email — held with the rest of the account-email surface.
+    test.skip(
+      !ACCOUNT_EMAILS_ENABLED,
+      "Account emails held (Mailtrap quota) — set SEND_ACCOUNT_EMAILS=true"
     );
 
     test("TC-123: invited user claims access, and sees their access level", async ({
