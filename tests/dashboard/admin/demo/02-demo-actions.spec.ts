@@ -1,7 +1,10 @@
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../../fixtures/base";
 import { createAdminDemoManagementPage } from "../../../../pages/dashboard/admin/AdminDemoManagementPage";
-import { generateDemoFormData } from "../../../../utils/testData";
+import {
+  generateDemoFormData,
+  DEMO_EMAILS_ENABLED,
+} from "../../../../utils/testData";
 import {
   apiLogin,
   submitDemoRequestRaw,
@@ -32,6 +35,13 @@ test.describe("Admin — Demo Request Actions", () => {
     !ADMIN_EMAIL || !ADMIN_PASSWORD,
     "ADMIN_EMAIL / ADMIN_PASSWORD not set in .env"
   );
+  // beforeAll seeds a demo request (emails the requester) and TC-08 sends a
+  // follow-up email — both hit the quota-limited Mailtrap sandbox. Held off by
+  // default; set SEND_DEMO_EMAILS=true to run.
+  test.skip(
+    !DEMO_EMAILS_ENABLED,
+    "Demo emails held (Mailtrap quota) — set SEND_DEMO_EMAILS=true to run"
+  );
 
   // This file MUTATES its demo request (status, notes, schedule, assignment),
   // so it seeds a private one instead of using the shared globalSetup request
@@ -42,6 +52,9 @@ test.describe("Admin — Demo Request Actions", () => {
   let demoLastName = "";
 
   test.beforeAll(async () => {
+    // Belt-and-suspenders: never submit a demo (which emails the requester)
+    // while demo emails are held, even if the describe skip doesn't stop hooks.
+    if (!DEMO_EMAILS_ENABLED) return;
     const formData = generateDemoFormData();
     const res = await submitDemoRequestRaw({
       ...formData,

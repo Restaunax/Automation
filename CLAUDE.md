@@ -250,6 +250,10 @@ SEED_RESTAURANT_ID=...
 MAILTRAP_API_TOKEN=...
 MAILTRAP_INBOX_ID=...
 TEST_EMAIL_DOMAIN=restaunax-test.com
+
+# Demo-email surface is held off by default to protect the Mailtrap inbox quota.
+# Set true to run demo request/management/actions specs (see TEST_PLAN → "Email-sending tests").
+SEND_DEMO_EMAILS=true
 ```
 
 ---

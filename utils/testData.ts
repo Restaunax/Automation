@@ -12,6 +12,13 @@ export const TEMPLATE_WIND_URL =
 
 const EMAIL_DOMAIN = process.env.TEST_EMAIL_DOMAIN ?? "restaunax-test.com";
 
+// Demo tests submit real demo requests and send follow-up emails, which the
+// backend delivers to the (quota-limited) Mailtrap sandbox. HELD OFF by default
+// so routine runs don't exhaust the inbox limit; set SEND_DEMO_EMAILS=true to
+// run the demo-email surface (globalSetup demo seed + demo request/management/
+// actions specs). See TEST_PLAN → "Email-sending tests".
+export const DEMO_EMAILS_ENABLED = process.env.SEND_DEMO_EMAILS === "true";
+
 // ── Shared temp file paths (all relative to Automation/) ────────────────────
 export const STATE_FILE = path.resolve(__dirname, "../shared-state.tmp.json");
 export const OWNER_AUTH_FILE = path.resolve(

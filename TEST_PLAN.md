@@ -483,6 +483,30 @@ Configured in `Automation/.env`.
 | `MAILTRAP_INBOX_ID`                           | Mailtrap inbox where test emails land                                                                                                        | _(secret)_                              |
 | `MAILTRAP_ACCOUNT_ID`                         | Optional — skips the account-lookup API call if set                                                                                          | _(secret)_                              |
 | `TEST_EMAIL_DOMAIN`                           | Domain for generated unique test emails                                                                                                      | `restaunax-test.com`                    |
+| `SEND_DEMO_EMAILS`                            | `true` to run the demo-email surface (see "Email-sending tests" below). Unset/false = held, to protect the Mailtrap inbox quota              | `true`                                  |
+
+---
+
+## Email-sending tests
+
+Some tests cause the backend to deliver **real email** into the quota-limited
+Mailtrap sandbox. The **demo** surface is the heaviest (a demo submission emails
+the requester, and follow-up actions email again), so it's **held off by
+default** and gated behind `SEND_DEMO_EMAILS=true` (`DEMO_EMAILS_ENABLED` in
+`utils/testData.ts`). When unset:
+
+- `globalSetup` skips the per-run demo submission,
+- `tests/dashboard/public/01-demo-request.spec.ts` TC-01 skips (TC-74/75 stay —
+  they submit invalid forms that never send),
+- `01-demo-management` TC-04 and all of `02-demo-actions` skip.
+
+Set `SEND_DEMO_EMAILS=true` in `.env` to exercise them (e.g. when the inbox
+quota has reset or you specifically need demo-email coverage).
+
+> Other tests also send email but at far lower volume and aren't gated:
+> admin **invite** (`users.spec`), **password reset** (TC-117), and self-serve
+> **sign-up**. If the inbox quota is under pressure, `--grep-invert` those or
+> hold them the same way.
 
 ---
 

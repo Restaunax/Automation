@@ -7,7 +7,11 @@
 
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
-import { generateDemoFormData, readSharedState } from "../../../utils/testData";
+import {
+  generateDemoFormData,
+  readSharedState,
+  DEMO_EMAILS_ENABLED,
+} from "../../../utils/testData";
 import { waitForEmail } from "../../../utils/emailHelper";
 
 test.describe("Demo Request — Public Form", () => {
@@ -19,6 +23,10 @@ test.describe("Demo Request — Public Form", () => {
   test("TC-01: submit demo request form and display success confirmation", async ({
     demoBookingPage,
   }) => {
+    test.skip(
+      !DEMO_EMAILS_ENABLED,
+      "Demo emails held (Mailtrap quota) — set SEND_DEMO_EMAILS=true to run"
+    );
     await allure.description(
       "End user navigates to /demo, fills personal and business info, " +
         "submits the form, and sees the success dialog."

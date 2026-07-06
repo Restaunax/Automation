@@ -30,6 +30,7 @@ import {
   FRONTEND_URL,
   writeSharedState,
   generateDemoFormData,
+  DEMO_EMAILS_ENABLED,
 } from "./utils/testData";
 
 dotenv.config({ path: path.resolve(__dirname, ".env") });
@@ -259,7 +260,18 @@ export default async function globalSetup(): Promise<void> {
             "[globalSetup] EMPLOYEE_EMAIL/PASSWORD not set — skipping employee auth"
           )
         ),
-    submitDemoRequest(),
+    // Held off unless SEND_DEMO_EMAILS=true — a demo submission emails the
+    // requester via the quota-limited Mailtrap sandbox. When held, the demo
+    // specs (request/management/actions) skip too, so the empty demo fields
+    // below are never read.
+    DEMO_EMAILS_ENABLED
+      ? submitDemoRequest()
+      : Promise.resolve(
+          (console.warn(
+            "[globalSetup] SEND_DEMO_EMAILS not set — skipping demo request submission (holding emails)"
+          ),
+          { email: "", firstName: "", lastName: "" })
+        ),
   ]);
 
   const { email, firstName, lastName } = demoResult;

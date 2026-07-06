@@ -11,7 +11,10 @@
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../../fixtures/base";
 import { createAdminDemoManagementPage } from "../../../../pages/dashboard/admin/AdminDemoManagementPage";
-import { readSharedState } from "../../../../utils/testData";
+import {
+  readSharedState,
+  DEMO_EMAILS_ENABLED,
+} from "../../../../utils/testData";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
@@ -47,6 +50,11 @@ test.describe("Admin — Demo Management", () => {
   test("TC-04: admin can find the new demo request in Demo Management", async ({
     adminPage,
   }) => {
+    test.skip(
+      !DEMO_EMAILS_ENABLED,
+      "Demo emails held (Mailtrap quota) — globalSetup skips the demo seed this " +
+        "test searches for; set SEND_DEMO_EMAILS=true to run"
+    );
     await allure.description(
       "Admin navigates to Demo Management, searches by email, and verifies " +
         "the row shows correct name, status NEW, and a creation timestamp."
