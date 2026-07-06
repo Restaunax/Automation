@@ -1,0 +1,102 @@
+# Nightly full E2E run against QA + manual dispatch for targeted runs.
+# See CI_PLAN.md for the full pipeline design and the secrets/vars this needs
+# (GitHub environment `qa`: OWNER/ADMIN/EMPLOYEE creds + Mailtrap; repo vars:
+# URLs + SEED_RESTAURANT_ID). Until those are configured this workflow will
+# run but skip most tests via the suite's own env guards.
+name: e2e-nightly
+
+on:
+  schedule:
+    # 06:00 UTC — before the workday, after overnight QA deploys.
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      grep:
+        description: "Optional --grep filter (e.g. TC-26 or a describe title)"
+        required: false
+        default: ""
+      project:
+        description: "Playwright project to run"
+        type: choice
+        options: [all, dashboard, customer]
+        default: all
+
+# The suite mutates a single shared QA environment: two runs at once interfere
+# (shared accounts, seed restaurant, demo requests). ONE concurrency group for
+# every Playwright-running workflow; never cancel in progress — a killed run
+# skips globalTeardown and leaves QA residue.
+concurrency:
+  group: qa-e2e
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    if: github.repository == 'Restaunax/Automation'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: qa
+    env:
+      FRONTEND_URL: ${{ vars.FRONTEND_URL }}
+      BACKEND_URL: ${{ vars.BACKEND_URL }}
+      TEMPLATE_WIND_URL: ${{ vars.TEMPLATE_WIND_URL }}
+      TEMPLATE_WIND_RESTAURANT_ID: ${{ vars.TEMPLATE_WIND_RESTAURANT_ID }}
+      SEED_RESTAURANT_ID: ${{ vars.SEED_RESTAURANT_ID }}
+      TEST_EMAIL_DOMAIN: ${{ vars.TEST_EMAIL_DOMAIN }}
+      OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
+      OWNER_PASSWORD: ${{ secrets.OWNER_PASSWORD }}
+      ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+      ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+      EMPLOYEE_EMAIL: ${{ secrets.EMPLOYEE_EMAIL }}
+      EMPLOYEE_PASSWORD: ${{ secrets.EMPLOYEE_PASSWORD }}
+      MAILTRAP_API_TOKEN: ${{ secrets.MAILTRAP_API_TOKEN }}
+      MAILTRAP_INBOX_ID: ${{ secrets.MAILTRAP_INBOX_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        env:
+          GREP: ${{ inputs.grep }}
+          PROJECT: ${{ inputs.project }}
+        run: |
+          ARGS=(--reporter=list,allure-playwright)
+          if [ -n "$GREP" ]; then ARGS+=(--grep "$GREP"); fi
+          if [ -n "$PROJECT" ] && [ "$PROJECT" != "all" ]; then ARGS+=(--project="$PROJECT"); fi
+          npx playwright test "${ARGS[@]}"
+
+      - name: Generate Allure HTML report
+        if: always()
+        run: npx allure generate allure-results -o allure-report --clean
+
+      - name: Upload Allure results + report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-${{ github.run_number }}
+          path: |
+            allure-results
+            allure-report
+          retention-days: 14
+
+      - name: Upload failure traces & screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ github.run_number }}
+          path: test-results
+          retention-days: 14
