@@ -2,8 +2,12 @@ import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
 import { createOwnerRestaurantManagementPage } from "../../../pages/dashboard/owner/OwnerRestaurantManagementPage";
 import { createOwnerOrdersPage } from "../../../pages/dashboard/owner/OwnerOrdersPage";
-import { readSharedState } from "../../../utils/testData";
-import { createZeroTotalOrder } from "../../../utils/apiHelper";
+import { readSharedState, generateRunId } from "../../../utils/testData";
+import {
+  apiLogin,
+  createZeroTotalOrder,
+  updateOrderStatus,
+} from "../../../utils/apiHelper";
 
 const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
@@ -157,5 +161,77 @@ test.describe("Owner — Orders Tab", () => {
     await allure.step("Close the detail view", async () => {
       await ordersPage.closeOrderDetail();
     });
+  });
+
+  test("TC-127: a customer-placed order reaches the owner's Orders tab and is identifiable", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "End-to-end: a customer order placed through the public order API appears in the owner's Orders " +
+        "tab, is findable by search, and its detail matches THAT order — not just 'some row exists' " +
+        "(which TC-90 covers). Closes the 'customer order → owner sees it' journey gap. The seeded " +
+        "order is cancelled afterward (no order-delete API) so it doesn't linger as an active order."
+    );
+
+    const { restaurantId, menuItemId, menuItemName, menuItemPrice } =
+      readSharedState();
+    // Unique customer name so the owner search resolves to THIS order, not
+    // another run's residue (all generic seeds share the name "Auto Order").
+    const runId = generateRunId();
+    const uniqueLast = `E2E${runId}`;
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const ordersPage = createOwnerOrdersPage(ownerPage);
+
+    const token = (await apiLogin(OWNER_EMAIL, OWNER_PASSWORD)).accessToken;
+    const order = await allure.step(
+      "Customer places an order via the public API",
+      async () => {
+        const placed = await createZeroTotalOrder(
+          restaurantId,
+          { menuItemId, name: menuItemName, price: menuItemPrice },
+          `autoorder_${runId}@restaunax-test.com`,
+          "Auto",
+          uniqueLast
+        );
+        expect(placed.status).toBe("PENDING");
+        await allure.parameter("orderId", placed.id);
+        await allure.parameter("customer", `Auto ${uniqueLast}`);
+        return placed;
+      }
+    );
+
+    try {
+      await allure.step("Owner opens the Orders tab", async () => {
+        await mgmtPage.goto(restaurantId);
+        await ordersPage.navigateToOrdersTab();
+      });
+
+      await allure.step(
+        "Owner searches for the order by customer name",
+        async () => {
+          await ordersPage.searchOrders(uniqueLast);
+          await expect(ordersPage.firstOrderRow()).toBeVisible({
+            timeout: 15_000,
+          });
+        }
+      );
+
+      await allure.step(
+        "Open the matched order and confirm it is that customer's order",
+        async () => {
+          await ordersPage.openFirstOrderDetail();
+          await ordersPage.assertOrderDetailVisible();
+          // Identity proof: opening a row appends ?detailOrderId=<id>, which
+          // must equal the order we seeded — so the owner opened THIS order,
+          // not just "some row" (the customer name lives on a separate tab, so
+          // the URL id is the reliable check).
+          await expect(ownerPage).toHaveURL(new RegExp(order.id));
+        }
+      );
+    } finally {
+      // Only cleanup available (orders aren't deletable): cancel it so it drops
+      // off the active feed. Owner token holds MODIFY_RESTAURANT. Best-effort.
+      await updateOrderStatus(token, order.id, "CANCELLED").catch(() => {});
+    }
   });
 });

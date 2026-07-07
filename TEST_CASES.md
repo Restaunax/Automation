@@ -25,16 +25,16 @@ Each test case includes:
 
 ## The Areas We Test
 
-| Area              | Who Uses It                        | Tests                                                                                                            |
-| ----------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 🌐 Public         | Anyone on the internet             | TC-01, TC-02, TC-59 → TC-61, TC-74, TC-75, TC-93 → TC-96                                                         |
-| 🔐 Admin          | Internal Restaunax staff           | TC-03 → TC-12, TC-32, TC-76, TC-77, TC-98, TC-101 → TC-124 (user management, `users.spec.ts`)                    |
-| 🏠 Owner          | Restaurant owners                  | TC-13 → TC-16, TC-19 → TC-21, TC-27 → TC-31, TC-42 → TC-53 (excl. TC-22–26), TC-62 → TC-70, TC-78, TC-82 → TC-92 |
-| 🛒 Customer       | People ordering food               | TC-22 → TC-26, TC-64, TC-99, TC-125, TC-126                                                                      |
-| 🍳 POS            | Restaurant kitchen / tablet        | TC-100 (`--project=pos`)                                                                                         |
-| 🔒 Access Control | Testing role/permission boundaries | TC-54 → TC-58, TC-71 → TC-73, TC-81                                                                              |
-| 🚪 Onboarding     | New restaurant owners              | TC-93 → TC-97 (spans Public sign-up and Employee restaurant creation)                                            |
-| 🌐 API-Level      | No UI — direct backend calls       | TC-65, TC-66, TC-68, TC-69, TC-79, TC-80                                                                         |
+| Area              | Who Uses It                        | Tests                                                                                                                                                  |
+| ----------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 🌐 Public         | Anyone on the internet             | TC-01, TC-02, TC-59 → TC-61, TC-74, TC-75, TC-93 → TC-96                                                                                               |
+| 🔐 Admin          | Internal Restaunax staff           | TC-03 → TC-12, TC-32, TC-76, TC-77, TC-98, TC-101 → TC-124 (user management, `users.spec.ts`)                                                          |
+| 🏠 Owner          | Restaurant owners                  | TC-13 → TC-16, TC-19 → TC-21, TC-27 → TC-31, TC-42 → TC-53 (excl. TC-22–26), TC-62 → TC-70, TC-78, TC-82 → TC-92, TC-127 (E2E: customer order → owner) |
+| 🛒 Customer       | People ordering food               | TC-22 → TC-26, TC-64, TC-99, TC-125, TC-126                                                                                                            |
+| 🍳 POS            | Restaurant kitchen / tablet        | TC-100 (`--project=pos`)                                                                                                                               |
+| 🔒 Access Control | Testing role/permission boundaries | TC-54 → TC-58, TC-71 → TC-73, TC-81                                                                                                                    |
+| 🚪 Onboarding     | New restaurant owners              | TC-93 → TC-97 (spans Public sign-up and Employee restaurant creation)                                                                                  |
+| 🌐 API-Level      | No UI — direct backend calls       | TC-65, TC-66, TC-68, TC-69, TC-79, TC-80                                                                                                               |
 
 TC-17 and TC-18 (tax settings) run under the **Employee** role, not Owner —
 `/tax` is an EMPLOYEE/ADMIN-only route and the OWNER role gets Access Denied.

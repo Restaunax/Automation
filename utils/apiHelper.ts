@@ -475,7 +475,9 @@ export interface SeedOrderItem {
 export async function createZeroTotalOrder(
   restaurantId: string,
   item: SeedOrderItem,
-  customerEmail = `autoorder_${Date.now()}@restaunax-test.com`
+  customerEmail = `autoorder_${Date.now()}@restaunax-test.com`,
+  firstName = "Auto",
+  lastName = "Order"
 ): Promise<ApiOrder> {
   const data = await apiRequest<{ order?: ApiOrder } & ApiOrder>(
     "POST",
@@ -489,8 +491,8 @@ export async function createZeroTotalOrder(
       total: 0,
       customerEmail,
       customerPhone: "+15550000000",
-      firstName: "Auto",
-      lastName: "Order",
+      firstName,
+      lastName,
       orderItems: [
         {
           menuItemId: item.menuItemId,
