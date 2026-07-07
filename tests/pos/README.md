@@ -1,31 +1,42 @@
 # `tests/pos/` — Device In Store (POS) — API-level
 
-This folder is a **placeholder**. It is intentionally **not** part of either
-Playwright project (`dashboard`, `customer`) in `playwright.config.ts`, so
-nothing here runs as a browser test today.
+API-level tests for the POS order lifecycle. The POS itself lives in
+**device-in-store** (React Native / Expo), so these drive the **backend** the
+device talks to rather than a browser UI (per the project CLAUDE.md).
 
-## Why it's separate
+Registered as the **`pos` Playwright project** in `playwright.config.ts`
+(`baseURL` is the dashboard host only so a stray `page.goto` resolves somewhere
+sane; the tests use the API helpers, not the page).
 
-The POS lives in **device-in-store** (React Native / Expo), not a web app, so
-it is tested at the **API level** rather than through browser UI automation
-(per the project CLAUDE.md).
+Run with: `npx playwright test --project=pos`.
 
-It also uses a **separate authorization layer** from the dashboard:
+## Separate authorization layer
+
+The POS uses a different auth model from the dashboard:
 
 | Layer                                                                                           | Where           | What it gates        |
 | ----------------------------------------------------------------------------------------------- | --------------- | -------------------- |
 | Platform role (`User.role` + `Permission`)                                                      | dashboard       | `tests/dashboard/**` |
 | **POS role (`RestaurantStaffMember.staffRole` = STAFF/SHIFT_LEAD/MANAGER + `StaffCapability`)** | device-in-store | this folder          |
 
-## What would live here (future)
+## Implemented
 
-API-level coverage for the POS lifecycle:
+- **`01-order-lifecycle.spec.ts` (TC-100)** — a customer order (seeded via the
+  public order API with `total:0` → paid, no Stripe) is received in the
+  restaurant's live current-orders feed and driven
+  `PENDING → CONFIRMED → PREPARING → READY → PICKED_UP`, each transition
+  confirmed at the API. Provisions + logs in a tablet device to mirror a real
+  POS session; deactivates it in `afterAll` (no device-delete API exists).
 
-- Tablet login (`POST /api/tablet/login` — tablet name + code → JWT)
-- Order lifecycle: `PENDING → CONFIRMED → PREPARING → READY → PICKED_UP/DELIVERED`
-  (`PUT /api/order/orderId/{id}/status`, `POST /api/tablet/cancel-order/{id}`)
+Helpers live in `utils/apiHelper.ts`: `createZeroTotalOrder`,
+`getCurrentOrders`, `updateOrderStatus`, `createTabletDevice`, `tabletLogin`,
+`deactivateTabletDevice`.
+
+## Not yet covered (tracked)
+
+- **Tablet-initiated cancel/refund** — `POST /api/tablet/cancel-order/:id`
+  needs a tablet JWT **and** an `X-Staff-Session` header (staff sign-in) plus a
+  non-empty `reason`. Tracked:
+  https://github.com/Restaunax/Automation/issues/15
 - Register sessions (open / cash-drop / handover / close) and manager-approval
-  gates (void / refund / comp / discount) — capability-gated by `staffRole`.
-
-When these are built, add a third Playwright project (or a separate API test
-runner) pointing at `tests/pos/`. See `TEST_PLAN.md` → "Future infrastructure".
+  gates (void / refund / comp / discount), capability-gated by `staffRole`.

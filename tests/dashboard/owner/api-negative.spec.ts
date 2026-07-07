@@ -3,6 +3,7 @@ import { test, expect } from "../../../fixtures/base";
 import { readSharedState } from "../../../utils/testData";
 import {
   apiLogin,
+  getMe,
   createMenuItemRaw,
   createCouponRaw,
   createRestaurantRaw,
@@ -93,6 +94,16 @@ test.describe("API — Negative cases", () => {
     );
 
     const { accessToken } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD);
+
+    // This asserts QA *account* state, not just code: if someone grants the
+    // seed owner CREATE_RESTAURANT, a 403 is no longer the correct outcome.
+    // Check the account's live permissions first and skip rather than fail.
+    const me = await getMe(accessToken);
+    test.skip(
+      me.permissions.includes("CREATE_RESTAURANT"),
+      "Seed OWNER account now holds CREATE_RESTAURANT — the 403 expectation no longer applies"
+    );
+
     const res = await createRestaurantRaw(accessToken, {
       name: "Should Not Be Created",
       cuisineType: "American",

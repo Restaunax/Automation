@@ -4,6 +4,7 @@ import { getMe, apiLogin } from "../../../utils/apiHelper";
 import {
   generateUserEmail,
   recordUserForCleanup,
+  ACCOUNT_EMAILS_ENABLED,
 } from "../../../utils/testData";
 
 const PASSWORD = "AutoTest123!@#";
@@ -18,6 +19,10 @@ test.describe("Public — Sign up", () => {
     signUpPage,
     page,
   }) => {
+    test.skip(
+      !ACCOUNT_EMAILS_ENABLED,
+      "Account emails held (Mailtrap quota) — sign-up sends mail; set SEND_ACCOUNT_EMAILS=true"
+    );
     await allure.description(
       "Filling the sign-up form and submitting redirects off /sign-up to the dashboard home. A fresh " +
         "self-serve account is role USER (with only VIEW_RESTAURANT) — it does not become OWNER until " +
@@ -56,6 +61,11 @@ test.describe("Public — Sign up", () => {
   test("TC-94: registering with an already-used email is rejected", async ({
     signUpPage,
   }) => {
+    // Registers a real account once (sends mail) before retrying the duplicate.
+    test.skip(
+      !ACCOUNT_EMAILS_ENABLED,
+      "Account emails held (Mailtrap quota) — set SEND_ACCOUNT_EMAILS=true"
+    );
     await allure.description(
       "Submitting the sign-up form with an email that already has an account shows an error banner " +
         "and keeps the visitor on /sign-up."
@@ -97,7 +107,7 @@ test.describe("Public — Sign up", () => {
   }) => {
     await allure.description(
       "Filling password/confirmPassword with different values shows an inline 'Passwords must match' " +
-        "error and never fires the /register request."
+        "error on blur (client-side validation; submit is never attempted here)."
     );
 
     await allure.step("Fill the form with mismatched passwords", async () => {
@@ -124,7 +134,8 @@ test.describe("Public — Sign up", () => {
     signUpPage,
   }) => {
     await allure.description(
-      "A password under 8 characters shows an inline validation error before any request is sent."
+      "A password under 8 characters shows an inline validation error on blur " +
+        "(client-side validation; submit is never attempted here)."
     );
 
     await allure.step("Fill the form with a weak password", async () => {

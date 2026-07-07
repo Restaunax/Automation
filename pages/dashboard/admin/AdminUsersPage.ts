@@ -71,6 +71,10 @@ export const createAdminUsersPage = (page: Page) => {
   const sideSheet = page
     .locator(".MuiDrawer-paper")
     .filter({ has: page.locator('[role="tab"]') });
+  // MUI Select/Autocomplete popover. The waitFor-hidden calls after option
+  // clicks are best-effort (.catch(() => {})): the popover unmounts async and
+  // occasionally outlives the wait, but every caller's next action asserts
+  // the real outcome, so a lingering popover surfaces there if it matters.
   const listbox = page.locator('[role="listbox"]');
 
   const goto = async (): Promise<void> => {
@@ -114,14 +118,31 @@ export const createAdminUsersPage = (page: Page) => {
   const assertNoResults = (): Promise<void> =>
     expect(page.getByText(S.noUsersFound)).toBeVisible({ timeout: 10_000 });
 
-  // Two unlabeled filter Selects render as comboboxes: [0]=role, [1]=status.
+  // Filter Selects: testid-first with positional fallback (TEST_PLAN →
+  // "Locator strategy"). data-testid=user-role-filter/user-status-filter live
+  // on the Select roots in frontend source; scoping to the combobox INSIDE
+  // the testid root makes both branches resolve to the same node once the
+  // testids reach QA ([0]=role, [1]=status are the legacy positions).
+  const roleFilterCombobox = () =>
+    page
+      .getByTestId("user-role-filter")
+      .locator('[role="combobox"]')
+      .or(page.locator('[role="combobox"]').nth(0))
+      .first();
+  const statusFilterCombobox = () =>
+    page
+      .getByTestId("user-status-filter")
+      .locator('[role="combobox"]')
+      .or(page.locator('[role="combobox"]').nth(1))
+      .first();
+
   const filterByRole = async (roleLabel: string): Promise<void> => {
-    await page.locator('[role="combobox"]').nth(0).click();
+    await roleFilterCombobox().click();
     await listbox.getByRole("option", { name: roleLabel, exact: true }).click();
     await listbox.waitFor({ state: "hidden" }).catch(() => {});
   };
   const filterByStatus = async (statusLabel: string): Promise<void> => {
-    await page.locator('[role="combobox"]').nth(1).click();
+    await statusFilterCombobox().click();
     await listbox
       .getByRole("option", { name: statusLabel, exact: true })
       .click();

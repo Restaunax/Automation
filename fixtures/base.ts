@@ -23,7 +23,6 @@ import {
   ADMIN_AUTH_FILE,
   EMPLOYEE_AUTH_FILE,
   FRONTEND_URL,
-  TEMPLATE_WIND_URL,
 } from "../utils/testData";
 
 // Roles that share the dashboard restaurant-management screens. Used by the
@@ -46,14 +45,22 @@ export type Fixtures = {
   employeePage: Page;
   // pageForRole(role): an authenticated page for any dashboard role — for the
   // access-control matrix. Contexts it opens are closed at test end.
+  //
+  // NOTE: customer (Template Wind) tests deliberately use the plain `page`
+  // fixture — the `customer` project's baseURL already points at Template
+  // Wind, and specs resolve the restaurant via readRestaurantId(). Dedicated
+  // customerContext/customerPage fixtures existed here once but were never
+  // used; add a reward-member (OTP) fixture when that flow gets automated —
+  // see TEST_PLAN.md "Future infrastructure".
   pageForRole: PageForRole;
-  // customerContext / customerPage: fresh no-auth session on Template Wind
-  // (guest customer). Reward-member (OTP) variant is a future addition — see
-  // TEST_PLAN.md "Future infrastructure".
-  customerContext: BrowserContext;
-  customerPage: Page;
 };
 
+// Why these sessions survive runs longer than the 15-minute access token:
+// the storageState captured by globalSetup includes the localStorage `user`
+// object with its 30-DAY refresh token, and the dashboard auto-refreshes the
+// access token on page load (POST /api/auth/refresh). globalSetup fails fast
+// if the refresh token is ever missing from a saved auth file — see
+// verifyAuthStateLifetime. Details in utils/auth.ts.
 async function loadAuthContext(
   browser: Browser,
   authFile: string,
@@ -116,20 +123,6 @@ export const test = base.extend<Fixtures>({
 
   employeePage: async ({ employeeContext }, use) => {
     const page = await employeeContext.newPage();
-    await use(page);
-    await page.close();
-  },
-
-  // Guest customer on Template Wind — no auth, no storageState. POMs append
-  // ?restaurantId=<id> (via readRestaurantId) so the location picker is skipped.
-  customerContext: async ({ browser }, use) => {
-    const context = await browser.newContext({ baseURL: TEMPLATE_WIND_URL });
-    await use(context);
-    await context.close();
-  },
-
-  customerPage: async ({ customerContext }, use) => {
-    const page = await customerContext.newPage();
     await use(page);
     await page.close();
   },

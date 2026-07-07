@@ -15,6 +15,7 @@ import * as path from "path";
 import { chromium, type Page, type BrowserContext } from "@playwright/test";
 import { createDemoBookingPage } from "./pages/dashboard/public/DemoBookingPage";
 import { createSignInPage } from "./pages/dashboard/auth/SignInPage";
+import { jwtExpiryMs } from "./utils/auth";
 import {
   apiLogin,
   getOwnerRestaurants,
@@ -29,6 +30,7 @@ import {
   FRONTEND_URL,
   writeSharedState,
   generateDemoFormData,
+  DEMO_EMAILS_ENABLED,
 } from "./utils/testData";
 
 dotenv.config({ path: path.resolve(__dirname, ".env") });
@@ -54,6 +56,51 @@ async function withBrowser<T>(
   }
 }
 
+// ── Helper: verify a saved auth state can outlive the 15-minute access token ─
+//
+// Access tokens expire after 15 minutes; sessions only survive a longer run
+// because the dashboard auto-refreshes using the 30-day refresh token stored
+// in the localStorage `user` object (captured into storageState). If that
+// refresh token is ever missing — frontend auth change, login flow change —
+// every test starting >15 min after setup fails with a baffling redirect to
+// /sign-in. Fail HERE instead, with a message that says what actually broke.
+function verifyAuthStateLifetime(outputFile: string, label: string): void {
+  interface StorageState {
+    origins?: {
+      origin: string;
+      localStorage?: { name: string; value: string }[];
+    }[];
+  }
+  const state = JSON.parse(
+    fs.readFileSync(outputFile, "utf-8")
+  ) as StorageState;
+  const userEntry = state.origins
+    ?.flatMap((o) => o.localStorage ?? [])
+    .find((e) => e.name === "user");
+  const user = userEntry
+    ? (JSON.parse(userEntry.value) as {
+        accessToken?: string;
+        refreshToken?: string;
+      })
+    : undefined;
+
+  if (!user?.refreshToken) {
+    throw new Error(
+      `[globalSetup] ${label} auth state has no refresh token in localStorage "user". ` +
+        `Access tokens expire after 15 minutes — without the refresh token, every test ` +
+        `starting later than that will fail with a redirect to /sign-in. ` +
+        `The frontend's session storage shape has probably changed; update globalSetup/fixtures.`
+    );
+  }
+
+  const expMs = user.accessToken ? jwtExpiryMs(user.accessToken) : undefined;
+  const ttlMin = expMs ? Math.round((expMs - Date.now()) / 60_000) : undefined;
+  console.log(
+    `[globalSetup] ${label} session OK — access token TTL ~${ttlMin ?? "?"}m, ` +
+      `refresh token present (app auto-refreshes; sessions good for the whole run)`
+  );
+}
+
 // ── Helper: browser login → storageState file ────────────────────────────────
 async function saveAuthState(
   email: string,
@@ -66,6 +113,7 @@ async function saveAuthState(
     try {
       await createSignInPage(page).loginAndWait(email, password);
       await context.storageState({ path: outputFile });
+      verifyAuthStateLifetime(outputFile, label);
       console.log(
         `[globalSetup] ${label} auth state saved → ${path.basename(outputFile)}`
       );
@@ -147,11 +195,29 @@ export default async function globalSetup(): Promise<void> {
           "Ask an admin or employee to create one for this owner first."
       );
     }
-    const restaurant = restaurants[0];
+    // Pin the seed restaurant explicitly via SEED_RESTAURANT_ID (or by name
+    // via SEED_RESTAURANT_NAME) — restaurants[0] is API-order-dependent, and
+    // the "seed restaurant" carries implicit state other tests rely on
+    // (Stripe connected, orders). Falls back to the first restaurant with a
+    // loud log so a silent switch is at least visible in the run output.
+    const pinnedId = process.env.SEED_RESTAURANT_ID;
+    const pinnedName = process.env.SEED_RESTAURANT_NAME;
+    const pinned =
+      (pinnedId ? restaurants.find((r) => r.id === pinnedId) : undefined) ??
+      (pinnedName ? restaurants.find((r) => r.name === pinnedName) : undefined);
+    if ((pinnedId || pinnedName) && !pinned) {
+      console.warn(
+        `[globalSetup] SEED_RESTAURANT_ID/NAME set but no match among ${restaurants.length} owned restaurants — falling back to the first`
+      );
+    }
+    const restaurant = pinned ?? restaurants[0];
     restaurantId = restaurant.id;
     restaurantName = restaurant.name;
     console.log(
-      `[globalSetup] Using existing restaurant: ${restaurantName} (${restaurantId})`
+      `[globalSetup] Using existing restaurant: ${restaurantName} (${restaurantId})` +
+        (restaurants.length > 1
+          ? ` — owner has ${restaurants.length} restaurants; pin with SEED_RESTAURANT_ID to keep this stable`
+          : "")
     );
 
     const group = await createTestMenuGroup(accessToken, restaurantId);
@@ -194,7 +260,18 @@ export default async function globalSetup(): Promise<void> {
             "[globalSetup] EMPLOYEE_EMAIL/PASSWORD not set — skipping employee auth"
           )
         ),
-    submitDemoRequest(),
+    // Held off unless SEND_DEMO_EMAILS=true — a demo submission emails the
+    // requester via the quota-limited Mailtrap sandbox. When held, the demo
+    // specs (request/management/actions) skip too, so the empty demo fields
+    // below are never read.
+    DEMO_EMAILS_ENABLED
+      ? submitDemoRequest()
+      : Promise.resolve(
+          (console.warn(
+            "[globalSetup] SEND_DEMO_EMAILS not set — skipping demo request submission (holding emails)"
+          ),
+          { email: "", firstName: "", lastName: "" })
+        ),
   ]);
 
   const { email, firstName, lastName } = demoResult;

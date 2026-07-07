@@ -8,10 +8,12 @@ const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
 
 const RUN_ID = generateRunId();
+// RUN_ID (uuid-based) keeps names unique per run AND per retry — retries run
+// in a fresh worker, so the module re-evaluates and a failed first attempt's
+// category can't collide with the retry's. globalTeardown sweeps any
+// "Test Starters *"/"TC45 Delete *" categories left behind (this run's and
+// prior interrupted runs') via deleteAutomationMenuGroups.
 const TEST_CATEGORY_NAME = `Test Starters ${RUN_ID}`;
-// Include RUN_ID so each run creates a unique item; old runs leave items behind
-// (teardown can't delete categories with items) and substring matching would
-// otherwise find "Automation Bruschetta Edited" from a prior run.
 const TEST_ITEM_NAME = `Automation Bruschetta ${RUN_ID}`;
 const TEST_ITEM_PRICE = "9.99";
 const TEST_ITEM_DESCRIPTION = "Test item created by Playwright automation";
@@ -124,6 +126,16 @@ test.describe("Owner — Menu Management", () => {
       await allure.step("Verify success toast appears", async () => {
         await menuPage.assertMenuItemSuccessToast();
       });
+
+      await allure.step(
+        "Verify the item actually appears on the menu page",
+        async () => {
+          // Not just the toast: activate the category tab and confirm the
+          // created item card really renders (i.e. the create persisted).
+          await menuPage.activateCategory(TEST_CATEGORY_NAME);
+          await menuPage.assertItemVisible(TEST_CATEGORY_NAME, TEST_ITEM_NAME);
+        }
+      );
     });
 
     test("TC-62: menu item wizard blocks Next when name and price are blank", async ({
@@ -200,6 +212,15 @@ test.describe("Owner — Menu Management", () => {
       await allure.step("Verify edit success toast", async () => {
         await menuPage.assertEditSuccessToast();
       });
+
+      await allure.step(
+        "Verify the edited name actually appears on the menu page",
+        async () => {
+          // Not just the toast: the card must now show the edited name.
+          await menuPage.activateCategory(TEST_CATEGORY_NAME);
+          await menuPage.assertItemVisible(TEST_CATEGORY_NAME, EDITED_NAME);
+        }
+      );
     });
 
     test("TC-44: owner can delete a menu item", async () => {
