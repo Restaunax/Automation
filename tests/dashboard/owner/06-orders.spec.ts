@@ -7,6 +7,7 @@ import {
   apiLogin,
   createZeroTotalOrder,
   updateOrderStatus,
+  getCurrentOrders,
 } from "../../../utils/apiHelper";
 
 const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
@@ -231,6 +232,66 @@ test.describe("Owner — Orders Tab", () => {
     } finally {
       // Only cleanup available (orders aren't deletable): cancel it so it drops
       // off the active feed. Owner token holds MODIFY_RESTAURANT. Best-effort.
+      await updateOrderStatus(token, order.id, "CANCELLED").catch(() => {});
+    }
+  });
+
+  test("TC-128: owner can accept (confirm) an order from the dashboard detail view", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Every other order test is read-only (TC-90) or identity (TC-127); this exercises the owner " +
+        "ACTIONING an order. A PENDING order is seeded, the owner opens it and clicks 'Mark as " +
+        "Confirmed', and the status flip is confirmed at the API source of truth (the detail dialog's " +
+        "own text is unreliable). Cancelled afterward."
+    );
+
+    const { restaurantId, menuItemId, menuItemName, menuItemPrice } =
+      readSharedState();
+    const runId = generateRunId();
+    const uniqueLast = `E2E${runId}`;
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const ordersPage = createOwnerOrdersPage(ownerPage);
+
+    const token = (await apiLogin(OWNER_EMAIL, OWNER_PASSWORD)).accessToken;
+    const order = await createZeroTotalOrder(
+      restaurantId,
+      { menuItemId, name: menuItemName, price: menuItemPrice },
+      `autoorder_${runId}@restaunax-test.com`,
+      "Auto",
+      uniqueLast
+    );
+    expect(order.status).toBe("PENDING");
+    await allure.parameter("orderId", order.id);
+
+    try {
+      await allure.step("Owner opens the seeded order's detail", async () => {
+        await mgmtPage.goto(restaurantId);
+        await ordersPage.navigateToOrdersTab();
+        await ordersPage.searchOrders(uniqueLast);
+        await ordersPage.openFirstOrderDetail();
+        await ordersPage.assertOrderDetailVisible();
+      });
+
+      await allure.step("Click 'Mark as Confirmed'", async () => {
+        await ordersPage.advanceOrderStatusFromDetail("Confirmed");
+      });
+
+      await allure.step(
+        "Order is CONFIRMED at the API source of truth",
+        async () => {
+          await expect
+            .poll(
+              async () => {
+                const orders = await getCurrentOrders(token, restaurantId);
+                return orders.find((o) => o.id === order.id)?.status;
+              },
+              { timeout: 15_000 }
+            )
+            .toBe("CONFIRMED");
+        }
+      );
+    } finally {
       await updateOrderStatus(token, order.id, "CANCELLED").catch(() => {});
     }
   });

@@ -74,6 +74,15 @@ export const createOwnerOrdersPage = (page: Page) => {
       .waitFor({ state: "hidden", timeout: 10_000 });
   };
 
+  // The detail dialog exposes a status-advance button whose label is the NEXT
+  // state (a PENDING order shows "Mark as Confirmed"). Clicking it PUTs the
+  // order's new status. Callers confirm the effect at the API source of truth.
+  const advanceOrderStatusFromDetail = (nextLabel: string) =>
+    page
+      .getByRole("dialog")
+      .getByRole("button", { name: new RegExp(`Mark as ${nextLabel}`, "i") })
+      .click();
+
   return {
     navigateToOrdersTab,
     searchInput,
@@ -88,5 +97,6 @@ export const createOwnerOrdersPage = (page: Page) => {
     openFirstOrderDetail,
     assertOrderDetailVisible,
     closeOrderDetail,
+    advanceOrderStatusFromDetail,
   };
 };
