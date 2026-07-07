@@ -126,6 +126,9 @@
 | Owner Settings — Automated Reports form loads             | TC-139                            | ✅ Read-only (toggles auto-save to shared QA — never flipped)                                                                   |
 | Owner Settings — Notifications sub-tab coming-soon        | TC-140                            | ✅ Placeholder assertion                                                                                                        |
 | Owner Settings — toggling/saving report settings          | —                                 | ❌ Not written — auto-saves to shared QA account + can send real emails; needs snapshot/restore                                 |
+| Daily Report — current-day live report renders            | TC-141                            | ✅ Store Ops → Daily Report; "At a Glance" KPIs render                                                                          |
+| Daily Report — KPIs reflect seeded orders (delta)         | TC-142                            | ✅ `createSeededOrder` seeds nonzero CONFIRMED orders (no Stripe); asserts orderCount/netSales grew ≥ seeded                    |
+| Daily Report — "Close Day" (create close record)          | —                                 | ❌ Not written — mutates the real current day (persisted DailyClose); needs its own cleanup story                               |
 | Edit restaurant info (name/address/etc, beyond prep time) | —                                 | ❌ Not written                                                                                                                  |
 
 ---
@@ -249,7 +252,7 @@ Onboarding is **four distinct, unconnected paths** in the app — not one flow.
 
 ## 📊 Coverage Summary
 
-Full suite as of 2026-07-07: **105 passed / 18 skipped / 1 failed** (`TC-58`, fails only because `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` aren't set in this local `.env` — passes wherever those creds exist). The 2026-07-07 owner-side expansion added TC-35 + TC-127–129 (Analytics tab), TC-131–135 (deepened Orders tab), TC-136–138 (Customers tab), and TC-139–140 (Owner Settings tab).
+Full suite as of 2026-07-07: **107 passed / 18 skipped / 1 failed** (`TC-58`, fails only because `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` aren't set in this local `.env` — passes wherever those creds exist). The 2026-07-07 owner-side expansion added TC-35 + TC-127–129 (Analytics tab), TC-131–135 (deepened Orders tab), TC-136–138 (Customers tab), TC-139–140 (Owner Settings tab), and TC-141–142 (Daily Report tab, incl. the `createSeededOrder` nonzero-revenue seeding helper).
 
 | Area                      | Written | Passing | Skipped/Fixme                      | Not Written         |
 | ------------------------- | ------- | ------- | ---------------------------------- | ------------------- |

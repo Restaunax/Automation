@@ -29,7 +29,7 @@ Each test case includes:
 | ----------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 🌐 Public         | Anyone on the internet             | TC-01, TC-02, TC-59 → TC-61, TC-74, TC-75, TC-93 → TC-96                                                                                                  |
 | 🔐 Admin          | Internal Restaunax staff           | TC-03 → TC-12, TC-32, TC-76, TC-77, TC-98, TC-101 → TC-124 (user management, `users.spec.ts`)                                                             |
-| 🏠 Owner          | Restaurant owners                  | TC-13 → TC-16, TC-19 → TC-21, TC-27 → TC-31, TC-35, TC-42 → TC-53 (excl. TC-22–26), TC-62 → TC-70, TC-78, TC-82 → TC-92, TC-127 → TC-129, TC-131 → TC-140 |
+| 🏠 Owner          | Restaurant owners                  | TC-13 → TC-16, TC-19 → TC-21, TC-27 → TC-31, TC-35, TC-42 → TC-53 (excl. TC-22–26), TC-62 → TC-70, TC-78, TC-82 → TC-92, TC-127 → TC-129, TC-131 → TC-142 |
 | 🛒 Customer       | People ordering food               | TC-22 → TC-26, TC-64, TC-99, TC-125, TC-126                                                                                                               |
 | 🍳 POS            | Restaurant kitchen / tablet        | TC-100 (`--project=pos`)                                                                                                                                  |
 | 🔒 Access Control | Testing role/permission boundaries | TC-54 → TC-58, TC-71 → TC-73, TC-81                                                                                                                       |
@@ -837,6 +837,53 @@ Selecting the Notifications sub-tab shows the "launching soon" placeholder.
 ### Why it matters
 
 Documents that the Notifications surface is not yet functional, so no future test should assert real notification settings there — the same pattern used for the Customers→Analytics "coming soon" sub-tab.
+
+---
+
+## TC-141 — Owner Can View the Daily Report (current business day)
+
+**Status:** ✅ Passing
+
+### What it checks
+
+An owner can open Store Operations → Daily Report and see the current business day's live report render.
+
+### How it works, step by step
+
+1. Open the restaurant management portal
+2. Open the "Store Operations" flyout in the sidebar and click "Daily Report" (`store-daily-close` → `?tab=store-daily-close`, renders `DailyCloseTab`)
+3. Confirm the "At a Glance" comparison-KPI block and its Net Sales / Orders tiles render, with no load error
+4. A `beforeAll` seeds real orders into today's business day (see TC-142) so the report has genuine data behind it
+
+### Why it matters
+
+The Daily Report is the owner's end-of-day snapshot (net sales, orders, tips, channels). Testing it required solving a data problem — see TC-142.
+
+---
+
+## TC-142 — Seeded Orders Are Reflected in Today's Daily Report KPIs
+
+**Status:** ✅ Passing
+
+### What it checks
+
+Deterministic proof that the report aggregates real order data: after seeding N orders with a known net-sales amount into the current business day, the day's KPIs grow by at least that much.
+
+### How it works, step by step
+
+1. `beforeAll`: log in as owner, read the current business day's KPIs (`GET /restaurant/:id/daily-close?include=report` → `comparisons.current`) as a **baseline**, then seed **3 CONFIRMED orders at $15 net each** via the new `createSeededOrder` helper.
+2. The test re-reads the KPIs and asserts `orderCount` grew by **≥ 3** and `netSales` grew by **≥ $45** vs. baseline.
+3. Uses `≥` (not `==`) because other specs can add orders to the same day concurrently — they only ever increase it.
+
+### Why it matters
+
+**This is how we solved "not enough data for a meaningful report."** Key mechanism (no Stripe needed):
+
+- The report buckets orders by `createdAt`, so orders created "now" already land in today's business day (the 4 AM cutoff is applied identically to the order and the view).
+- Revenue reads the order's own `subtotal`/`total`, and the backend trusts client-supplied totals.
+- A nonzero order is created in status `INITIALIZED` (excluded from reports), so `createSeededOrder` **creates then bumps** the order to `CONFIRMED` via the status endpoint (which has no source-state check).
+
+Seeded orders are permanent QA residue (no order-delete API), which is why the assertions are delta-based. See the `createSeededOrder` / `getDailyReportKpis` helpers in `utils/apiHelper.ts`. The "Close Day" mutation flow (writing a persisted `DailyClose`) is intentionally out of scope.
 
 ---
 
@@ -1708,8 +1755,10 @@ This is the critical handoff from the app to Stripe. If the button calls the wro
 | TC-138 | Owner switches to the Customer Groups (segments) sub-tab            | Owner                 | ✅ Passing                                                   |
 | TC-139 | Owner views the Owner Settings (Automated Reports) form             | Owner                 | ✅ Passing                                                   |
 | TC-140 | Owner Settings Notifications sub-tab shows coming-soon              | Owner                 | ✅ Passing                                                   |
+| TC-141 | Owner views the Daily Report (current business day)                 | Owner                 | ✅ Passing                                                   |
+| TC-142 | Seeded orders reflected in today's Daily Report KPIs                | Owner                 | ✅ Passing                                                   |
 
-**105 passing · 18 skipped · 1 failing (env-only)** — as of 2026-07-07. The one failure (TC-58) fails only in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` set; it passes wherever those credentials exist. (Owner-side expansion on 2026-07-07 added TC-35 + TC-127–129 for the Analytics tab, TC-131–135 deepening the Orders tab, TC-136–138 for the Customers tab, and TC-139–140 for the Owner Settings tab — all passing.)
+**107 passing · 18 skipped · 1 failing (env-only)** — as of 2026-07-07. The one failure (TC-58) fails only in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` set; it passes wherever those credentials exist. (Owner-side expansion on 2026-07-07 added TC-35 + TC-127–129 for the Analytics tab, TC-131–135 deepening the Orders tab, TC-136–138 for the Customers tab, TC-139–140 for the Owner Settings tab, and TC-141–142 for the Daily Report tab — all passing.)
 
 Skipped tests fall into four groups: **route access** (TC-27, TC-28, TC-81 — publish/tax/loyalty are employee/admin-only and return Access Denied for the owner role); **missing UI** (TC-42, TC-44 — the edit/delete buttons don't exist in the current menu editor); **missing credentials in this environment** (TC-58, TC-97, plus TC-17/TC-18 in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD`; TC-02 without Mailtrap); and **a real backend bug** (TC-92 — editing any coupon 500s server-side, filed as `test.fixme` with the exact error rather than asserting broken behavior as correct). TC-33 and TC-34 remain narrative-only placeholders with no test code at all — not the same as a skipped/fixme test.
 
