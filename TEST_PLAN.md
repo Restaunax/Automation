@@ -619,15 +619,15 @@ Each remaining suite lands by filling its existing `test.fixme` placeholder
 
 ### Explicitly out of scope (all phases)
 
-| Area                       | Reason                                              |
-| -------------------------- | --------------------------------------------------- |
-| Voice ordering (Retell AI) | Live phone calls — non-deterministic                |
-| Social media posting       | External OAuth, third-party state                   |
-| Analytics charts           | Read-only, visual — low regression risk             |
-| Native mobile app UI       | React Native — covered at API level, not browser UI |
-| Chat (real-time)           | WebSocket — hard to assert reliably                 |
-| AI image/video generation  | External, rate-limited APIs                         |
+| Area                        | Reason                                                                                                                                                                                                                                                                      |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Voice ordering (Retell AI)  | Live phone calls — non-deterministic                                                                                                                                                                                                                                        |
+| Social media posting        | External OAuth, third-party state                                                                                                                                                                                                                                           |
+| Analytics _chart internals_ | Individual chart values/rendering are read-only, visual — low regression risk. **Note:** the Analytics tab shell — navigation, dashboard load, date-range picker, and the fetch path — IS now covered (TC-35, TC-127–129); only the per-chart contents remain out of scope. |
+| Native mobile app UI        | React Native — covered at API level, not browser UI                                                                                                                                                                                                                         |
+| Chat (real-time)            | WebSocket — hard to assert reliably                                                                                                                                                                                                                                         |
+| AI image/video generation   | External, rate-limited APIs                                                                                                                                                                                                                                                 |
 
 ---
 
-_Last updated: 2026-07-03_
+_Last updated: 2026-07-07_
