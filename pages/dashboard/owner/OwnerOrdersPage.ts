@@ -33,6 +33,12 @@ export const createOwnerOrdersPage = (page: Page) => {
       timeout: 10_000,
     });
 
+  // The DataGrid virtualizes columns horizontally, so far-right headers
+  // (Payment, Subtotal) aren't in the DOM at the default viewport. Use this to
+  // assert the grid rendered a real column set without depending on which
+  // columns happen to be scrolled into view.
+  const columnHeaders = () => page.getByRole("columnheader");
+
   const searchOrders = async (query: string) => {
     await searchInput().fill(query);
     await searchInput().press("Enter");
@@ -45,6 +51,45 @@ export const createOwnerOrdersPage = (page: Page) => {
     expect(page.getByRole("heading", { name: "Filter Orders" })).toBeVisible({
       timeout: 10_000,
     });
+
+  // The filter panel is a MUI Menu (Popover). Scope controls to the paper that
+  // holds the "Filter Orders" heading so we don't collide with the page's other
+  // Select comboboxes (sort, page size).
+  const filterPanel = () =>
+    page
+      .locator(".MuiPaper-root")
+      .filter({ has: page.getByRole("heading", { name: "Filter Orders" }) });
+
+  // Inside the panel the first combobox is Order Status, the second Order Type.
+  const statusFilter = () => filterPanel().getByRole("combobox").first();
+
+  // Open the Order Status dropdown and choose an option by its visible label
+  // (status options render a Chip whose text is the accessible name, e.g.
+  // "Pending"; "All Statuses" is plain text).
+  const selectStatusFilter = async (label: string) => {
+    await statusFilter().click();
+    await page.getByRole("option", { name: label, exact: true }).click();
+  };
+
+  const assertStatusFilterValue = (label: string) =>
+    expect(statusFilter()).toHaveText(label, { timeout: 10_000 });
+
+  const applyFilters = async () => {
+    await filterPanel().getByRole("button", { name: "Apply Filters" }).click();
+    // The Menu closes on apply; wait for it to detach so the grid re-query runs.
+    await filterPanel().waitFor({ state: "hidden", timeout: 10_000 });
+  };
+
+  // Reset clears the filter state AND closes the panel (handleResetFilters →
+  // handleFilterMenuClose). Callers that want to verify the reset value must
+  // reopen the panel afterwards.
+  const resetFilters = async () => {
+    await filterPanel().getByRole("button", { name: "Reset" }).click();
+    await filterPanel().waitFor({ state: "hidden", timeout: 10_000 });
+  };
+
+  // ── Toolbar ────────────────────────────────────────────────────────────────
+  const exportButton = () => page.getByRole("button", { name: /Export/i });
 
   // ── Order detail dialog ──────────────────────────────────────────────────
   // Clicking a data row (not the header) opens a detail dialog and appends
@@ -67,6 +112,18 @@ export const createOwnerOrdersPage = (page: Page) => {
       }
     );
 
+  // Deeper than assertOrderDetailVisible: confirm the dialog actually renders
+  // the line-items section and the money summary, not just the header block.
+  const assertOrderDetailHasItemsAndTotal = async () => {
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByText("Order Details")).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(dialog.getByText("Order Total")).toBeVisible({
+      timeout: 10_000,
+    });
+  };
+
   const closeOrderDetail = async () => {
     await page.keyboard.press("Escape");
     await page
@@ -81,12 +138,21 @@ export const createOwnerOrdersPage = (page: Page) => {
     emptyStateMessage,
     assertOrdersTabLoaded,
     assertTableColumnVisible,
+    columnHeaders,
     searchOrders,
     openFilters,
     assertFilterPanelVisible,
+    filterPanel,
+    statusFilter,
+    selectStatusFilter,
+    assertStatusFilterValue,
+    applyFilters,
+    resetFilters,
+    exportButton,
     firstOrderRow,
     openFirstOrderDetail,
     assertOrderDetailVisible,
+    assertOrderDetailHasItemsAndTotal,
     closeOrderDetail,
   };
 };
