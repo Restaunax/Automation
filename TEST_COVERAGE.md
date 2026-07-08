@@ -84,7 +84,12 @@
 | Navigate to Orders tab                                    | TC-29                             | ✅                                                                                                                              |
 | Orders — nonexistent search shows empty state             | TC-70                             | ✅ (MUI DataGrid "No rows" overlay)                                                                                             |
 | Orders — Filters button opens panel                       | TC-89                             | ✅                                                                                                                              |
-| Orders — order detail view                                | TC-90                             | ✅ Read-only; skips if the seed restaurant has zero orders                                                                      |
+| Orders — order detail view                                | TC-90                             | ✅ Read-only; a zero-total order is API-seeded in `beforeAll` so a row always exists                                            |
+| Orders — grid renders a real column set                   | TC-131                            | ✅ In-view "Status" header + ≥5 headers (columns are horizontally virtualized)                                                  |
+| Orders — filter by Order Status re-queries grid           | TC-132                            | ✅ Waits on `GET /api/order/statistics/management/*`                                                                            |
+| Orders — Reset restores default status                    | TC-133                            | ✅ Reset also closes the panel; test reopens to verify "All Statuses"                                                           |
+| Orders — detail dialog shows items + total                | TC-134                            | ✅ Asserts Order Details + Order Total, deeper than TC-90's header-only check                                                   |
+| Orders — toolbar Export control present                   | TC-135                            | ✅ Visibility only — no real download against QA                                                                                |
 | Navigate to Create Coupon form                            | TC-30                             | ✅                                                                                                                              |
 | Create a new coupon                                       | TC-31                             | ✅                                                                                                                              |
 | Invalid discount % rejected                               | TC-63                             | ✅                                                                                                                              |
@@ -110,7 +115,20 @@
 | Unpublish restaurant                                      | —                                 | ❌ Not written                                                                                                                  |
 | Create deal (full form)                                   | —                                 | ❌ Not written — needs a deals API helper for setup/cleanup                                                                     |
 | Employee management (owner-side)                          | —                                 | ❌ Not written — no distinct owner-facing UI confirmed yet, needs product clarification                                         |
-| Analytics dashboard                                       | —                                 | ❌ Not written — deliberately out of scope (read-only, low regression risk)                                                     |
+| Analytics dashboard — loads with header controls          | TC-35                             | ✅ Title + Refresh + date-range selector visible                                                                                |
+| Analytics dashboard — resolves data-or-empty, no error    | TC-127                            | ✅ Cards OR empty state; asserts no load-error alert                                                                            |
+| Analytics — date-range picker opens with presets          | TC-128                            | ✅ Last 7 days / Last 30 days presets visible                                                                                   |
+| Analytics — changing range reloads dashboard              | TC-129                            | ✅ Waits on `GET /api/analytics/dashboard/*`                                                                                    |
+| Customers directory loads (sub-tabs, search, stats)       | TC-136                            | ✅ Owner CRM tab — previously untested                                                                                          |
+| Customers — directory search re-queries server            | TC-137                            | ✅ Waits on `GET /api/customers/restaurant/*?search=…`                                                                          |
+| Customers — Customer Groups (segments) sub-tab            | TC-138                            | ✅ Asserts "Customer Segments" + a segment card (VIP)                                                                           |
+| Customers — Analytics sub-tab                             | —                                 | ❌ Not written — data-dependent "coming soon" surface, low value                                                                |
+| Owner Settings — Automated Reports form loads             | TC-139                            | ✅ Read-only (toggles auto-save to shared QA — never flipped)                                                                   |
+| Owner Settings — Notifications sub-tab coming-soon        | TC-140                            | ✅ Placeholder assertion                                                                                                        |
+| Owner Settings — toggling/saving report settings          | —                                 | ❌ Not written — auto-saves to shared QA account + can send real emails; needs snapshot/restore                                 |
+| Daily Report — current-day live report renders            | TC-141                            | ✅ Store Ops → Daily Report; "At a Glance" KPIs render                                                                          |
+| Daily Report — KPIs reflect seeded orders (delta)         | TC-142                            | ✅ `createSeededOrder` seeds nonzero CONFIRMED orders (no Stripe); asserts orderCount/netSales grew ≥ seeded                    |
+| Daily Report — "Close Day" (create close record)          | —                                 | ❌ Not written — mutates the real current day (persisted DailyClose); needs its own cleanup story                               |
 | Edit restaurant info (name/address/etc, beyond prep time) | —                                 | ❌ Not written                                                                                                                  |
 
 ---
@@ -235,7 +253,7 @@ Onboarding is **four distinct, unconnected paths** in the app — not one flow.
 
 ## 📊 Coverage Summary
 
-Full suite as of 2026-07-03: **91 passed / 18 skipped / 1 failed** (`TC-58`, fails only because `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` aren't set in this local `.env` — passes wherever those creds exist).
+Full suite as of 2026-07-07: **107 passed / 18 skipped / 1 failed** (`TC-58`, fails only because `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` aren't set in this local `.env` — passes wherever those creds exist). The 2026-07-07 owner-side expansion added TC-35 + TC-127–129 (Analytics tab), TC-131–135 (deepened Orders tab), TC-136–138 (Customers tab), TC-139–140 (Owner Settings tab), and TC-141–142 (Daily Report tab, incl. the `createSeededOrder` nonzero-revenue seeding helper).
 
 | Area                      | Written | Passing | Skipped/Fixme                      | Not Written         |
 | ------------------------- | ------- | ------- | ---------------------------------- | ------------------- |

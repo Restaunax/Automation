@@ -544,6 +544,123 @@ export async function updateOrderStatus(
   );
 }
 
+export interface SeedOrderOpts {
+  subtotal?: number;
+  tax?: number;
+  tip?: number;
+  deliveryFee?: number;
+  total?: number;
+  orderType?: "PICKUP" | "DELIVERY";
+  /** Status to bump the order to after creation (default CONFIRMED). */
+  status?: string;
+  customerEmail?: string;
+}
+
+/**
+ * Create a *nonzero-revenue* order that counts in reports, WITHOUT Stripe.
+ *
+ * Two steps:
+ *   1. POST the public new-order endpoint with real subtotal/total. The backend
+ *      trusts the client totals it's sent, but a nonzero order is created in
+ *      status INITIALIZED (the pre-payment placeholder), which reports exclude.
+ *   2. PUT the status to an included status (default CONFIRMED) with an
+ *      owner/admin token — the status endpoint validates only allowlist
+ *      membership (no source-state check), so INITIALIZED→CONFIRMED is accepted.
+ *
+ * The order's createdAt is "now", so it lands in the current business day's
+ * Daily Report / Analytics with real revenue. The line-item price mirrors the
+ * subtotal so the figure is stable whether the backend trusts the sent subtotal
+ * or recomputes it from the items.
+ *
+ * Like createZeroTotalOrder, there is no order-delete API, so seeded orders are
+ * permanent QA residue — tests that rely on them must assert DELTAS, not
+ * absolute totals.
+ */
+export async function createSeededOrder(
+  ownerToken: string,
+  restaurantId: string,
+  item: SeedOrderItem,
+  opts: SeedOrderOpts = {}
+): Promise<ApiOrder> {
+  const subtotal = opts.subtotal ?? item.price;
+  const tax = opts.tax ?? 0;
+  const tip = opts.tip ?? 0;
+  const deliveryFee = opts.deliveryFee ?? 0;
+  const total = opts.total ?? subtotal + tax + tip + deliveryFee;
+  const orderType = opts.orderType ?? "PICKUP";
+  const status = opts.status ?? "CONFIRMED";
+  const customerEmail =
+    opts.customerEmail ??
+    `autoseed_${Date.now()}_${Math.random().toString(36).slice(2, 8)}@restaunax-test.com`;
+
+  const data = await apiRequest<{ order?: ApiOrder } & ApiOrder>(
+    "POST",
+    `/api/order/new/restaurantId/${restaurantId}`,
+    {
+      orderType,
+      subtotal,
+      tax,
+      deliveryFee,
+      tip,
+      total,
+      customerEmail,
+      customerPhone: "+15550000000",
+      firstName: "Auto",
+      lastName: "Seed",
+      orderItems: [
+        {
+          menuItemId: item.menuItemId,
+          menuItemName: item.name,
+          quantity: 1,
+          price: subtotal,
+        },
+      ],
+    }
+  );
+  const order = (data.order ?? (data as ApiOrder)) as ApiOrder;
+  await updateOrderStatus(ownerToken, order.id, status);
+  return { ...order, status, total };
+}
+
+/** KPI block from the daily-close report (data.comparisons.current). */
+export interface DayKpis {
+  from: string;
+  to: string;
+  orderCount: number;
+  netSales: number;
+  avgOrderValue: number;
+  uniqueCustomers: number;
+}
+
+/**
+ * GET /restaurant/:id/daily-close?include=report — the live current-business-day
+ * report. Returns the headline KPIs (orderCount, netSales, …). `from`/`to` are
+ * omitted so the backend applies its own business-day bounds (4 AM cutoff,
+ * server-local) — the same window the seeded orders' createdAt falls in, which
+ * makes the before/after delta deterministic regardless of the runner's tz.
+ * Requires an owner/admin token (VIEW_RESTAURANT).
+ */
+export async function getDailyReportKpis(
+  ownerToken: string,
+  restaurantId: string
+): Promise<DayKpis> {
+  const res = await apiRequest<{
+    data?: { comparisons?: { current?: DayKpis } };
+  }>(
+    "GET",
+    `/restaurant/${restaurantId}/daily-close?include=report`,
+    undefined,
+    ownerToken
+  );
+  const current = res.data?.comparisons?.current;
+  if (!current) {
+    throw new Error(
+      "getDailyReportKpis: response missing data.comparisons.current"
+    );
+  }
+  return current;
+}
+
 export interface TabletDevice {
   id: string;
   name: string;

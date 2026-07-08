@@ -25,17 +25,17 @@ Each test case includes:
 
 ## The Areas We Test
 
-| Area              | Who Uses It                        | Tests                                                                                                            |
-| ----------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 🌐 Public         | Anyone on the internet             | TC-01, TC-02, TC-59 → TC-61, TC-74, TC-75, TC-93 → TC-96                                                         |
-| 🔐 Admin          | Internal Restaunax staff           | TC-03 → TC-12, TC-32, TC-76, TC-77, TC-98, TC-101 → TC-124 (user management, `users.spec.ts`)                    |
-| 🏠 Owner          | Restaurant owners                  | TC-13 → TC-16, TC-19 → TC-21, TC-27 → TC-31, TC-42 → TC-53 (excl. TC-22–26), TC-62 → TC-70, TC-78, TC-82 → TC-92 |
-| 🛒 Customer       | People ordering food               | TC-22 → TC-26, TC-64, TC-99, TC-125, TC-126                                                                      |
-| 🍳 POS            | Restaurant kitchen / tablet        | TC-100 (`--project=pos`)                                                                                         |
-| 🔒 Access Control | Testing role/permission boundaries | TC-54 → TC-58, TC-71 → TC-73, TC-81                                                                              |
-| 🚪 Onboarding     | New restaurant owners              | TC-93 → TC-97 (spans Public sign-up and Employee restaurant creation)                                            |
-| 👔 Employee       | Company-side setup staff           | TC-143, TC-144 (TC-17/18 tax and TC-97 also run under the EMPLOYEE role)                                         |
-| 🌐 API-Level      | No UI — direct backend calls       | TC-65, TC-66, TC-68, TC-69, TC-79, TC-80                                                                         |
+| Area              | Who Uses It                        | Tests                                                                                                                                                     |
+| ----------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 🌐 Public         | Anyone on the internet             | TC-01, TC-02, TC-59 → TC-61, TC-74, TC-75, TC-93 → TC-96                                                                                                  |
+| 🔐 Admin          | Internal Restaunax staff           | TC-03 → TC-12, TC-32, TC-76, TC-77, TC-98, TC-101 → TC-124 (user management, `users.spec.ts`)                                                             |
+| 🏠 Owner          | Restaurant owners                  | TC-13 → TC-16, TC-19 → TC-21, TC-27 → TC-31, TC-35, TC-42 → TC-53 (excl. TC-22–26), TC-62 → TC-70, TC-78, TC-82 → TC-92, TC-127 → TC-129, TC-131 → TC-142 |
+| 🛒 Customer       | People ordering food               | TC-22 → TC-26, TC-64, TC-99, TC-125, TC-126                                                                                                               |
+| 🍳 POS            | Restaurant kitchen / tablet        | TC-100 (`--project=pos`)                                                                                                                                  |
+| 🔒 Access Control | Testing role/permission boundaries | TC-54 → TC-58, TC-71 → TC-73, TC-81                                                                                                                       |
+| 🚪 Onboarding     | New restaurant owners              | TC-93 → TC-97 (spans Public sign-up and Employee restaurant creation)                                                                                     |
+| 👔 Employee       | Company-side setup staff           | TC-143, TC-144 (TC-17/18 tax and TC-97 also run under the EMPLOYEE role)                                                                                  |
+| 🌐 API-Level      | No UI — direct backend calls       | TC-65, TC-66, TC-68, TC-69, TC-79, TC-80                                                                                                                  |
 
 TC-17 and TC-18 (tax settings) run under the **Employee** role, not Owner —
 `/tax` is an EMPLOYEE/ADMIN-only route and the OWNER role gets Access Denied.
@@ -635,6 +635,257 @@ An owner can click "Orders" in the restaurant sidebar and see the orders managem
 
 Orders is how owners track their revenue and see what customers have purchased. If this tab doesn't load, owners are blind to their business activity.
 
+> **Related Orders-tab cases:** TC-70 (empty search), TC-89 (Filters button opens the panel), TC-90 (order detail opens), and the deeper checks TC-131 → TC-135 below.
+
+---
+
+## TC-131 — Orders Grid Renders a Real Column Set
+
+**Status:** ✅ Passing
+
+### What it checks
+
+The Orders DataGrid renders meaningful columns — the "Status" header is in view and there are several column headers total.
+
+### How it works, step by step
+
+1. Navigate to the Orders tab
+2. Assert the "Status" column header is visible
+3. Assert the grid has ≥ 5 column headers
+
+### Why it matters
+
+TC-29 only checked the search UI. This confirms the grid itself is populated with the columns owners triage on. The DataGrid **virtualizes columns horizontally**, so far-right headers (Payment, Subtotal) aren't in the DOM at the default viewport — hence the in-view "Status" + header-count assertion instead of naming every column.
+
+---
+
+## TC-132 — Filtering by Order Status Re-Queries the Grid
+
+**Status:** ✅ Passing
+
+### What it checks
+
+Choosing a status in the Filters panel and applying it fires the management fetch and closes the panel.
+
+### How it works, step by step
+
+1. Navigate to the Orders tab
+2. Open Filters, select "Pending" in the Order Status dropdown
+3. Apply, and wait for the `GET /api/order/statistics/management/*` response — assert it returns OK
+4. Confirm the grid is still present after filtering
+
+### Why it matters
+
+TC-89 only opened the filter panel. This exercises the filter end-to-end, proving a status selection actually drives a new server query.
+
+---
+
+## TC-133 — Resetting the Filters Restores the Default Status
+
+**Status:** ✅ Passing
+
+### What it checks
+
+After narrowing the Order Status filter, the Reset button returns it to "All Statuses".
+
+### How it works, step by step
+
+1. Navigate to the Orders tab, open Filters
+2. Select "Pending" and confirm the control shows "Pending"
+3. Click Reset (this also closes the panel — `handleResetFilters` → `handleFilterMenuClose`)
+4. Reopen Filters and confirm the status is back to "All Statuses"
+
+### Why it matters
+
+Owners need to clear a filter without reloading the page. The reopen step documents the real UI behavior (Reset closes the panel), so the test isn't brittle.
+
+---
+
+## TC-134 — Order Detail Dialog Shows Items and Total
+
+**Status:** ✅ Passing
+
+### What it checks
+
+Opening an order's detail dialog renders the line-items section and the money summary, not just the header block.
+
+### How it works, step by step
+
+1. Navigate to the Orders tab (a zero-total order is API-seeded in `beforeAll`, so a row always exists)
+2. Open the first order's detail dialog
+3. Assert "Order Information", "Order Details" (items), and "Order Total" are all visible
+
+### Why it matters
+
+TC-90 only asserted the header ("Order Information"). This deepens it to confirm owners can actually see what was ordered and what it totalled.
+
+---
+
+## TC-135 — Orders Toolbar Exposes an Export Control
+
+**Status:** ✅ Passing
+
+### What it checks
+
+The Orders tab offers an Export action.
+
+### How it works, step by step
+
+1. Navigate to the Orders tab
+2. Confirm the Export button is visible
+
+### Why it matters
+
+Owners export orders for reporting and accounting; this verifies the entry point exists. (Kept to a visibility check — it does not trigger a real download against shared QA.)
+
+---
+
+## TC-136 — Owner Can View the Customers Directory
+
+**Status:** ✅ Passing
+
+### What it checks
+
+An owner can open the Customers tab and see the customer directory — the sub-tabs, search field, and the Total Customers stat.
+
+### How it works, step by step
+
+1. Open the restaurant management portal
+2. Click "Customers" in the sidebar (PortalShell menu id `Customers` → `?tab=Customers`)
+3. Confirm the "All Customers" and "Customer Groups" sub-tabs, the "Search by name, email, or phone" field, and the "Total Customers" stat card are all visible; and no load-error alert is shown
+
+### Why it matters
+
+The Customers tab is the owner's built-in CRM — the only in-product view of who their customers are and what they've spent. It was previously untested.
+
+---
+
+## TC-137 — Customer Directory Search Re-Queries the Server
+
+**Status:** ✅ Passing
+
+### What it checks
+
+Typing in the customer search fires `GET /api/customers/restaurant/:id` with the search term.
+
+### How it works, step by step
+
+1. Navigate to the Customers tab and confirm the directory loaded
+2. Type a search term and wait for the `GET /api/customers/restaurant/*?search=…` response — assert it returns OK
+3. Confirm no load-error alert appears
+
+### Why it matters
+
+Confirms search filters against the backend (server-side), not just the currently-loaded page — the behaviour owners rely on to find a specific customer in a large base.
+
+---
+
+## TC-138 — Owner Can Switch to the Customer Groups (Segments) Sub-Tab
+
+**Status:** ✅ Passing
+
+### What it checks
+
+Selecting the "Customer Groups" sub-tab renders the Customer Segments view with its segment cards.
+
+### How it works, step by step
+
+1. Navigate to the Customers tab
+2. Click the "Customer Groups" sub-tab
+3. Confirm the "Customer Segments" heading and a representative segment card ("VIP") are visible (data from `GET /api/customers/restaurant/:id/segments`)
+
+### Why it matters
+
+Segments (VIP, Loyal, Inactive, One-Time, Big Spenders) are how owners target marketing; this verifies the sub-tab loads its data. The third sub-tab (Analytics) is intentionally not covered — it's a data-dependent "coming soon" surface.
+
+---
+
+## TC-139 — Owner Can View the Owner Settings (Automated Reports) Form
+
+**Status:** ✅ Passing
+
+### What it checks
+
+An owner can open the Owner Settings tab and see the settings view — the title, both sub-tabs (Automated Reports / Notifications), and the Automated Reports form sections.
+
+### How it works, step by step
+
+1. Open the restaurant management portal
+2. Click "Owner Settings" in the sidebar (PortalShell menu id `Owner Settings` → `?tab=Owner Settings`)
+3. Confirm the "Owner Settings" title and both sub-tabs are visible
+4. Once the settings fetch (`GET api/owner-settings/reports/:id`) resolves, confirm the "Order Notifications" and "Automated Business Reports" sections render
+
+### Why it matters
+
+Owner Settings is where owners control automated summary emails — an account-wide setting. **Read-only on purpose:** the report toggles auto-save (PUT) to the shared QA owner account and can trigger real emails, so the test never flips a switch or saves. It also deliberately avoids the Schedule section and Save button, which only render when the master toggle is ON (`settings.enabled &&`) — account-state-dependent on shared QA.
+
+---
+
+## TC-140 — Owner Settings Notifications Sub-Tab Shows Coming-Soon
+
+**Status:** ✅ Passing
+
+### What it checks
+
+Selecting the Notifications sub-tab shows the "launching soon" placeholder.
+
+### How it works, step by step
+
+1. Navigate to the Owner Settings tab
+2. Click the "Notifications" sub-tab
+3. Confirm the "Notification settings — launching soon" placeholder is visible
+
+### Why it matters
+
+Documents that the Notifications surface is not yet functional, so no future test should assert real notification settings there — the same pattern used for the Customers→Analytics "coming soon" sub-tab.
+
+---
+
+## TC-141 — Owner Can View the Daily Report (current business day)
+
+**Status:** ✅ Passing
+
+### What it checks
+
+An owner can open Store Operations → Daily Report and see the current business day's live report render.
+
+### How it works, step by step
+
+1. Open the restaurant management portal
+2. Open the "Store Operations" flyout in the sidebar and click "Daily Report" (`store-daily-close` → `?tab=store-daily-close`, renders `DailyCloseTab`)
+3. Confirm the "At a Glance" comparison-KPI block and its Net Sales / Orders tiles render, with no load error
+4. A `beforeAll` seeds real orders into today's business day (see TC-142) so the report has genuine data behind it
+
+### Why it matters
+
+The Daily Report is the owner's end-of-day snapshot (net sales, orders, tips, channels). Testing it required solving a data problem — see TC-142.
+
+---
+
+## TC-142 — Seeded Orders Are Reflected in Today's Daily Report KPIs
+
+**Status:** ✅ Passing
+
+### What it checks
+
+Deterministic proof that the report aggregates real order data: after seeding N orders with a known net-sales amount into the current business day, the day's KPIs grow by at least that much.
+
+### How it works, step by step
+
+1. `beforeAll`: log in as owner, read the current business day's KPIs (`GET /restaurant/:id/daily-close?include=report` → `comparisons.current`) as a **baseline**, then seed **3 CONFIRMED orders at $15 net each** via the new `createSeededOrder` helper.
+2. The test re-reads the KPIs and asserts `orderCount` grew by **≥ 3** and `netSales` grew by **≥ $45** vs. baseline.
+3. Uses `≥` (not `==`) because other specs can add orders to the same day concurrently — they only ever increase it.
+
+### Why it matters
+
+**This is how we solved "not enough data for a meaningful report."** Key mechanism (no Stripe needed):
+
+- The report buckets orders by `createdAt`, so orders created "now" already land in today's business day (the 4 AM cutoff is applied identically to the order and the view).
+- Revenue reads the order's own `subtotal`/`total`, and the backend trusts client-supplied totals.
+- A nonzero order is created in status `INITIALIZED` (excluded from reports), so `createSeededOrder` **creates then bumps** the order to `CONFIRMED` via the status endpoint (which has no source-state check).
+
+Seeded orders are permanent QA residue (no order-delete API), which is why the assertions are delta-based. See the `createSeededOrder` / `getDailyReportKpis` helpers in `utils/apiHelper.ts`. The "Close Day" mutation flow (writing a persisted `DailyClose`) is intentionally out of scope.
+
 ---
 
 ## TC-30 — Owner Can Navigate to the Create Coupon Form
@@ -683,11 +934,12 @@ If coupon creation fails, the restaurant can't run any promotions. This directly
 
 ---
 
-> **Note:** TC-33, TC-34, and TC-35 below are narrative placeholders for
+> **Note:** TC-33 and TC-34 below are narrative placeholders for
 > features that still have no test code at all (no `test()` or `test.skip()`
 > call anywhere in `tests/`) — unlike most other "Skipped" entries in this
 > doc, which correspond to a real `test.skip()`/`test.fixme()` in the suite.
 > They're kept as a backlog description, not a status report on existing code.
+> (TC-35, formerly listed here, is now implemented — see below.)
 
 ## TC-33 — Owner Can Configure Hours of Operation
 
@@ -732,21 +984,83 @@ Owners need to add and manage their restaurant staff on the platform. If this se
 
 ## TC-35 — Owner Can View the Analytics Dashboard
 
-**Status:** ⏭️ Skipped (test not yet implemented)
+**Status:** ✅ Passing
 
 ### What it checks
 
-An owner can navigate to the Analytics section and see summary metrics like total orders or total revenue.
+An owner can navigate to the Analytics section and see the Restaurant Analytics dashboard load with its header controls.
 
 ### How it works, step by step
 
 1. The test opens the restaurant management portal
-2. It clicks "Analytics" in the sidebar
-3. It confirms the analytics dashboard loads with at least one key metric visible (e.g. Total Orders, Total Revenue, or Total Sales)
+2. It clicks "Analytics" in the sidebar (PortalShell menu id `Analytics` → `?tab=Analytics`)
+3. It confirms the dashboard header loaded — the "Restaurant Analytics" title, the Refresh control, and the date-range selector are all visible
 
 ### Why it matters
 
 Analytics is how owners track the performance of their restaurant. Without it, they have no visibility into revenue trends, popular items, or customer behavior.
+
+> This placeholder was previously "Skipped — not yet implemented." It is now implemented in `tests/dashboard/owner/12-analytics.spec.ts` (POM: `OwnerAnalyticsPage`), alongside the deeper analytics checks TC-127 → TC-129 below. Same precedent as TC-84/85 filling the old TC-36 placeholder.
+
+---
+
+## TC-127 — Analytics Dashboard Resolves Without Erroring
+
+**Status:** ✅ Passing
+
+### What it checks
+
+Once the `/api/analytics/dashboard/:restaurantId` fetch completes, the page shows either the summary cards (when the window has orders) or the "no data for this range" empty state — and never the load-error alert.
+
+### How it works, step by step
+
+1. Navigate to the Analytics tab
+2. Assert that either the "Total Orders" summary card **or** the empty-state message is visible (data-volume-agnostic, so it's deterministic on shared QA)
+3. Assert the "Failed to load dashboard data" error alert has zero matches
+
+### Why it matters
+
+Proves the analytics fetch path works end-to-end regardless of how much order data QA currently holds, instead of a brittle assertion that assumes a specific number of orders.
+
+---
+
+## TC-128 — Analytics Date-Range Picker Opens With Presets
+
+**Status:** ✅ Passing
+
+### What it checks
+
+Clicking the date-range button opens the picker popover exposing the Quick Select presets (Last 7 days / Last 30 days).
+
+### How it works, step by step
+
+1. Navigate to the Analytics tab and confirm it loaded
+2. Click the date-range button (its label is the formatted current window)
+3. Confirm the "Last 7 days" and "Last 30 days" preset buttons are visible
+
+### Why it matters
+
+Changing the reporting window is the primary interaction on the analytics page; this verifies the control is actually reachable, not just present.
+
+---
+
+## TC-129 — Changing the Range Reloads the Dashboard
+
+**Status:** ✅ Passing
+
+### What it checks
+
+Selecting the "Last 7 days" preset and applying it re-fetches the dashboard for the new window.
+
+### How it works, step by step
+
+1. Navigate to the Analytics tab
+2. Open the picker, apply "Last 7 days", and wait for the `GET /api/analytics/dashboard/*` response — assert it returns OK
+3. Confirm the dashboard resolves again (cards or empty state) with no load error
+
+### Why it matters
+
+Verifies the date filter actually drives a new query rather than just updating the button label, so owners see data for the window they picked.
 
 ---
 
@@ -1417,7 +1731,7 @@ Confirms EMPLOYEE gets the same completeness guidance as any other role that can
 | TC-32  | Admin sees the Restaurants list                                     | Admin                 | ✅ Passing                                                   |
 | TC-33  | Owner configures hours of operation                                 | Owner                 | ⏭️ Not yet implemented (narrative placeholder, no test code) |
 | TC-34  | Owner accesses employee management                                  | Owner                 | ⏭️ Not yet implemented (narrative placeholder, no test code) |
-| TC-35  | Owner views the analytics dashboard                                 | Owner                 | ⏭️ Not yet implemented (narrative placeholder, no test code) |
+| TC-35  | Owner views the analytics dashboard                                 | Owner                 | ✅ Passing                                                   |
 | TC-42  | Owner renames a menu category                                       | Owner                 | ⏭️ Skipped                                                   |
 | TC-43  | Owner edits a menu item name and price                              | Owner                 | ✅ Passing                                                   |
 | TC-44  | Owner deletes a menu item                                           | Owner                 | ⏭️ Skipped                                                   |
@@ -1473,12 +1787,27 @@ Confirms EMPLOYEE gets the same completeness guidance as any other role that can
 | TC-95  | Sign-up — mismatched confirm-password blocks submit                 | Onboarding / Public   | ✅ Passing                                                   |
 | TC-96  | Sign-up — weak password rejected client-side                        | Onboarding / Public   | ✅ Passing                                                   |
 | TC-97  | Employee creates a restaurant on behalf of a client                 | Onboarding / Employee | ⏭️ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD`                |
+| TC-127 | Analytics dashboard resolves (data or empty) without error          | Owner                 | ✅ Passing                                                   |
+| TC-128 | Analytics date-range picker opens with presets                      | Owner                 | ✅ Passing                                                   |
+| TC-129 | Changing the analytics range reloads the dashboard                  | Owner                 | ✅ Passing                                                   |
+| TC-131 | Orders grid renders a real column set                               | Owner                 | ✅ Passing                                                   |
+| TC-132 | Filtering by Order Status re-queries the grid                       | Owner                 | ✅ Passing                                                   |
+| TC-133 | Resetting the filters restores the default status                   | Owner                 | ✅ Passing                                                   |
+| TC-134 | Order detail dialog shows items and total                           | Owner                 | ✅ Passing                                                   |
+| TC-135 | Orders toolbar exposes an Export control                            | Owner                 | ✅ Passing                                                   |
+| TC-136 | Owner views the Customers directory                                 | Owner                 | ✅ Passing                                                   |
+| TC-137 | Customer directory search re-queries the server                     | Owner                 | ✅ Passing                                                   |
+| TC-138 | Owner switches to the Customer Groups (segments) sub-tab            | Owner                 | ✅ Passing                                                   |
+| TC-139 | Owner views the Owner Settings (Automated Reports) form             | Owner                 | ✅ Passing                                                   |
+| TC-140 | Owner Settings Notifications sub-tab shows coming-soon              | Owner                 | ✅ Passing                                                   |
+| TC-141 | Owner views the Daily Report (current business day)                 | Owner                 | ✅ Passing                                                   |
+| TC-142 | Seeded orders reflected in today's Daily Report KPIs                | Owner                 | ✅ Passing                                                   |
 | TC-143 | Employee reaches the publish page                                   | Employee              | ⏭️ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD`                |
 | TC-144 | Employee sees publish checklist items                               | Employee              | ⏭️ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD`                |
 
-**91 passing · 20 skipped · 1 failing (env-only)** — as of 2026-07-08. The one failure (TC-58) fails only in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` set; it passes wherever those credentials exist.
+**107 passing · 20 skipped · 1 failing (env-only)** — as of 2026-07-08. The one failure (TC-58) fails only in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` set; it passes wherever those credentials exist. (Owner-side expansion on 2026-07-07 added TC-35 + TC-127–129 for the Analytics tab, TC-131–135 deepening the Orders tab, TC-136–138 for the Customers tab, TC-139–140 for the Owner Settings tab, and TC-141–142 for the Daily Report tab — all passing.)
 
-Skipped tests fall into four groups: **route access** (TC-27, TC-28, TC-81 — publish/tax/loyalty are employee/admin-only and return Access Denied for the owner role); **missing UI** (TC-42, TC-44 — the edit/delete buttons don't exist in the current menu editor); **missing credentials in this environment** (TC-58, TC-97, plus TC-17/TC-18 in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD`; TC-02 without Mailtrap); and **a real backend bug** (TC-92 — editing any coupon 500s server-side, filed as `test.fixme` with the exact error rather than asserting broken behavior as correct). TC-33 to TC-35 remain narrative-only placeholders with no test code at all — not the same as a skipped/fixme test.
+Skipped tests fall into four groups: **route access** (TC-27, TC-28, TC-81 — publish/tax/loyalty are employee/admin-only and return Access Denied for the owner role); **missing UI** (TC-42, TC-44 — the edit/delete buttons don't exist in the current menu editor); **missing credentials in this environment** (TC-58, TC-97, plus TC-17/TC-18 in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD`; TC-02 without Mailtrap); and **a real backend bug** (TC-92 — editing any coupon 500s server-side, filed as `test.fixme` with the exact error rather than asserting broken behavior as correct). TC-33 and TC-34 remain narrative-only placeholders with no test code at all — not the same as a skipped/fixme test.
 
 ---
 

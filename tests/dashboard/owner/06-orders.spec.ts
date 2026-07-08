@@ -158,4 +158,180 @@ test.describe("Owner — Orders Tab", () => {
       await ordersPage.closeOrderDetail();
     });
   });
+
+  test("TC-131: the orders grid shows the key column headers", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "The Orders DataGrid renders a real column set (Status is in view, plus several more) — " +
+        "not just a search bar (TC-29 only checked the search UI). Far-right columns (Payment, Subtotal) " +
+        "are column-virtualized out of the DOM at the default viewport, so we assert the in-view Status " +
+        "header plus a minimum header count rather than every label."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const ordersPage = createOwnerOrdersPage(ownerPage);
+
+    await allure.step("Navigate to Orders tab", async () => {
+      await mgmtPage.goto(restaurantId);
+      await ordersPage.navigateToOrdersTab();
+    });
+
+    await allure.step(
+      "Verify the Status column header is visible",
+      async () => {
+        await ordersPage.assertTableColumnVisible("Status");
+      }
+    );
+
+    await allure.step(
+      "Verify the grid rendered a multi-column header set",
+      async () => {
+        expect(await ordersPage.columnHeaders().count()).toBeGreaterThanOrEqual(
+          5
+        );
+      }
+    );
+  });
+
+  test("TC-132: filtering by Order Status re-queries the orders grid", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Choosing a status in the Filters panel and applying it fires the management fetch with the " +
+        "filter and closes the panel — exercising the filter end-to-end, beyond TC-89 which only opened it."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const ordersPage = createOwnerOrdersPage(ownerPage);
+
+    await allure.step("Navigate to Orders tab", async () => {
+      await mgmtPage.goto(restaurantId);
+      await ordersPage.navigateToOrdersTab();
+    });
+
+    await allure.step(
+      "Open Filters and select the 'Pending' status",
+      async () => {
+        await ordersPage.openFilters();
+        await ordersPage.assertFilterPanelVisible();
+        await ordersPage.selectStatusFilter("Pending");
+      }
+    );
+
+    await allure.step(
+      "Apply the filter and confirm the grid re-query fires",
+      async () => {
+        const responsePromise = ownerPage.waitForResponse(
+          (r) =>
+            /\/api\/order\/statistics\/management\//.test(r.url()) &&
+            r.request().method() === "GET",
+          { timeout: 20_000 }
+        );
+        await ordersPage.applyFilters();
+        const response = await responsePromise;
+        expect(response.ok()).toBeTruthy();
+      }
+    );
+
+    await allure.step("Grid is still present after filtering", async () => {
+      await ordersPage.assertOrdersTabLoaded();
+    });
+  });
+
+  test("TC-133: resetting the filters restores the default status", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "After narrowing the Order Status filter, the Reset button returns it to 'All Statuses' so the " +
+        "owner can clear a filter without reloading the page."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const ordersPage = createOwnerOrdersPage(ownerPage);
+
+    await allure.step("Navigate to Orders tab and open Filters", async () => {
+      await mgmtPage.goto(restaurantId);
+      await ordersPage.navigateToOrdersTab();
+      await ordersPage.openFilters();
+      await ordersPage.assertFilterPanelVisible();
+    });
+
+    await allure.step("Narrow to 'Pending', then Reset", async () => {
+      await ordersPage.selectStatusFilter("Pending");
+      await ordersPage.assertStatusFilterValue("Pending");
+      // Reset also closes the panel (handleResetFilters → handleFilterMenuClose).
+      await ordersPage.resetFilters();
+    });
+
+    await allure.step(
+      "Reopen Filters and verify the status is back to 'All Statuses'",
+      async () => {
+        await ordersPage.openFilters();
+        await ordersPage.assertFilterPanelVisible();
+        await ordersPage.assertStatusFilterValue("All Statuses");
+      }
+    );
+  });
+
+  test("TC-134: the order detail dialog shows line items and the order total", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Opening an order's detail dialog renders the line-items section and the money summary " +
+        "(Order Details + Order Total), not just the header block TC-90 asserted. Uses the beforeAll-seeded order."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const ordersPage = createOwnerOrdersPage(ownerPage);
+
+    await allure.step("Navigate to Orders tab", async () => {
+      await mgmtPage.goto(restaurantId);
+      await ordersPage.navigateToOrdersTab();
+    });
+
+    await expect(ordersPage.firstOrderRow().first()).toBeVisible({
+      timeout: 15_000,
+    });
+
+    await allure.step(
+      "Open the first order and verify items + total",
+      async () => {
+        await ordersPage.openFirstOrderDetail();
+        await ordersPage.assertOrderDetailVisible();
+        await ordersPage.assertOrderDetailHasItemsAndTotal();
+      }
+    );
+
+    await allure.step("Close the detail view", async () => {
+      await ordersPage.closeOrderDetail();
+    });
+  });
+
+  test("TC-135: the Orders toolbar exposes an Export control", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "The Orders tab offers an Export action so owners can pull their orders out for reporting/accounting."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const ordersPage = createOwnerOrdersPage(ownerPage);
+
+    await allure.step("Navigate to Orders tab", async () => {
+      await mgmtPage.goto(restaurantId);
+      await ordersPage.navigateToOrdersTab();
+    });
+
+    await allure.step("Verify the Export button is visible", async () => {
+      await expect(ordersPage.exportButton().first()).toBeVisible({
+        timeout: 10_000,
+      });
+    });
+  });
 });
