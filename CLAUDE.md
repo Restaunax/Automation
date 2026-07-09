@@ -206,13 +206,13 @@ pages/
 
 ## Test Utilities
 
-| File                   | Exports                                                                                                                                                                                                                       |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `utils/apiHelper.ts`   | `apiLogin()`, `createTestRestaurant()`, `deleteTestRestaurant()`, `createZeroTotalOrder()`, `createSeededOrder()` (nonzero revenue, no Stripe — create then bump to CONFIRMED), `updateOrderStatus()`, `getDailyReportKpis()` |
-| `utils/testData.ts`    | `generateDemoFormData()`, `generateRestaurantData()`, `readSharedState()`, `writeSharedState()`                                                                                                                               |
-| `utils/emailHelper.ts` | Mailtrap API polling for email verification                                                                                                                                                                                   |
-| `utils/stripeCards.ts` | Stripe test card constants                                                                                                                                                                                                    |
-| `fixtures/base.ts`     | `ownerPage`, `adminPage`, `demoBookingPage` — auto-restores auth sessions                                                                                                                                                     |
+| File                   | Exports                                                                                                                                                                                                                                               |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `utils/apiHelper.ts`   | `apiLogin()`, `createTestRestaurant()`, `deleteTestRestaurant()`, `createSeededOrder()` (real-price order, no Stripe — create then bump past INITIALIZED; the backend pricing guard rejects `total:0`), `updateOrderStatus()`, `getDailyReportKpis()` |
+| `utils/testData.ts`    | `generateDemoFormData()`, `generateRestaurantData()`, `readSharedState()`, `writeSharedState()`                                                                                                                                                       |
+| `utils/emailHelper.ts` | Mailtrap API polling for email verification                                                                                                                                                                                                           |
+| `utils/stripeCards.ts` | Stripe test card constants                                                                                                                                                                                                                            |
+| `fixtures/base.ts`     | `ownerPage`, `adminPage`, `demoBookingPage` — auto-restores auth sessions                                                                                                                                                                             |
 
 ---
 

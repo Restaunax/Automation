@@ -3,7 +3,7 @@ import { test, expect } from "../../../fixtures/base";
 import { createOwnerRestaurantManagementPage } from "../../../pages/dashboard/owner/OwnerRestaurantManagementPage";
 import { createOwnerOrdersPage } from "../../../pages/dashboard/owner/OwnerOrdersPage";
 import { readSharedState } from "../../../utils/testData";
-import { createZeroTotalOrder } from "../../../utils/apiHelper";
+import { apiLogin, createSeededOrder } from "../../../utils/apiHelper";
 
 const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
@@ -14,15 +14,17 @@ test.describe("Owner — Orders Tab", () => {
     "OWNER_EMAIL / OWNER_PASSWORD not set in .env"
   );
 
-  // Seed one order via the API (total:0 → paid, no Stripe) so TC-90 has a
-  // guaranteed row to open. Previously it depended on a prior run's residue
-  // lingering in QA — non-deterministic coverage. Left as residue like TC-26
-  // (there's no order-delete API); doubles as extra Orders-tab seed data.
+  // Seed one order via the API (real total, no Stripe — the backend's pricing
+  // guard rejects the old total:0 trick) so TC-90 has a guaranteed row to open.
+  // Previously it depended on a prior run's residue lingering in QA —
+  // non-deterministic coverage. Left as residue like TC-26 (there's no
+  // order-delete API); doubles as extra Orders-tab seed data.
   test.beforeAll(async () => {
     if (!OWNER_EMAIL || !OWNER_PASSWORD) return;
     const { restaurantId, menuItemId, menuItemName, menuItemPrice } =
       readSharedState();
-    await createZeroTotalOrder(restaurantId, {
+    const { accessToken } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD);
+    await createSeededOrder(accessToken, restaurantId, {
       menuItemId,
       name: menuItemName,
       price: menuItemPrice,

@@ -1453,7 +1453,7 @@ The other half of the core business loop. TC-26 proves a customer can _place_ an
 ### How it works, step by step
 
 1. `beforeAll`: owner API login; provision a POS tablet device (returns a one-time plaintext code); tablet logs in for a real POS session.
-2. A customer order is seeded via the public order API with `total: 0`, which the backend marks paid (`PENDING`) with no Stripe.
+2. A customer order is seeded via the public order API at its real menu price (the backend's pricing guard rejects `total: 0` since 2026-07-09), then bumped to `PENDING` — the state a just-paid order lands in — with no Stripe.
 3. Assert the order shows up in the restaurant's live current-orders feed (the "received" half).
 4. Drive it `PENDING → CONFIRMED → PREPARING → READY → PICKED_UP`, confirming each transition at the API, and that the fulfilled order remains on today's feed at its terminal status.
 5. `afterAll`: deactivate the tablet device (there's no device-delete API).

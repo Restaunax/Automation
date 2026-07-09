@@ -443,12 +443,16 @@ export function createCouponRaw(
 // ── Orders & POS (tablet) ────────────────────────────────────────────────────
 //
 // Order seeding + the POS/tablet order-lifecycle surface. Backend specifics
-// verified 2026-07-06:
-//   • POST /api/order/new/restaurantId/:id with total:0 creates a paid order
-//     immediately (status=PENDING, paymentStatus=COMPLETED) — no Stripe. This
-//     is the only Stripe-free order path on the customer web endpoint.
-//   • Order status routes take NO auth and accept free-form transitions from a
-//     flat allowlist (not a state machine). Path param is :id.
+// verified 2026-07-06, updated 2026-07-09:
+//   • The backend now runs a server-side pricing guard on placeOrder (backend
+//     commits 6205cefe/0d1cbb46, on QA since 2026-07-09): it recomputes the
+//     subtotal from DB menu prices and rejects any claimed total below that
+//     floor with 400 "Order Price Mismatch". The old total:0 seeding trick
+//     (which yielded an instantly-paid order with no Stripe) is permanently
+//     dead — seed orders must claim at least the items' real DB prices.
+//     createSeededOrder below is the only remaining Stripe-free seed path.
+//   • Order status routes accept free-form transitions from a flat allowlist
+//     (not a state machine). Path param is :id.
 //   • Tablet device create returns the plaintext login code ONCE. There is no
 //     delete — devices are deactivated (toggle) for cleanup.
 
@@ -464,46 +468,6 @@ export interface SeedOrderItem {
   menuItemId: string;
   name: string;
   price: number;
-}
-
-/**
- * Create a $0 PICKUP order via the public customer endpoint. total:0 makes the
- * backend mark it PENDING/COMPLETED with no Stripe intent — ideal seed data.
- * The restaurant must have settings.acceptingOrders=true (the seed restaurant
- * does). No order-delete API exists, so these are left as residue (like the
- * TC-26 real order) and double as seed data for the owner Orders tab.
- */
-export async function createZeroTotalOrder(
-  restaurantId: string,
-  item: SeedOrderItem,
-  customerEmail = `autoorder_${Date.now()}@restaunax-test.com`
-): Promise<ApiOrder> {
-  const data = await apiRequest<{ order?: ApiOrder } & ApiOrder>(
-    "POST",
-    `/api/order/new/restaurantId/${restaurantId}`,
-    {
-      orderType: "PICKUP",
-      subtotal: 0,
-      tax: 0,
-      deliveryFee: 0,
-      tip: 0,
-      total: 0,
-      customerEmail,
-      customerPhone: "+15550000000",
-      firstName: "Auto",
-      lastName: "Order",
-      orderItems: [
-        {
-          menuItemId: item.menuItemId,
-          menuItemName: item.name,
-          quantity: 1,
-          price: item.price,
-        },
-      ],
-    }
-  );
-  // Response may be the order directly or wrapped in { order }.
-  return (data.order ?? (data as ApiOrder)) as ApiOrder;
 }
 
 /**
@@ -561,21 +525,26 @@ export interface SeedOrderOpts {
  * Create a *nonzero-revenue* order that counts in reports, WITHOUT Stripe.
  *
  * Two steps:
- *   1. POST the public new-order endpoint with real subtotal/total. The backend
- *      trusts the client totals it's sent, but a nonzero order is created in
- *      status INITIALIZED (the pre-payment placeholder), which reports exclude.
+ *   1. POST the public new-order endpoint with real subtotal/total. A nonzero
+ *      order is created in status INITIALIZED (the pre-payment placeholder),
+ *      which reports and the POS current-orders feed exclude.
  *   2. PUT the status to an included status (default CONFIRMED) with an
  *      owner/admin token — the status endpoint validates only allowlist
  *      membership (no source-state check), so INITIALIZED→CONFIRMED is accepted.
  *
+ * The backend's pricing guard recomputes the subtotal from DB menu prices and
+ * rejects a claimed total below that floor ("Order Price Mismatch"). So the
+ * claimed total must be ≥ the item's real DB price — the default (subtotal =
+ * item.price, from shared state) satisfies this; an opts.subtotal override
+ * must not undercut it. Tax/tip/deliveryFee only add, so they're always safe.
+ *
  * The order's createdAt is "now", so it lands in the current business day's
  * Daily Report / Analytics with real revenue. The line-item price mirrors the
- * subtotal so the figure is stable whether the backend trusts the sent subtotal
+ * subtotal so the figure is stable whether the backend uses the sent subtotal
  * or recomputes it from the items.
  *
- * Like createZeroTotalOrder, there is no order-delete API, so seeded orders are
- * permanent QA residue — tests that rely on them must assert DELTAS, not
- * absolute totals.
+ * There is no order-delete API, so seeded orders are permanent QA residue —
+ * tests that rely on them must assert DELTAS, not absolute totals.
  */
 export async function createSeededOrder(
   ownerToken: string,
