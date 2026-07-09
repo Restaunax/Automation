@@ -193,12 +193,13 @@ Onboarding is **four distinct, unconnected paths** in the app — not one flow.
 
 ## 👔 Employee
 
-| Feature                               | Test  | Status                                                                         |
-| ------------------------------------- | ----- | ------------------------------------------------------------------------------ |
-| Tax settings page loads               | TC-17 | ✅ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` in `.env`                        |
-| Save tax rate                         | TC-18 | ✅ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` in `.env`                        |
-| Create restaurant on behalf of client | TC-97 | ✅ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` in `.env` (see Onboarding above) |
-| Publish menu                          | —     | ❌ Not written (`test.fixme` scaffold exists)                                  |
+| Feature                               | Test   | Status                                                                         |
+| ------------------------------------- | ------ | ------------------------------------------------------------------------------ |
+| Tax settings page loads               | TC-17  | ✅ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` in `.env`                        |
+| Save tax rate                         | TC-18  | ✅ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` in `.env`                        |
+| Create restaurant on behalf of client | TC-97  | ✅ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` in `.env` (see Onboarding above) |
+| Publish page reachable + button       | TC-143 | ✅ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` in `.env`                        |
+| Publish checklist visible             | TC-144 | ✅ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` in `.env`                        |
 
 ---
 
@@ -262,7 +263,7 @@ Full suite as of 2026-07-07: **107 passed / 18 skipped / 1 failed** (`TC-58`, fa
 | Access Control            | 8       | 7       | 1 (TC-58 needs EMPLOYEE creds)     | 0                   |
 | Public (sign-in/up, demo) | 10      | 10      | 1 (TC-02, Mailtrap)                | 0                   |
 | API-Level Negative        | 6       | 6       | 0                                  | 0                   |
-| Employee                  | 4       | 2       | 2 (need EMPLOYEE creds)            | 1 (publish, fixme)  |
+| Employee                  | 6       | 2       | 4 (need EMPLOYEE creds)            | 0                   |
 | Customer                  | 6       | 6       | 0                                  | 6                   |
 | Staff / POS               | 0       | 0       | 1 (fixme)                          | 7                   |
 | End-to-End                | 0       | 0       | 0                                  | 6                   |

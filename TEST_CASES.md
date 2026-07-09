@@ -34,6 +34,7 @@ Each test case includes:
 | 🍳 POS            | Restaurant kitchen / tablet        | TC-100 (`--project=pos`)                                                                                                                                  |
 | 🔒 Access Control | Testing role/permission boundaries | TC-54 → TC-58, TC-71 → TC-73, TC-81                                                                                                                       |
 | 🚪 Onboarding     | New restaurant owners              | TC-93 → TC-97 (spans Public sign-up and Employee restaurant creation)                                                                                     |
+| 👔 Employee       | Company-side setup staff           | TC-143, TC-144 (TC-17/18 tax and TC-97 also run under the EMPLOYEE role)                                                                                  |
 | 🌐 API-Level      | No UI — direct backend calls       | TC-65, TC-66, TC-68, TC-69, TC-79, TC-80                                                                                                                  |
 
 TC-17 and TC-18 (tax settings) run under the **Employee** role, not Owner —
@@ -1643,6 +1644,50 @@ This is the critical handoff from the app to Stripe. If the button calls the wro
 
 ---
 
+# 👔 SECTION 6 — Employee Dashboard
+
+> These tests check the **company-side setup staff** role (EMPLOYEE) — not to be confused with a restaurant owner's own staff. EMPLOYEE can publish menus and configure tax on behalf of a client, which OWNER is explicitly denied (see TC-27/TC-28 and the access matrix TC-54/TC-55). Tests here skip automatically unless `EMPLOYEE_EMAIL` / `EMPLOYEE_PASSWORD` are set in `.env` — a skip is a gate, not a failure.
+
+---
+
+## TC-143 — Employee Can Reach the Publish Page
+
+**Status:** ⏭️ Skipped locally (no `EMPLOYEE_*` credentials in this environment) — real everywhere they exist
+
+### What it checks
+
+Unlike OWNER, who gets Access Denied on the publish page (TC-27, TC-54), an EMPLOYEE can open it and see the "Publish Restaurant" button.
+
+### How it works, step by step
+
+1. The test signs in as EMPLOYEE and navigates directly to the restaurant's publish page
+2. It confirms the "Publish Restaurant" button is visible on screen
+
+### Why it matters
+
+This is the key proof of the OWNER-vs-EMPLOYEE permission split for publishing. If EMPLOYEE lost this access, no restaurant could ever be taken live, since owners cannot self-publish.
+
+---
+
+## TC-144 — Employee Sees the Required Checklist on the Publish Page
+
+**Status:** ⏭️ Skipped locally (no `EMPLOYEE_*` credentials in this environment) — real everywhere they exist
+
+### What it checks
+
+The same four-item checklist described in TC-28 (Hours of Operation, Menu Setup, Restaurant Information, Payment Processing) is visible to an EMPLOYEE on the publish page.
+
+### How it works, step by step
+
+1. The test signs in as EMPLOYEE and opens the restaurant's publish page
+2. It checks that all four checklist items are visible
+
+### Why it matters
+
+Confirms EMPLOYEE gets the same completeness guidance as any other role that can reach this page, so a client's restaurant is never published half-configured.
+
+---
+
 # 📊 Test Summary
 
 | #      | Test Case                                                           | Area                  | Status                                                       |
@@ -1757,8 +1802,10 @@ This is the critical handoff from the app to Stripe. If the button calls the wro
 | TC-140 | Owner Settings Notifications sub-tab shows coming-soon              | Owner                 | ✅ Passing                                                   |
 | TC-141 | Owner views the Daily Report (current business day)                 | Owner                 | ✅ Passing                                                   |
 | TC-142 | Seeded orders reflected in today's Daily Report KPIs                | Owner                 | ✅ Passing                                                   |
+| TC-143 | Employee reaches the publish page                                   | Employee              | ⏭️ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD`                |
+| TC-144 | Employee sees publish checklist items                               | Employee              | ⏭️ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD`                |
 
-**107 passing · 18 skipped · 1 failing (env-only)** — as of 2026-07-07. The one failure (TC-58) fails only in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` set; it passes wherever those credentials exist. (Owner-side expansion on 2026-07-07 added TC-35 + TC-127–129 for the Analytics tab, TC-131–135 deepening the Orders tab, TC-136–138 for the Customers tab, TC-139–140 for the Owner Settings tab, and TC-141–142 for the Daily Report tab — all passing.)
+**107 passing · 20 skipped · 1 failing (env-only)** — as of 2026-07-08. The one failure (TC-58) fails only in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` set; it passes wherever those credentials exist. (Owner-side expansion on 2026-07-07 added TC-35 + TC-127–129 for the Analytics tab, TC-131–135 deepening the Orders tab, TC-136–138 for the Customers tab, TC-139–140 for the Owner Settings tab, and TC-141–142 for the Daily Report tab — all passing.)
 
 Skipped tests fall into four groups: **route access** (TC-27, TC-28, TC-81 — publish/tax/loyalty are employee/admin-only and return Access Denied for the owner role); **missing UI** (TC-42, TC-44 — the edit/delete buttons don't exist in the current menu editor); **missing credentials in this environment** (TC-58, TC-97, plus TC-17/TC-18 in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD`; TC-02 without Mailtrap); and **a real backend bug** (TC-92 — editing any coupon 500s server-side, filed as `test.fixme` with the exact error rather than asserting broken behavior as correct). TC-33 and TC-34 remain narrative-only placeholders with no test code at all — not the same as a skipped/fixme test.
 
