@@ -153,6 +153,10 @@ export interface SharedState {
   menuItemId: string;
   menuItemName: string;
   menuItemPrice: number;
+  // Backend process start time (epoch ms) captured at setup, used by
+  // publish-results to flag a run superseded by a mid-run deploy. Optional so
+  // older state files and health-unreachable runs still parse.
+  processStartedAt?: number | null;
 }
 
 export function readSharedState(): SharedState {

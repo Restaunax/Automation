@@ -42,6 +42,9 @@ export default defineConfig({
 
   reporter: [
     ["list"],
+    // Machine-readable results consumed by scripts/publish-results.ts (Allure is
+    // for humans; this JSON is for the CI → Postgres → Grafana pipeline).
+    ["json", { outputFile: "results.json" }],
     [
       "allure-playwright",
       {

@@ -14,7 +14,8 @@
 
 import { readUsersForCleanup, clearUsersForCleanup } from "./testData";
 
-const BACKEND_URL = process.env.BACKEND_URL ?? "https://api.qa.restaunax.com";
+export const BACKEND_URL =
+  process.env.BACKEND_URL ?? "https://api.qa.restaunax.com";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
