@@ -21,13 +21,17 @@ import {
   getOwnerRestaurants,
   createTestMenuGroup,
   createTestMenuItem,
+  BACKEND_URL,
 } from "./utils/apiHelper";
+import { readProcessStartedAt } from "./utils/deployGuard";
+import { assertSafeTargets } from "./utils/targetGuard";
 import {
   STATE_FILE,
   OWNER_AUTH_FILE,
   ADMIN_AUTH_FILE,
   EMPLOYEE_AUTH_FILE,
   FRONTEND_URL,
+  TEMPLATE_WIND_URL,
   writeSharedState,
   generateDemoFormData,
   DEMO_EMAILS_ENABLED,
@@ -164,6 +168,15 @@ async function submitDemoRequest(): Promise<{
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 export default async function globalSetup(): Promise<void> {
+  // SAFETY: refuse to run if any target resolves to a non-QA/localhost host.
+  // Teardown hard-deletes via an admin token; this guard prevents a misconfigured
+  // env from ever pointing that at production. Must be first — before any login.
+  assertSafeTargets({ FRONTEND_URL, BACKEND_URL, TEMPLATE_WIND_URL });
+
+  // Record when the backend process started, so globalTeardown / publish-results
+  // can detect a deploy that restarted it mid-run and mark the run superseded.
+  const processStartedAt = await readProcessStartedAt(BACKEND_URL);
+
   // Ensure test-results dir exists for failure screenshots
   fs.mkdirSync(path.resolve(__dirname, "test-results"), { recursive: true });
 
@@ -288,6 +301,7 @@ export default async function globalSetup(): Promise<void> {
     menuItemId,
     menuItemName,
     menuItemPrice,
+    processStartedAt,
   });
 
   console.log(`[globalSetup] shared-state.tmp.json written.\n`);

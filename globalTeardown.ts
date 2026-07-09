@@ -18,13 +18,17 @@ import {
   deleteAutomationCoupons,
   deleteDemoRequestByEmail,
   deleteRecordedUsers,
+  BACKEND_URL,
 } from "./utils/apiHelper";
+import { assertSafeTargets } from "./utils/targetGuard";
 import {
   STATE_FILE,
   OWNER_AUTH_FILE,
   ADMIN_AUTH_FILE,
   EMPLOYEE_AUTH_FILE,
   USERS_CLEANUP_FILE,
+  FRONTEND_URL,
+  TEMPLATE_WIND_URL,
   readSharedState,
 } from "./utils/testData";
 
@@ -36,6 +40,11 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 
 export default async function globalTeardown(): Promise<void> {
+  // SAFETY: same host allowlist as globalSetup. Teardown is the destructive
+  // half (hard-deletes via admin token) — guard it independently so a run that
+  // somehow reached teardown with bad targets still refuses to sweep.
+  assertSafeTargets({ FRONTEND_URL, BACKEND_URL, TEMPLATE_WIND_URL });
+
   console.log("\n[globalTeardown] Starting cleanup…");
 
   // Admin token (optional): needed for the HARD item delete — the plain item
