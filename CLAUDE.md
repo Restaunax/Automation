@@ -266,7 +266,8 @@ npm run test          # All tests, headless
 npm run test:headed   # Visible browser
 npm run test:ui       # Interactive Playwright UI
 npm run test:debug    # Step-through debugger
-npm run test:ci       # CI mode with Allure reporter
-npm run report        # Generate + open Allure HTML report
+npm run test:ci       # CI mode (config reporters: list + html + json + Allure)
+npm run report        # Generate + open Allure HTML report (needs Java)
+npm run report:html   # Open Playwright's built-in HTML report (no Java)
 npm run clean         # Delete test artifacts
 ```
