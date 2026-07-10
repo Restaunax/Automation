@@ -373,6 +373,155 @@ export async function deleteAutomationCoupons(
   return deleted;
 }
 
+// ── Gift Cards ───────────────────────────────────────────────────────────────
+//
+// Codes are server-generated (unlike client-chosen `AUTO*` coupon codes), so
+// there's no prefix to sweep by. There's also no delete endpoint — only
+// freeze (admin), which is the closest thing to cleanup. See
+// testData.ts's gift-card cleanup-file pair + globalTeardown's freeze sweep.
+
+export interface ApiGiftCard {
+  id: string;
+  /** Display-formatted with dashes on purchase; masked (****-****-****-XXXX) in admin list results. */
+  code: string;
+  initialBalance: number;
+  currentBalance: number;
+  status: "ACTIVE" | "DEPLETED" | "FROZEN";
+}
+
+export interface GiftCardConfig {
+  isEnabled: boolean;
+  presetDenominations: number[];
+  allowCustomAmount: boolean;
+  minCustomAmount: number;
+  maxCustomAmount: number;
+  canCombineWithCoupons: boolean;
+}
+
+/** GET /api/gift-cards/config/restaurant/:id — public, no auth. */
+export async function getGiftCardConfig(
+  restaurantId: string
+): Promise<GiftCardConfig> {
+  const data = await apiRequest<{ data: GiftCardConfig }>(
+    "GET",
+    `/api/gift-cards/config/restaurant/${restaurantId}`
+  );
+  return data.data;
+}
+
+/**
+ * POST /api/gift-cards/purchase — public, no auth. `stripePaymentIntentId` is
+ * stored as-is for Stripe-fee bookkeeping only; the backend never verifies it
+ * against Stripe, so this can seed a valid, fully-funded gift card WITHOUT
+ * driving the real purchase UI/Stripe iframe — the right way to fixture a
+ * card for checkout-redemption tests (mirrors createCouponRaw's role for
+ * coupons). The dedicated purchase-flow tests still drive the real UI.
+ */
+export async function purchaseGiftCard(body: {
+  restaurantId: string;
+  amount: number;
+  deliveryMethod?: "EMAIL";
+  recipientEmail?: string;
+}): Promise<ApiGiftCard> {
+  const data = await apiRequest<{ data: ApiGiftCard }>(
+    "POST",
+    "/api/gift-cards/purchase",
+    { deliveryMethod: "EMAIL", ...body }
+  );
+  return data.data;
+}
+
+/** Raw purchase — for negative cases (e.g. amount out of config range → 400). */
+export function purchaseGiftCardRaw(
+  body: Record<string, unknown>
+): Promise<RawResponse> {
+  return apiRequestRaw("POST", "/api/gift-cards/purchase", {
+    deliveryMethod: "EMAIL",
+    ...body,
+  });
+}
+
+/** GET /api/gift-cards/balance/:code — public, no auth. Throws on 404 (unknown code). */
+export async function getGiftCardBalance(code: string): Promise<{
+  currentBalance: number;
+  initialBalance: number;
+  status: "ACTIVE" | "DEPLETED" | "FROZEN";
+}> {
+  const data = await apiRequest<{
+    data: {
+      currentBalance: number;
+      initialBalance: number;
+      status: "ACTIVE" | "DEPLETED" | "FROZEN";
+    };
+  }>("GET", `/api/gift-cards/balance/${code}`);
+  return data.data;
+}
+
+/** Raw balance check — for negative cases (e.g. nonexistent code → 404). */
+export function getGiftCardBalanceRaw(code: string): Promise<RawResponse> {
+  return apiRequestRaw("GET", `/api/gift-cards/balance/${code}`);
+}
+
+/**
+ * Admin-only lookup: gift cards are found/adjusted/frozen by DB `id`, not
+ * `code`, but tests only know the code from the purchase response. `search`
+ * filters server-side on the raw (unmasked) code column before the response
+ * masks it, so passing the full code here still finds the right row.
+ */
+export async function findGiftCardIdByCode(
+  adminToken: string,
+  code: string
+): Promise<string> {
+  // The DB stores the raw code with no separators; the UI-displayed/confirmed
+  // code is dash-formatted ("XXXX-XXXX-XXXX-XXXX"), which never matches a
+  // `contains` search against the raw column — strip non-alphanumerics first.
+  const sanitized = code.replace(/[^A-Z0-9]/gi, "");
+  const data = await apiRequest<{
+    data: { giftCards: { id: string }[] };
+  }>(
+    "GET",
+    `/api/admin/gift-cards?search=${encodeURIComponent(sanitized)}`,
+    undefined,
+    adminToken
+  );
+  const card = data.data.giftCards[0];
+  if (!card) throw new Error(`No gift card found matching code ${code}`);
+  return card.id;
+}
+
+/**
+ * POST /api/admin/gift-cards/:id/adjust — `amount` is a DELTA added to
+ * currentBalance (not an absolute target). To deplete a card to zero for a
+ * negative-redemption test, pass `amount: -currentBalance`.
+ */
+export async function adjustGiftCardBalance(
+  adminToken: string,
+  giftCardId: string,
+  amount: number,
+  reason: string
+): Promise<void> {
+  await apiRequest<unknown>(
+    "POST",
+    `/api/admin/gift-cards/${giftCardId}/adjust`,
+    { amount, reason },
+    adminToken
+  );
+}
+
+/** PATCH /api/admin/gift-cards/:id/freeze — no body. Used both by negative
+ * redemption tests (seed a frozen card) and by the cleanup sweep. */
+export async function freezeGiftCardApi(
+  adminToken: string,
+  giftCardId: string
+): Promise<void> {
+  await apiRequest<unknown>(
+    "PATCH",
+    `/api/admin/gift-cards/${giftCardId}/freeze`,
+    undefined,
+    adminToken
+  );
+}
+
 // ── Demo requests ────────────────────────────────────────────────────────────
 
 /**

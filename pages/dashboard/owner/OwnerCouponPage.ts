@@ -25,9 +25,12 @@ export const createOwnerCouponPage = (page: Page) => {
   // FormLabel does not emit a `for` attribute so getByLabel won't find this input;
   // target by name attribute instead (the only input[name="value"] in this form).
   const discountValueInput = () => page.locator('input[name="value"]');
+  const descriptionInput = () => page.locator('input[name="description"]');
   // The sidebar "Create Coupon" nav button and the form submit button share the
   // same text — use type="submit" to target only the form button.
   const createCouponButton = () => page.locator('button[type="submit"]');
+  const resetFormButton = () =>
+    page.getByRole("button", { name: "Reset Form", exact: true });
   const successToast = () => page.getByText("Coupon created successfully!");
 
   const assertFormVisible = () =>
@@ -45,8 +48,71 @@ export const createOwnerCouponPage = (page: Page) => {
   const assertSuccessToast = () =>
     expect(successToast()).toBeVisible({ timeout: 10_000 });
 
+  // Duplicate opens the create form pre-filled as a "template" (isFromTemplate),
+  // so a successful submit shows a different message than a plain create.
+  const successFromTemplateToast = () =>
+    page.getByText("Coupon created successfully from template!");
+  const assertSuccessFromTemplateToast = () =>
+    expect(successFromTemplateToast()).toBeVisible({ timeout: 10_000 });
+
   const errorAlert = () => page.getByRole("alert");
   const fieldErrors = () => page.locator(".MuiFormHelperText-root");
+
+  // ── Discount type / menu item Selects ────────────────────────────────────
+  // MUI's Select generates id="mui-component-select-<name>" on its clickable
+  // display element when given a `name` prop but no explicit `id`/`labelId`
+  // (this form sets neither) — target by that convention rather than by label,
+  // since FormLabel here has no `for` attribute either.
+  const discountTypeSelect = () => page.locator("#mui-component-select-type");
+  const menuItemSelect = () => page.locator("#mui-component-select-menuItemId");
+  const statusSelect = () => page.locator("#mui-component-select-status");
+
+  const chooseOption = async (
+    selectLocator: ReturnType<typeof page.locator>,
+    optionName: string | RegExp
+  ) => {
+    await selectLocator.click();
+    await page.getByRole("option", { name: optionName }).first().click();
+  };
+
+  const selectDiscountType = (
+    type: "Percentage (%)" | "Fixed Amount ($)" | "Item Discount ($)"
+  ) => chooseOption(discountTypeSelect(), type);
+
+  const selectMenuItem = (itemName: string) =>
+    chooseOption(menuItemSelect(), new RegExp(itemName));
+
+  const selectStatus = (status: "Active" | "Inactive") =>
+    chooseOption(statusSelect(), status);
+
+  const menuItemRequiredError = () =>
+    page.getByText("Menu item selection is required for item discounts");
+  const amountGreaterThanZeroError = () =>
+    page.getByText("Amount must be greater than 0");
+  const endDateAfterStartDateError = () =>
+    page.getByText("End date must be after start date");
+  const codeRequiredError = () => page.getByText("Coupon code is required");
+
+  // ── Validity Period date fields ──────────────────────────────────────────
+  // MUI X DatePicker's visible widget is a sectioned input, not a plain text
+  // box — clicking a hidden proxy input doesn't work; click the sections
+  // container (scoped to the FormControl whose label contains labelText) and
+  // type through the keyboard instead. Mirrors the pattern already used for
+  // the demo-scheduling datetime field in AdminDemoManagementPage.
+  const dateSectionsFor = (labelText: string) =>
+    page
+      .locator(".MuiFormControl-root")
+      .filter({ has: page.getByText(labelText, { exact: false }) })
+      .locator(".MuiPickersSectionList-root");
+
+  const setDateField = async (labelText: string, mmddyyyy: string) => {
+    await dateSectionsFor(labelText).click();
+    await page.keyboard.type(mmddyyyy, { delay: 60 });
+  };
+
+  const setStartDate = (mmddyyyy: string) =>
+    setDateField("Start Date", mmddyyyy);
+  const setEndDate = (mmddyyyy: string) => setDateField("End Date", mmddyyyy);
 
   // ── Manage Coupons list ──────────────────────────────────────────────────
   const navigateToManageCoupons = async () => {
@@ -73,6 +139,61 @@ export const createOwnerCouponPage = (page: Page) => {
   const couponRowByCode = (code: string) =>
     page.locator("tr", { hasText: code });
 
+  const emptyState = () => page.getByText("No coupons found");
+
+  // ── Manage Coupons — filters, sorting, pagination ────────────────────────
+  const searchInput = () => page.locator("#coupon-search");
+  const search = (text: string) => searchInput().fill(text);
+
+  const statusFilterSelect = () => page.locator("#coupon-status-filter");
+  const selectStatusFilter = (
+    status: "All Statuses" | "Active" | "Inactive" | "Expired"
+  ) => chooseOption(statusFilterSelect(), status);
+
+  const sortByCodeHeader = () =>
+    page.locator("thead").getByText("Code", { exact: true });
+  const sortByValidUntilHeader = () =>
+    page.locator("thead").getByText("Valid Until", { exact: true });
+
+  const nextPageButton = () =>
+    page.getByRole("button", { name: "Go to next page" });
+  const rowsPerPageSelect = () =>
+    page.locator('[aria-labelledby*="MuiTablePagination-selectLabel"]');
+
+  const copyCodeButton = (code: string) =>
+    couponRowByCode(code).locator("button").first();
+  const codeCopiedToast = () =>
+    page.getByText("Coupon code copied to clipboard");
+
+  // ── Row actions (⋮ menu) ──────────────────────────────────────────────────
+  // Actions is the last column; the ⋮ IconButton has no aria-label, but it's
+  // the last button in the row (copy-code is the first, enrollment toggle is
+  // a Switch not a button).
+  const openRowActionMenu = (code: string) =>
+    couponRowByCode(code).locator("button").last().click();
+
+  const editMenuItem = () => page.getByRole("menuitem", { name: "Edit" });
+  const sendToCustomersMenuItem = () =>
+    page.getByRole("menuitem", { name: "Send to Customers" });
+  const duplicateMenuItem = () =>
+    page.getByRole("menuitem", { name: "Duplicate" });
+  const deleteMenuItem = () => page.getByRole("menuitem", { name: "Delete" });
+
+  // ── Delete confirmation dialog (typed-word confirm) ──────────────────────
+  const deleteConfirmDialog = () => page.getByRole("dialog");
+  const assertDeleteDialogVisible = () =>
+    expect(deleteConfirmDialog().getByText("Confirm Delete")).toBeVisible({
+      timeout: 10_000,
+    });
+  const typeDeleteConfirmWord = () =>
+    deleteConfirmDialog().getByPlaceholder("DELETE").fill("DELETE");
+  const confirmDeleteButton = () =>
+    deleteConfirmDialog().getByRole("button", { name: "Delete", exact: true });
+  const cancelDeleteButton = () =>
+    deleteConfirmDialog().getByRole("button", { name: "Cancel", exact: true });
+  const couponDeletedToast = () =>
+    page.getByText("Coupon deleted successfully");
+
   // Submitting an invalid discount value stays on the create form and shows
   // both a top-level alert and an inline percentage-range error.
   const assertInvalidDiscountError = async () => {
@@ -89,17 +210,55 @@ export const createOwnerCouponPage = (page: Page) => {
     navigateToCreateCoupon,
     couponCodeInput,
     discountValueInput,
+    descriptionInput,
     createCouponButton,
+    resetFormButton,
     successToast,
     assertFormVisible,
     fillCouponForm,
     submit,
     assertSuccessToast,
+    successFromTemplateToast,
+    assertSuccessFromTemplateToast,
     errorAlert,
     fieldErrors,
     assertInvalidDiscountError,
+    discountTypeSelect,
+    menuItemSelect,
+    statusSelect,
+    selectDiscountType,
+    selectMenuItem,
+    selectStatus,
+    menuItemRequiredError,
+    amountGreaterThanZeroError,
+    endDateAfterStartDateError,
+    codeRequiredError,
+    setStartDate,
+    setEndDate,
     navigateToManageCoupons,
     assertManageCouponsLoaded,
     couponRowByCode,
+    emptyState,
+    searchInput,
+    search,
+    statusFilterSelect,
+    selectStatusFilter,
+    sortByCodeHeader,
+    sortByValidUntilHeader,
+    nextPageButton,
+    rowsPerPageSelect,
+    copyCodeButton,
+    codeCopiedToast,
+    openRowActionMenu,
+    editMenuItem,
+    sendToCustomersMenuItem,
+    duplicateMenuItem,
+    deleteMenuItem,
+    deleteConfirmDialog,
+    assertDeleteDialogVisible,
+    typeDeleteConfirmWord,
+    confirmDeleteButton,
+    cancelDeleteButton,
+    couponDeletedToast,
   };
 };

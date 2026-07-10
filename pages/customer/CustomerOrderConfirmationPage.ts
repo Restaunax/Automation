@@ -6,8 +6,13 @@ export const createCustomerOrderConfirmationPage = (page: Page) => {
       { timeout: 20_000 }
     );
 
+  // "Order #" (label) and the number itself render as separate text nodes/
+  // lines in the same card, not concatenated — the original `/Order # #/`
+  // regex never matched either node (confirmed live). Match the label alone.
   const assertOrderNumberVisible = () =>
-    expect(page.getByText(/Order # #/)).toBeVisible({ timeout: 10_000 });
+    expect(page.getByText("Order #", { exact: true })).toBeVisible({
+      timeout: 10_000,
+    });
 
   const assertCustomerName = (firstName: string) =>
     expect(page.getByText(`Thanks ${firstName}!`)).toBeVisible({
