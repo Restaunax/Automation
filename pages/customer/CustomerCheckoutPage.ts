@@ -6,17 +6,27 @@ const TEMPLATE_WIND_URL =
   process.env.TEMPLATE_WIND_URL ?? "https://qa.restaunax.com";
 
 export const createCustomerCheckoutPage = (page: Page) => {
-  // Navigate to menu first to establish the domain, then seed cart via sessionStorage
+  // Navigate to menu first to establish the domain, then seed cart via sessionStorage.
+  //
+  // Uses page.addInitScript rather than a post-load page.evaluate: CartContext
+  // auto-saves its in-memory state (items/coupon/tip/...) back to
+  // sessionStorage on every mount/state change. A post-load evaluate() races
+  // that autosave — navigating to /menu first remounts CartContext, which
+  // reads whatever coupon/etc. is CURRENTLY in sessionStorage (e.g. left over
+  // from a coupon applied earlier in the same test) into React state, and its
+  // autosave effect can re-persist that stale value to sessionStorage *after*
+  // our evaluate() already overwrote it — so a second seedCart() call within
+  // one test intermittently fails to actually clear a previously-applied
+  // coupon/gift-card. addInitScript runs before any of the app's own scripts
+  // on every subsequent navigation in this page, so CartContext's very first
+  // read already sees the fresh payload — there's nothing stale to reload.
   const seedCart = async (
     restaurantId: string,
     menuItemId: string,
     menuItemName: string,
     menuItemPrice: number
   ) => {
-    await page.goto(`${TEMPLATE_WIND_URL}/menu?restaurantId=${restaurantId}`, {
-      waitUntil: "domcontentloaded",
-    });
-    await page.evaluate(
+    await page.addInitScript(
       ({ rid, iid, iname, iprice }) => {
         sessionStorage.setItem(
           "cart",
@@ -50,6 +60,9 @@ export const createCustomerCheckoutPage = (page: Page) => {
         iprice: menuItemPrice,
       }
     );
+    await page.goto(`${TEMPLATE_WIND_URL}/menu?restaurantId=${restaurantId}`, {
+      waitUntil: "domcontentloaded",
+    });
     // Same ?restaurantId= QA override as /menu — without it a multi-location
     // deployment shows the location picker instead of the checkout form.
     await page.goto(
@@ -96,8 +109,13 @@ export const createCustomerCheckoutPage = (page: Page) => {
     await phoneInput().fill(phone);
   };
 
+  // ServiceTypeSelector renders Pickup/Delivery as buttons, not radios (a
+  // real deployment change since this was last verified — confirmed live:
+  // getByRole("radio", {name:/pickup/i}) no longer matches anything).
+  // Accessible name includes the prep-time/fee detail text, e.g. "Pickup
+  // 15-20 minutes Free", so this matches by prefix rather than exact.
   const selectPickup = () =>
-    page.getByRole("radio", { name: /pickup/i }).click();
+    page.getByRole("button", { name: /^Pickup/i }).click();
 
   const proceedToPaymentButton = () =>
     page.getByRole("button", { name: "Proceed to Payment" });
@@ -133,9 +151,23 @@ export const createCustomerCheckoutPage = (page: Page) => {
 
   // ── Coupon (CouponSection inside OrderSummary; guest-accessible, visible in
   // both checkout steps). The input has no name/id/testid — placeholder only.
-  const couponCodeInput = () => page.getByPlaceholder("Enter code");
+  //
+  // Scoped to the box via its "Have a coupon code?" label: the checkout page
+  // also renders a Gift Card box (RewardSection) with its own "Apply" button
+  // right below the customer-info form, so an unscoped getByRole("button",
+  // {name:"Apply"}) strict-mode-violates once both boxes are visible (both
+  // render unconditionally on the same step). .last() picks the innermost
+  // matching div (CouponSection's own root), not an outer page wrapper that
+  // would also contain the gift-card box. The label only exists pre-apply,
+  // which is exactly when these locators are needed.
+  const couponBox = () =>
+    page
+      .locator("div")
+      .filter({ has: page.getByText("Have a coupon code?", { exact: true }) })
+      .last();
+  const couponCodeInput = () => couponBox().getByPlaceholder("Enter code");
   const applyCouponButton = () =>
-    page.getByRole("button", { name: "Apply", exact: true });
+    couponBox().getByRole("button", { name: "Apply", exact: true });
 
   const applyCoupon = async (code: string) => {
     await couponCodeInput().waitFor({ state: "visible", timeout: 15_000 });
@@ -155,12 +187,68 @@ export const createCustomerCheckoutPage = (page: Page) => {
     ).toBeVisible({ timeout: 10_000 });
   };
 
-  // Invalid code → red error box; the input stays (no applied block).
+  // Invalid code → red error box; the input stays (no applied block). A
+  // nonexistent code's actual message is "Coupon Not Found" (confirmed live),
+  // which the original "not valid|invalid|error" regex didn't cover.
   const assertCouponRejected = async () => {
     await expect(
-      page.getByText(/not valid|invalid|error/i).first()
+      page.getByText(/not valid|invalid|error|not found/i).first()
     ).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(/Saving \$\d/)).toHaveCount(0);
+  };
+
+  // ── Gift card (RewardSection's "Gift Card" box; guest-accessible, renders
+  // unconditionally right after the customer-info form regardless of the
+  // restaurant's gift-card config — see couponBox() comment above for why
+  // this needs scoping). The "Gift Card" h4 heading is present in both the
+  // pre-apply (code input) and post-apply (applied summary) states, unlike
+  // the coupon box's label, so this locator works for both apply and remove.
+  //
+  // Scoped by walking up from the heading two ancestor <div>s (heading's own
+  // wrapper, then the box's root — matches RewardSection's exact JSX
+  // nesting), not a div:has(heading) + .last() filter chain: that pattern
+  // proved unreliable here too (same issue found on the gift-cards purchase
+  // page's balance-check box — see CustomerGiftCardPage.ts).
+  const giftCardBox = () =>
+    page
+      .getByRole("heading", { name: "Gift Card", exact: true })
+      .locator("xpath=ancestor::div[2]");
+  const giftCardCodeInput = () =>
+    giftCardBox().getByPlaceholder("XXXX-XXXX-XXXX-XXXX");
+  const applyGiftCardButton = () =>
+    giftCardBox().getByRole("button", { name: "Apply", exact: true });
+  const removeGiftCardButton = () =>
+    giftCardBox().getByRole("button", { name: "Remove", exact: true });
+
+  const applyGiftCard = async (code: string) => {
+    await giftCardCodeInput().waitFor({ state: "visible", timeout: 15_000 });
+    await giftCardCodeInput().fill(code);
+    await applyGiftCardButton().click();
+  };
+
+  const removeGiftCard = () => removeGiftCardButton().click();
+
+  // Success swaps the box for a green "Gift card applied: -$X.XX" summary
+  // (and, if the card's balance exceeds what was applied, a "Remaining
+  // balance: $X.XX" line — see checkout/page.tsx's full-balance-application
+  // behavior, appliedGiftCard always equals the card's full current balance).
+  const assertGiftCardApplied = () =>
+    expect(giftCardBox().getByText(/Gift card applied: -\$\d/)).toBeVisible({
+      timeout: 15_000,
+    });
+
+  const assertGiftCardRemoved = () =>
+    expect(giftCardBox().getByText(/Gift card applied: -\$\d/)).toHaveCount(0);
+
+  // Invalid/inactive/depleted code → red error text inside the box; no
+  // applied summary appears.
+  const assertGiftCardRejected = async () => {
+    await expect(giftCardBox().locator("p.text-red-500")).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(
+      giftCardBox().getByText(/Gift card applied: -\$\d/)
+    ).toHaveCount(0);
   };
 
   // ── Delivery (ServiceTypeSelector — buttons, not radios; Delivery hidden on
@@ -209,6 +297,14 @@ export const createCustomerCheckoutPage = (page: Page) => {
     applyCoupon,
     assertCouponApplied,
     assertCouponRejected,
+    giftCardCodeInput,
+    applyGiftCardButton,
+    removeGiftCardButton,
+    applyGiftCard,
+    removeGiftCard,
+    assertGiftCardApplied,
+    assertGiftCardRemoved,
+    assertGiftCardRejected,
     deliveryButton,
     deliveryAddressInput,
     isDeliveryAvailable,

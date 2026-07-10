@@ -42,6 +42,10 @@ export default defineConfig({
 
   reporter: [
     ["list"],
+    // Zero-dependency local report (no Java, unlike Allure) — view with
+    // `npm run report:html`. open:"never" keeps headless/CI runs from
+    // launching a browser.
+    ["html", { outputFolder: "playwright-report", open: "never" }],
     // Machine-readable results consumed by scripts/publish-results.ts (Allure is
     // for humans; this JSON is for the CI → Postgres → Grafana pipeline).
     ["json", { outputFile: "results.json" }],

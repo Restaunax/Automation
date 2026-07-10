@@ -19,13 +19,18 @@ not checked into the repo).
 npm test               # all tests, headless
 npm run test:headed    # visible browser
 npm run test:ui        # interactive Playwright UI
-npm run report         # generate + open the Allure report
+npm run report:html    # open the Playwright HTML report (no Java)
+npm run report         # generate + open the Allure report (needs Java)
 ```
+
+Full instructions — setup, running individual tests, reading reports — in
+[`RUNNING_TESTS.md`](./RUNNING_TESTS.md).
 
 ## Documentation
 
 | Doc                                      | What it's for                                                                           |
 | ---------------------------------------- | --------------------------------------------------------------------------------------- |
+| [`RUNNING_TESTS.md`](./RUNNING_TESTS.md) | How-to: setup, run all/individual tests, view reports                                   |
 | [`TEST_PLAN.md`](./TEST_PLAN.md)         | Canonical reference: role model, project structure, conventions, how to add a test      |
 | [`TEST_CASES.md`](./TEST_CASES.md)       | Plain-English description of every test case, for non-technical readers                 |
 | [`TEST_COVERAGE.md`](./TEST_COVERAGE.md) | Coverage map by feature area, known gaps, and technical debt                            |
@@ -34,7 +39,7 @@ npm run report         # generate + open the Allure report
 ## CI
 
 ```bash
-npm run test:ci   # CI mode, Allure reporter
+npm run test:ci   # CI mode (config reporters: list + html + json + Allure)
 npm run lint       # ESLint
 npm run typecheck  # tsc --noEmit
 ```

@@ -3,7 +3,18 @@ import { test, expect } from "../../../fixtures/base";
 import { createOwnerRestaurantManagementPage } from "../../../pages/dashboard/owner/OwnerRestaurantManagementPage";
 import { createOwnerCouponPage } from "../../../pages/dashboard/owner/OwnerCouponPage";
 import { readSharedState, generateCouponCode } from "../../../utils/testData";
-import { apiLogin, getRestaurantCoupons } from "../../../utils/apiHelper";
+import {
+  apiLogin,
+  getRestaurantCoupons,
+  createCouponRaw,
+} from "../../../utils/apiHelper";
+
+// MM/DD/YYYY for the DatePicker's sectioned keyboard input (see setStartDate/
+// setEndDate in OwnerCouponPage).
+const formatMMDDYYYY = (date: Date) =>
+  `${String(date.getMonth() + 1).padStart(2, "0")}${String(
+    date.getDate()
+  ).padStart(2, "0")}${date.getFullYear()}`;
 
 const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
@@ -165,6 +176,653 @@ test.describe("Owner — Coupons", () => {
         timeout: 10_000,
       });
     });
+  });
+
+  test("TC-145: owner can create a FIXED_AMOUNT coupon", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Selecting Fixed Amount as the discount type and a positive dollar value creates the coupon."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const couponPage = createOwnerCouponPage(ownerPage);
+    const couponCode = generateCouponCode();
+
+    await mgmtPage.goto(restaurantId);
+    await couponPage.navigateToCreateCoupon();
+
+    await allure.step("Select Fixed Amount and fill the form", async () => {
+      await couponPage.selectDiscountType("Fixed Amount ($)");
+      await couponPage.fillCouponForm(couponCode, "5");
+    });
+
+    await allure.step("Submit and verify success", async () => {
+      await couponPage.submit();
+      await couponPage.assertSuccessToast();
+    });
+
+    await allure.step("Verify the coupon persisted server-side", async () => {
+      const { accessToken } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD);
+      const coupons = await getRestaurantCoupons(accessToken, restaurantId);
+      expect(coupons.some((c) => c.code === couponCode)).toBe(true);
+    });
+  });
+
+  test("TC-146: owner can create a FIXED_ITEM coupon", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Selecting Item Discount as the discount type requires and accepts a menu item selection."
+    );
+
+    const { restaurantId, menuItemName } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const couponPage = createOwnerCouponPage(ownerPage);
+    const couponCode = generateCouponCode();
+
+    await mgmtPage.goto(restaurantId);
+    await couponPage.navigateToCreateCoupon();
+
+    await allure.step(
+      "Select Item Discount, pick a menu item, fill the rest",
+      async () => {
+        await couponPage.selectDiscountType("Item Discount ($)");
+        await couponPage.selectMenuItem(menuItemName);
+        await couponPage.fillCouponForm(couponCode, "5");
+      }
+    );
+
+    await allure.step("Submit and verify success", async () => {
+      await couponPage.submit();
+      await couponPage.assertSuccessToast();
+    });
+
+    await allure.step("Verify the coupon persisted server-side", async () => {
+      const { accessToken } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD);
+      const coupons = await getRestaurantCoupons(accessToken, restaurantId);
+      expect(coupons.some((c) => c.code === couponCode)).toBe(true);
+    });
+  });
+
+  test("TC-147: FIXED_ITEM without a menu item selection is rejected", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Submitting an Item Discount coupon without picking a menu item is blocked and no coupon is " +
+        "created. Note: the app's own validateForm() has a menuItemId-required rule with a custom " +
+        "message, but it never gets a chance to run here — MUI's Select renders a hidden " +
+        "input[name=menuItemId][required] for native HTML5 form validation, and the browser's native " +
+        "'Please fill out this field' constraint-validation UI intercepts the submit event before " +
+        "React's onSubmit fires (confirmed live: no POST /api/coupons request is ever sent)."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const couponPage = createOwnerCouponPage(ownerPage);
+
+    let couponRequestFired = false;
+    ownerPage.on("request", (r) => {
+      if (r.method() === "POST" && r.url().includes("/api/coupons")) {
+        couponRequestFired = true;
+      }
+    });
+
+    await mgmtPage.goto(restaurantId);
+    await couponPage.navigateToCreateCoupon();
+
+    await couponPage.selectDiscountType("Item Discount ($)");
+    await couponPage.fillCouponForm(generateCouponCode(), "5");
+    await couponPage.submit();
+
+    await allure.step(
+      "Verify the native required-field validation blocks submission",
+      async () => {
+        const isValueMissing = await couponPage
+          .menuItemSelect()
+          .locator('xpath=following-sibling::input[@name="menuItemId"]')
+          .evaluate((el: HTMLInputElement) => el.validity.valueMissing);
+        expect(isValueMissing).toBe(true);
+        expect(couponRequestFired).toBe(false);
+        await expect(couponPage.couponCodeInput()).toBeVisible();
+      }
+    );
+  });
+
+  test("TC-148: a non-positive FIXED_AMOUNT value is rejected", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "A Fixed Amount coupon submitted with a value of 0 shows 'Amount must be greater than 0' and " +
+        "does not create the coupon (complements TC-63, which covers the PERCENTAGE-range path)."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const couponPage = createOwnerCouponPage(ownerPage);
+
+    await mgmtPage.goto(restaurantId);
+    await couponPage.navigateToCreateCoupon();
+
+    await couponPage.selectDiscountType("Fixed Amount ($)");
+    await couponPage.couponCodeInput().fill(generateCouponCode());
+    await couponPage.discountValueInput().fill("0");
+    await couponPage.discountValueInput().press("Tab");
+    await couponPage.submit();
+
+    await expect(couponPage.amountGreaterThanZeroError()).toBeVisible({
+      timeout: 10_000,
+    });
+  });
+
+  test("TC-149: an end date before the start date is rejected", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Setting an End Date earlier than the Start Date shows 'End date must be after start date' " +
+        "and does not create the coupon."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const couponPage = createOwnerCouponPage(ownerPage);
+
+    await mgmtPage.goto(restaurantId);
+    await couponPage.navigateToCreateCoupon();
+
+    await couponPage.fillCouponForm(generateCouponCode(), "10");
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    await couponPage.setEndDate(formatMMDDYYYY(yesterday));
+    await couponPage.submit();
+
+    await expect(couponPage.endDateAfterStartDateError()).toBeVisible({
+      timeout: 10_000,
+    });
+  });
+
+  test("TC-150: an empty coupon code is rejected", async ({ ownerPage }) => {
+    await allure.description(
+      "Submitting the create-coupon form with no code is blocked and no coupon is created. Note: like " +
+        "TC-147, the code TextField is a real required HTML input, so the browser's native constraint " +
+        "validation intercepts the submit before React's own validateForm()/'Coupon code is required' " +
+        "message ever gets a chance to run (confirmed live: no POST /api/coupons request is sent)."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const couponPage = createOwnerCouponPage(ownerPage);
+
+    let couponRequestFired = false;
+    ownerPage.on("request", (r) => {
+      if (r.method() === "POST" && r.url().includes("/api/coupons")) {
+        couponRequestFired = true;
+      }
+    });
+
+    await mgmtPage.goto(restaurantId);
+    await couponPage.navigateToCreateCoupon();
+
+    await couponPage.discountValueInput().fill("10");
+    await couponPage.submit();
+
+    const isValueMissing = await couponPage
+      .couponCodeInput()
+      .evaluate((el: HTMLInputElement) => el.validity.valueMissing);
+    expect(isValueMissing).toBe(true);
+    expect(couponRequestFired).toBe(false);
+  });
+
+  test("TC-151: a duplicate coupon code on the same restaurant is rejected", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "The create form has no client-side uniqueness check, so a second coupon with the same code " +
+        "reaches the API and is rejected there (backend enforces per-restaurant code uniqueness)."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const couponPage = createOwnerCouponPage(ownerPage);
+    const couponCode = generateCouponCode();
+
+    await allure.step("Create the first coupon", async () => {
+      await mgmtPage.goto(restaurantId);
+      await couponPage.navigateToCreateCoupon();
+      await couponPage.fillCouponForm(couponCode, "10");
+      await couponPage.submit();
+      await couponPage.assertSuccessToast();
+      // The form auto-navigates back to the Manage Coupons dashboard ~1.5s
+      // after a successful submit — wait for that to settle before driving
+      // the sidebar again, otherwise the in-flight unmount races the next
+      // navigateToCreateCoupon() click and can transiently match a second,
+      // unrelated "Create Coupon" node (e.g. a fading tooltip).
+      await couponPage.assertManageCouponsLoaded();
+    });
+
+    await allure.step(
+      "Attempt to create a second coupon with the same code",
+      async () => {
+        await couponPage.navigateToCreateCoupon();
+        await couponPage.fillCouponForm(couponCode, "15");
+        await couponPage.submit();
+        // No client-side uniqueness check exists, so this reaches the API and
+        // comes back as a Snackbar error (same MUI Alert component/role as the
+        // client-validation alert) rather than a success toast.
+        await expect(couponPage.errorAlert()).toBeVisible({ timeout: 10_000 });
+        await expect(couponPage.successToast()).not.toBeVisible();
+      }
+    );
+  });
+
+  test("TC-152: coupon code input truncates at 20 characters", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "The coupon code field has maxLength=20 — typing a longer string is truncated at the input level."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const couponPage = createOwnerCouponPage(ownerPage);
+
+    await mgmtPage.goto(restaurantId);
+    await couponPage.navigateToCreateCoupon();
+
+    const longCode = "A".repeat(30);
+    await couponPage.couponCodeInput().fill(longCode);
+
+    await expect(couponPage.couponCodeInput()).toHaveValue("A".repeat(20));
+  });
+
+  test("TC-153: Manage Coupons search filters by code", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Typing a coupon's code into the search box narrows the table to matching rows."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const couponPage = createOwnerCouponPage(ownerPage);
+    const couponCode = generateCouponCode();
+
+    await allure.step("Create a coupon to search for", async () => {
+      await mgmtPage.goto(restaurantId);
+      await couponPage.navigateToCreateCoupon();
+      await couponPage.fillCouponForm(couponCode, "10");
+      await couponPage.submit();
+      await couponPage.assertSuccessToast();
+    });
+
+    await allure.step("Search by its code", async () => {
+      await couponPage.navigateToManageCoupons();
+      await couponPage.search(couponCode);
+      await expect(couponPage.couponRowByCode(couponCode)).toBeVisible({
+        timeout: 10_000,
+      });
+    });
+  });
+
+  test("TC-154: Manage Coupons search filters by description", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Typing a substring of a coupon's description into the search box also matches that coupon."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const couponPage = createOwnerCouponPage(ownerPage);
+    const couponCode = generateCouponCode();
+    const description = `AutoDesc-${couponCode}`;
+
+    await mgmtPage.goto(restaurantId);
+    await couponPage.navigateToCreateCoupon();
+    await couponPage.couponCodeInput().fill(couponCode);
+    await couponPage.discountValueInput().fill("10");
+    await couponPage.descriptionInput().fill(description);
+    await couponPage.submit();
+    await couponPage.assertSuccessToast();
+
+    await couponPage.navigateToManageCoupons();
+    await couponPage.search(description);
+    await expect(couponPage.couponRowByCode(couponCode)).toBeVisible({
+      timeout: 10_000,
+    });
+  });
+
+  test("TC-155: Manage Coupons search with no matches shows the empty state", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Searching for a code that doesn't exist shows the 'No coupons found' empty state."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const couponPage = createOwnerCouponPage(ownerPage);
+
+    await mgmtPage.goto(restaurantId);
+    await couponPage.navigateToManageCoupons();
+    await couponPage.search(`NO-SUCH-COUPON-${generateCouponCode()}`);
+
+    await expect(couponPage.emptyState()).toBeVisible({ timeout: 10_000 });
+  });
+
+  test("TC-156: Manage Coupons status filter narrows to Active", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Filtering by 'Active' hides an expired coupon (seeded with a past end date) from the list."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const couponPage = createOwnerCouponPage(ownerPage);
+    const expiredCode = generateCouponCode();
+
+    await allure.step(
+      "Seed a coupon whose end date is already in the past",
+      async () => {
+        const { accessToken } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD);
+        const past = new Date();
+        past.setDate(past.getDate() - 10);
+        const evenEarlier = new Date(past);
+        evenEarlier.setDate(evenEarlier.getDate() - 5);
+        const res = await createCouponRaw(accessToken, restaurantId, {
+          code: expiredCode,
+          type: "PERCENTAGE",
+          value: 10,
+          startDate: evenEarlier.toISOString(),
+          endDate: past.toISOString(),
+        });
+        expect(res.status, JSON.stringify(res.data)).toBe(201);
+      }
+    );
+
+    await mgmtPage.goto(restaurantId);
+    await couponPage.navigateToManageCoupons();
+
+    await allure.step(
+      "Verify it shows as Expired, then is hidden by the Active filter",
+      async () => {
+        await couponPage.search(expiredCode);
+        await expect(couponPage.couponRowByCode(expiredCode)).toContainText(
+          "Expired",
+          { timeout: 10_000 }
+        );
+        await couponPage.selectStatusFilter("Active");
+        await expect(couponPage.couponRowByCode(expiredCode)).not.toBeVisible();
+      }
+    );
+  });
+
+  test("TC-157: Manage Coupons table sorts by Code", async ({ ownerPage }) => {
+    await allure.description(
+      "Clicking the Code column header toggles the sort direction without erroring."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const couponPage = createOwnerCouponPage(ownerPage);
+
+    await mgmtPage.goto(restaurantId);
+    await couponPage.navigateToManageCoupons();
+
+    await couponPage.sortByCodeHeader().click();
+    await expect(couponPage.sortByCodeHeader()).toBeVisible();
+    await couponPage.sortByCodeHeader().click();
+    await expect(couponPage.sortByCodeHeader()).toBeVisible();
+  });
+
+  test("TC-158: owner can copy a coupon code from the Manage Coupons list", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Clicking the copy-code icon on a row copies the code to the clipboard and shows a confirmation toast."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const couponPage = createOwnerCouponPage(ownerPage);
+    const couponCode = generateCouponCode();
+
+    // navigator.clipboard.writeText requires an explicit grant in the test
+    // browser context (Chromium rejects it otherwise with "Write permission
+    // denied"), which would silently swallow the app's copy handler — the
+    // component never reaches its .then() (and never shows the toast) since
+    // the promise rejection has no .catch.
+    await ownerPage
+      .context()
+      .grantPermissions(["clipboard-read", "clipboard-write"]);
+
+    await mgmtPage.goto(restaurantId);
+    await couponPage.navigateToCreateCoupon();
+    await couponPage.fillCouponForm(couponCode, "10");
+    await couponPage.submit();
+    await couponPage.assertSuccessToast();
+
+    await couponPage.navigateToManageCoupons();
+    await couponPage.search(couponCode);
+    await couponPage.copyCodeButton(couponCode).click();
+
+    await expect(couponPage.codeCopiedToast()).toBeVisible({
+      timeout: 10_000,
+    });
+  });
+
+  test("TC-159: Duplicate pre-fills a new coupon form from an existing coupon", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "The row action menu's Duplicate option opens the create form pre-filled with '<code>-COPY', " +
+        "and submitting it creates a second, independent coupon."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const couponPage = createOwnerCouponPage(ownerPage);
+    const couponCode = generateCouponCode();
+
+    await allure.step("Create the original coupon", async () => {
+      await mgmtPage.goto(restaurantId);
+      await couponPage.navigateToCreateCoupon();
+      await couponPage.fillCouponForm(couponCode, "10");
+      await couponPage.submit();
+      await couponPage.assertSuccessToast();
+    });
+
+    await allure.step("Duplicate it from the Manage Coupons list", async () => {
+      await couponPage.navigateToManageCoupons();
+      await couponPage.search(couponCode);
+      await couponPage.openRowActionMenu(couponCode);
+      await couponPage.duplicateMenuItem().click();
+      await expect(couponPage.couponCodeInput()).toHaveValue(
+        `${couponCode}-COPY`
+      );
+    });
+
+    await allure.step(
+      "Submit the duplicate and verify both exist",
+      async () => {
+        await couponPage.submit();
+        // Duplicate opens the form as a "template", so the success message
+        // differs from a plain create ("...from template!").
+        await couponPage.assertSuccessFromTemplateToast();
+        const { accessToken } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD);
+        const coupons = await getRestaurantCoupons(accessToken, restaurantId);
+        expect(coupons.some((c) => c.code === couponCode)).toBe(true);
+        expect(coupons.some((c) => c.code === `${couponCode}-COPY`)).toBe(true);
+      }
+    );
+  });
+
+  test("TC-160: owner can delete a coupon via the typed-confirmation dialog", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Delete opens a typed-word confirmation dialog; confirming removes the coupon from both the " +
+        "table and the API."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const couponPage = createOwnerCouponPage(ownerPage);
+    const couponCode = generateCouponCode();
+
+    await allure.step("Create a coupon to delete", async () => {
+      await mgmtPage.goto(restaurantId);
+      await couponPage.navigateToCreateCoupon();
+      await couponPage.fillCouponForm(couponCode, "10");
+      await couponPage.submit();
+      await couponPage.assertSuccessToast();
+    });
+
+    await allure.step("Open Delete and confirm", async () => {
+      await couponPage.navigateToManageCoupons();
+      await couponPage.search(couponCode);
+      await couponPage.openRowActionMenu(couponCode);
+      await couponPage.deleteMenuItem().click();
+      await couponPage.assertDeleteDialogVisible();
+      await couponPage.typeDeleteConfirmWord();
+      await couponPage.confirmDeleteButton().click();
+      await expect(couponPage.couponDeletedToast()).toBeVisible({
+        timeout: 10_000,
+      });
+    });
+
+    await allure.step(
+      "Verify it's gone from the table and the API",
+      async () => {
+        await expect(couponPage.couponRowByCode(couponCode)).not.toBeVisible({
+          timeout: 10_000,
+        });
+        const { accessToken } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD);
+        const coupons = await getRestaurantCoupons(accessToken, restaurantId);
+        expect(coupons.some((c) => c.code === couponCode)).toBe(false);
+      }
+    );
+  });
+
+  test("TC-161: cancelling the delete confirmation leaves the coupon untouched", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Opening Delete and clicking Cancel (without typing the confirm word) does not delete the coupon."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const couponPage = createOwnerCouponPage(ownerPage);
+    const couponCode = generateCouponCode();
+
+    await mgmtPage.goto(restaurantId);
+    await couponPage.navigateToCreateCoupon();
+    await couponPage.fillCouponForm(couponCode, "10");
+    await couponPage.submit();
+    await couponPage.assertSuccessToast();
+
+    await couponPage.navigateToManageCoupons();
+    await couponPage.search(couponCode);
+    await couponPage.openRowActionMenu(couponCode);
+    await couponPage.deleteMenuItem().click();
+    await couponPage.assertDeleteDialogVisible();
+    await couponPage.cancelDeleteButton().click();
+
+    await expect(couponPage.couponRowByCode(couponCode)).toBeVisible({
+      timeout: 10_000,
+    });
+  });
+
+  test("TC-162: Edit pre-fills the form with the coupon's existing values", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Opening Edit on a coupon loads its current code/value into the form (read-only check — does " +
+        "not submit, since editing currently 500s server-side per TC-92)."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const couponPage = createOwnerCouponPage(ownerPage);
+    const couponCode = generateCouponCode();
+
+    await mgmtPage.goto(restaurantId);
+    await couponPage.navigateToCreateCoupon();
+    await couponPage.fillCouponForm(couponCode, "10");
+    await couponPage.submit();
+    await couponPage.assertSuccessToast();
+
+    await couponPage.navigateToManageCoupons();
+    await couponPage.search(couponCode);
+    await couponPage.openRowActionMenu(couponCode);
+    await couponPage.editMenuItem().click();
+
+    await expect(couponPage.couponCodeInput()).toHaveValue(couponCode, {
+      timeout: 10_000,
+    });
+    await expect(couponPage.discountValueInput()).toHaveValue("10");
+  });
+
+  test("TC-163: Send to Customers is disabled for an expired coupon", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "The row action menu's Send to Customers item is disabled once a coupon's computed status is " +
+        "Expired (only enabled while ACTIVE)."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const couponPage = createOwnerCouponPage(ownerPage);
+    const expiredCode = generateCouponCode();
+
+    await allure.step("Seed an already-expired coupon", async () => {
+      const { accessToken } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD);
+      const past = new Date();
+      past.setDate(past.getDate() - 10);
+      const evenEarlier = new Date(past);
+      evenEarlier.setDate(evenEarlier.getDate() - 5);
+      const res = await createCouponRaw(accessToken, restaurantId, {
+        code: expiredCode,
+        type: "PERCENTAGE",
+        value: 10,
+        startDate: evenEarlier.toISOString(),
+        endDate: past.toISOString(),
+      });
+      expect(res.status, JSON.stringify(res.data)).toBe(201);
+    });
+
+    await mgmtPage.goto(restaurantId);
+    await couponPage.navigateToManageCoupons();
+    await couponPage.search(expiredCode);
+    await couponPage.openRowActionMenu(expiredCode);
+
+    await expect(couponPage.sendToCustomersMenuItem()).toBeDisabled();
+  });
+
+  test("TC-164: Reset Form clears the create-coupon form back to defaults", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "After partially filling the create form, Reset Form clears the code and description fields."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const couponPage = createOwnerCouponPage(ownerPage);
+
+    await mgmtPage.goto(restaurantId);
+    await couponPage.navigateToCreateCoupon();
+
+    await couponPage.couponCodeInput().fill(generateCouponCode());
+    await couponPage.descriptionInput().fill("temporary description");
+    await couponPage.resetFormButton().click();
+
+    await expect(couponPage.couponCodeInput()).toHaveValue("");
+    await expect(couponPage.descriptionInput()).toHaveValue("");
   });
 
   // Editing ANY coupon currently 500s server-side: the frontend sends `value`
