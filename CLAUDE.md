@@ -261,6 +261,8 @@ SEND_ACCOUNT_EMAILS=true   # admin invite / password reset / sign-up
 
 ## Run Commands
 
+See `RUNNING_TESTS.md` for the full how-to (setup, individual tests, reports).
+
 ```bash
 npm run test          # All tests, headless
 npm run test:headed   # Visible browser
