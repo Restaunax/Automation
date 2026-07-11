@@ -10,7 +10,7 @@ import { test } from "../../../fixtures/base";
  * Tracked: https://github.com/Restaunax/Automation/issues/13
  */
 test.describe("Staff — Portal", () => {
-  test.fixme("TC-XXX: a user can view/set their POS PIN", async ({
+  test.fixme("TC-180: a user can view/set their POS PIN", async ({
     adminPage,
   }) => {
     await adminPage.goto("/staff", { waitUntil: "domcontentloaded" });

@@ -856,8 +856,52 @@ export interface RawResponse<T = unknown> {
   data: T;
 }
 
-/** Like apiRequest, but returns the status/body instead of throwing on non-2xx. */
+// Transient statuses worth retrying: gateway/availability blips from the
+// shared QA infra. Deliberately EXCLUDES 500 — negative tests assert on 500s
+// (they're usually deterministic backend bugs, e.g. the TC-92 coupon edit),
+// and retrying them would only slow the failure down.
+const RETRYABLE_STATUSES = new Set([502, 503, 504]);
+const MAX_RETRIES = 2;
+const RETRY_BACKOFF_MS = [1_000, 3_000];
+
+/**
+ * Like apiRequest, but returns the status/body instead of throwing on non-2xx.
+ * Retries transient failures (network error, timeout, 502/503/504) up to
+ * MAX_RETRIES times with backoff — a single QA gateway blip during
+ * setup/teardown shouldn't abort the whole run or leak cleanup.
+ */
 async function apiRequestRaw<T = unknown>(
+  method: string,
+  path: string,
+  body?: unknown,
+  accessToken?: string
+): Promise<RawResponse<T>> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      const delay = RETRY_BACKOFF_MS[attempt - 1] ?? 3_000;
+      console.warn(
+        `[apiHelper] transient failure on ${method} ${path} — retry ${attempt}/${MAX_RETRIES} in ${delay}ms`
+      );
+      await new Promise((r) => setTimeout(r, delay));
+    }
+    try {
+      const res = await apiRequestOnce<T>(method, path, body, accessToken);
+      if (RETRYABLE_STATUSES.has(res.status) && attempt < MAX_RETRIES) {
+        lastError = new Error(`API ${method} ${path} → ${res.status}`);
+        continue;
+      }
+      return res;
+    } catch (err) {
+      lastError = err;
+      if (attempt < MAX_RETRIES) continue;
+    }
+  }
+  throw lastError;
+}
+
+/** Single-shot fetch — retry policy lives in apiRequestRaw above. */
+async function apiRequestOnce<T = unknown>(
   method: string,
   path: string,
   body?: unknown,

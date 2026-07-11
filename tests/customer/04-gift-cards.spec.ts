@@ -59,6 +59,7 @@ test.describe("Customer — Gift Cards", () => {
     });
 
     const amount = config!.presetDenominations[0];
+    if (amount === undefined) return; // unreachable — skipped above when empty
 
     await allure.step("Navigate to the gift cards page", async () => {
       await giftCardPage.goto(restaurantId);
@@ -243,6 +244,8 @@ test.describe("Customer — Gift Cards", () => {
       "Gift cards are not enabled for this restaurant"
     );
     const amount = config.presetDenominations[0];
+    test.skip(amount === undefined, "No preset denominations configured");
+    if (amount === undefined) return; // narrows the type after the skip
 
     let code = "";
     await allure.step("Purchase a gift card", async () => {

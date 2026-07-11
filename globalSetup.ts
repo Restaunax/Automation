@@ -173,6 +173,34 @@ export default async function globalSetup(): Promise<void> {
   // env from ever pointing that at production. Must be first — before any login.
   assertSafeTargets({ FRONTEND_URL, BACKEND_URL, TEMPLATE_WIND_URL });
 
+  // MINIMUM ENV GATE: owner + admin creds are load-bearing (owner seeds all
+  // shared state; admin runs the teardown sweeps). Without them a run
+  // self-skips most of the suite and can look green while covering half of
+  // it — fail fast instead. Set ALLOW_PARTIAL_ENV=true to deliberately run a
+  // partial suite (e.g. customer-only smoke); the optional-credential gaps
+  // below are always summarized so partial coverage is visible in the log.
+  const missingCore = [
+    ...(!OWNER_EMAIL || !OWNER_PASSWORD ? ["OWNER_EMAIL/OWNER_PASSWORD"] : []),
+    ...(!ADMIN_EMAIL || !ADMIN_PASSWORD ? ["ADMIN_EMAIL/ADMIN_PASSWORD"] : []),
+  ];
+  if (missingCore.length && process.env.ALLOW_PARTIAL_ENV !== "true") {
+    throw new Error(
+      `[globalSetup] Missing core credentials: ${missingCore.join(", ")}.\n` +
+        "A run without them silently skips most of the suite (green-but-half-covered). " +
+        "Fill them in .env (see .env.example), or set ALLOW_PARTIAL_ENV=true to run a deliberate partial suite."
+    );
+  }
+  const optionalGaps = [
+    ...(!EMPLOYEE_EMAIL || !EMPLOYEE_PASSWORD ? ["employee suite"] : []),
+    ...(!process.env.MAILTRAP_API_TOKEN ? ["email-journey tests"] : []),
+    ...(DEMO_EMAILS_ENABLED ? [] : ["demo-email specs (SEND_DEMO_EMAILS)"]),
+  ];
+  if (optionalGaps.length) {
+    console.warn(
+      `[globalSetup] Partial coverage this run — skipped surfaces: ${optionalGaps.join(", ")}`
+    );
+  }
+
   // Record when the backend process started, so globalTeardown / publish-results
   // can detect a deploy that restarted it mid-run and mark the run superseded.
   const processStartedAt = await readProcessStartedAt(BACKEND_URL);
@@ -224,6 +252,10 @@ export default async function globalSetup(): Promise<void> {
       );
     }
     const restaurant = pinned ?? restaurants[0];
+    if (!restaurant) {
+      // Unreachable (length checked above) but satisfies noUncheckedIndexedAccess.
+      throw new Error("[globalSetup] No seed restaurant resolvable");
+    }
     restaurantId = restaurant.id;
     restaurantName = restaurant.name;
     console.log(

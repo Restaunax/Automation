@@ -226,9 +226,16 @@ export const createOwnerMenuPage = (page: Page) => {
       timeout: 10_000,
     });
 
+  // Wizard step-0 inputs, exposed for specs that assert blur-validation
+  // behavior directly (e.g. required-field errors on empty blur).
+  const itemNameInput = () => page.getByPlaceholder("Enter the menu item name");
+  const basePriceInput = () => page.getByPlaceholder("Enter the base price");
+
   return {
     navigateToMenuTab,
     addCategoryButton,
+    itemNameInput,
+    basePriceInput,
     assertCategoryVisible,
     createCategory,
     addItemButton,

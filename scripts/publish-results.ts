@@ -36,6 +36,7 @@ interface PwTest {
   projectName?: string;
   status?: string; // expected | unexpected | flaky | skipped
   results?: PwResult[];
+  annotations?: { type?: string; description?: string }[];
 }
 interface PwSpec {
   title?: string;
@@ -162,6 +163,30 @@ async function main(): Promise<void> {
       };
     })
   );
+
+  // Skip visibility: several tests self-skip at RUNTIME on live external state
+  // (delivery availability, Google Places, gift-card balance) or missing env.
+  // A permanently-skipping test looks like coverage on a green board, so list
+  // every skipped test + its annotation reason in the CI log where it's
+  // reviewable, not just a bare count.
+  const skippedRows = specs.flatMap((spec) =>
+    (spec.tests ?? [])
+      .filter((t) => rowStatus(t) === "skipped")
+      .map((t) => {
+        const reason =
+          (t.annotations ?? [])
+            .filter((a) => a.type === "skip" || a.type === "fixme")
+            .map((a) => a.description)
+            .find((d) => d && d.length > 0) ?? "(no reason recorded)";
+        return `  - ${spec.title ?? "unknown"} [${spec.file ?? "?"}] — ${reason}`;
+      })
+  );
+  if (skippedRows.length) {
+    console.log(
+      `[publish-results] ${skippedRows.length} skipped test(s) this run:\n` +
+        skippedRows.join("\n")
+    );
+  }
 
   const passed = stats.expected ?? 0;
   const failed = stats.unexpected ?? 0;
