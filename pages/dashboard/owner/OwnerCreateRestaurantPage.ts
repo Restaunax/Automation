@@ -76,10 +76,10 @@ export const createOwnerCreateRestaurantPage = (page: Page) => {
     await page.waitForURL(/\/restaurant\/restaurantId\/[^/]+/, {
       timeout: 20_000,
     });
-    const match = page.url().match(/restaurantId\/([^/?]+)/);
-    if (!match)
+    const id = page.url().match(/restaurantId\/([^/?]+)/)?.[1];
+    if (!id)
       throw new Error(`Could not extract restaurantId from URL: ${page.url()}`);
-    return match[1];
+    return id;
   };
 
   const assertBusinessHoursStepVisible = () =>

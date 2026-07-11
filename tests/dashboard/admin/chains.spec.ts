@@ -7,7 +7,7 @@ import { test } from "../../../fixtures/base";
  * Tracked: https://github.com/Restaunax/Automation/issues/12
  */
 test.describe("Admin — Chains", () => {
-  test.fixme("TC-XXX: admin can view and manage restaurant chains", async ({
+  test.fixme("TC-181: admin can view and manage restaurant chains", async ({
     adminPage,
   }) => {
     await adminPage.goto("/admin?tab=chains", {

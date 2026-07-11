@@ -85,6 +85,14 @@ export const createOwnerCouponPage = (page: Page) => {
   const selectStatus = (status: "Active" | "Inactive") =>
     chooseOption(statusSelect(), status);
 
+  // MUI Select's real <input name="menuItemId"> is a hidden sibling of the
+  // display div — it's what carries native HTML5 `required` validity state
+  // (see TC-147/TC-150: native validation intercepts submit before React's).
+  const menuItemHiddenInput = () =>
+    menuItemSelect().locator(
+      'xpath=following-sibling::input[@name="menuItemId"]'
+    );
+
   const menuItemRequiredError = () =>
     page.getByText("Menu item selection is required for item discounts");
   const amountGreaterThanZeroError = () =>
@@ -225,6 +233,7 @@ export const createOwnerCouponPage = (page: Page) => {
     assertInvalidDiscountError,
     discountTypeSelect,
     menuItemSelect,
+    menuItemHiddenInput,
     statusSelect,
     selectDiscountType,
     selectMenuItem,

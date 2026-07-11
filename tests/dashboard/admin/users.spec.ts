@@ -254,9 +254,7 @@ test.describe("Admin — User Management", () => {
       await users.assertTabAbsent(users.S.tabRestaurants);
 
       await expect(
-        adminPage
-          .locator(".MuiDrawer-paper")
-          .getByText(users.S.overviewBasicInfo)
+        users.sideSheet.getByText(users.S.overviewBasicInfo)
       ).toBeVisible();
     });
 
@@ -280,7 +278,7 @@ test.describe("Admin — User Management", () => {
       }
       // Restaurants tab is read-only here (no assign/unassign UI) — just renders.
       await users.switchTab(users.S.tabRestaurants);
-      await expect(adminPage.locator(".MuiDrawer-paper")).toBeVisible();
+      await expect(users.sideSheet).toBeVisible();
     });
 
     test("TC-114: the side sheet can be closed", async ({ adminPage }) => {

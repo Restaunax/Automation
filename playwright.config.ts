@@ -10,8 +10,10 @@ dotenv.config({ path: path.resolve(__dirname, ".env") });
 // correct host. See TEST_PLAN.md for the structure rationale.
 const DASHBOARD_URL =
   process.env.FRONTEND_URL ?? "https://app.qa.restaunax.com";
+// Default must be the actual ordering storefront (wind.), NOT qa.restaunax.com
+// — that host is the QA marketing site (see utils/targetGuard.ts).
 const CUSTOMER_URL =
-  process.env.TEMPLATE_WIND_URL ?? "https://qa.restaunax.com";
+  process.env.TEMPLATE_WIND_URL ?? "https://wind.restaunax.com";
 
 export default defineConfig({
   testDir: "./tests",

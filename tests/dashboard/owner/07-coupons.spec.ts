@@ -280,8 +280,7 @@ test.describe("Owner — Coupons", () => {
       "Verify the native required-field validation blocks submission",
       async () => {
         const isValueMissing = await couponPage
-          .menuItemSelect()
-          .locator('xpath=following-sibling::input[@name="menuItemId"]')
+          .menuItemHiddenInput()
           .evaluate((el: HTMLInputElement) => el.validity.valueMissing);
         expect(isValueMissing).toBe(true);
         expect(couponRequestFired).toBe(false);

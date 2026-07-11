@@ -53,10 +53,11 @@ async function resolveAccountId(apiToken: string): Promise<string> {
     );
   }
   const accounts = (await res.json()) as { id: number }[];
-  if (!accounts.length) {
+  const first = accounts[0];
+  if (!first) {
     throw new Error("No Mailtrap accounts available for this API token");
   }
-  cachedAccountId = String(accounts[0].id);
+  cachedAccountId = String(first.id);
   return cachedAccountId;
 }
 
@@ -180,10 +181,11 @@ export function extractInviteToken(emailBody: string): string {
   const match = emailBody.match(
     /userToken(?:=|&#x3d;|&#61;|%3d)([a-f0-9]{16,})/i
   );
-  if (!match) {
+  const token = match?.[1];
+  if (!token) {
     throw new Error(
       "Invitation token not found in email body (expected ?userToken=<hex>)"
     );
   }
-  return match[1];
+  return token;
 }

@@ -54,7 +54,7 @@ npx playwright test --project=pos         # POS / order-lifecycle API tests
 By file:
 
 ```bash
-npx playwright test tests/dashboard/owner/menu-management.spec.ts
+npx playwright test tests/dashboard/owner/04-menu-management.spec.ts
 ```
 
 By title or test-case ID (`--grep` matches describe/test titles):
@@ -67,7 +67,7 @@ npx playwright test --grep "Demo booking"
 Combine with a visible browser while iterating:
 
 ```bash
-npx playwright test tests/customer/order-flow.spec.ts --headed
+npx playwright test tests/customer/02-checkout.spec.ts --headed
 ```
 
 ## 4. See the report
