@@ -17,9 +17,14 @@ const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
 // shows real numbers. These are permanent QA residue (no order-delete API), so
 // assertions are DELTA-based (>=) and tolerant of concurrent seeding by other
 // specs — other specs only ever ADD orders, so the day's KPIs can only grow.
+//
+// Net sales per order is NOT the claimed subtotal — the backend pricing guard
+// fully RECOMPUTES it from the seed item's real DB price (createSeededOrder
+// passes a claimed subtotal, but the backend disregards it and records the
+// actual menu-item price instead; confirmed live: a claimed $15 subtotal was
+// recorded as $12.99, the seed item's real price). So the expected delta must
+// be derived from the shared-state item price, not a hardcoded figure.
 const SEED_ORDER_COUNT = 3;
-const SEED_ORDER_SUBTOTAL = 15; // net sales per order (no discount/redemption)
-const SEED_SUBTOTAL_SUM = SEED_ORDER_COUNT * SEED_ORDER_SUBTOTAL;
 
 test.describe("Owner — Daily Report Tab", () => {
   test.skip(
@@ -28,6 +33,9 @@ test.describe("Owner — Daily Report Tab", () => {
   );
 
   let baseline: DayKpis;
+  // Set in beforeAll from the seed item's real DB price — see the comment on
+  // SEED_ORDER_COUNT above for why this can't be a hardcoded constant.
+  let seedNetSalesSum = 0;
 
   test.beforeAll(async () => {
     if (!OWNER_EMAIL || !OWNER_PASSWORD) return;
@@ -38,16 +46,19 @@ test.describe("Owner — Daily Report Tab", () => {
     // Capture the day's KPIs BEFORE seeding so TC-142 can assert the delta.
     baseline = await getDailyReportKpis(accessToken, restaurantId);
 
-    // Seed N CONFIRMED orders with a known net-sales amount each. CONFIRMED is
-    // an included status, so they count toward today's report immediately.
+    // Seed N CONFIRMED orders. Don't pass an explicit subtotal — the backend
+    // recomputes net sales from the item's real DB price regardless, so
+    // letting createSeededOrder default subtotal to item.price keeps the
+    // claimed and recorded amounts in sync.
     for (let i = 0; i < SEED_ORDER_COUNT; i++) {
       await createSeededOrder(
         accessToken,
         restaurantId,
         { menuItemId, name: menuItemName, price: menuItemPrice },
-        { subtotal: SEED_ORDER_SUBTOTAL, status: "CONFIRMED" }
+        { status: "CONFIRMED" }
       );
     }
+    seedNetSalesSum = SEED_ORDER_COUNT * menuItemPrice;
   });
 
   test.beforeEach(async () => {
@@ -89,7 +100,7 @@ test.describe("Owner — Daily Report Tab", () => {
   test("TC-142: the seeded orders are reflected in today's Daily Report KPIs", async () => {
     await allure.description(
       "Deterministic proof that the report aggregates real order data: after seeding " +
-        `${SEED_ORDER_COUNT} CONFIRMED orders worth $${SEED_ORDER_SUBTOTAL} net each, the current ` +
+        `${SEED_ORDER_COUNT} CONFIRMED orders at the seed item's real price, the current ` +
         "business day's KPIs (from GET /restaurant/:id/daily-close?include=report) have grown by at " +
         "least the seeded order count and net-sales amount vs. the pre-seed baseline. Uses >= (not ==) " +
         "because other specs may add orders to the same day concurrently — they only ever increase it."
@@ -116,7 +127,7 @@ test.describe("Owner — Daily Report Tab", () => {
       await allure.parameter("netSales after", String(after.netSales));
       // Allow a tiny rounding tolerance on the floor.
       expect(after.netSales - baseline.netSales).toBeGreaterThanOrEqual(
-        SEED_SUBTOTAL_SUM - 0.01
+        seedNetSalesSum - 0.01
       );
     });
   });

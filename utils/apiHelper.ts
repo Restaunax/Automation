@@ -682,15 +682,18 @@ export interface SeedOrderOpts {
  *      membership (no source-state check), so INITIALIZED→CONFIRMED is accepted.
  *
  * The backend's pricing guard recomputes the subtotal from DB menu prices and
- * rejects a claimed total below that floor ("Order Price Mismatch"). So the
- * claimed total must be ≥ the item's real DB price — the default (subtotal =
- * item.price, from shared state) satisfies this; an opts.subtotal override
- * must not undercut it. Tax/tip/deliveryFee only add, so they're always safe.
+ * rejects a claimed total below that floor ("Order Price Mismatch"). Live
+ * evidence (2026-07-11, TC-142) shows this is NOT merely a floor: the
+ * backend records net sales as the item's real DB price regardless of a
+ * higher claimed opts.subtotal — the claimed amount only matters for passing
+ * the floor check, not for what gets recorded. So callers that need the
+ * *recorded* net-sales figure to match (e.g. Daily Report/Analytics
+ * assertions) must use the default (subtotal = item.price) and read the
+ * expected amount back from item.price, not from whatever opts.subtotal they
+ * pass. Tax/tip/deliveryFee only add and are unaffected by this recompute.
  *
  * The order's createdAt is "now", so it lands in the current business day's
- * Daily Report / Analytics with real revenue. The line-item price mirrors the
- * subtotal so the figure is stable whether the backend uses the sent subtotal
- * or recomputes it from the items.
+ * Daily Report / Analytics with real revenue.
  *
  * There is no order-delete API, so seeded orders are permanent QA residue —
  * tests that rely on them must assert DELTAS, not absolute totals.
