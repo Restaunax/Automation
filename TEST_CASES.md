@@ -33,8 +33,8 @@ Each test case includes:
 | 🛒 Customer       | People ordering food               | TC-22 → TC-26, TC-64, TC-99, TC-125, TC-126, TC-165 → TC-178                                                                                                               |
 | 🍳 POS            | Restaurant kitchen / tablet        | TC-100 (`--project=pos`)                                                                                                                                                   |
 | 🔒 Access Control | Testing role/permission boundaries | TC-54 → TC-58, TC-71 → TC-73, TC-81                                                                                                                                        |
-| 🚪 Onboarding     | New restaurant owners              | TC-93 → TC-97 (spans Public sign-up and Employee restaurant creation)                                                                                                      |
-| 👔 Employee       | Company-side setup staff           | TC-143, TC-144 (TC-17/18 tax and TC-97 also run under the EMPLOYEE role)                                                                                                   |
+| 🚪 Onboarding     | New restaurant owners              | TC-93 → TC-97, TC-182, TC-183 (spans Public sign-up and Employee restaurant creation)                                                                                      |
+| 👔 Employee       | Company-side setup staff           | TC-143, TC-144, TC-182, TC-183 (TC-17/18 tax and TC-97 also run under the EMPLOYEE role)                                                                                   |
 | 🌐 API-Level      | No UI — direct backend calls       | TC-65, TC-66, TC-68, TC-69, TC-79, TC-80                                                                                                                                   |
 
 TC-17 and TC-18 (tax settings) run under the **Employee** role, not Owner —
@@ -1763,6 +1763,57 @@ Confirms EMPLOYEE gets the same completeness guidance as any other role that can
 
 ---
 
+## TC-182 — Full Onboarding Chain
+
+**Status:** ⏭️ Skipped locally (no `EMPLOYEE_*` credentials in this environment) — verified live by substituting an ADMIN session (ADMIN also holds `CREATE_RESTAURANT`) before this was committed
+
+### What it checks
+
+The real, previously-untested production onboarding journey, chained end to end in one test: a visitor signs up (`Role.USER`), an employee creates a restaurant on their behalf (Step 0), sets its Business Hours (Step 1), and adds a menu category (Step 2) — then an admin assigns the still-unowned restaurant to the new user, promoting them to `OWNER`, and that owner sees their restaurant appear in My Restaurants.
+
+### How it works, step by step
+
+1. A fresh visitor signs up via `/sign-up`
+2. An employee session creates a restaurant (Step 0 of `CreateStore.tsx`) — the restaurant exists but has no owner yet
+3. The employee sets Business Hours (Step 1) — selecting "Open" for Monday–Friday, which auto-fills default 9-5 hours
+4. The employee adds a menu category (Step 2)
+5. An admin looks up the new user by email and calls the restaurant-assignment API directly — **not through the dashboard UI**, because none currently exists (see "Why it matters" below)
+6. The same browser session the visitor signed up in (still authenticated) navigates to My Restaurants and confirms the new restaurant is there
+
+### Why it matters
+
+Before this test, sign-up (TC-93), restaurant creation (TC-97), and publish (TC-143/144) were four disconnected fragments in different spec files, with nothing proving they chain into a real journey — `TEST_COVERAGE.md` called this out explicitly. Building this test surfaced two real product findings along the way, not just a coverage gap:
+
+- **There is no dashboard UI path to assign a restaurant to a new owner.** The only frontend components referencing the assign-restaurant endpoint are dead code (imported nowhere), and the tab that would host that action is never rendered for a fresh `USER` account in the first place. This test calls the backend endpoint directly as a stand-in — there's nothing to click yet. See `docs/onboarding-product-fix-proposal.md`.
+- **That same endpoint can 500 on a request that actually succeeded** — a non-critical welcome-email failure (confirmed live: a Mailtrap quota exhaustion) throws from inside the same try block as the (already-committed) database writes. The test's helper tolerates this specific known cause and verifies the real outcome instead of trusting the HTTP status.
+
+Deliberately stops short of Publish — the checklist requires Payment Processing (Stripe Connect), which is out of scope for this pass (no API shortcut exists to fake that state).
+
+---
+
+## TC-183 — Business Hours Step Behavior
+
+**Status:** ⏭️ Skipped locally (no `EMPLOYEE_*` credentials in this environment) — verified live via the same ADMIN-substitution approach as TC-182
+
+### What it checks
+
+The Business Hours step (`HoursOfOperation.tsx`) of the onboarding wizard, which had zero prior coverage anywhere despite being a required step for every new restaurant: every day defaults to Closed; selecting Open reveals the opening/closing time pickers pre-filled with a default 9:00 AM–5:00 PM; selecting 24 Hours or Closed hides those pickers; and submitting with at least one day open advances the wizard to the Menu step.
+
+### How it works, step by step
+
+1. An employee creates a fresh restaurant and reaches Step 1
+2. The test confirms Monday defaults to the "Closed" radio with no time pickers visible
+3. It selects "Open" for Monday and confirms two time pickers appear, pre-filled with the default hours
+4. It selects "24 Hours" and confirms the time pickers disappear again
+5. It switches back to "Closed" and confirms the same
+6. It sets Monday back to "Open" and submits, confirming the wizard advances to the Menu step
+
+### Why it matters
+
+This step is unavoidable for every single new restaurant, and its default-value and show/hide logic had never been exercised by any test. It's also the step directly upstream of TC-182's chain.
+
+---
+
 # 📊 Test Summary
 
 | #               | Test Case                                                                                       | Area                  | Status                                                                                                                                    |
@@ -1917,6 +1968,10 @@ Confirms EMPLOYEE gets the same completeness guidance as any other role that can
 | TC-176          | A coupon and a gift card both apply to the same order                                           | Customer              | ✅ Passing                                                                                                                                |
 | TC-177          | Gift card fully covering the order skips Stripe                                                 | Customer              | ⏭️ `test.fixme` — real bug: order 201s, then frontend still attempts a doomed $0 PaymentIntent (400), customer stuck with no confirmation |
 | TC-178          | Gift card partially covering the order still charges the remainder                              | Customer              | ✅ Passing                                                                                                                                |
+| TC-182          | Full onboarding chain: sign-up → create → hours → menu → assign → owner sees it                 | Onboarding / Employee | ⏭️ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` (verified live via ADMIN substitution before commit)                                        |
+| TC-183          | Business Hours step: defaults, Open/24 Hours/Closed toggling, advances to Menu                  | Onboarding / Employee | ⏭️ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` (verified live via ADMIN substitution before commit)                                        |
+
+A 2026-07-11 pass added TC-182/183, the first chained end-to-end onboarding test and dedicated Business Hours coverage — see their write-ups above for two real product findings surfaced along the way (no dashboard UI path to assign a new owner; an assign-restaurant 500 on a request that actually succeeded). See `docs/onboarding-product-fix-proposal.md`.
 
 **144 passing · 21 skipped · 1 failing (env-only)** — as of 2026-07-10. The one failure (TC-58) fails only in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` set; it passes wherever those credentials exist. (Owner-side expansion on 2026-07-07 added TC-35 + TC-127–129 for the Analytics tab, TC-131–135 deepening the Orders tab, TC-136–138 for the Customers tab, TC-139–140 for the Owner Settings tab, and TC-141–142 for the Daily Report tab — all passing. A 2026-07-10 pass added TC-145–164, expanding Coupons UI coverage far beyond the original 4 tests: all three discount types, the full Manage Coupons list (search/filter/sort/copy), and row actions — duplicate, delete, edit-prefill, and disabled Send-to-Customers. Two of these (TC-147, TC-150) surfaced a real UX finding: the code and menu-item fields rely on native HTML5 `required` validation, so the app's own custom error text for those specific fields never has a chance to render — the browser's native constraint-validation UI intercepts the submit first. A same-day follow-up pass added TC-165–178, giving gift cards their first-ever coverage (purchase + checkout redemption) and expanding the customer-checkout coupon path beyond the original single combined test — this also required setting `TEMPLATE_WIND_URL` for the first time in this environment, which surfaced and fixed several previously-latent regressions in the whole customer suite: the checkout coupon Apply button colliding with the new (unconditionally-rendered) gift-card Apply button, a `seedCart()` race that could leave a prior coupon/gift-card applied across re-seeds within one test, a stale rejection-message regex, `selectPickup()` targeting a since-removed radio input (the control is now a button), and a stale order-number regex on the confirmation page.)
 
