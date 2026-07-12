@@ -1294,3 +1294,60 @@ export async function deleteRecordedUsers(adminToken: string): Promise<void> {
   }
   clearUsersForCleanup();
 }
+
+/**
+ * POST /api/user-restaurants/assign-restaurant — sets Restaurant.ownerId and
+ * promotes the target user's role USER→OWNER server-side (see
+ * assignRestaurantToUser in restaunax-backend). Called via API, not the
+ * dashboard UI: confirmed by direct source read (2026-07-11) that the only
+ * frontend components referencing this endpoint (UserRestaurantList.tsx,
+ * AssignRestaurantDialog.tsx) are dead code — imported nowhere — and the
+ * "Restaurants" tab that would host an assign action is never rendered for
+ * Role.USER in the first place (UserDetailsModal.tsx's ROLE_CONFIG only
+ * grants that tab to OWNER/EMPLOYEE). There is currently no UI path to
+ * complete this step — see TEST_COVERAGE.md's Known Technical Debt.
+ *
+ * Tolerates a specific known false-negative: the controller runs the
+ * ownerId/role DB writes BEFORE sending a "you've been assigned a
+ * restaurant" welcome email, and the two aren't in one transaction — a
+ * Mailtrap-quota (or any email-provider) failure throws from inside the
+ * same try block and the whole request 500s, even though the assignment
+ * already succeeded. Confirmed live 2026-07-11 (real backend bug, written
+ * up for the frontend/backend team — see TEST_COVERAGE.md). Callers should
+ * verify the real outcome (e.g. the owner can see the restaurant) rather
+ * than trust this call's success alone.
+ */
+export async function assignRestaurantToUserApi(
+  adminToken: string,
+  userId: string,
+  restaurantId: string
+): Promise<void> {
+  const res = await apiRequestRaw<{ message?: string }>(
+    "POST",
+    "/api/user-restaurants/assign-restaurant",
+    { userId, restaurantId },
+    adminToken
+  );
+  if (res.ok) return;
+  const detail =
+    typeof res.data === "string" ? res.data : JSON.stringify(res.data);
+  if (res.status === 500 && /email limit is reached/i.test(detail)) {
+    console.warn(
+      "[apiHelper] assignRestaurantToUserApi: DB write likely succeeded despite a 500 " +
+        "from the welcome-email send hitting the Mailtrap quota — known backend bug, proceeding."
+    );
+    return;
+  }
+  throw new Error(
+    `API POST /api/user-restaurants/assign-restaurant → ${res.status}: ${detail}`
+  );
+}
+
+/** Look up a user's id by exact email (admin token required). */
+export async function findUserIdByEmail(
+  adminToken: string,
+  email: string
+): Promise<string | undefined> {
+  const users = await adminListUsers(adminToken, email);
+  return users.find((u) => u.email.toLowerCase() === email.toLowerCase())?.id;
+}
