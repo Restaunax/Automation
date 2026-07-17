@@ -373,6 +373,155 @@ export async function deleteAutomationCoupons(
   return deleted;
 }
 
+// ── Gift Cards ───────────────────────────────────────────────────────────────
+//
+// Codes are server-generated (unlike client-chosen `AUTO*` coupon codes), so
+// there's no prefix to sweep by. There's also no delete endpoint — only
+// freeze (admin), which is the closest thing to cleanup. See
+// testData.ts's gift-card cleanup-file pair + globalTeardown's freeze sweep.
+
+export interface ApiGiftCard {
+  id: string;
+  /** Display-formatted with dashes on purchase; masked (****-****-****-XXXX) in admin list results. */
+  code: string;
+  initialBalance: number;
+  currentBalance: number;
+  status: "ACTIVE" | "DEPLETED" | "FROZEN";
+}
+
+export interface GiftCardConfig {
+  isEnabled: boolean;
+  presetDenominations: number[];
+  allowCustomAmount: boolean;
+  minCustomAmount: number;
+  maxCustomAmount: number;
+  canCombineWithCoupons: boolean;
+}
+
+/** GET /api/gift-cards/config/restaurant/:id — public, no auth. */
+export async function getGiftCardConfig(
+  restaurantId: string
+): Promise<GiftCardConfig> {
+  const data = await apiRequest<{ data: GiftCardConfig }>(
+    "GET",
+    `/api/gift-cards/config/restaurant/${restaurantId}`
+  );
+  return data.data;
+}
+
+/**
+ * POST /api/gift-cards/purchase — public, no auth. `stripePaymentIntentId` is
+ * stored as-is for Stripe-fee bookkeeping only; the backend never verifies it
+ * against Stripe, so this can seed a valid, fully-funded gift card WITHOUT
+ * driving the real purchase UI/Stripe iframe — the right way to fixture a
+ * card for checkout-redemption tests (mirrors createCouponRaw's role for
+ * coupons). The dedicated purchase-flow tests still drive the real UI.
+ */
+export async function purchaseGiftCard(body: {
+  restaurantId: string;
+  amount: number;
+  deliveryMethod?: "EMAIL";
+  recipientEmail?: string;
+}): Promise<ApiGiftCard> {
+  const data = await apiRequest<{ data: ApiGiftCard }>(
+    "POST",
+    "/api/gift-cards/purchase",
+    { deliveryMethod: "EMAIL", ...body }
+  );
+  return data.data;
+}
+
+/** Raw purchase — for negative cases (e.g. amount out of config range → 400). */
+export function purchaseGiftCardRaw(
+  body: Record<string, unknown>
+): Promise<RawResponse> {
+  return apiRequestRaw("POST", "/api/gift-cards/purchase", {
+    deliveryMethod: "EMAIL",
+    ...body,
+  });
+}
+
+/** GET /api/gift-cards/balance/:code — public, no auth. Throws on 404 (unknown code). */
+export async function getGiftCardBalance(code: string): Promise<{
+  currentBalance: number;
+  initialBalance: number;
+  status: "ACTIVE" | "DEPLETED" | "FROZEN";
+}> {
+  const data = await apiRequest<{
+    data: {
+      currentBalance: number;
+      initialBalance: number;
+      status: "ACTIVE" | "DEPLETED" | "FROZEN";
+    };
+  }>("GET", `/api/gift-cards/balance/${code}`);
+  return data.data;
+}
+
+/** Raw balance check — for negative cases (e.g. nonexistent code → 404). */
+export function getGiftCardBalanceRaw(code: string): Promise<RawResponse> {
+  return apiRequestRaw("GET", `/api/gift-cards/balance/${code}`);
+}
+
+/**
+ * Admin-only lookup: gift cards are found/adjusted/frozen by DB `id`, not
+ * `code`, but tests only know the code from the purchase response. `search`
+ * filters server-side on the raw (unmasked) code column before the response
+ * masks it, so passing the full code here still finds the right row.
+ */
+export async function findGiftCardIdByCode(
+  adminToken: string,
+  code: string
+): Promise<string> {
+  // The DB stores the raw code with no separators; the UI-displayed/confirmed
+  // code is dash-formatted ("XXXX-XXXX-XXXX-XXXX"), which never matches a
+  // `contains` search against the raw column — strip non-alphanumerics first.
+  const sanitized = code.replace(/[^A-Z0-9]/gi, "");
+  const data = await apiRequest<{
+    data: { giftCards: { id: string }[] };
+  }>(
+    "GET",
+    `/api/admin/gift-cards?search=${encodeURIComponent(sanitized)}`,
+    undefined,
+    adminToken
+  );
+  const card = data.data.giftCards[0];
+  if (!card) throw new Error(`No gift card found matching code ${code}`);
+  return card.id;
+}
+
+/**
+ * POST /api/admin/gift-cards/:id/adjust — `amount` is a DELTA added to
+ * currentBalance (not an absolute target). To deplete a card to zero for a
+ * negative-redemption test, pass `amount: -currentBalance`.
+ */
+export async function adjustGiftCardBalance(
+  adminToken: string,
+  giftCardId: string,
+  amount: number,
+  reason: string
+): Promise<void> {
+  await apiRequest<unknown>(
+    "POST",
+    `/api/admin/gift-cards/${giftCardId}/adjust`,
+    { amount, reason },
+    adminToken
+  );
+}
+
+/** PATCH /api/admin/gift-cards/:id/freeze — no body. Used both by negative
+ * redemption tests (seed a frozen card) and by the cleanup sweep. */
+export async function freezeGiftCardApi(
+  adminToken: string,
+  giftCardId: string
+): Promise<void> {
+  await apiRequest<unknown>(
+    "PATCH",
+    `/api/admin/gift-cards/${giftCardId}/freeze`,
+    undefined,
+    adminToken
+  );
+}
+
 // ── Demo requests ────────────────────────────────────────────────────────────
 
 /**
@@ -443,12 +592,16 @@ export function createCouponRaw(
 // ── Orders & POS (tablet) ────────────────────────────────────────────────────
 //
 // Order seeding + the POS/tablet order-lifecycle surface. Backend specifics
-// verified 2026-07-06:
-//   • POST /api/order/new/restaurantId/:id with total:0 creates a paid order
-//     immediately (status=PENDING, paymentStatus=COMPLETED) — no Stripe. This
-//     is the only Stripe-free order path on the customer web endpoint.
-//   • Order status routes take NO auth and accept free-form transitions from a
-//     flat allowlist (not a state machine). Path param is :id.
+// verified 2026-07-06, updated 2026-07-09:
+//   • The backend now runs a server-side pricing guard on placeOrder (backend
+//     commits 6205cefe/0d1cbb46, on QA since 2026-07-09): it recomputes the
+//     subtotal from DB menu prices and rejects any claimed total below that
+//     floor with 400 "Order Price Mismatch". The old total:0 seeding trick
+//     (which yielded an instantly-paid order with no Stripe) is permanently
+//     dead — seed orders must claim at least the items' real DB prices.
+//     createSeededOrder below is the only remaining Stripe-free seed path.
+//   • Order status routes accept free-form transitions from a flat allowlist
+//     (not a state machine). Path param is :id.
 //   • Tablet device create returns the plaintext login code ONCE. There is no
 //     delete — devices are deactivated (toggle) for cleanup.
 
@@ -464,46 +617,6 @@ export interface SeedOrderItem {
   menuItemId: string;
   name: string;
   price: number;
-}
-
-/**
- * Create a $0 PICKUP order via the public customer endpoint. total:0 makes the
- * backend mark it PENDING/COMPLETED with no Stripe intent — ideal seed data.
- * The restaurant must have settings.acceptingOrders=true (the seed restaurant
- * does). No order-delete API exists, so these are left as residue (like the
- * TC-26 real order) and double as seed data for the owner Orders tab.
- */
-export async function createZeroTotalOrder(
-  restaurantId: string,
-  item: SeedOrderItem,
-  customerEmail = `autoorder_${Date.now()}@restaunax-test.com`
-): Promise<ApiOrder> {
-  const data = await apiRequest<{ order?: ApiOrder } & ApiOrder>(
-    "POST",
-    `/api/order/new/restaurantId/${restaurantId}`,
-    {
-      orderType: "PICKUP",
-      subtotal: 0,
-      tax: 0,
-      deliveryFee: 0,
-      tip: 0,
-      total: 0,
-      customerEmail,
-      customerPhone: "+15550000000",
-      firstName: "Auto",
-      lastName: "Order",
-      orderItems: [
-        {
-          menuItemId: item.menuItemId,
-          menuItemName: item.name,
-          quantity: 1,
-          price: item.price,
-        },
-      ],
-    }
-  );
-  // Response may be the order directly or wrapped in { order }.
-  return (data.order ?? (data as ApiOrder)) as ApiOrder;
 }
 
 /**
@@ -561,21 +674,26 @@ export interface SeedOrderOpts {
  * Create a *nonzero-revenue* order that counts in reports, WITHOUT Stripe.
  *
  * Two steps:
- *   1. POST the public new-order endpoint with real subtotal/total. The backend
- *      trusts the client totals it's sent, but a nonzero order is created in
- *      status INITIALIZED (the pre-payment placeholder), which reports exclude.
+ *   1. POST the public new-order endpoint with real subtotal/total. A nonzero
+ *      order is created in status INITIALIZED (the pre-payment placeholder),
+ *      which reports and the POS current-orders feed exclude.
  *   2. PUT the status to an included status (default CONFIRMED) with an
  *      owner/admin token — the status endpoint validates only allowlist
  *      membership (no source-state check), so INITIALIZED→CONFIRMED is accepted.
  *
+ * The backend's pricing guard recomputes the subtotal from DB menu prices and
+ * rejects a claimed total below that floor ("Order Price Mismatch"). So the
+ * claimed total must be ≥ the item's real DB price — the default (subtotal =
+ * item.price, from shared state) satisfies this; an opts.subtotal override
+ * must not undercut it. Tax/tip/deliveryFee only add, so they're always safe.
+ *
  * The order's createdAt is "now", so it lands in the current business day's
  * Daily Report / Analytics with real revenue. The line-item price mirrors the
- * subtotal so the figure is stable whether the backend trusts the sent subtotal
+ * subtotal so the figure is stable whether the backend uses the sent subtotal
  * or recomputes it from the items.
  *
- * Like createZeroTotalOrder, there is no order-delete API, so seeded orders are
- * permanent QA residue — tests that rely on them must assert DELTAS, not
- * absolute totals.
+ * There is no order-delete API, so seeded orders are permanent QA residue —
+ * tests that rely on them must assert DELTAS, not absolute totals.
  */
 export async function createSeededOrder(
   ownerToken: string,
@@ -738,8 +856,52 @@ export interface RawResponse<T = unknown> {
   data: T;
 }
 
-/** Like apiRequest, but returns the status/body instead of throwing on non-2xx. */
+// Transient statuses worth retrying: gateway/availability blips from the
+// shared QA infra. Deliberately EXCLUDES 500 — negative tests assert on 500s
+// (they're usually deterministic backend bugs, e.g. the TC-92 coupon edit),
+// and retrying them would only slow the failure down.
+const RETRYABLE_STATUSES = new Set([502, 503, 504]);
+const MAX_RETRIES = 2;
+const RETRY_BACKOFF_MS = [1_000, 3_000];
+
+/**
+ * Like apiRequest, but returns the status/body instead of throwing on non-2xx.
+ * Retries transient failures (network error, timeout, 502/503/504) up to
+ * MAX_RETRIES times with backoff — a single QA gateway blip during
+ * setup/teardown shouldn't abort the whole run or leak cleanup.
+ */
 async function apiRequestRaw<T = unknown>(
+  method: string,
+  path: string,
+  body?: unknown,
+  accessToken?: string
+): Promise<RawResponse<T>> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      const delay = RETRY_BACKOFF_MS[attempt - 1] ?? 3_000;
+      console.warn(
+        `[apiHelper] transient failure on ${method} ${path} — retry ${attempt}/${MAX_RETRIES} in ${delay}ms`
+      );
+      await new Promise((r) => setTimeout(r, delay));
+    }
+    try {
+      const res = await apiRequestOnce<T>(method, path, body, accessToken);
+      if (RETRYABLE_STATUSES.has(res.status) && attempt < MAX_RETRIES) {
+        lastError = new Error(`API ${method} ${path} → ${res.status}`);
+        continue;
+      }
+      return res;
+    } catch (err) {
+      lastError = err;
+      if (attempt < MAX_RETRIES) continue;
+    }
+  }
+  throw lastError;
+}
+
+/** Single-shot fetch — retry policy lives in apiRequestRaw above. */
+async function apiRequestOnce<T = unknown>(
   method: string,
   path: string,
   body?: unknown,
@@ -1131,4 +1293,61 @@ export async function deleteRecordedUsers(adminToken: string): Promise<void> {
     await deleteUserByEmail(adminToken, email);
   }
   clearUsersForCleanup();
+}
+
+/**
+ * POST /api/user-restaurants/assign-restaurant — sets Restaurant.ownerId and
+ * promotes the target user's role USER→OWNER server-side (see
+ * assignRestaurantToUser in restaunax-backend). Called via API, not the
+ * dashboard UI: confirmed by direct source read (2026-07-11) that the only
+ * frontend components referencing this endpoint (UserRestaurantList.tsx,
+ * AssignRestaurantDialog.tsx) are dead code — imported nowhere — and the
+ * "Restaurants" tab that would host an assign action is never rendered for
+ * Role.USER in the first place (UserDetailsModal.tsx's ROLE_CONFIG only
+ * grants that tab to OWNER/EMPLOYEE). There is currently no UI path to
+ * complete this step — see TEST_COVERAGE.md's Known Technical Debt.
+ *
+ * Tolerates a specific known false-negative: the controller runs the
+ * ownerId/role DB writes BEFORE sending a "you've been assigned a
+ * restaurant" welcome email, and the two aren't in one transaction — a
+ * Mailtrap-quota (or any email-provider) failure throws from inside the
+ * same try block and the whole request 500s, even though the assignment
+ * already succeeded. Confirmed live 2026-07-11 (real backend bug, written
+ * up for the frontend/backend team — see TEST_COVERAGE.md). Callers should
+ * verify the real outcome (e.g. the owner can see the restaurant) rather
+ * than trust this call's success alone.
+ */
+export async function assignRestaurantToUserApi(
+  adminToken: string,
+  userId: string,
+  restaurantId: string
+): Promise<void> {
+  const res = await apiRequestRaw<{ message?: string }>(
+    "POST",
+    "/api/user-restaurants/assign-restaurant",
+    { userId, restaurantId },
+    adminToken
+  );
+  if (res.ok) return;
+  const detail =
+    typeof res.data === "string" ? res.data : JSON.stringify(res.data);
+  if (res.status === 500 && /email limit is reached/i.test(detail)) {
+    console.warn(
+      "[apiHelper] assignRestaurantToUserApi: DB write likely succeeded despite a 500 " +
+        "from the welcome-email send hitting the Mailtrap quota — known backend bug, proceeding."
+    );
+    return;
+  }
+  throw new Error(
+    `API POST /api/user-restaurants/assign-restaurant → ${res.status}: ${detail}`
+  );
+}
+
+/** Look up a user's id by exact email (admin token required). */
+export async function findUserIdByEmail(
+  adminToken: string,
+  email: string
+): Promise<string | undefined> {
+  const users = await adminListUsers(adminToken, email);
+  return users.find((u) => u.email.toLowerCase() === email.toLowerCase())?.id;
 }

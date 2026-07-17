@@ -109,9 +109,7 @@ test.describe("Admin — Demo Request Actions", () => {
       "Proceed to Onboarding",
       "Delete demo",
     ]) {
-      await expect(
-        adminPage.locator('[role="menu"]').getByText(label, { exact: true })
-      ).toBeVisible();
+      await expect(demoPage.menuActionItem(label)).toBeVisible();
     }
 
     await adminPage.keyboard.press("Escape");
@@ -126,11 +124,9 @@ test.describe("Admin — Demo Request Actions", () => {
     try {
       await demoPage.changeStatusInline(email, "Contacted");
 
-      await expect(
-        demoPage
-          .findRowByEmail(email)
-          .locator('[role="combobox"] .MuiChip-label')
-      ).toContainText("Contacted", { timeout: 10_000 });
+      await expect(demoPage.statusChip(email)).toContainText("Contacted", {
+        timeout: 10_000,
+      });
     } finally {
       // Reset to "New" so later tests in this file start from a known state —
       // in a finally so a mid-test failure can't leave the row wrong.
@@ -186,11 +182,9 @@ test.describe("Admin — Demo Request Actions", () => {
       });
 
       await allure.step("Verify status flips to Contacted", async () => {
-        await expect(
-          demoPage
-            .findRowByEmail(email)
-            .locator('[role="combobox"] .MuiChip-label')
-        ).toContainText("Contacted", { timeout: 10_000 });
+        await expect(demoPage.statusChip(email)).toContainText("Contacted", {
+          timeout: 10_000,
+        });
       });
 
       if (mailtrapReady) {
@@ -216,7 +210,7 @@ test.describe("Admin — Demo Request Actions", () => {
     await demoPage.openActionMenu(email);
     await demoPage.clickMenuAction("Delete demo");
 
-    const dialog = adminPage.locator('[role="dialog"]');
+    const dialog = demoPage.confirmDialog();
     await expect(dialog).toBeVisible({ timeout: 5_000 });
     await expect(dialog).toContainText(`${demoFirstName} ${demoLastName}`);
 
@@ -308,11 +302,9 @@ test.describe("Admin — Demo Request Actions", () => {
       await demoPage.assertDialogOpen("Schedule Demo");
       await demoPage.scheduleDemo(futureScheduleDate(), "1000AM");
 
-      await expect(
-        demoPage
-          .findRowByEmail(email)
-          .locator('[role="combobox"] .MuiChip-label')
-      ).toContainText("Scheduled", { timeout: 10_000 });
+      await expect(demoPage.statusChip(email)).toContainText("Scheduled", {
+        timeout: 10_000,
+      });
     } finally {
       // Reset to "New" so later tests in this file start from a known state —
       // in a finally so a mid-test failure can't leave the row wrong.

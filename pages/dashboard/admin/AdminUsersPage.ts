@@ -377,6 +377,7 @@ export const createAdminUsersPage = (page: Page) => {
     assertInviteError,
     ownerRestaurantAutocomplete,
     openUserDetails,
+    sideSheet,
     switchTab,
     assertTabPresent,
     assertTabAbsent,

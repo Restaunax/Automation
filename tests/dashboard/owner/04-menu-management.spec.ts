@@ -138,9 +138,7 @@ test.describe("Owner — Menu Management", () => {
       );
     });
 
-    test("TC-62: menu item wizard blocks Next when name and price are blank", async ({
-      ownerPage,
-    }) => {
+    test("TC-62: menu item wizard blocks Next when name and price are blank", async () => {
       await allure.description(
         "Opening the Add Item wizard and blurring name/price with both left blank shows inline " +
           "required-field errors and keeps the Next button disabled."
@@ -153,10 +151,8 @@ test.describe("Owner — Menu Management", () => {
       await allure.step(
         "Blur name and price without filling them",
         async () => {
-          await ownerPage
-            .getByPlaceholder("Enter the menu item name")
-            .press("Tab");
-          await ownerPage.getByPlaceholder("Enter the base price").press("Tab");
+          await menuPage.itemNameInput().press("Tab");
+          await menuPage.basePriceInput().press("Tab");
         }
       );
 
@@ -180,9 +176,7 @@ test.describe("Owner — Menu Management", () => {
       );
     });
 
-    test("TC-43: owner can edit a menu item name and price", async ({
-      ownerPage,
-    }) => {
+    test("TC-43: owner can edit a menu item name and price", async () => {
       await allure.description(
         "Owner clicks Edit Item on an existing menu item, updates name and price in the wizard, and verifies the success toast."
       );
@@ -193,9 +187,7 @@ test.describe("Owner — Menu Management", () => {
       await allure.step(`Click Edit on "${TEST_ITEM_NAME}"`, async () => {
         // Activate the category tab so its items are rendered in the DOM
         // before looking for the card — non-active panels may be unmounted.
-        await ownerPage
-          .getByRole("tab", { name: TEST_CATEGORY_NAME, exact: true })
-          .click();
+        await menuPage.activateCategory(TEST_CATEGORY_NAME);
         await menuPage.clickEditItem(TEST_ITEM_NAME);
         await allure.parameter("Item", TEST_ITEM_NAME);
       });

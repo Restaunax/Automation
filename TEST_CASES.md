@@ -25,16 +25,17 @@ Each test case includes:
 
 ## The Areas We Test
 
-| Area              | Who Uses It                        | Tests                                                                                                                                                     |
-| ----------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 🌐 Public         | Anyone on the internet             | TC-01, TC-02, TC-59 → TC-61, TC-74, TC-75, TC-93 → TC-96                                                                                                  |
-| 🔐 Admin          | Internal Restaunax staff           | TC-03 → TC-12, TC-32, TC-76, TC-77, TC-98, TC-101 → TC-124 (user management, `users.spec.ts`)                                                             |
-| 🏠 Owner          | Restaurant owners                  | TC-13 → TC-16, TC-19 → TC-21, TC-27 → TC-31, TC-35, TC-42 → TC-53 (excl. TC-22–26), TC-62 → TC-70, TC-78, TC-82 → TC-92, TC-127 → TC-129, TC-131 → TC-142 |
-| 🛒 Customer       | People ordering food               | TC-22 → TC-26, TC-64, TC-99, TC-125, TC-126                                                                                                               |
-| 🍳 POS            | Restaurant kitchen / tablet        | TC-100 (`--project=pos`)                                                                                                                                  |
-| 🔒 Access Control | Testing role/permission boundaries | TC-54 → TC-58, TC-71 → TC-73, TC-81                                                                                                                       |
-| 🚪 Onboarding     | New restaurant owners              | TC-93 → TC-97 (spans Public sign-up and Employee restaurant creation)                                                                                     |
-| 🌐 API-Level      | No UI — direct backend calls       | TC-65, TC-66, TC-68, TC-69, TC-79, TC-80                                                                                                                  |
+| Area              | Who Uses It                        | Tests                                                                                                                                                                      |
+| ----------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 🌐 Public         | Anyone on the internet             | TC-01, TC-02, TC-59 → TC-61, TC-74, TC-75, TC-93 → TC-96                                                                                                                   |
+| 🔐 Admin          | Internal Restaunax staff           | TC-03 → TC-12, TC-32, TC-76, TC-77, TC-98, TC-101 → TC-124 (user management, `users.spec.ts`)                                                                              |
+| 🏠 Owner          | Restaurant owners                  | TC-13 → TC-16, TC-19 → TC-21, TC-27 → TC-31, TC-35, TC-42 → TC-53 (excl. TC-22–26), TC-62 → TC-70, TC-78, TC-82 → TC-92, TC-127 → TC-129, TC-131 → TC-142, TC-145 → TC-164 |
+| 🛒 Customer       | People ordering food               | TC-22 → TC-26, TC-64, TC-99, TC-125, TC-126, TC-165 → TC-178                                                                                                               |
+| 🍳 POS            | Restaurant kitchen / tablet        | TC-100 (`--project=pos`)                                                                                                                                                   |
+| 🔒 Access Control | Testing role/permission boundaries | TC-54 → TC-58, TC-71 → TC-73, TC-81                                                                                                                                        |
+| 🚪 Onboarding     | New restaurant owners              | TC-93 → TC-97, TC-182, TC-183 (spans Public sign-up and Employee restaurant creation)                                                                                      |
+| 👔 Employee       | Company-side setup staff           | TC-143, TC-144, TC-182, TC-183 (TC-17/18 tax and TC-97 also run under the EMPLOYEE role)                                                                                   |
+| 🌐 API-Level      | No UI — direct backend calls       | TC-65, TC-66, TC-68, TC-69, TC-79, TC-80                                                                                                                                   |
 
 TC-17 and TC-18 (tax settings) run under the **Employee** role, not Owner —
 `/tax` is an EMPLOYEE/ADMIN-only route and the OWNER role gets Access Denied.
@@ -368,6 +369,42 @@ An admin can navigate to the Restaurants tab in the admin dashboard and see a li
 ### Why it matters
 
 Admin oversight of all restaurant accounts is essential for account management, support, and billing. If this page is broken, admins can't see or manage any of their clients.
+
+---
+
+## TC-101 → TC-124 — Admin User Management (`users.spec.ts`)
+
+**Status:** ✅ Passing (invite/reset/claim cases are email-gated — they skip unless `SEND_ACCOUNT_EMAILS=true`, to protect the Mailtrap quota)
+
+The admin Users screen is where Restaunax staff invite, inspect, and manage every account on the platform. This block covers the whole surface; each test in one line:
+
+| TC     | What it checks                                                                                              |
+| ------ | ----------------------------------------------------------------------------------------------------------- |
+| TC-101 | Admin can invite a new user (email-gated)                                                                   |
+| TC-102 | An invalid email shows an error and sends no request                                                        |
+| TC-103 | Submit stays disabled until a role is selected                                                              |
+| TC-104 | Inviting an already-registered email is rejected                                                            |
+| TC-105 | Choosing the Owner role reveals the restaurant autocomplete                                                 |
+| TC-106 | Cancel resets the invite form                                                                               |
+| TC-107 | Search finds a user by email                                                                                |
+| TC-109 | Role filter narrows the list                                                                                |
+| TC-110 | Status filter narrows the list                                                                              |
+| TC-111 | Clicking a row opens the detail side sheet                                                                  |
+| TC-112 | A USER's detail shows only the role-appropriate tabs                                                        |
+| TC-113 | An OWNER's detail exposes all tabs, including read-only Restaurants                                         |
+| TC-114 | The side sheet can be closed                                                                                |
+| TC-115 | Admin can change a user's role                                                                              |
+| TC-116 | Admin can deactivate then reactivate a user                                                                 |
+| TC-117 | Admin can send a password-reset email (email-gated)                                                         |
+| TC-118 | Admin can add then remove a user-specific permission                                                        |
+| TC-76  | Changing a role to an unknown value is rejected by the backend (API negative)                               |
+| TC-77  | Toggling status of a nonexistent user id is rejected (API negative)                                         |
+| TC-123 | An invited user can claim access via the emailed token and log in with the right access level (email-gated) |
+| TC-124 | A bogus invite token grants no elevated access                                                              |
+
+### Why it matters
+
+User management is the platform's front door for staff and owners alike: a broken invite flow blocks onboarding entirely, and a broken role/permission editor is a security problem, not just a UI bug. The negative cases (TC-76/77/102/104/124) prove the backend rejects bad input rather than trusting the UI to prevent it.
 
 ---
 
@@ -1441,6 +1478,45 @@ Delivery had zero coverage — every prior order test used Pickup. A broken addr
 
 ---
 
+## TC-165–170 — Gift Card Purchase and Balance Check
+
+**Status:** ✅ Passing (needs `TEMPLATE_WIND_URL` + `ADMIN_EMAIL`/`ADMIN_PASSWORD`)
+
+### What they check
+
+Gift cards had **zero test coverage anywhere** before this pass — no POM, no API helper, not one test. This batch covers the `/gift-cards` purchase page end to end as a guest: TC-165 (preset denomination, "Send as Gift"), TC-166 (custom amount within the restaurant's configured range), TC-167/TC-168 (custom amount below/above range blocked client-side), TC-169 (the public balance-check tool shows the correct balance for a freshly purchased code), TC-170 (balance check shows "not found" for a bogus code).
+
+### How it works, step by step
+
+1. Fetch the restaurant's live gift-card config (`GET /api/gift-cards/config/restaurant/:id`) to compute realistic amounts instead of hardcoding assumed min/max defaults.
+2. Pick a preset or type a custom amount, choose "Send as Gift" (guest-accessible — unlike "For Myself", which requires login), fill a recipient email, continue to payment, and fill a Stripe test card via the shared `fillStripePaymentElement` helper (extended to also fill an optional billing ZIP field this purchase flow's Payment Element configuration requires but checkout's doesn't).
+3. Read the formatted code off the confirmation screen; look up its DB id via the admin gift-card list (search on the sanitized, dash-stripped code — the admin API masks codes in list results but searches the raw column) and record it in a cleanup file.
+4. `globalTeardown` best-effort **freezes** every recorded test gift card at the end of the run — there's no delete endpoint for gift cards (only freeze), unlike coupons.
+
+### Why it matters
+
+Gift cards are real revenue with real Stripe charges. An amount-validation regression, a broken confirmation screen, or a balance-check tool that silently shows the wrong number would have shipped with zero warning.
+
+---
+
+## TC-171–178 — Gift Card Redemption at Checkout
+
+**Status:** ✅ Passing, except TC-177 (`test.fixme` — real bug, see below)
+
+### What they check
+
+The checkout-side "Gift Card" box (`RewardSection`), seeded via the public purchase endpoint and admin freeze/adjust endpoints rather than the purchase UI (faster, and mirrors how `createCouponRaw` seeds coupons for checkout tests): TC-171 (valid card applied shows the discount), TC-172 (Remove clears it), TC-173 (invalid code rejected), TC-174 (a card manually depleted to $0 via admin adjust is rejected), TC-175 (an admin-frozen card is rejected), TC-176 (a coupon and a gift card both apply to the same order simultaneously — currently-supported behavior, not a test of the separate `canCombineWithCoupons` config flag, which isn't enforced by either side today), TC-178 (a card that only partially covers the total still routes the remainder through Stripe).
+
+### Why it matters
+
+Same reasoning as coupons (TC-125) — the discount math and rejection paths are exactly the kind of thing that silently breaks and overcharges or undercharges a customer with no error anywhere.
+
+### A real bug found along the way (TC-177, `test.fixme`)
+
+TC-177 set out to prove a gift card that fully covers an order's total skips Stripe entirely (per `checkout/page.tsx`'s documented $0-total branch). Live network tracing during authoring showed something different: `POST /api/order/new/...` succeeds (**201** — the order **is** created), but the frontend then still attempts to create a Stripe PaymentIntent for the now-$0 remainder anyway, which the backend correctly rejects (**400** — Stripe requires a minimum chargeable amount). The customer is left stuck on the checkout page with a console error and no confirmation screen, even though their order actually went through server-side. Filed as `test.fixme` with the real behavior documented rather than asserting the broken flow as correct — same pattern as TC-92's coupon-edit bug.
+
+---
+
 ## TC-100 — Restaurant Receives and Processes an Order Through the POS Lifecycle
 
 **Status:** ✅ Passing (needs `OWNER_EMAIL`/`OWNER_PASSWORD`); run with `--project=pos`
@@ -1452,7 +1528,7 @@ The other half of the core business loop. TC-26 proves a customer can _place_ an
 ### How it works, step by step
 
 1. `beforeAll`: owner API login; provision a POS tablet device (returns a one-time plaintext code); tablet logs in for a real POS session.
-2. A customer order is seeded via the public order API with `total: 0`, which the backend marks paid (`PENDING`) with no Stripe.
+2. A customer order is seeded via the public order API at its real menu price (the backend's pricing guard rejects `total: 0` since 2026-07-09), then bumped to `PENDING` — the state a just-paid order lands in — with no Stripe.
 3. Assert the order shows up in the restaurant's live current-orders feed (the "received" half).
 4. Drive it `PENDING → CONFIRMED → PREPARING → READY → PICKED_UP`, confirming each transition at the API, and that the fulfilled order remains on today's feed at its terminal status.
 5. `afterAll`: deactivate the tablet device (there's no device-delete API).
@@ -1643,124 +1719,263 @@ This is the critical handoff from the app to Stripe. If the button calls the wro
 
 ---
 
+# 👔 SECTION 6 — Employee Dashboard
+
+> These tests check the **company-side setup staff** role (EMPLOYEE) — not to be confused with a restaurant owner's own staff. EMPLOYEE can publish menus and configure tax on behalf of a client, which OWNER is explicitly denied (see TC-27/TC-28 and the access matrix TC-54/TC-55). Tests here skip automatically unless `EMPLOYEE_EMAIL` / `EMPLOYEE_PASSWORD` are set in `.env` — a skip is a gate, not a failure.
+
+---
+
+## TC-143 — Employee Can Reach the Publish Page
+
+**Status:** ⏭️ Skipped locally (no `EMPLOYEE_*` credentials in this environment) — real everywhere they exist
+
+### What it checks
+
+Unlike OWNER, who gets Access Denied on the publish page (TC-27, TC-54), an EMPLOYEE can open it and see the "Publish Restaurant" button.
+
+### How it works, step by step
+
+1. The test signs in as EMPLOYEE and navigates directly to the restaurant's publish page
+2. It confirms the "Publish Restaurant" button is visible on screen
+
+### Why it matters
+
+This is the key proof of the OWNER-vs-EMPLOYEE permission split for publishing. If EMPLOYEE lost this access, no restaurant could ever be taken live, since owners cannot self-publish.
+
+---
+
+## TC-144 — Employee Sees the Required Checklist on the Publish Page
+
+**Status:** ⏭️ Skipped locally (no `EMPLOYEE_*` credentials in this environment) — real everywhere they exist
+
+### What it checks
+
+The same four-item checklist described in TC-28 (Hours of Operation, Menu Setup, Restaurant Information, Payment Processing) is visible to an EMPLOYEE on the publish page.
+
+### How it works, step by step
+
+1. The test signs in as EMPLOYEE and opens the restaurant's publish page
+2. It checks that all four checklist items are visible
+
+### Why it matters
+
+Confirms EMPLOYEE gets the same completeness guidance as any other role that can reach this page, so a client's restaurant is never published half-configured.
+
+---
+
+## TC-182 — Full Onboarding Chain
+
+**Status:** ⏭️ Skipped locally (no `EMPLOYEE_*` credentials in this environment) — verified live by substituting an ADMIN session (ADMIN also holds `CREATE_RESTAURANT`) before this was committed
+
+### What it checks
+
+The real, previously-untested production onboarding journey, chained end to end in one test: a visitor signs up (`Role.USER`), an employee creates a restaurant on their behalf (Step 0), sets its Business Hours (Step 1), and adds a menu category (Step 2) — then an admin assigns the still-unowned restaurant to the new user, promoting them to `OWNER`, and that owner sees their restaurant appear in My Restaurants.
+
+### How it works, step by step
+
+1. A fresh visitor signs up via `/sign-up`
+2. An employee session creates a restaurant (Step 0 of `CreateStore.tsx`) — the restaurant exists but has no owner yet
+3. The employee sets Business Hours (Step 1) — selecting "Open" for Monday–Friday, which auto-fills default 9-5 hours
+4. The employee adds a menu category (Step 2)
+5. An admin looks up the new user by email and calls the restaurant-assignment API directly — **not through the dashboard UI**, because none currently exists (see "Why it matters" below)
+6. The same browser session the visitor signed up in (still authenticated) navigates to My Restaurants and confirms the new restaurant is there
+
+### Why it matters
+
+Before this test, sign-up (TC-93), restaurant creation (TC-97), and publish (TC-143/144) were four disconnected fragments in different spec files, with nothing proving they chain into a real journey — `TEST_COVERAGE.md` called this out explicitly. Building this test surfaced two real product findings along the way, not just a coverage gap:
+
+- **There is no dashboard UI path to assign a restaurant to a new owner.** The only frontend components referencing the assign-restaurant endpoint are dead code (imported nowhere), and the tab that would host that action is never rendered for a fresh `USER` account in the first place. This test calls the backend endpoint directly as a stand-in — there's nothing to click yet. See `docs/onboarding-product-fix-proposal.md`.
+- **That same endpoint can 500 on a request that actually succeeded** — a non-critical welcome-email failure (confirmed live: a Mailtrap quota exhaustion) throws from inside the same try block as the (already-committed) database writes. The test's helper tolerates this specific known cause and verifies the real outcome instead of trusting the HTTP status.
+
+Deliberately stops short of Publish — the checklist requires Payment Processing (Stripe Connect), which is out of scope for this pass (no API shortcut exists to fake that state).
+
+---
+
+## TC-183 — Business Hours Step Behavior
+
+**Status:** ⏭️ Skipped locally (no `EMPLOYEE_*` credentials in this environment) — verified live via the same ADMIN-substitution approach as TC-182
+
+### What it checks
+
+The Business Hours step (`HoursOfOperation.tsx`) of the onboarding wizard, which had zero prior coverage anywhere despite being a required step for every new restaurant: every day defaults to Closed; selecting Open reveals the opening/closing time pickers pre-filled with a default 9:00 AM–5:00 PM; selecting 24 Hours or Closed hides those pickers; and submitting with at least one day open advances the wizard to the Menu step.
+
+### How it works, step by step
+
+1. An employee creates a fresh restaurant and reaches Step 1
+2. The test confirms Monday defaults to the "Closed" radio with no time pickers visible
+3. It selects "Open" for Monday and confirms two time pickers appear, pre-filled with the default hours
+4. It selects "24 Hours" and confirms the time pickers disappear again
+5. It switches back to "Closed" and confirms the same
+6. It sets Monday back to "Open" and submits, confirming the wizard advances to the Menu step
+
+### Why it matters
+
+This step is unavoidable for every single new restaurant, and its default-value and show/hide logic had never been exercised by any test. It's also the step directly upstream of TC-182's chain.
+
+---
+
 # 📊 Test Summary
 
-| #      | Test Case                                                           | Area                  | Status                                                       |
-| ------ | ------------------------------------------------------------------- | --------------------- | ------------------------------------------------------------ |
-| TC-01  | Demo request form works                                             | Public                | ✅ Passing                                                   |
-| TC-02  | Confirmation email is sent                                          | Public                | ⏭️ Skipped                                                   |
-| TC-03  | Admin can log in                                                    | Admin                 | ✅ Passing                                                   |
-| TC-04  | Admin finds demo request                                            | Admin                 | ✅ Passing                                                   |
-| TC-05  | Admin opens actions menu                                            | Admin                 | ✅ Passing                                                   |
-| TC-06  | Admin changes demo status                                           | Admin                 | ✅ Passing                                                   |
-| TC-07  | Admin edits and saves notes on a demo request                       | Admin                 | ✅ Passing                                                   |
-| TC-08  | Admin sends a follow-up email (status flips, email delivered)       | Admin                 | ✅ Passing                                                   |
-| TC-09  | Delete confirmation + cancel works                                  | Admin                 | ✅ Passing                                                   |
-| TC-98  | Admin permanently deletes a demo request                            | Admin                 | ✅ Passing                                                   |
-| TC-10  | Admin assigns a demo request to a team member                       | Admin                 | ✅ Passing                                                   |
-| TC-11  | Admin schedules a demo (status flips to Scheduled)                  | Admin                 | ✅ Passing                                                   |
-| TC-12  | Proceed to onboarding navigates correctly                           | Admin                 | ✅ Passing                                                   |
-| TC-13  | Owner sees My Restaurants page                                      | Owner                 | ✅ Passing                                                   |
-| TC-14  | Owner sees their restaurant card                                    | Owner                 | ✅ Passing                                                   |
-| TC-15  | Owner opens restaurant management portal                            | Owner                 | ✅ Passing                                                   |
-| TC-16  | Owner navigates to Store Settings                                   | Owner                 | ✅ Passing                                                   |
-| TC-17  | Employee opens tax settings page                                    | Employee              | ✅ Passing                                                   |
-| TC-18  | Employee saves a tax rate                                           | Employee              | ✅ Passing                                                   |
-| TC-19  | Owner opens menu management                                         | Owner                 | ✅ Passing                                                   |
-| TC-20  | Owner creates a menu category                                       | Owner                 | ✅ Passing                                                   |
-| TC-21  | Owner adds a menu item                                              | Owner                 | ✅ Passing                                                   |
-| TC-22  | Customer sees menu page                                             | Customer              | ✅ Passing                                                   |
-| TC-23  | Customer opens item and sees Add to Cart                            | Customer              | ✅ Passing                                                   |
-| TC-24  | Customer reaches checkout with cart                                 | Customer              | ✅ Passing                                                   |
-| TC-25  | Customer fills details and reaches payment                          | Customer              | ✅ Passing                                                   |
-| TC-26  | Customer completes full order end to end                            | Customer              | ✅ Passing                                                   |
-| TC-99  | Customer adds to cart and reaches checkout via the real UI          | Customer              | ✅ Passing                                                   |
-| TC-125 | Customer applies a coupon at checkout (valid + bogus)               | Customer              | ✅ Passing                                                   |
-| TC-126 | Selecting Delivery drives the address → quote round-trip            | Customer              | ✅ Passing / graceful skip                                   |
-| TC-100 | Restaurant receives + processes an order (POS lifecycle)            | POS                   | ✅ Passing (`--project=pos`)                                 |
-| TC-27  | Owner reaches the publish page                                      | Owner                 | ⏭️ Skipped                                                   |
-| TC-28  | Publish checklist items are visible                                 | Owner                 | ⏭️ Skipped                                                   |
-| TC-29  | Owner views the Orders tab                                          | Owner                 | ✅ Passing                                                   |
-| TC-30  | Owner opens the Create Coupon form                                  | Owner                 | ✅ Passing                                                   |
-| TC-31  | Owner creates a new coupon                                          | Owner                 | ✅ Passing                                                   |
-| TC-32  | Admin sees the Restaurants list                                     | Admin                 | ✅ Passing                                                   |
-| TC-33  | Owner configures hours of operation                                 | Owner                 | ⏭️ Not yet implemented (narrative placeholder, no test code) |
-| TC-34  | Owner accesses employee management                                  | Owner                 | ⏭️ Not yet implemented (narrative placeholder, no test code) |
-| TC-35  | Owner views the analytics dashboard                                 | Owner                 | ✅ Passing                                                   |
-| TC-42  | Owner renames a menu category                                       | Owner                 | ⏭️ Skipped                                                   |
-| TC-43  | Owner edits a menu item name and price                              | Owner                 | ✅ Passing                                                   |
-| TC-44  | Owner deletes a menu item                                           | Owner                 | ⏭️ Skipped                                                   |
-| TC-45  | Owner deletes a menu category                                       | Owner                 | ✅ Passing                                                   |
-| TC-46  | Owner opens the Stripe setup page                                   | Owner                 | ✅ Passing                                                   |
-| TC-47  | Stripe stepper shows all 4 steps                                    | Owner                 | ✅ Passing                                                   |
-| TC-48  | Stripe page shows header description                                | Owner                 | ✅ Passing                                                   |
-| TC-49  | Owner sees Set Up Stripe Account button                             | Owner                 | ✅ Passing                                                   |
-| TC-50  | Stripe requirements section is visible                              | Owner                 | ✅ Passing                                                   |
-| TC-51  | Stripe success callback page loads                                  | Owner                 | ✅ Passing                                                   |
-| TC-52  | Restaurant Dashboard button redirects correctly                     | Owner                 | ✅ Passing                                                   |
-| TC-53  | Connect button calls create API and redirects                       | Owner                 | ✅ Passing                                                   |
-| TC-54  | OWNER denied `/publish` route                                       | Access Control        | ✅ Passing                                                   |
-| TC-55  | OWNER denied `/tax` route                                           | Access Control        | ✅ Passing                                                   |
-| TC-56  | Owner can reach shared menu management                              | Access Control        | ✅ Passing                                                   |
-| TC-57  | Admin can reach shared menu management                              | Access Control        | ✅ Passing                                                   |
-| TC-58  | Employee can reach shared menu management                           | Access Control        | ⏭️ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD`                |
-| TC-59  | Valid credentials reach the dashboard                               | Public                | ✅ Passing                                                   |
-| TC-60  | Invalid credentials show an error                                   | Public                | ✅ Passing                                                   |
-| TC-61  | Unknown email shows an error                                        | Public                | ✅ Passing                                                   |
-| TC-62  | Menu item wizard blocks blank name/price                            | Owner                 | ✅ Passing                                                   |
-| TC-63  | Invalid coupon discount % is rejected                               | Owner                 | ✅ Passing                                                   |
-| TC-64  | Declined card shows a payment error                                 | Customer              | ✅ Passing (needs `TEMPLATE_WIND_URL`)                       |
-| TC-65  | Menu item with no name rejected (API)                               | API-Level             | ✅ Passing                                                   |
-| TC-66  | Coupon with no code rejected (API)                                  | API-Level             | ✅ Passing                                                   |
-| TC-68  | Coupon with negative discount rejected (API)                        | API-Level             | ✅ Passing                                                   |
-| TC-69  | Garbage Bearer token rejected (API)                                 | API-Level             | ✅ Passing                                                   |
-| TC-70  | Nonexistent order search shows empty state                          | Owner                 | ✅ Passing                                                   |
-| TC-71  | Unauthenticated visitor redirected from `/restaurant/stores`        | Access Control        | ✅ Passing                                                   |
-| TC-72  | Unauthenticated visitor redirected from `/admin`                    | Access Control        | ✅ Passing                                                   |
-| TC-73  | Unauthenticated visitor redirected from a restaurant management URL | Access Control        | ✅ Passing                                                   |
-| TC-74  | Demo form — unchecked terms blocks submit                           | Public                | ✅ Passing                                                   |
-| TC-75  | Demo form — invalid email blocks submit                             | Public                | ✅ Passing                                                   |
-| TC-76  | Admin — invalid role value rejected (API)                           | Admin                 | ✅ Passing                                                   |
-| TC-77  | Admin — status toggle on nonexistent user rejected (API)            | Admin                 | ✅ Passing                                                   |
-| TC-78  | Failed Stripe create-account shows error                            | Owner                 | ✅ Passing                                                   |
-| TC-79  | Owner without CREATE_RESTAURANT can't self-create (API)             | API-Level             | ✅ Passing                                                   |
-| TC-80  | Demo request with no email rejected (API)                           | API-Level             | ✅ Passing                                                   |
-| TC-81  | OWNER denied `/restaurant/loyalty` route                            | Access Control        | ✅ Passing                                                   |
-| TC-82  | Owner reaches Uber Eats delivery settings                           | Owner                 | ✅ Passing                                                   |
-| TC-83  | Uber Eats delivery configuration section visible                    | Owner                 | ✅ Passing                                                   |
-| TC-84  | Owner reaches Subscription Management page                          | Owner                 | ✅ Passing                                                   |
-| TC-85  | Subscription page shows plan details                                | Owner                 | ✅ Passing                                                   |
-| TC-86  | Owner reaches Manage Deals tab                                      | Owner                 | ✅ Passing                                                   |
-| TC-87  | Manage Deals shows Create Deal action                               | Owner                 | ✅ Passing                                                   |
-| TC-88  | Owner edits and saves a Store Settings field                        | Owner                 | ✅ Passing                                                   |
-| TC-89  | Filters button opens the filter panel                               | Owner                 | ✅ Passing                                                   |
-| TC-90  | Order detail view opens                                             | Owner                 | ✅ Passing                                                   |
-| TC-91  | Created coupon visible in Manage Coupons list                       | Owner                 | ✅ Passing                                                   |
-| TC-92  | Owner edits an existing coupon's discount value                     | Owner                 | ⏭️ `test.fixme` — real backend bug (500)                     |
-| TC-93  | Visitor registers a new account                                     | Onboarding / Public   | ✅ Passing                                                   |
-| TC-94  | Sign-up — already-used email is rejected                            | Onboarding / Public   | ✅ Passing                                                   |
-| TC-95  | Sign-up — mismatched confirm-password blocks submit                 | Onboarding / Public   | ✅ Passing                                                   |
-| TC-96  | Sign-up — weak password rejected client-side                        | Onboarding / Public   | ✅ Passing                                                   |
-| TC-97  | Employee creates a restaurant on behalf of a client                 | Onboarding / Employee | ⏭️ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD`                |
-| TC-127 | Analytics dashboard resolves (data or empty) without error          | Owner                 | ✅ Passing                                                   |
-| TC-128 | Analytics date-range picker opens with presets                      | Owner                 | ✅ Passing                                                   |
-| TC-129 | Changing the analytics range reloads the dashboard                  | Owner                 | ✅ Passing                                                   |
-| TC-131 | Orders grid renders a real column set                               | Owner                 | ✅ Passing                                                   |
-| TC-132 | Filtering by Order Status re-queries the grid                       | Owner                 | ✅ Passing                                                   |
-| TC-133 | Resetting the filters restores the default status                   | Owner                 | ✅ Passing                                                   |
-| TC-134 | Order detail dialog shows items and total                           | Owner                 | ✅ Passing                                                   |
-| TC-135 | Orders toolbar exposes an Export control                            | Owner                 | ✅ Passing                                                   |
-| TC-136 | Owner views the Customers directory                                 | Owner                 | ✅ Passing                                                   |
-| TC-137 | Customer directory search re-queries the server                     | Owner                 | ✅ Passing                                                   |
-| TC-138 | Owner switches to the Customer Groups (segments) sub-tab            | Owner                 | ✅ Passing                                                   |
-| TC-139 | Owner views the Owner Settings (Automated Reports) form             | Owner                 | ✅ Passing                                                   |
-| TC-140 | Owner Settings Notifications sub-tab shows coming-soon              | Owner                 | ✅ Passing                                                   |
-| TC-141 | Owner views the Daily Report (current business day)                 | Owner                 | ✅ Passing                                                   |
-| TC-142 | Seeded orders reflected in today's Daily Report KPIs                | Owner                 | ✅ Passing                                                   |
+| #               | Test Case                                                                                       | Area                  | Status                                                                                                                                    |
+| --------------- | ----------------------------------------------------------------------------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| TC-01           | Demo request form works                                                                         | Public                | ✅ Passing                                                                                                                                |
+| TC-02           | Confirmation email is sent                                                                      | Public                | ⏭️ Skipped                                                                                                                                |
+| TC-03           | Admin can log in                                                                                | Admin                 | ✅ Passing                                                                                                                                |
+| TC-04           | Admin finds demo request                                                                        | Admin                 | ✅ Passing                                                                                                                                |
+| TC-05           | Admin opens actions menu                                                                        | Admin                 | ✅ Passing                                                                                                                                |
+| TC-06           | Admin changes demo status                                                                       | Admin                 | ✅ Passing                                                                                                                                |
+| TC-07           | Admin edits and saves notes on a demo request                                                   | Admin                 | ✅ Passing                                                                                                                                |
+| TC-08           | Admin sends a follow-up email (status flips, email delivered)                                   | Admin                 | ✅ Passing                                                                                                                                |
+| TC-09           | Delete confirmation + cancel works                                                              | Admin                 | ✅ Passing                                                                                                                                |
+| TC-98           | Admin permanently deletes a demo request                                                        | Admin                 | ✅ Passing                                                                                                                                |
+| TC-10           | Admin assigns a demo request to a team member                                                   | Admin                 | ✅ Passing                                                                                                                                |
+| TC-11           | Admin schedules a demo (status flips to Scheduled)                                              | Admin                 | ✅ Passing                                                                                                                                |
+| TC-12           | Proceed to onboarding navigates correctly                                                       | Admin                 | ✅ Passing                                                                                                                                |
+| TC-101 → TC-118 | Admin user management: invite, search/filter, detail sheet, role/status/permissions (no TC-108) | Admin                 | ✅ Passing (invite/reset email-gated via `SEND_ACCOUNT_EMAILS`)                                                                           |
+| TC-76 / TC-77   | Role/status changes with bad input are rejected (API negatives)                                 | Admin                 | ✅ Passing                                                                                                                                |
+| TC-123          | Invited user claims access and logs in with the right access level                              | Admin                 | ✅ Passing (email-gated via `SEND_ACCOUNT_EMAILS`)                                                                                        |
+| TC-124          | A bogus invite token grants no elevated access                                                  | Admin                 | ✅ Passing                                                                                                                                |
+| TC-13           | Owner sees My Restaurants page                                                                  | Owner                 | ✅ Passing                                                                                                                                |
+| TC-14           | Owner sees their restaurant card                                                                | Owner                 | ✅ Passing                                                                                                                                |
+| TC-15           | Owner opens restaurant management portal                                                        | Owner                 | ✅ Passing                                                                                                                                |
+| TC-16           | Owner navigates to Store Settings                                                               | Owner                 | ✅ Passing                                                                                                                                |
+| TC-17           | Employee opens tax settings page                                                                | Employee              | ✅ Passing                                                                                                                                |
+| TC-18           | Employee saves a tax rate                                                                       | Employee              | ✅ Passing                                                                                                                                |
+| TC-19           | Owner opens menu management                                                                     | Owner                 | ✅ Passing                                                                                                                                |
+| TC-20           | Owner creates a menu category                                                                   | Owner                 | ✅ Passing                                                                                                                                |
+| TC-21           | Owner adds a menu item                                                                          | Owner                 | ✅ Passing                                                                                                                                |
+| TC-22           | Customer sees menu page                                                                         | Customer              | ✅ Passing                                                                                                                                |
+| TC-23           | Customer opens item and sees Add to Cart                                                        | Customer              | ✅ Passing                                                                                                                                |
+| TC-24           | Customer reaches checkout with cart                                                             | Customer              | ✅ Passing                                                                                                                                |
+| TC-25           | Customer fills details and reaches payment                                                      | Customer              | ✅ Passing                                                                                                                                |
+| TC-26           | Customer completes full order end to end                                                        | Customer              | ✅ Passing                                                                                                                                |
+| TC-99           | Customer adds to cart and reaches checkout via the real UI                                      | Customer              | ✅ Passing                                                                                                                                |
+| TC-125          | Customer applies a coupon at checkout (valid + bogus)                                           | Customer              | ✅ Passing                                                                                                                                |
+| TC-126          | Selecting Delivery drives the address → quote round-trip                                        | Customer              | ✅ Passing / graceful skip                                                                                                                |
+| TC-100          | Restaurant receives + processes an order (POS lifecycle)                                        | POS                   | ✅ Passing (`--project=pos`)                                                                                                              |
+| TC-27           | Owner reaches the publish page                                                                  | Owner                 | ⏭️ Skipped                                                                                                                                |
+| TC-28           | Publish checklist items are visible                                                             | Owner                 | ⏭️ Skipped                                                                                                                                |
+| TC-29           | Owner views the Orders tab                                                                      | Owner                 | ✅ Passing                                                                                                                                |
+| TC-30           | Owner opens the Create Coupon form                                                              | Owner                 | ✅ Passing                                                                                                                                |
+| TC-31           | Owner creates a new coupon                                                                      | Owner                 | ✅ Passing                                                                                                                                |
+| TC-32           | Admin sees the Restaurants list                                                                 | Admin                 | ✅ Passing                                                                                                                                |
+| TC-33           | Owner configures hours of operation                                                             | Owner                 | ⏭️ Not yet implemented (narrative placeholder, no test code)                                                                              |
+| TC-34           | Owner accesses employee management                                                              | Owner                 | ⏭️ Not yet implemented (narrative placeholder, no test code)                                                                              |
+| TC-35           | Owner views the analytics dashboard                                                             | Owner                 | ✅ Passing                                                                                                                                |
+| TC-42           | Owner renames a menu category                                                                   | Owner                 | ⏭️ Skipped                                                                                                                                |
+| TC-43           | Owner edits a menu item name and price                                                          | Owner                 | ✅ Passing                                                                                                                                |
+| TC-44           | Owner deletes a menu item                                                                       | Owner                 | ⏭️ Skipped                                                                                                                                |
+| TC-45           | Owner deletes a menu category                                                                   | Owner                 | ✅ Passing                                                                                                                                |
+| TC-46           | Owner opens the Stripe setup page                                                               | Owner                 | ✅ Passing                                                                                                                                |
+| TC-47           | Stripe stepper shows all 4 steps                                                                | Owner                 | ✅ Passing                                                                                                                                |
+| TC-48           | Stripe page shows header description                                                            | Owner                 | ✅ Passing                                                                                                                                |
+| TC-49           | Owner sees Set Up Stripe Account button                                                         | Owner                 | ✅ Passing                                                                                                                                |
+| TC-50           | Stripe requirements section is visible                                                          | Owner                 | ✅ Passing                                                                                                                                |
+| TC-51           | Stripe success callback page loads                                                              | Owner                 | ✅ Passing                                                                                                                                |
+| TC-52           | Restaurant Dashboard button redirects correctly                                                 | Owner                 | ✅ Passing                                                                                                                                |
+| TC-53           | Connect button calls create API and redirects                                                   | Owner                 | ✅ Passing                                                                                                                                |
+| TC-54           | OWNER denied `/publish` route                                                                   | Access Control        | ✅ Passing                                                                                                                                |
+| TC-55           | OWNER denied `/tax` route                                                                       | Access Control        | ✅ Passing                                                                                                                                |
+| TC-56           | Owner can reach shared menu management                                                          | Access Control        | ✅ Passing                                                                                                                                |
+| TC-57           | Admin can reach shared menu management                                                          | Access Control        | ✅ Passing                                                                                                                                |
+| TC-58           | Employee can reach shared menu management                                                       | Access Control        | ⏭️ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD`                                                                                             |
+| TC-59           | Valid credentials reach the dashboard                                                           | Public                | ✅ Passing                                                                                                                                |
+| TC-60           | Invalid credentials show an error                                                               | Public                | ✅ Passing                                                                                                                                |
+| TC-61           | Unknown email shows an error                                                                    | Public                | ✅ Passing                                                                                                                                |
+| TC-62           | Menu item wizard blocks blank name/price                                                        | Owner                 | ✅ Passing                                                                                                                                |
+| TC-63           | Invalid coupon discount % is rejected                                                           | Owner                 | ✅ Passing                                                                                                                                |
+| TC-64           | Declined card shows a payment error                                                             | Customer              | ✅ Passing (needs `TEMPLATE_WIND_URL`)                                                                                                    |
+| TC-65           | Menu item with no name rejected (API)                                                           | API-Level             | ✅ Passing                                                                                                                                |
+| TC-66           | Coupon with no code rejected (API)                                                              | API-Level             | ✅ Passing                                                                                                                                |
+| TC-68           | Coupon with negative discount rejected (API)                                                    | API-Level             | ✅ Passing                                                                                                                                |
+| TC-69           | Garbage Bearer token rejected (API)                                                             | API-Level             | ✅ Passing                                                                                                                                |
+| TC-70           | Nonexistent order search shows empty state                                                      | Owner                 | ✅ Passing                                                                                                                                |
+| TC-71           | Unauthenticated visitor redirected from `/restaurant/stores`                                    | Access Control        | ✅ Passing                                                                                                                                |
+| TC-72           | Unauthenticated visitor redirected from `/admin`                                                | Access Control        | ✅ Passing                                                                                                                                |
+| TC-73           | Unauthenticated visitor redirected from a restaurant management URL                             | Access Control        | ✅ Passing                                                                                                                                |
+| TC-74           | Demo form — unchecked terms blocks submit                                                       | Public                | ✅ Passing                                                                                                                                |
+| TC-75           | Demo form — invalid email blocks submit                                                         | Public                | ✅ Passing                                                                                                                                |
+| TC-76           | Admin — invalid role value rejected (API)                                                       | Admin                 | ✅ Passing                                                                                                                                |
+| TC-77           | Admin — status toggle on nonexistent user rejected (API)                                        | Admin                 | ✅ Passing                                                                                                                                |
+| TC-78           | Failed Stripe create-account shows error                                                        | Owner                 | ✅ Passing                                                                                                                                |
+| TC-79           | Owner without CREATE_RESTAURANT can't self-create (API)                                         | API-Level             | ✅ Passing                                                                                                                                |
+| TC-80           | Demo request with no email rejected (API)                                                       | API-Level             | ✅ Passing                                                                                                                                |
+| TC-81           | OWNER denied `/restaurant/loyalty` route                                                        | Access Control        | ✅ Passing                                                                                                                                |
+| TC-82           | Owner reaches Uber Eats delivery settings                                                       | Owner                 | ✅ Passing                                                                                                                                |
+| TC-83           | Uber Eats delivery configuration section visible                                                | Owner                 | ✅ Passing                                                                                                                                |
+| TC-84           | Owner reaches Subscription Management page                                                      | Owner                 | ✅ Passing                                                                                                                                |
+| TC-85           | Subscription page shows plan details                                                            | Owner                 | ✅ Passing                                                                                                                                |
+| TC-86           | Owner reaches Manage Deals tab                                                                  | Owner                 | ✅ Passing                                                                                                                                |
+| TC-87           | Manage Deals shows Create Deal action                                                           | Owner                 | ✅ Passing                                                                                                                                |
+| TC-88           | Owner edits and saves a Store Settings field                                                    | Owner                 | ✅ Passing                                                                                                                                |
+| TC-89           | Filters button opens the filter panel                                                           | Owner                 | ✅ Passing                                                                                                                                |
+| TC-90           | Order detail view opens                                                                         | Owner                 | ✅ Passing                                                                                                                                |
+| TC-91           | Created coupon visible in Manage Coupons list                                                   | Owner                 | ✅ Passing                                                                                                                                |
+| TC-92           | Owner edits an existing coupon's discount value                                                 | Owner                 | ⏭️ `test.fixme` — real backend bug (500)                                                                                                  |
+| TC-93           | Visitor registers a new account                                                                 | Onboarding / Public   | ✅ Passing                                                                                                                                |
+| TC-94           | Sign-up — already-used email is rejected                                                        | Onboarding / Public   | ✅ Passing                                                                                                                                |
+| TC-95           | Sign-up — mismatched confirm-password blocks submit                                             | Onboarding / Public   | ✅ Passing                                                                                                                                |
+| TC-96           | Sign-up — weak password rejected client-side                                                    | Onboarding / Public   | ✅ Passing                                                                                                                                |
+| TC-97           | Employee creates a restaurant on behalf of a client                                             | Onboarding / Employee | ⏭️ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD`                                                                                             |
+| TC-127          | Analytics dashboard resolves (data or empty) without error                                      | Owner                 | ✅ Passing                                                                                                                                |
+| TC-128          | Analytics date-range picker opens with presets                                                  | Owner                 | ✅ Passing                                                                                                                                |
+| TC-129          | Changing the analytics range reloads the dashboard                                              | Owner                 | ✅ Passing                                                                                                                                |
+| TC-131          | Orders grid renders a real column set                                                           | Owner                 | ✅ Passing                                                                                                                                |
+| TC-132          | Filtering by Order Status re-queries the grid                                                   | Owner                 | ✅ Passing                                                                                                                                |
+| TC-133          | Resetting the filters restores the default status                                               | Owner                 | ✅ Passing                                                                                                                                |
+| TC-134          | Order detail dialog shows items and total                                                       | Owner                 | ✅ Passing                                                                                                                                |
+| TC-135          | Orders toolbar exposes an Export control                                                        | Owner                 | ✅ Passing                                                                                                                                |
+| TC-136          | Owner views the Customers directory                                                             | Owner                 | ✅ Passing                                                                                                                                |
+| TC-137          | Customer directory search re-queries the server                                                 | Owner                 | ✅ Passing                                                                                                                                |
+| TC-138          | Owner switches to the Customer Groups (segments) sub-tab                                        | Owner                 | ✅ Passing                                                                                                                                |
+| TC-139          | Owner views the Owner Settings (Automated Reports) form                                         | Owner                 | ✅ Passing                                                                                                                                |
+| TC-140          | Owner Settings Notifications sub-tab shows coming-soon                                          | Owner                 | ✅ Passing                                                                                                                                |
+| TC-141          | Owner views the Daily Report (current business day)                                             | Owner                 | ✅ Passing                                                                                                                                |
+| TC-142          | Seeded orders reflected in today's Daily Report KPIs                                            | Owner                 | ✅ Passing                                                                                                                                |
+| TC-143          | Employee reaches the publish page                                                               | Employee              | ⏭️ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD`                                                                                             |
+| TC-144          | Employee sees publish checklist items                                                           | Employee              | ⏭️ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD`                                                                                             |
+| TC-145          | Owner creates a FIXED_AMOUNT coupon                                                             | Owner                 | ✅ Passing                                                                                                                                |
+| TC-146          | Owner creates a FIXED_ITEM coupon                                                               | Owner                 | ✅ Passing                                                                                                                                |
+| TC-147          | FIXED_ITEM with no menu item selected is blocked (native validation)                            | Owner                 | ✅ Passing                                                                                                                                |
+| TC-148          | Non-positive FIXED_AMOUNT value is rejected                                                     | Owner                 | ✅ Passing                                                                                                                                |
+| TC-149          | End date before start date is rejected                                                          | Owner                 | ✅ Passing                                                                                                                                |
+| TC-150          | Empty coupon code is blocked (native validation)                                                | Owner                 | ✅ Passing                                                                                                                                |
+| TC-151          | Duplicate coupon code on the same restaurant is rejected                                        | Owner                 | ✅ Passing                                                                                                                                |
+| TC-152          | Coupon code input truncates at 20 characters                                                    | Owner                 | ✅ Passing                                                                                                                                |
+| TC-153          | Manage Coupons search filters by code                                                           | Owner                 | ✅ Passing                                                                                                                                |
+| TC-154          | Manage Coupons search filters by description                                                    | Owner                 | ✅ Passing                                                                                                                                |
+| TC-155          | Manage Coupons search with no matches shows empty state                                         | Owner                 | ✅ Passing                                                                                                                                |
+| TC-156          | Manage Coupons status filter narrows to Active                                                  | Owner                 | ✅ Passing                                                                                                                                |
+| TC-157          | Manage Coupons table sorts by Code                                                              | Owner                 | ✅ Passing                                                                                                                                |
+| TC-158          | Owner copies a coupon code from the Manage Coupons list                                         | Owner                 | ✅ Passing                                                                                                                                |
+| TC-159          | Duplicate pre-fills a new coupon form from an existing coupon                                   | Owner                 | ✅ Passing                                                                                                                                |
+| TC-160          | Owner deletes a coupon via the typed-confirmation dialog                                        | Owner                 | ✅ Passing                                                                                                                                |
+| TC-161          | Cancelling the delete confirmation leaves the coupon untouched                                  | Owner                 | ✅ Passing                                                                                                                                |
+| TC-162          | Edit pre-fills the form with the coupon's existing values                                       | Owner                 | ✅ Passing                                                                                                                                |
+| TC-163          | Send to Customers is disabled for an expired coupon                                             | Owner                 | ✅ Passing                                                                                                                                |
+| TC-164          | Reset Form clears the create-coupon form back to defaults                                       | Owner                 | ✅ Passing                                                                                                                                |
+| TC-165          | Guest purchases a gift card (preset denomination, Send as Gift)                                 | Customer              | ✅ Passing                                                                                                                                |
+| TC-166          | Guest purchases a gift card with a custom amount                                                | Customer              | ✅ Passing                                                                                                                                |
+| TC-167          | Custom gift-card amount below the minimum is rejected                                           | Customer              | ✅ Passing                                                                                                                                |
+| TC-168          | Custom gift-card amount above the maximum is rejected                                           | Customer              | ✅ Passing                                                                                                                                |
+| TC-169          | Gift card balance check shows the correct balance                                               | Customer              | ✅ Passing                                                                                                                                |
+| TC-170          | Gift card balance check shows not-found for a nonexistent code                                  | Customer              | ✅ Passing                                                                                                                                |
+| TC-171          | Valid gift card applied at checkout shows the discount                                          | Customer              | ✅ Passing                                                                                                                                |
+| TC-172          | Removing an applied gift card clears the discount                                               | Customer              | ✅ Passing                                                                                                                                |
+| TC-173          | Invalid gift card code is rejected at checkout                                                  | Customer              | ✅ Passing                                                                                                                                |
+| TC-174          | A depleted ($0 balance) gift card is rejected at checkout                                       | Customer              | ✅ Passing                                                                                                                                |
+| TC-175          | A frozen gift card is rejected at checkout                                                      | Customer              | ✅ Passing                                                                                                                                |
+| TC-176          | A coupon and a gift card both apply to the same order                                           | Customer              | ✅ Passing                                                                                                                                |
+| TC-177          | Gift card fully covering the order skips Stripe                                                 | Customer              | ⏭️ `test.fixme` — real bug: order 201s, then frontend still attempts a doomed $0 PaymentIntent (400), customer stuck with no confirmation |
+| TC-178          | Gift card partially covering the order still charges the remainder                              | Customer              | ✅ Passing                                                                                                                                |
+| TC-182          | Full onboarding chain: sign-up → create → hours → menu → assign → owner sees it                 | Onboarding / Employee | ⏭️ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` (verified live via ADMIN substitution before commit)                                        |
+| TC-183          | Business Hours step: defaults, Open/24 Hours/Closed toggling, advances to Menu                  | Onboarding / Employee | ⏭️ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` (verified live via ADMIN substitution before commit)                                        |
 
-**107 passing · 18 skipped · 1 failing (env-only)** — as of 2026-07-07. The one failure (TC-58) fails only in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` set; it passes wherever those credentials exist. (Owner-side expansion on 2026-07-07 added TC-35 + TC-127–129 for the Analytics tab, TC-131–135 deepening the Orders tab, TC-136–138 for the Customers tab, TC-139–140 for the Owner Settings tab, and TC-141–142 for the Daily Report tab — all passing.)
+A 2026-07-11 pass added TC-182/183, the first chained end-to-end onboarding test and dedicated Business Hours coverage — see their write-ups above for two real product findings surfaced along the way (no dashboard UI path to assign a new owner; an assign-restaurant 500 on a request that actually succeeded). See `docs/onboarding-product-fix-proposal.md`.
 
-Skipped tests fall into four groups: **route access** (TC-27, TC-28, TC-81 — publish/tax/loyalty are employee/admin-only and return Access Denied for the owner role); **missing UI** (TC-42, TC-44 — the edit/delete buttons don't exist in the current menu editor); **missing credentials in this environment** (TC-58, TC-97, plus TC-17/TC-18 in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD`; TC-02 without Mailtrap); and **a real backend bug** (TC-92 — editing any coupon 500s server-side, filed as `test.fixme` with the exact error rather than asserting broken behavior as correct). TC-33 and TC-34 remain narrative-only placeholders with no test code at all — not the same as a skipped/fixme test.
+**144 passing · 21 skipped · 1 failing (env-only)** — as of 2026-07-10. The one failure (TC-58) fails only in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` set; it passes wherever those credentials exist. (Owner-side expansion on 2026-07-07 added TC-35 + TC-127–129 for the Analytics tab, TC-131–135 deepening the Orders tab, TC-136–138 for the Customers tab, TC-139–140 for the Owner Settings tab, and TC-141–142 for the Daily Report tab — all passing. A 2026-07-10 pass added TC-145–164, expanding Coupons UI coverage far beyond the original 4 tests: all three discount types, the full Manage Coupons list (search/filter/sort/copy), and row actions — duplicate, delete, edit-prefill, and disabled Send-to-Customers. Two of these (TC-147, TC-150) surfaced a real UX finding: the code and menu-item fields rely on native HTML5 `required` validation, so the app's own custom error text for those specific fields never has a chance to render — the browser's native constraint-validation UI intercepts the submit first. A same-day follow-up pass added TC-165–178, giving gift cards their first-ever coverage (purchase + checkout redemption) and expanding the customer-checkout coupon path beyond the original single combined test — this also required setting `TEMPLATE_WIND_URL` for the first time in this environment, which surfaced and fixed several previously-latent regressions in the whole customer suite: the checkout coupon Apply button colliding with the new (unconditionally-rendered) gift-card Apply button, a `seedCart()` race that could leave a prior coupon/gift-card applied across re-seeds within one test, a stale rejection-message regex, `selectPickup()` targeting a since-removed radio input (the control is now a button), and a stale order-number regex on the confirmation page.)
+
+Skipped tests fall into four groups: **route access** (TC-27, TC-28, TC-81 — publish/tax/loyalty are employee/admin-only and return Access Denied for the owner role); **missing UI** (TC-42, TC-44 — the edit/delete buttons don't exist in the current menu editor); **missing credentials in this environment** (TC-58, TC-97, plus TC-17/TC-18 in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD`; TC-02 without Mailtrap); and **real bugs** (TC-92 — editing any coupon 500s server-side; TC-177 — a gift card fully covering an order 201s the order but then fails a doomed $0 Stripe PaymentIntent — both filed as `test.fixme` with the exact error rather than asserting broken behavior as correct). TC-33 and TC-34 remain narrative-only placeholders with no test code at all — not the same as a skipped/fixme test.
 
 ---
 

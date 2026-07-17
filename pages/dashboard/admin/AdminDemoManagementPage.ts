@@ -46,8 +46,17 @@ export const createAdminDemoManagementPage = (page: Page) => {
     await actionMenu.waitFor({ state: "visible", timeout: 5_000 });
   };
 
+  const menuActionItem = (label: string): Locator =>
+    actionMenu.getByText(label, { exact: true });
+
   const clickMenuAction = async (label: string) =>
-    actionMenu.getByText(label, { exact: true }).click();
+    menuActionItem(label).click();
+
+  // The inline status Select renders its value as a Chip inside the combobox.
+  const statusChip = (email: string): Locator =>
+    findRowByEmail(email).locator('[role="combobox"] .MuiChip-label');
+
+  const confirmDialog = (): Locator => page.locator('[role="dialog"]');
 
   const changeStatusInline = async (email: string, status: string) => {
     await findRowByEmail(email).locator('[role="combobox"]').click();
@@ -164,7 +173,10 @@ export const createAdminDemoManagementPage = (page: Page) => {
     getStatusFromRow,
     getCreatedAtFromRow,
     openActionMenu,
+    menuActionItem,
     clickMenuAction,
+    statusChip,
+    confirmDialog,
     changeStatusInline,
     assertSideSheetOpen,
     assertDialogOpen,

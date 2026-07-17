@@ -208,8 +208,8 @@ Automation/
 
 `tests/pos/` is the **`pos` Playwright project** — API-level order-lifecycle
 coverage (the POS lives in device-in-store / React Native, so it's tested
-through the backend, not a browser). Helpers: `createZeroTotalOrder` (Stripe-
-free `total:0` order), `createTabletDevice` / `tabletLogin`, `updateOrderStatus`,
+through the backend, not a browser). Helpers: `createSeededOrder` (Stripe-free
+real-price order, bumped past INITIALIZED), `createTabletDevice` / `tabletLogin`, `updateOrderStatus`,
 `getCurrentOrders` in `utils/apiHelper.ts`. See `tests/pos/README.md`.
 `tests/auth/` is an empty stub folder with no files yet.
 

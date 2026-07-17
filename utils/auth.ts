@@ -35,11 +35,11 @@ import { FRONTEND_URL } from "./testData";
 
 /** Decode a JWT's `exp` claim into epoch milliseconds; undefined if not a JWT. */
 export function jwtExpiryMs(token: string): number | undefined {
-  const parts = token.split(".");
-  if (parts.length !== 3) return undefined;
+  const [, payloadPart] = token.split(".");
+  if (!payloadPart || token.split(".").length !== 3) return undefined;
   try {
     const payload = JSON.parse(
-      Buffer.from(parts[1], "base64url").toString("utf-8")
+      Buffer.from(payloadPart, "base64url").toString("utf-8")
     ) as { exp?: number };
     return typeof payload.exp === "number" ? payload.exp * 1000 : undefined;
   } catch {

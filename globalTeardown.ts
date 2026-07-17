@@ -18,6 +18,7 @@ import {
   deleteAutomationCoupons,
   deleteDemoRequestByEmail,
   deleteRecordedUsers,
+  freezeGiftCardApi,
   BACKEND_URL,
 } from "./utils/apiHelper";
 import { assertSafeTargets } from "./utils/targetGuard";
@@ -27,9 +28,11 @@ import {
   ADMIN_AUTH_FILE,
   EMPLOYEE_AUTH_FILE,
   USERS_CLEANUP_FILE,
+  GIFT_CARDS_CLEANUP_FILE,
   FRONTEND_URL,
   TEMPLATE_WIND_URL,
   readSharedState,
+  readGiftCardsForCleanup,
 } from "./utils/testData";
 
 dotenv.config({ path: path.resolve(__dirname, ".env") });
@@ -173,6 +176,28 @@ export default async function globalTeardown(): Promise<void> {
         );
       }
     }
+
+    // Gift cards have no delete endpoint and server-generated codes (no AUTO*
+    // prefix to sweep by), so freeze is the closest thing to cleanup — tests
+    // record every purchased card's id, best-effort freeze each here.
+    const giftCardIds = readGiftCardsForCleanup();
+    if (giftCardIds.length) {
+      let frozen = 0;
+      for (const id of giftCardIds) {
+        try {
+          await freezeGiftCardApi(adminToken, id);
+          frozen++;
+        } catch (err) {
+          console.warn(
+            `[globalTeardown] Failed to freeze test gift card (${id}):`,
+            err
+          );
+        }
+      }
+      console.log(
+        `[globalTeardown] Froze ${frozen}/${giftCardIds.length} test gift card(s)`
+      );
+    }
   }
 
   // 3. Remove all temp files
@@ -182,6 +207,7 @@ export default async function globalTeardown(): Promise<void> {
     ADMIN_AUTH_FILE,
     EMPLOYEE_AUTH_FILE,
     USERS_CLEANUP_FILE,
+    GIFT_CARDS_CLEANUP_FILE,
   ]) {
     if (fs.existsSync(f)) {
       fs.unlinkSync(f);

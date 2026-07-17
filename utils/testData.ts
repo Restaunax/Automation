@@ -7,8 +7,10 @@ export const FRONTEND_URL =
   process.env.FRONTEND_URL ?? "https://app.qa.restaunax.com";
 
 // Template Wind (customer ordering site) — base URL for the `customer` project.
+// Default is the actual ordering storefront (wind.), NOT qa.restaunax.com — that
+// host is the QA marketing site (see utils/targetGuard.ts).
 export const TEMPLATE_WIND_URL =
-  process.env.TEMPLATE_WIND_URL ?? "https://qa.restaunax.com";
+  process.env.TEMPLATE_WIND_URL ?? "https://wind.restaunax.com";
 
 const EMAIL_DOMAIN = process.env.TEST_EMAIL_DOMAIN ?? "restaunax-test.com";
 
@@ -60,7 +62,7 @@ export const TEST_USER_MARKER = "autouser";
 // uuid-based: the previous Date.now()-digits suffix cycled every ~16.7 minutes,
 // so a later run could regenerate a value already left behind by an earlier
 // run (e.g. a duplicate coupon code → 400 on create).
-export const generateRunId = () => uuidv4().split("-")[0];
+export const generateRunId = () => uuidv4().slice(0, 8);
 
 // Coupon codes created by automation. The shared prefix is the sweep marker
 // globalTeardown uses to delete this run's coupons AND leftovers from
@@ -70,14 +72,14 @@ export const generateCouponCode = () =>
   `${AUTOMATION_COUPON_PREFIX}${generateRunId().toUpperCase()}`;
 
 export function generateDemoFormData(): DemoFormData & { uniqueId: string } {
-  const uniqueId = uuidv4().split("-")[0];
+  const uniqueId = generateRunId();
   return {
     uniqueId,
-    firstName: "Test",
-    lastName: "Automation",
+    firstName: "Auto",
+    lastName: "Tester",
     email: `test+${uniqueId}@${EMAIL_DOMAIN}`,
     phone: "5551234567",
-    restaurantName: `Automation Restaurant ${uniqueId}`,
+    restaurantName: `AUTO Demo Restaurant ${uniqueId}`,
     preferredContact: "email",
     agreeToTerms: true,
   };
@@ -122,6 +124,44 @@ export function readUsersForCleanup(): string[] {
 
 export function clearUsersForCleanup(): void {
   if (fs.existsSync(USERS_CLEANUP_FILE)) fs.unlinkSync(USERS_CLEANUP_FILE);
+}
+
+// ── Created-gift-card cleanup tracking ───────────────────────────────────────
+// Gift card codes are server-generated (not client-chosen like AUTO* coupon
+// codes), so there's no prefix to sweep by, and there's no delete endpoint —
+// only admin freeze. Same append-only-file pattern as USERS_CLEANUP_FILE:
+// tests record every purchased gift card's id, globalTeardown freezes them
+// all as a best-effort sweep.
+export const GIFT_CARDS_CLEANUP_FILE = path.resolve(
+  __dirname,
+  "../gift-cards-cleanup.tmp.json"
+);
+
+export function recordGiftCardForCleanup(giftCardId: string): void {
+  fs.appendFileSync(GIFT_CARDS_CLEANUP_FILE, `${giftCardId}\n`, "utf-8");
+}
+
+export function readGiftCardsForCleanup(): string[] {
+  if (!fs.existsSync(GIFT_CARDS_CLEANUP_FILE)) return [];
+  try {
+    const raw = fs.readFileSync(GIFT_CARDS_CLEANUP_FILE, "utf-8").trim();
+    if (!raw) return [];
+    return [
+      ...new Set(
+        raw
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean)
+      ),
+    ];
+  } catch {
+    return [];
+  }
+}
+
+export function clearGiftCardsForCleanup(): void {
+  if (fs.existsSync(GIFT_CARDS_CLEANUP_FILE))
+    fs.unlinkSync(GIFT_CARDS_CLEANUP_FILE);
 }
 
 export function generateRestaurantData() {

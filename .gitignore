@@ -6,6 +6,9 @@ test-results/
 dist/
 graphify-out
 
+# JSON reporter output consumed by scripts/publish-results.ts
+results.json
+
 # Shared state written by globalSetup between test runs
 *.tmp.json
 

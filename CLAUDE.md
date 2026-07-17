@@ -226,13 +226,13 @@ pages/
 
 ## Test Utilities
 
-| File                   | Exports                                                                                                                                                                                                                       |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `utils/apiHelper.ts`   | `apiLogin()`, `createTestRestaurant()`, `deleteTestRestaurant()`, `createZeroTotalOrder()`, `createSeededOrder()` (nonzero revenue, no Stripe — create then bump to CONFIRMED), `updateOrderStatus()`, `getDailyReportKpis()` |
-| `utils/testData.ts`    | `generateDemoFormData()`, `generateRestaurantData()`, `readSharedState()`, `writeSharedState()`                                                                                                                               |
-| `utils/emailHelper.ts` | Mailtrap API polling for email verification                                                                                                                                                                                   |
-| `utils/stripeCards.ts` | Stripe test card constants                                                                                                                                                                                                    |
-| `fixtures/base.ts`     | `ownerPage`, `adminPage`, `demoBookingPage` — auto-restores auth sessions                                                                                                                                                     |
+| File                   | Exports                                                                                                                                                                                                                                               |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `utils/apiHelper.ts`   | `apiLogin()`, `createTestRestaurant()`, `deleteTestRestaurant()`, `createSeededOrder()` (real-price order, no Stripe — create then bump past INITIALIZED; the backend pricing guard rejects `total:0`), `updateOrderStatus()`, `getDailyReportKpis()` |
+| `utils/testData.ts`    | `generateDemoFormData()`, `generateRestaurantData()`, `readSharedState()`, `writeSharedState()`                                                                                                                                                       |
+| `utils/emailHelper.ts` | Mailtrap API polling for email verification                                                                                                                                                                                                           |
+| `utils/stripeCards.ts` | Stripe test card constants                                                                                                                                                                                                                            |
+| `fixtures/base.ts`     | `ownerPage`, `adminPage`, `demoBookingPage` — auto-restores auth sessions                                                                                                                                                                             |
 
 ---
 
@@ -281,13 +281,16 @@ SEND_ACCOUNT_EMAILS=true   # admin invite / password reset / sign-up
 
 ## Run Commands
 
+See `RUNNING_TESTS.md` for the full how-to (setup, individual tests, reports).
+
 ```bash
 npm run test          # All tests, headless
 npm run test:headed   # Visible browser
 npm run test:ui       # Interactive Playwright UI
 npm run test:debug    # Step-through debugger
-npm run test:ci       # CI mode with Allure reporter
-npm run report        # Generate + open Allure HTML report
+npm run test:ci       # CI mode (config reporters: list + html + json + Allure)
+npm run report        # Generate + open Allure HTML report (needs Java)
+npm run report:html   # Open Playwright's built-in HTML report (no Java)
 npm run clean         # Delete test artifacts
 ```
 

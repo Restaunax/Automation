@@ -21,7 +21,7 @@ import {
   createTabletDevice,
   tabletLogin,
   deactivateTabletDevice,
-  createZeroTotalOrder,
+  createSeededOrder,
   getCurrentOrders,
   updateOrderStatus,
   type TabletDevice,
@@ -67,10 +67,11 @@ test.describe("POS — Order Lifecycle", () => {
 
   test("TC-100: a placed order is received on the POS and driven through the full lifecycle", async () => {
     await allure.description(
-      "A customer order (seeded via the public order API with total:0 — paid, " +
-        "no Stripe) appears in the restaurant's live current-orders feed, and " +
-        "can be driven PENDING → CONFIRMED → PREPARING → READY → PICKED_UP with " +
-        "each transition confirmed at the API source of truth."
+      "A customer order (seeded via the public order API at its real menu " +
+        "price, bumped to PENDING — no Stripe) appears in the restaurant's " +
+        "live current-orders feed, and can be driven PENDING → CONFIRMED → " +
+        "PREPARING → READY → PICKED_UP with each transition confirmed at the " +
+        "API source of truth."
     );
 
     const { menuItemId, menuItemName, menuItemPrice } = readSharedState();
@@ -84,12 +85,15 @@ test.describe("POS — Order Lifecycle", () => {
     expect(tabletToken).toBeTruthy();
 
     const order = await allure.step("Customer places an order", async () => {
-      const placed = await createZeroTotalOrder(restaurantId, {
-        menuItemId,
-        name: menuItemName,
-        price: menuItemPrice,
-      });
-      // total:0 lands straight at PENDING (paid) — no INITIALIZED placeholder.
+      // The pricing guard requires the real DB price (total:0 is rejected), so
+      // a nonzero order is created INITIALIZED and bumped to PENDING — the
+      // same state a just-paid customer order lands in.
+      const placed = await createSeededOrder(
+        ownerToken,
+        restaurantId,
+        { menuItemId, name: menuItemName, price: menuItemPrice },
+        { status: "PENDING" }
+      );
       expect(placed.status).toBe("PENDING");
       await allure.parameter("orderId", placed.id);
       return placed;
@@ -137,7 +141,8 @@ test.describe("POS — Order Lifecycle", () => {
   // is deployed to QA — asserting a 401 now would fail against the still-open
   // endpoints. Flip to a real test once the backend PR lands on QA.
   // Tracking: https://github.com/Restaunax/Automation/issues/17
-  test.fixme("TC-101: current-orders + status reject an unauthenticated caller", async () => {
+  // (Was misnumbered TC-101, which belongs to admin user-invite in users.spec.ts.)
+  test.fixme("TC-179: current-orders + status reject an unauthenticated caller", async () => {
     // const noAuth = await getCurrentOrdersRaw(restaurantId); // no token
     // expect(noAuth.status).toBe(401);
   });
