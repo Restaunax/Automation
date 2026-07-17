@@ -4,6 +4,7 @@ allure-report/
 playwright-report/
 test-results/
 dist/
+graphify-out
 
 # Shared state written by globalSetup between test runs
 *.tmp.json
@@ -16,3 +17,4 @@ dist/
 
 # Personal Claude skills (not part of the test suite)
 .claude/skills/
+.vscode
