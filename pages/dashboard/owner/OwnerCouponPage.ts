@@ -137,6 +137,14 @@ export const createOwnerCouponPage = (page: Page) => {
     await page
       .getByRole("heading", { name: "Coupon Management" })
       .waitFor({ state: "visible", timeout: 15_000 });
+    // Wait for the table to actually finish loading — a first data row OR the
+    // empty-state — before returning. Without this, callers (TC-157's sort click,
+    // TC-159/162's row actions) interact before the table renders and flake out.
+    await page
+      .locator("tbody tr")
+      .or(emptyState())
+      .first()
+      .waitFor({ state: "visible", timeout: 15_000 });
   };
 
   const assertManageCouponsLoaded = () =>

@@ -50,19 +50,18 @@ export const createCustomerMenuPage = (page: Page) => {
   const assertCartButtonVisible = () =>
     expect(floatingCartButton()).toBeVisible({ timeout: 10_000 });
 
-  // Open the cart modal (CartSummary) via the floating View Cart button.
+  // On the menu route the floating cart button now navigates straight to
+  // /checkout (MenuPage's router.push("/checkout")) — there is no in-page
+  // CartSummary "Proceed to Checkout" modal on this route anymore, so clicking
+  // View Cart IS the navigation.
   const openCart = () => floatingCartButton().click();
 
-  // CartSummary's checkout button label depends on auth state:
-  // "Proceed to Checkout" (signed-in) / "Checkout & Sign In" (guest).
-  const checkoutButton = () =>
-    page.getByRole("button", {
-      name: /proceed to checkout|checkout & sign in/i,
-    });
-
   const proceedToCheckout = async () => {
-    await checkoutButton().waitFor({ state: "visible", timeout: 10_000 });
-    await checkoutButton().click();
+    // openCart()'s click already routes here. It's a client-side navigation, so
+    // the RestaurantProvider (mounted in the root layout) keeps the restaurant
+    // resolved and the checkout form renders even without the ?restaurantId=
+    // query param — only the full-page seedCart path needs it. Confirm arrival.
+    await page.waitForURL(/\/checkout/, { timeout: 15_000 });
   };
 
   return {
@@ -76,7 +75,6 @@ export const createCustomerMenuPage = (page: Page) => {
     clickAddToCart,
     assertCartButtonVisible,
     openCart,
-    checkoutButton,
     proceedToCheckout,
   };
 };

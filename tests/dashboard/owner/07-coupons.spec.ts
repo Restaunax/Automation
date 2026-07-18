@@ -570,6 +570,10 @@ test.describe("Owner — Coupons", () => {
     await mgmtPage.goto(restaurantId);
     await couponPage.navigateToManageCoupons();
 
+    // Assert the header is present BEFORE the first click — navigateToManageCoupons
+    // now waits for the table to load, but keep this so the click is never fired
+    // at a not-yet-actionable header.
+    await expect(couponPage.sortByCodeHeader()).toBeVisible();
     await couponPage.sortByCodeHeader().click();
     await expect(couponPage.sortByCodeHeader()).toBeVisible();
     await couponPage.sortByCodeHeader().click();
@@ -636,6 +640,11 @@ test.describe("Owner — Coupons", () => {
     await allure.step("Duplicate it from the Manage Coupons list", async () => {
       await couponPage.navigateToManageCoupons();
       await couponPage.search(couponCode);
+      // Wait for the filtered row before opening its ⋮ menu — matches the
+      // settled pattern the passing search tests use; its absence is the flake.
+      await expect(couponPage.couponRowByCode(couponCode)).toBeVisible({
+        timeout: 10_000,
+      });
       await couponPage.openRowActionMenu(couponCode);
       await couponPage.duplicateMenuItem().click();
       await expect(couponPage.couponCodeInput()).toHaveValue(
@@ -756,6 +765,11 @@ test.describe("Owner — Coupons", () => {
 
     await couponPage.navigateToManageCoupons();
     await couponPage.search(couponCode);
+    // Wait for the filtered row before opening its ⋮ menu (see TC-159) — matches
+    // the settled pattern the passing search tests use; its absence is the flake.
+    await expect(couponPage.couponRowByCode(couponCode)).toBeVisible({
+      timeout: 10_000,
+    });
     await couponPage.openRowActionMenu(couponCode);
     await couponPage.editMenuItem().click();
 
