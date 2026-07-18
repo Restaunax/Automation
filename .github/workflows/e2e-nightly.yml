@@ -44,6 +44,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: qa
+    # peaceiris/actions-gh-pages pushes the built Allure report to the gh-pages
+    # branch using the default GITHUB_TOKEN, which needs write access to contents.
+    permissions:
+      contents: write
     env:
       FRONTEND_URL: ${{ vars.FRONTEND_URL }}
       BACKEND_URL: ${{ vars.BACKEND_URL }}
@@ -59,7 +63,11 @@ jobs:
       EMPLOYEE_PASSWORD: ${{ secrets.EMPLOYEE_PASSWORD }}
       MAILTRAP_API_TOKEN: ${{ secrets.MAILTRAP_API_TOKEN }}
       MAILTRAP_INBOX_ID: ${{ secrets.MAILTRAP_INBOX_ID }}
-      # Results pipeline (publish-results.ts → backend ingest → Grafana).
+      # publish-results.ts reads these only if set. The backend ingest endpoint +
+      # Grafana dashboard were BACKED OUT (see restaunax-backend migration
+      # remove_qa_test_results, 2026-07-09), so the POST is a no-op today — the
+      # Slack alert below is the part that still works. Trend history now comes
+      # from the Allure report published to GitHub Pages (steps further down).
       RESULTS_URL: ${{ secrets.RESULTS_URL }}
       RESULTS_API_KEY: ${{ secrets.RESULTS_API_KEY }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
@@ -109,10 +117,41 @@ jobs:
         if: always()
         run: npx allure generate allure-results -o allure-report --clean
 
-      # Parse results.json, detect a mid-run deploy (superseded), POST the run +
-      # per-test rows to the backend ingest endpoint, and Slack on real failures.
-      # Best-effort: publish-results never fails the job.
-      - name: Publish results to the Grafana pipeline
+      # ── Publish the Allure report to GitHub Pages ─────────────────────────────
+      # One clickable URL (https://restaunax.github.io/Automation/) that always
+      # shows the latest run plus a Trend widget of the last 30 runs — no artifact
+      # download, no local server, no Java. History is pulled from the gh-pages
+      # branch so trends accumulate across runs. All if: always() so a FAILING
+      # suite still publishes its report (that's exactly when you want to see it).
+      - name: Fetch prior Allure history
+        if: always()
+        continue-on-error: true # gh-pages doesn't exist yet on the very first run
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages
+
+      - name: Build Allure report with history
+        if: always()
+        uses: simple-elf/allure-report-action@master
+        with:
+          allure_results: allure-results
+          gh_pages: gh-pages
+          allure_history: allure-history
+          keep_reports: 30
+
+      - name: Deploy Allure report to GitHub Pages
+        if: always()
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: allure-history
+
+      # Parse results.json, detect a mid-run deploy (superseded), and Slack on
+      # real failures. (The Grafana ingest POST is a no-op — endpoint backed out;
+      # see the RESULTS_URL note above.) Best-effort: never fails the job.
+      - name: Publish results + Slack alert on failure
         if: always()
         run: npx tsx scripts/publish-results.ts
 
