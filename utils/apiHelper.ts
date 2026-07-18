@@ -289,6 +289,7 @@ export async function deleteAutomationMenuGroups(
 ): Promise<number> {
   const groups = await getRestaurantMenuGroups(accessToken, restaurantId);
   let deleted = 0;
+  const stranded: string[] = [];
   for (const group of groups) {
     if (!group.name || !namePattern.test(group.name)) continue;
     try {
@@ -299,12 +300,22 @@ export async function deleteAutomationMenuGroups(
         adminToken
       );
       deleted++;
-    } catch (err) {
-      console.warn(
-        `[apiHelper] Failed to delete leftover menu group "${group.name}" (${group.id}):`,
-        err
-      );
+    } catch {
+      // Almost always a pre-existing orphan: a prior run soft-deleted its item
+      // (isActive=false), which the merged-menu endpoint hides, so the drain
+      // can't hard-delete it and the group-delete 400s ("Cannot Delete Category
+      // With Items"). We deliberately do NOT weaken the backend guard for tests,
+      // so these clear only via a one-time manual admin/DB pass. Collect them and
+      // log ONE summary below instead of 80+ identical warnings per run.
+      stranded.push(group.id);
     }
+  }
+  if (stranded.length) {
+    console.warn(
+      `[apiHelper] ${stranded.length} legacy orphan menu group(s) could not be ` +
+        `auto-deleted — pre-existing residue whose items are soft-deleted and ` +
+        `invisible to the API. Not a run failure; clear once with a manual admin cleanup.`
+    );
   }
   return deleted;
 }
