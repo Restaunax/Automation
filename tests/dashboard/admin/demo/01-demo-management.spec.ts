@@ -11,10 +11,12 @@
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../../fixtures/base";
 import { createAdminDemoManagementPage } from "../../../../pages/dashboard/admin/AdminDemoManagementPage";
+import { generateDemoFormData } from "../../../../utils/testData";
 import {
-  readSharedState,
-  DEMO_EMAILS_ENABLED,
-} from "../../../../utils/testData";
+  apiLogin,
+  submitDemoRequestRaw,
+  deleteDemoRequestByEmail,
+} from "../../../../utils/apiHelper";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
@@ -26,6 +28,45 @@ test.describe("Admin — Demo Management", () => {
     !ADMIN_EMAIL || !ADMIN_PASSWORD,
     "ADMIN_EMAIL / ADMIN_PASSWORD not set in .env"
   );
+
+  // Self-seed a private demo request (mirrors 02-demo-actions): globalSetup no
+  // longer submits one. Seeding emails the requester, so TC-04 is @demo @email.
+  let demoEmail = "";
+  let demoFirstName = "";
+  let demoLastName = "";
+  let submittedAt = "";
+
+  test.beforeAll(async () => {
+    // Don't seed a demo we can't clean up: afterAll's delete needs admin creds.
+    if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return;
+    const formData = generateDemoFormData();
+    const res = await submitDemoRequestRaw({
+      ...formData,
+      planType: "restaurant",
+    });
+    if (!res.ok) {
+      throw new Error(
+        `Failed to seed demo request for demo-management: ${res.status} ${JSON.stringify(res.data)}`
+      );
+    }
+    demoEmail = formData.email;
+    demoFirstName = formData.firstName;
+    demoLastName = formData.lastName;
+    submittedAt = new Date().toISOString();
+  });
+
+  test.afterAll(async () => {
+    if (!demoEmail || !ADMIN_EMAIL || !ADMIN_PASSWORD) return;
+    try {
+      const { accessToken } = await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD);
+      await deleteDemoRequestByEmail(accessToken, demoEmail);
+    } catch (err) {
+      console.warn(
+        `[demo-management] Failed to delete seeded demo request (${demoEmail}):`,
+        err
+      );
+    }
+  });
 
   test.beforeEach(async () => {
     await allure.label("feature", "Demo Request Flow");
@@ -47,51 +88,52 @@ test.describe("Admin — Demo Management", () => {
     });
   });
 
-  test("TC-04: admin can find the new demo request in Demo Management", async ({
-    adminPage,
-  }) => {
-    test.skip(
-      !DEMO_EMAILS_ENABLED,
-      "Demo emails held (Mailtrap quota) — globalSetup skips the demo seed this " +
-        "test searches for; set SEND_DEMO_EMAILS=true to run"
-    );
-    await allure.description(
-      "Admin navigates to Demo Management, searches by email, and verifies " +
-        "the row shows correct name, status NEW, and a creation timestamp."
-    );
+  test(
+    "TC-04: admin can find the new demo request in Demo Management",
+    {
+      tag: ["@demo", "@email"],
+    },
+    async ({ adminPage }) => {
+      await allure.description(
+        "Admin navigates to Demo Management, searches by email, and verifies " +
+          "the row shows correct name, status NEW, and a creation timestamp."
+      );
 
-    const { email, firstName, lastName, submittedAt } = readSharedState();
-    const adminDemoPage = createAdminDemoManagementPage(adminPage);
+      const email = demoEmail;
+      const firstName = demoFirstName;
+      const lastName = demoLastName;
+      const adminDemoPage = createAdminDemoManagementPage(adminPage);
 
-    await allure.step("Navigate to Demo Management page", async () => {
-      await adminDemoPage.goto();
-    });
+      await allure.step("Navigate to Demo Management page", async () => {
+        await adminDemoPage.goto();
+      });
 
-    await allure.step(`Search for email: ${email}`, async () => {
-      await adminDemoPage.searchByEmail(email);
-    });
+      await allure.step(`Search for email: ${email}`, async () => {
+        await adminDemoPage.searchByEmail(email);
+      });
 
-    const row = await adminDemoPage.assertRowExists(email);
+      const row = await adminDemoPage.assertRowExists(email);
 
-    await allure.step("Verify row exists with correct name", async () => {
-      const rowText = (await row.textContent()) ?? "";
-      expect(rowText).toContain(firstName);
-      expect(rowText).toContain(lastName);
-      await allure.parameter("Submitted email", email);
-      await allure.parameter("Name in row", `${firstName} ${lastName}`);
-    });
+      await allure.step("Verify row exists with correct name", async () => {
+        const rowText = (await row.textContent()) ?? "";
+        expect(rowText).toContain(firstName);
+        expect(rowText).toContain(lastName);
+        await allure.parameter("Submitted email", email);
+        await allure.parameter("Name in row", `${firstName} ${lastName}`);
+      });
 
-    await allure.step("Verify status is NEW", async () => {
-      const status = await adminDemoPage.getStatusFromRow(row);
-      expect(status.toUpperCase()).toContain("NEW");
-      await allure.parameter("Status", status);
-    });
+      await allure.step("Verify status is NEW", async () => {
+        const status = await adminDemoPage.getStatusFromRow(row);
+        expect(status.toUpperCase()).toContain("NEW");
+        await allure.parameter("Status", status);
+      });
 
-    await allure.step("Verify createdAt timestamp is visible", async () => {
-      const createdAtText = await adminDemoPage.getCreatedAtFromRow(row);
-      expect(createdAtText.length).toBeGreaterThan(0);
-      await allure.parameter("Created at (display)", createdAtText);
-      await allure.parameter("Submitted at (ISO)", submittedAt);
-    });
-  });
+      await allure.step("Verify createdAt timestamp is visible", async () => {
+        const createdAtText = await adminDemoPage.getCreatedAtFromRow(row);
+        expect(createdAtText.length).toBeGreaterThan(0);
+        await allure.parameter("Created at (display)", createdAtText);
+        await allure.parameter("Submitted at (ISO)", submittedAt);
+      });
+    }
+  );
 });

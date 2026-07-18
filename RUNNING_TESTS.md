@@ -33,13 +33,27 @@ npm run typecheck
 ## 2. Run all tests
 
 ```bash
-npm run test           # everything, headless (3 workers locally)
+npm run test           # everything, headless (3 workers locally) — NO email sent
 npm run test:headed    # same, with a visible browser
 npm run test:ui        # interactive Playwright UI (pick & watch tests)
 ```
 
-`globalSetup` logs in the owner/admin/employee sessions once before the run;
-`globalTeardown` cleans up the data the run created.
+`globalSetup` logs in the owner/admin/employee sessions once before the run (it
+sends **no** email); `globalTeardown` cleans up the data the run created.
+
+> **Email-sending tests are excluded by default.** Tests tagged `@email` (demo,
+> invite, password-reset, sign-up, gift-card purchases) send real mail into the
+> quota-limited Mailtrap sandbox, so `npm test` and the nightly skip them. Run
+> them deliberately when you're validating those flows and the quota allows:
+>
+> ```bash
+> npm run test:email    # ⚠️ the @email group (~14 emails)
+> npm run test:demo     # ⚠️ just the demo flow
+> npm run test:all      # ⚠️ full suite incl. email
+> ```
+>
+> Full rationale + the "which command, when" table: TEST_PLAN → **Test execution
+> strategy**.
 
 Run a single project (app) only:
 

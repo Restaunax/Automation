@@ -15,7 +15,11 @@ export const createOwnerCouponPage = (page: Page) => {
     });
     await createCouponBtn.waitFor({ state: "visible", timeout: 5_000 });
     await createCouponBtn.click();
-    await page.waitForURL(/tab=create-coupon/, { timeout: 10_000 });
+    // The create-coupon form rendering IS the success signal — a separate
+    // waitForURL before it added no correctness (the form can't appear
+    // without the URL having changed) but did add a tight 10s budget that
+    // flaked under concurrent-worker load; the form wait's own 15s timeout
+    // already covers this navigation.
     await page
       .getByPlaceholder("SUMMER2025")
       .waitFor({ state: "visible", timeout: 15_000 });
@@ -136,6 +140,14 @@ export const createOwnerCouponPage = (page: Page) => {
     await page.waitForURL(/tab=coupons/, { timeout: 10_000 });
     await page
       .getByRole("heading", { name: "Coupon Management" })
+      .waitFor({ state: "visible", timeout: 15_000 });
+    // Wait for the table to actually finish loading — a first data row OR the
+    // empty-state — before returning. Without this, callers (TC-157's sort click,
+    // TC-159/162's row actions) interact before the table renders and flake out.
+    await page
+      .locator("tbody tr")
+      .or(emptyState())
+      .first()
       .waitFor({ state: "visible", timeout: 15_000 });
   };
 

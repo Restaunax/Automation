@@ -5,15 +5,17 @@
  *   1. API-login as owner → create seed test restaurant
  *   2. Browser-login as owner → save owner-auth.tmp.json (storageState)
  *   3. Browser-login as admin → save admin-auth.tmp.json (storageState)
- *   4. Submit demo request via browser → capture email for email-check tests
- *   5. Write shared-state.tmp.json with all data specs need
+ *   4. Write shared-state.tmp.json with all data specs need
+ *
+ * Sends NO email. It used to submit a demo request here (2 emails) on EVERY run,
+ * which drained the Mailtrap quota. Demo specs now self-seed their own request
+ * (see the @demo/@email tags + 01-demo-management / 02-demo-actions).
  */
 
 import * as dotenv from "dotenv";
 import * as fs from "fs";
 import * as path from "path";
 import { chromium, type Page, type BrowserContext } from "@playwright/test";
-import { createDemoBookingPage } from "./pages/dashboard/public/DemoBookingPage";
 import { createSignInPage } from "./pages/dashboard/auth/SignInPage";
 import { jwtExpiryMs } from "./utils/auth";
 import {
@@ -33,8 +35,6 @@ import {
   FRONTEND_URL,
   TEMPLATE_WIND_URL,
   writeSharedState,
-  generateDemoFormData,
-  DEMO_EMAILS_ENABLED,
 } from "./utils/testData";
 
 dotenv.config({ path: path.resolve(__dirname, ".env") });
@@ -135,37 +135,6 @@ async function saveAuthState(
   });
 }
 
-// ── Helper: submit demo request via browser ──────────────────────────────────
-async function submitDemoRequest(): Promise<{
-  email: string;
-  firstName: string;
-  lastName: string;
-}> {
-  const formData = generateDemoFormData();
-  console.log(`[globalSetup] Submitting demo request for: ${formData.email}`);
-  await withBrowser(async (page) => {
-    try {
-      await createDemoBookingPage(page).fillAndSubmit(formData);
-      console.log("[globalSetup] Demo request submitted successfully.");
-    } catch (err) {
-      await page
-        .screenshot({
-          path: path.resolve(
-            __dirname,
-            "test-results/globalSetup-demo-failure.png"
-          ),
-        })
-        .catch(() => {});
-      throw err;
-    }
-  });
-  return {
-    email: formData.email,
-    firstName: formData.firstName,
-    lastName: formData.lastName,
-  };
-}
-
 // ── Main ─────────────────────────────────────────────────────────────────────
 export default async function globalSetup(): Promise<void> {
   // SAFETY: refuse to run if any target resolves to a non-QA/localhost host.
@@ -193,7 +162,6 @@ export default async function globalSetup(): Promise<void> {
   const optionalGaps = [
     ...(!EMPLOYEE_EMAIL || !EMPLOYEE_PASSWORD ? ["employee suite"] : []),
     ...(!process.env.MAILTRAP_API_TOKEN ? ["email-journey tests"] : []),
-    ...(DEMO_EMAILS_ENABLED ? [] : ["demo-email specs (SEND_DEMO_EMAILS)"]),
   ];
   if (optionalGaps.length) {
     console.warn(
@@ -280,9 +248,10 @@ export default async function globalSetup(): Promise<void> {
     );
   }
 
-  // 2-5. Owner auth, admin auth, employee auth, and demo submission are fully
-  //      independent — run all four browser sessions in parallel to cut setup time.
-  const [, , , demoResult] = await Promise.all([
+  // 2-4. Owner, admin, and employee auth are fully independent — run all three
+  //      browser sessions in parallel to cut setup time. No demo submission here
+  //      (it emailed the requester on every run); the demo specs self-seed.
+  await Promise.all([
     OWNER_EMAIL && OWNER_PASSWORD
       ? saveAuthState(OWNER_EMAIL, OWNER_PASSWORD, OWNER_AUTH_FILE, "owner")
       : Promise.resolve(),
@@ -305,28 +274,10 @@ export default async function globalSetup(): Promise<void> {
             "[globalSetup] EMPLOYEE_EMAIL/PASSWORD not set — skipping employee auth"
           )
         ),
-    // Held off unless SEND_DEMO_EMAILS=true — a demo submission emails the
-    // requester via the quota-limited Mailtrap sandbox. When held, the demo
-    // specs (request/management/actions) skip too, so the empty demo fields
-    // below are never read.
-    DEMO_EMAILS_ENABLED
-      ? submitDemoRequest()
-      : Promise.resolve(
-          (console.warn(
-            "[globalSetup] SEND_DEMO_EMAILS not set — skipping demo request submission (holding emails)"
-          ),
-          { email: "", firstName: "", lastName: "" })
-        ),
   ]);
 
-  const { email, firstName, lastName } = demoResult;
-
-  // 5. Persist all shared data for specs
+  // 4. Persist all shared data for specs
   writeSharedState({
-    email,
-    firstName,
-    lastName,
-    submittedAt: new Date().toISOString(),
     restaurantId,
     restaurantName,
     menuGroupId,

@@ -4,6 +4,26 @@ This repo contains Playwright E2E tests for the Restaunax platform. Tests target
 
 ---
 
+<!-- ecosystem:begin -->
+
+## RestauNax ecosystem
+
+This is one of several **independent** repositories (github.com/Restaunax) that make
+up the RestauNax restaurant platform. They share **no code** — every frontend talks
+to the central backend over REST.
+
+- **restaunax** — owner/admin dashboard (`restaunax-frontend`: React + Vite + MUI) + the central API (`restaunax-backend`: Node/Express/Prisma/Postgres) + docs. The backend is the single source every app calls.
+- **Restaunax-Owner** — owner mobile app (React Native + Expo Router): manage ONE restaurant from a phone — the mobile counterpart of the dashboard's `restaurant/restaurantManagement` area, not the full admin app. Currently an empty skeleton; functionality incoming.
+- **restaunax-ordering-app** — customer mobile ordering app (React Native + Expo).
+- **device-in-store** — in-store POS / kiosk (React Native + Expo; Stripe Terminal + receipt printers).
+- **restaunax-web** — public marketing & SEO site (Next.js). Distinct from `restaunax-frontend` (the authed app).
+- **template-wind** — restaurant website template (Next.js + Tailwind; chain-aware, typed block system, branding config).
+- **template-lima** — alternate restaurant website template (React + Vite + MUI; block system, **no** branding config).
+- **template-custom-wind** — single-restaurant fork of template-wind (chain mode + marketing pages stripped).
+- **restaunax-tv-display** + **restaunax-tv-shell** — in-store menu TV (Vite web app + Android/Fire TV Kotlin WebView kiosk shell).
+- **Automation** ← _this repo_ — Playwright E2E suite for the whole platform (targets QA; the roles/routes reference lives in its CLAUDE.md).
+<!-- ecosystem:end -->
+
 ## Platform Overview
 
 Restaunax is a SaaS platform that provides software for restaurants. It has five distinct applications:
@@ -249,12 +269,12 @@ SEED_RESTAURANT_ID=...
 # Email testing
 MAILTRAP_API_TOKEN=...
 MAILTRAP_INBOX_ID=...
-TEST_EMAIL_DOMAIN=restaunax-test.com
+TEST_EMAIL_DOMAIN=demomailtrap.co
 
-# Email-sending tests are held off by default to protect the Mailtrap inbox quota.
-# Set true to run each surface (see TEST_PLAN → "Email-sending tests").
-SEND_DEMO_EMAILS=true      # demo request/management/actions specs
-SEND_ACCOUNT_EMAILS=true   # admin invite / password reset / sign-up
+# Email-sending tests are tagged @email (@demo subset) and EXCLUDED from the
+# default run — `npm test` and the nightly send no mail. Run them deliberately
+# with `npm run test:email` / `test:demo`. See TEST_PLAN → "Test execution
+# strategy". (No SEND_* toggles anymore.)
 ```
 
 ---
@@ -273,3 +293,15 @@ npm run report        # Generate + open Allure HTML report (needs Java)
 npm run report:html   # Open Playwright's built-in HTML report (no Java)
 npm run clean         # Delete test artifacts
 ```
+
+<!-- graphify:begin -->
+
+## graphify
+
+This project has a graphify knowledge graph at graphify-out/ (AST-built).
+
+- Before answering architecture or codebase questions, read graphify-out/GRAPH_REPORT.md for god nodes and community structure.
+- If graphify-out/wiki/index.md exists, navigate it instead of reading raw files.
+- For cross-module "how does X relate to Y" questions, prefer `graphify query "<question>"`, `graphify path "<A>" "<B>"`, or `graphify explain "<concept>"` over grep — these traverse the graph's EXTRACTED + INFERRED edges instead of scanning files.
+- After modifying code files in this session, run `graphify update .` to keep the graph current (AST-only, no API cost).
+<!-- graphify:end -->

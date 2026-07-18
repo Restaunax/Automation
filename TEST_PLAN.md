@@ -469,50 +469,70 @@ same file as the settings mutations.
 
 Configured in `Automation/.env`.
 
-| Variable                                      | Description                                                                                                                                  | Example                                 |
-| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| `FRONTEND_URL`                                | Dashboard base URL (project `dashboard`)                                                                                                     | `https://app.qa.restaunax.com`          |
-| `TEMPLATE_WIND_URL`                           | Template Wind base URL (project `customer`) — no code default; `qa.restaunax.com` serves the marketing site, not a per-restaurant deployment | `https://<restaurant>.qa.restaunax.com` |
-| `TEMPLATE_WIND_RESTAURANT_ID`                 | Optional override for the customer-site restaurant target                                                                                    | _(restaurant id)_                       |
-| `SEED_RESTAURANT_ID` / `SEED_RESTAURANT_NAME` | Optional pin for the seed restaurant globalSetup targets (default: first owned restaurant — order-dependent if the owner has several)        | _(restaurant id / exact name)_          |
-| `BACKEND_URL`                                 | Backend API base URL (used by `apiHelper`)                                                                                                   | `https://api.qa.restaunax.com`          |
-| `OWNER_EMAIL` / `OWNER_PASSWORD`              | Owner account — must already own ≥1 QA restaurant                                                                                            | _(secret)_                              |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD`              | Admin account (admin-flow tests, teardown cleanup)                                                                                           | _(secret)_                              |
-| `EMPLOYEE_EMAIL` / `EMPLOYEE_PASSWORD`        | Employee account — gates `tests/dashboard/employee/**`                                                                                       | _(secret)_                              |
-| `MAILTRAP_API_TOKEN`                          | **Email Testing** token (not a Sending token — those 403)                                                                                    | _(secret)_                              |
-| `MAILTRAP_INBOX_ID`                           | Mailtrap inbox where test emails land                                                                                                        | _(secret)_                              |
-| `MAILTRAP_ACCOUNT_ID`                         | Optional — skips the account-lookup API call if set                                                                                          | _(secret)_                              |
-| `TEST_EMAIL_DOMAIN`                           | Domain for generated unique test emails                                                                                                      | `restaunax-test.com`                    |
-| `SEND_DEMO_EMAILS`                            | `true` to run the demo-email surface (see "Email-sending tests" below). Unset/false = held, to protect the Mailtrap inbox quota              | `true`                                  |
-| `SEND_ACCOUNT_EMAILS`                         | `true` to run account-email tests (invite / password reset / sign-up). Unset/false = held                                                    | `true`                                  |
+| Variable                                      | Description                                                                                                                                      | Example                                 |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------- |
+| `FRONTEND_URL`                                | Dashboard base URL (project `dashboard`)                                                                                                         | `https://app.qa.restaunax.com`          |
+| `TEMPLATE_WIND_URL`                           | Template Wind base URL (project `customer`) — no code default; `qa.restaunax.com` serves the marketing site, not a per-restaurant deployment     | `https://<restaurant>.qa.restaunax.com` |
+| `TEMPLATE_WIND_RESTAURANT_ID`                 | Optional override for the customer-site restaurant target                                                                                        | _(restaurant id)_                       |
+| `SEED_RESTAURANT_ID` / `SEED_RESTAURANT_NAME` | Optional pin for the seed restaurant globalSetup targets (default: first owned restaurant — order-dependent if the owner has several)            | _(restaurant id / exact name)_          |
+| `BACKEND_URL`                                 | Backend API base URL (used by `apiHelper`)                                                                                                       | `https://api.qa.restaunax.com`          |
+| `OWNER_EMAIL` / `OWNER_PASSWORD`              | Owner account — must already own ≥1 QA restaurant                                                                                                | _(secret)_                              |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD`              | Admin account (admin-flow tests, teardown cleanup)                                                                                               | _(secret)_                              |
+| `EMPLOYEE_EMAIL` / `EMPLOYEE_PASSWORD`        | Employee account — gates `tests/dashboard/employee/**`                                                                                           | _(secret)_                              |
+| `MAILTRAP_API_TOKEN`                          | **Email Testing** token (not a Sending token — those 403)                                                                                        | _(secret)_                              |
+| `MAILTRAP_INBOX_ID`                           | Mailtrap inbox where test emails land                                                                                                            | _(secret)_                              |
+| `MAILTRAP_ACCOUNT_ID`                         | Optional — skips the account-lookup API call if set                                                                                              | _(secret)_                              |
+| `TEST_EMAIL_DOMAIN`                           | Domain for generated unique test emails                                                                                                          | `demomailtrap.co`                       |
+| `INCLUDE_EMAIL_TESTS`                         | `1` drops the default `@email` exclusion so `--grep @email`/`@demo` runs the mail-sending group (set by `test:email` / `test:demo` / `test:all`) | _(unset)_                               |
 
 ---
 
-## Email-sending tests
+## Test execution strategy
 
-Some tests cause the backend to deliver **real email** into the quota-limited
-Mailtrap sandbox. The **demo** surface is the heaviest (a demo submission emails
-the requester, and follow-up actions email again), so it's **held off by
-default** and gated behind `SEND_DEMO_EMAILS=true` (`DEMO_EMAILS_ENABLED` in
-`utils/testData.ts`). When unset:
+Some tests make the backend deliver **real email** into the quota-limited
+Mailtrap sandbox (500/mo). A full email run is ~14 messages — a demo submission
+emails the requester **and** a company inbox, so demo = 2 each. To keep routine
+runs from draining that quota, those tests are **tagged and excluded by default**
+— never gated behind an env flag someone has to remember to unset.
 
-- `globalSetup` skips the per-run demo submission,
-- `tests/dashboard/public/01-demo-request.spec.ts` TC-01 skips (TC-74/75 stay —
-  they submit invalid forms that never send),
-- `01-demo-management` TC-04 and all of `02-demo-actions` skip.
+**Tags**
 
-Set `SEND_DEMO_EMAILS=true` in `.env` to exercise them (e.g. when the inbox
-quota has reset or you specifically need demo-email coverage).
+- `@email` — the test causes a backend email send.
+- `@demo` — the demo subset of `@email` (demo request / management / actions).
 
-**Account-lifecycle emails** (admin **invite** TC-101 + journey TC-123,
-**password reset** TC-117, self-serve **sign-up** TC-93/94) are lower volume
-but held the same way, behind `SEND_ACCOUNT_EMAILS=true`
-(`ACCOUNT_EMAILS_ENABLED`). Negative cases that never send are **not** gated and
-keep running: duplicate-invite (TC-104, 400 before send) and the client-side
-password checks (TC-95/96, no request).
+**How selection works.** `playwright.config.ts` sets `grepInvert: /@email/`
+**unless** `INCLUDE_EMAIL_TESTS=1` is set. So the `@email` group is skipped by
+every invocation — `npm test`, a bare `npx playwright test`, and the nightly CI —
+with no way to forget. Opting in _removes_ the exclusion (rather than fighting it
+with `--grep`, which would AND to an empty set).
 
-> Both flags default off, so a routine run sends **zero** test emails. Enable
-> the surface you need when the quota allows.
+| I want to…                    | Command                                                                | Sends email? |
+| ----------------------------- | ---------------------------------------------------------------------- | ------------ |
+| Run the normal suite          | `npm test`                                                             | No           |
+| Run just the test I'm writing | `npx playwright test -g "TC-142"` (or a file path) / `npm run test:ui` | No           |
+| Validate the email flows      | `npm run test:email`                                                   | ⚠️ ~14       |
+| Validate just the demo flow   | `npm run test:demo`                                                    | ⚠️ a few     |
+| Full validation incl. email   | `npm run test:all`                                                     | ⚠️ ~16       |
+
+**Which tests are `@email`:** demo TC-01 / TC-04 / all of 02-demo-actions
+(`@demo @email`); admin **invite** TC-101, **password reset** TC-117, and the
+**invite → claim → login** journey TC-123; self-serve **sign-up** TC-93/94.
+Negative/validation cases that never send (TC-74/75, TC-95/96, duplicate-invite
+TC-104) are untagged and keep running. Order-confirmation from a completed
+checkout (TC-26, TC-178, ~1 email each) also stays in the default run. The
+gift-card **purchase** tests (TC-165/166/169) are **not** `@email` — they're
+`test.fixme` (blocked by Stripe Radar's invisible hCaptcha; see TEST_COVERAGE →
+Known Technical Debt); the non-purchase gift-card cases (TC-167/168/170) keep
+running.
+
+**CI.** The nightly (`e2e-nightly.yml`) excludes `@email`. The group runs on
+`e2e-email-weekly.yml` — a weekly schedule plus on-demand `workflow_dispatch` —
+which sets `INCLUDE_EMAIL_TESTS=1`. ~14 × ~4/mo ≈ 56 emails/mo, well under 500.
+
+**Local dev.** When writing or iterating on a test, run just that one
+(`npx playwright test <file>` / `-g TC-XX` / `npm run test:ui`) — don't run the
+whole suite to check one test. `globalSetup` sends no mail, so any default run is
+safe by construction.
 
 ---
 

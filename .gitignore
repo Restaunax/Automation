@@ -4,6 +4,7 @@ allure-report/
 playwright-report/
 test-results/
 dist/
+graphify-out
 
 # JSON reporter output consumed by scripts/publish-results.ts
 results.json
@@ -19,3 +20,4 @@ results.json
 
 # Personal Claude skills (not part of the test suite)
 .claude/skills/
+.vscode

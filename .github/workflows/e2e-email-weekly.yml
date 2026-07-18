@@ -1,0 +1,101 @@
+# Deliberate email-flow validation against QA.
+#
+# The @email group (demo request/management/actions, admin invite + password
+# reset + invite→claim journey, sign-up, gift-card purchases) actually sends
+# mail through the quota-limited Mailtrap sandbox (~19 emails per full run, demo
+# = 2 each). The nightly (e2e-nightly.yml) EXCLUDES @email so routine runs never
+# drain the 500/mo cap; this job is where those flows get exercised on purpose —
+# weekly, plus on-demand. INCLUDE_EMAIL_TESTS=1 turns off the config's default
+# exclusion so `--grep @email` selects exactly that group.
+name: e2e-email-weekly
+
+on:
+  schedule:
+    # 06:00 UTC every Monday — ~19 emails/run × ~4 runs/mo ≈ 76/mo, well under 500.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+# Share the single Playwright concurrency group with the nightly: the suite
+# mutates one shared QA environment, so these two must never run at once.
+concurrency:
+  group: qa-e2e
+  cancel-in-progress: false
+
+jobs:
+  e2e-email:
+    if: github.repository == 'Restaunax/Automation'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: qa
+    env:
+      FRONTEND_URL: ${{ vars.FRONTEND_URL }}
+      BACKEND_URL: ${{ vars.BACKEND_URL }}
+      TEMPLATE_WIND_URL: ${{ vars.TEMPLATE_WIND_URL }}
+      TEMPLATE_WIND_RESTAURANT_ID: ${{ vars.TEMPLATE_WIND_RESTAURANT_ID }}
+      SEED_RESTAURANT_ID: ${{ vars.SEED_RESTAURANT_ID }}
+      TEST_EMAIL_DOMAIN: ${{ vars.TEST_EMAIL_DOMAIN }}
+      OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
+      OWNER_PASSWORD: ${{ secrets.OWNER_PASSWORD }}
+      ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+      ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+      EMPLOYEE_EMAIL: ${{ secrets.EMPLOYEE_EMAIL }}
+      EMPLOYEE_PASSWORD: ${{ secrets.EMPLOYEE_PASSWORD }}
+      MAILTRAP_API_TOKEN: ${{ secrets.MAILTRAP_API_TOKEN }}
+      MAILTRAP_INBOX_ID: ${{ secrets.MAILTRAP_INBOX_ID }}
+      RESULTS_URL: ${{ secrets.RESULTS_URL }}
+      RESULTS_API_KEY: ${{ secrets.RESULTS_API_KEY }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      # Opt in to the email group (drops the config's default @email exclusion).
+      INCLUDE_EMAIL_TESTS: "1"
+      E2E_TRIGGER: ${{ github.event_name == 'schedule' && 'email-weekly' || 'email-manual' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the @email group
+        run: |
+          # INCLUDE_EMAIL_TESTS=1 (env above) removes the default exclusion, then
+          # --grep @email runs exactly the mail-sending tests. Config reporters
+          # (list + json + allure) are kept — no --reporter override.
+          npx playwright test --grep @email
+
+      - name: Generate Allure HTML report
+        if: always()
+        run: npx allure generate allure-results -o allure-report --clean
+
+      - name: Publish results to the Grafana pipeline
+        if: always()
+        run: npx tsx scripts/publish-results.ts
+
+      - name: Upload Allure results + report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-email-${{ github.run_number }}
+          path: |
+            allure-results
+            allure-report
+          retention-days: 14
+
+      - name: Upload failure traces & screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-email-${{ github.run_number }}
+          path: test-results
+          retention-days: 14

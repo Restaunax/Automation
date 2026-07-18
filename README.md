@@ -16,15 +16,23 @@ Create `Automation/.env` with the variables documented in
 not checked into the repo).
 
 ```bash
-npm test               # all tests, headless
+npm test               # all tests, headless — NO email sent (excludes @email)
 npm run test:headed    # visible browser
 npm run test:ui        # interactive Playwright UI
 npm run report:html    # open the Playwright HTML report (no Java)
 npm run report         # generate + open the Allure report (needs Java)
+
+# Email-sending tests are tagged @email and excluded from the default run above
+# (they'd drain the Mailtrap 500/mo quota). Run them deliberately:
+npm run test:email     # ⚠️ the @email group (~14 emails)
+npm run test:demo      # ⚠️ just the demo flow
+npm run test:all       # ⚠️ full suite incl. email
+# Writing one test? Run just it: npx playwright test -g "TC-142"
 ```
 
-Full instructions — setup, running individual tests, reading reports — in
-[`RUNNING_TESTS.md`](./RUNNING_TESTS.md).
+Full instructions — setup, running individual tests, reading reports, and the
+email/test-execution strategy — in [`RUNNING_TESTS.md`](./RUNNING_TESTS.md) and
+[`TEST_PLAN.md`](./TEST_PLAN.md#test-execution-strategy).
 
 ## Documentation
 

@@ -374,7 +374,7 @@ Admin oversight of all restaurant accounts is essential for account management, 
 
 ## TC-101 → TC-124 — Admin User Management (`users.spec.ts`)
 
-**Status:** ✅ Passing (invite/reset/claim cases are email-gated — they skip unless `SEND_ACCOUNT_EMAILS=true`, to protect the Mailtrap quota)
+**Status:** ✅ Passing (invite/reset/claim cases are tagged `@email` — excluded from the default run to protect the Mailtrap quota; run via `npm run test:email`)
 
 The admin Users screen is where Restaunax staff invite, inspect, and manage every account on the platform. This block covers the whole surface; each test in one line:
 
@@ -1480,7 +1480,7 @@ Delivery had zero coverage — every prior order test used Pickup. A broken addr
 
 ## TC-165–170 — Gift Card Purchase and Balance Check
 
-**Status:** ✅ Passing (needs `TEMPLATE_WIND_URL` + `ADMIN_EMAIL`/`ADMIN_PASSWORD`)
+**Status:** ✅ TC-167–170 passing (needs `TEMPLATE_WIND_URL` + `ADMIN_EMAIL`/`ADMIN_PASSWORD`). TC-165/TC-166 (the two Stripe-payment purchase flows) are `test.fixme` as of 2026-07-11 — intermittently blocked by Stripe Radar's invisible hCaptcha challenge on the Pay click, confirmed via live network trace, not a product or test-code bug. See TEST_COVERAGE.md's Known Technical Debt.
 
 ### What they check
 
@@ -1831,9 +1831,9 @@ This step is unavoidable for every single new restaurant, and its default-value 
 | TC-10           | Admin assigns a demo request to a team member                                                   | Admin                 | ✅ Passing                                                                                                                                |
 | TC-11           | Admin schedules a demo (status flips to Scheduled)                                              | Admin                 | ✅ Passing                                                                                                                                |
 | TC-12           | Proceed to onboarding navigates correctly                                                       | Admin                 | ✅ Passing                                                                                                                                |
-| TC-101 → TC-118 | Admin user management: invite, search/filter, detail sheet, role/status/permissions (no TC-108) | Admin                 | ✅ Passing (invite/reset email-gated via `SEND_ACCOUNT_EMAILS`)                                                                           |
+| TC-101 → TC-118 | Admin user management: invite, search/filter, detail sheet, role/status/permissions (no TC-108) | Admin                 | ✅ Passing (invite/reset tagged `@email` — run via `npm run test:email`)                                                                  |
 | TC-76 / TC-77   | Role/status changes with bad input are rejected (API negatives)                                 | Admin                 | ✅ Passing                                                                                                                                |
-| TC-123          | Invited user claims access and logs in with the right access level                              | Admin                 | ✅ Passing (email-gated via `SEND_ACCOUNT_EMAILS`)                                                                                        |
+| TC-123          | Invited user claims access and logs in with the right access level                              | Admin                 | ✅ Passing (tagged `@email` — run via `npm run test:email`)                                                                               |
 | TC-124          | A bogus invite token grants no elevated access                                                  | Admin                 | ✅ Passing                                                                                                                                |
 | TC-13           | Owner sees My Restaurants page                                                                  | Owner                 | ✅ Passing                                                                                                                                |
 | TC-14           | Owner sees their restaurant card                                                                | Owner                 | ✅ Passing                                                                                                                                |
@@ -1954,8 +1954,8 @@ This step is unavoidable for every single new restaurant, and its default-value 
 | TC-162          | Edit pre-fills the form with the coupon's existing values                                       | Owner                 | ✅ Passing                                                                                                                                |
 | TC-163          | Send to Customers is disabled for an expired coupon                                             | Owner                 | ✅ Passing                                                                                                                                |
 | TC-164          | Reset Form clears the create-coupon form back to defaults                                       | Owner                 | ✅ Passing                                                                                                                                |
-| TC-165          | Guest purchases a gift card (preset denomination, Send as Gift)                                 | Customer              | ✅ Passing                                                                                                                                |
-| TC-166          | Guest purchases a gift card with a custom amount                                                | Customer              | ✅ Passing                                                                                                                                |
+| TC-165          | Guest purchases a gift card (preset denomination, Send as Gift)                                 | Customer              | ⏭️ `test.fixme` — intermittently blocked by Stripe Radar's invisible hCaptcha, see TEST_COVERAGE.md                                       |
+| TC-166          | Guest purchases a gift card with a custom amount                                                | Customer              | ⏭️ `test.fixme` — same cause as TC-165                                                                                                    |
 | TC-167          | Custom gift-card amount below the minimum is rejected                                           | Customer              | ✅ Passing                                                                                                                                |
 | TC-168          | Custom gift-card amount above the maximum is rejected                                           | Customer              | ✅ Passing                                                                                                                                |
 | TC-169          | Gift card balance check shows the correct balance                                               | Customer              | ✅ Passing                                                                                                                                |

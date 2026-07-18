@@ -93,6 +93,10 @@ jobs:
           GREP: ${{ inputs.grep }}
           PROJECT: ${{ inputs.project }}
         run: |
+          # Email-sending tests (@email) are EXCLUDED here by playwright.config.ts
+          # (grepInvert unless INCLUDE_EMAIL_TESTS=1) so the nightly never drains the
+          # Mailtrap quota. The @email group is opt-in only — it runs on the weekly
+          # e2e-email-weekly.yml job (or a manual dispatch of it), not here.
           # No --reporter override: use the config reporters (list + json →
           # results.json for the publish step + allure). A CLI --reporter would
           # drop the json reporter and its configured outputFile.

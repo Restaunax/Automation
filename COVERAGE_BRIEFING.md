@@ -76,12 +76,12 @@ two of them security-grade:
 
 ## Gotchas for your first run
 
-|                            |                                                                                                                                                                                                            |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Skipped ≠ broken**       | Many tests skip on purpose when their credentials/environment aren't set (`EMPLOYEE_*`, `TEMPLATE_WIND_URL`, Mailtrap). A skip is a gate, not a failure.                                                   |
-| **Emails held by default** | Demo, invite, password-reset and sign-up tests **skip unless you opt in** — they send real mail into a quota-limited Mailtrap inbox. Set `SEND_DEMO_EMAILS=true` / `SEND_ACCOUNT_EMAILS=true` to run them. |
-| **Runs against QA**        | Tests hit the shared **QA/staging** environment, not a local stack. That's why data is seeded and swept, and why runs must not stomp on each other.                                                        |
-| **One flaky-looking fail** | A lone "failure" in older reports is TC-58 — it only fails where `EMPLOYEE_*` creds are absent. Real everywhere they exist.                                                                                |
+|                                |                                                                                                                                                                                                                                                                                                                              |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Skipped ≠ broken**           | Many tests skip on purpose when their credentials/environment aren't set (`EMPLOYEE_*`, `TEMPLATE_WIND_URL`, Mailtrap). A skip is a gate, not a failure.                                                                                                                                                                     |
+| **Emails excluded by default** | Demo, invite, password-reset and sign-up tests are tagged `@email` and **excluded from the default run** — they send real mail into a quota-limited Mailtrap inbox. Run them deliberately with `npm run test:email` / `test:demo`. (Gift-card purchase tests are `test.fixme` — blocked by Stripe Radar; see TEST_COVERAGE.) |
+| **Runs against QA**            | Tests hit the shared **QA/staging** environment, not a local stack. That's why data is seeded and swept, and why runs must not stomp on each other.                                                                                                                                                                          |
+| **One flaky-looking fail**     | A lone "failure" in older reports is TC-58 — it only fails where `EMPLOYEE_*` creds are absent. Real everywhere they exist.                                                                                                                                                                                                  |
 
 ---
 
