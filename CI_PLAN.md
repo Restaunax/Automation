@@ -1,11 +1,11 @@
 # CI Pipeline Plan — GitHub Actions
 
-> Status: **workflow files written** (2026-07-06). `static.yml` and
-> `e2e-nightly.yml` exist under `.github/workflows/`, inert until
-> committed/pushed. Remaining: configure the GitHub `qa` environment secrets +
-> repo vars, push, watch the first nightly. (Plan drafted 2026-07-05; owner:
-> Romel.) Until the workflows are live, the suite only runs when a human
-> remembers to run it.
+> Status: **LIVE.** `static.yml`, `e2e-nightly.yml`, and `e2e-email-weekly.yml`
+> run against QA (secrets/vars configured). Reporting **Phase 2 (Allure on GitHub
+> Pages) shipped** → https://restaunax.github.io/Automation/. The **deploy-trigger**
+> (run the suite after each healthy QA deploy) is wired from the backend repo's
+> `post-deploy-smoke.yml` (RestauNax PR #499; needs the `AUTOMATION_DISPATCH_TOKEN`
+> secret to activate). (Plan drafted 2026-07-05; owner: Romel.)
 
 ---
 
@@ -54,6 +54,11 @@ No secrets, no QA access, finishes in ~1 minute. Blocks merge on failure.
   - `workflow_dispatch` with inputs: `grep` (test filter, default empty) and
     `project` (`dashboard` / `customer` / both) so anyone can fire a targeted
     run from the Actions tab
+  - `repository_dispatch: [qa-deploy]` — fired by the backend repo's
+    `post-deploy-smoke.yml` after each healthy QA deploy (RestauNax PR #499; needs
+    the `AUTOMATION_DISPATCH_TOKEN` secret). Runs the full suite so a regression is
+    caught right after deploy, not only at the nightly. Keep the nightly too — it
+    covers quiet days / env drift that a deploy-trigger never sees.
 - **Guard:** `if: github.repository == 'Restaunax/Automation'` (don't run on forks)
 - **Runner:** `ubuntu-latest`, `timeout-minutes: 45`
 - **Steps:**
@@ -115,13 +120,22 @@ overlays; `process.env` wins everywhere in this codebase).
 
 ## Reporting & alerting
 
-- **Phase 1:** Allure HTML as a run artifact (above). Failures link straight
-  to the Actions run.
-- **Phase 2:** publish Allure with history to GitHub Pages
-  (`simple-elf/allure-report-action` + `peaceiris/actions-gh-pages`, keep
-  ~30 runs of history) so trends/flakiness are visible over time.
-- **Phase 3:** Slack webhook on nightly failure (secret `SLACK_WEBHOOK_URL`,
-  one message with pass/fail counts + report link). No alert on success.
+- **Phase 1 (DONE):** Allure HTML as a run artifact. Failures link straight to
+  the Actions run.
+- **Phase 2 (DONE):** Allure published with history to GitHub Pages →
+  **https://restaunax.github.io/Automation/** — built with
+  `simple-elf/allure-report-action` and `peaceiris/actions-gh-pages`
+  (`keep_reports: 30`). A required cleanup step runs
+  `sudo rm -rf allure-history/.git` before the deploy, because simple-elf copies a
+  root-owned `.git` into the report dir that otherwise breaks peaceiris. All Pages
+  steps use `if: always()` so failing runs still publish.
+- **Phase 3 (DONE):** Slack webhook on genuine failure (secret
+  `SLACK_WEBHOOK_URL`). No alert on success or on superseded runs.
+
+> An earlier Grafana pipeline (`publish-results.ts` → backend ingest → Postgres →
+> Grafana) was **backed out** (backend migration `remove_qa_test_results`); the
+> ingest POST is a no-op today and only the Slack alert still fires. Trend history
+> lives in the Pages report above — don't rebuild Grafana.
 
 ## Flake policy
 

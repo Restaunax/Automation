@@ -294,6 +294,37 @@ npm run report:html   # Open Playwright's built-in HTML report (no Java)
 npm run clean         # Delete test artifacts
 ```
 
+---
+
+## CI, reporting & triggers
+
+**Where to SEE results:** every CI run publishes a hosted Allure report to GitHub
+Pages → **https://restaunax.github.io/Automation/** (latest run + a Trend widget of
+history). Built by the Pages steps in `.github/workflows/e2e-nightly.yml` (Allure →
+`gh-pages` via `peaceiris/actions-gh-pages`). **Don't remove the `sudo rm -rf
+allure-history/.git` step** — `simple-elf` copies a root-owned `.git` into the
+report dir that breaks the deploy without it. All Pages steps are `if: always()`
+so a failing run still publishes its report.
+
+**When the suite runs (three triggers):**
+
+- **Nightly** 06:00 UTC (`e2e-nightly.yml` schedule) — the daily safety net for QA
+  drift / expiring data. **Keep this even though the deploy-trigger exists** (a
+  deploy-trigger fires only on backend deploys; weekends/quiet days and env drift
+  still need the schedule).
+- **After each healthy QA backend deploy** — the backend repo's
+  `post-deploy-smoke.yml` fires `repository_dispatch: qa-deploy`, which
+  `e2e-nightly.yml` listens for. Needs the `AUTOMATION_DISPATCH_TOKEN` secret on
+  the backend repo (RestauNax PR #499).
+- **Manual** `workflow_dispatch` (Actions tab → e2e-nightly → Run workflow;
+  optional `grep` / `project` inputs).
+
+**Do NOT rebuild the Grafana pipeline.** `scripts/publish-results.ts` still POSTs
+to a backend ingest endpoint that was removed (backend migration
+`remove_qa_test_results`); the POST is a dead no-op — only its Slack-on-failure
+alert still works. Trend history comes from the Allure Pages report now, not
+Grafana.
+
 <!-- graphify:begin -->
 
 ## graphify
