@@ -269,12 +269,12 @@ SEED_RESTAURANT_ID=...
 # Email testing
 MAILTRAP_API_TOKEN=...
 MAILTRAP_INBOX_ID=...
-TEST_EMAIL_DOMAIN=restaunax-test.com
+TEST_EMAIL_DOMAIN=demomailtrap.co
 
-# Email-sending tests are held off by default to protect the Mailtrap inbox quota.
-# Set true to run each surface (see TEST_PLAN → "Email-sending tests").
-SEND_DEMO_EMAILS=true      # demo request/management/actions specs
-SEND_ACCOUNT_EMAILS=true   # admin invite / password reset / sign-up
+# Email-sending tests are tagged @email (@demo subset) and EXCLUDED from the
+# default run — `npm test` and the nightly send no mail. Run them deliberately
+# with `npm run test:email` / `test:demo`. See TEST_PLAN → "Test execution
+# strategy". (No SEND_* toggles anymore.)
 ```
 
 ---

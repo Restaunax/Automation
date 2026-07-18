@@ -374,7 +374,7 @@ Admin oversight of all restaurant accounts is essential for account management, 
 
 ## TC-101 → TC-124 — Admin User Management (`users.spec.ts`)
 
-**Status:** ✅ Passing (invite/reset/claim cases are email-gated — they skip unless `SEND_ACCOUNT_EMAILS=true`, to protect the Mailtrap quota)
+**Status:** ✅ Passing (invite/reset/claim cases are tagged `@email` — excluded from the default run to protect the Mailtrap quota; run via `npm run test:email`)
 
 The admin Users screen is where Restaunax staff invite, inspect, and manage every account on the platform. This block covers the whole surface; each test in one line:
 
@@ -1831,9 +1831,9 @@ This step is unavoidable for every single new restaurant, and its default-value 
 | TC-10           | Admin assigns a demo request to a team member                                                   | Admin                 | ✅ Passing                                                                                                                                |
 | TC-11           | Admin schedules a demo (status flips to Scheduled)                                              | Admin                 | ✅ Passing                                                                                                                                |
 | TC-12           | Proceed to onboarding navigates correctly                                                       | Admin                 | ✅ Passing                                                                                                                                |
-| TC-101 → TC-118 | Admin user management: invite, search/filter, detail sheet, role/status/permissions (no TC-108) | Admin                 | ✅ Passing (invite/reset email-gated via `SEND_ACCOUNT_EMAILS`)                                                                           |
+| TC-101 → TC-118 | Admin user management: invite, search/filter, detail sheet, role/status/permissions (no TC-108) | Admin                 | ✅ Passing (invite/reset tagged `@email` — run via `npm run test:email`)                                                                  |
 | TC-76 / TC-77   | Role/status changes with bad input are rejected (API negatives)                                 | Admin                 | ✅ Passing                                                                                                                                |
-| TC-123          | Invited user claims access and logs in with the right access level                              | Admin                 | ✅ Passing (email-gated via `SEND_ACCOUNT_EMAILS`)                                                                                        |
+| TC-123          | Invited user claims access and logs in with the right access level                              | Admin                 | ✅ Passing (tagged `@email` — run via `npm run test:email`)                                                                               |
 | TC-124          | A bogus invite token grants no elevated access                                                  | Admin                 | ✅ Passing                                                                                                                                |
 | TC-13           | Owner sees My Restaurants page                                                                  | Owner                 | ✅ Passing                                                                                                                                |
 | TC-14           | Owner sees their restaurant card                                                                | Owner                 | ✅ Passing                                                                                                                                |
