@@ -15,13 +15,13 @@ Here's what you need to know.
 Our backend sends transactional email through Mailtrap, which caps at **500
 messages/month**, and we were hitting it. The suite was the main cause: a demo
 submission sends **2 emails** (one to the customer, one to the company inbox),
-`globalSetup` was submitting one on **every** run, and a full run adds up to
-**~21 emails**. Run that a few times a day locally and the month's quota is gone.
+`globalSetup` was submitting one on **every** run, and a full run used to add up
+to ~20 emails. Run that a few times a day locally and the month's quota is gone.
 
 **What changed:** email-sending tests are now **tagged `@email`** (with `@demo`
-for the demo subset) and are **excluded from the default run**. There are no more
-`SEND_DEMO_EMAILS` / `SEND_ACCOUNT_EMAILS` env flags — delete them from your
-`.env`; they do nothing now. `globalSetup` no longer submits a demo at all.
+for the demo subset) and are **excluded from the default run**. The old `SEND_*`
+email toggles are gone — delete any `SEND_…EMAILS` lines from your `.env`; they do
+nothing now. `globalSetup` no longer submits a demo at all.
 
 The upshot: **`npm test` (and the nightly) send zero email.** You only send email
 when you explicitly ask to.
@@ -33,9 +33,9 @@ when you explicitly ask to.
 | Run the normal suite           | `npm test`                        | No           |
 | Run just the test I'm writing  | `npx playwright test -g "TC-142"` | No           |
 | Watch/pick tests interactively | `npm run test:ui`                 | No           |
-| Validate the email flows       | `npm run test:email`              | ⚠️ ~19       |
+| Validate the email flows       | `npm run test:email`              | ⚠️ ~14       |
 | Validate just the demo flow    | `npm run test:demo`               | ⚠️ a few     |
-| Full validation incl. email    | `npm run test:all`                | ⚠️ ~21       |
+| Full validation incl. email    | `npm run test:all`                | ⚠️ ~16       |
 
 Rule of thumb: **when you're writing or checking one test, run just that test** —
 don't run the whole suite to check one thing. Only reach for `test:email` /
@@ -47,7 +47,7 @@ quota has headroom.
 - **Nightly** (`e2e-nightly.yml`): runs everything **except** `@email` — no
   emails, every night.
 - **Weekly email job** (`e2e-email-weekly.yml`, new): runs the `@email` group on
-  a Monday schedule + on-demand (`workflow_dispatch`). ~19 emails × ~4/mo ≈ 76/mo
+  a Monday schedule + on-demand (`workflow_dispatch`). ~14 emails × ~4/mo ≈ 56/mo
   — safely under the cap, so the email flows still get real coverage.
 
 ## 4. The nightly is green again
@@ -62,9 +62,11 @@ The nightly had been failing every night for ~2 weeks. Root causes, now fixed:
   longer exists. Fixed.
 - **Coupon tests (TC-157/159/162):** intermittent timing flakes — added proper
   waits for the table/rows to load before interacting.
-- **Gift-card purchase tests (TC-165/166/169):** these send a recipient email, so
-  they moved into the `@email` group (run them via `test:email`). Their
-  intermittency gets diagnosed on the next deliberate email run.
+- **Gift-card purchase tests (TC-165/166/169):** filed as `test.fixme` — blocked
+  by Stripe Radar's invisible hCaptcha on the Pay step (the PaymentIntent never
+  confirms), not a product or test bug. They can't pass in any run until the QA
+  Stripe key's Radar/Link setting is changed. Tracked in TEST_COVERAGE → Known
+  Technical Debt.
 
 ## 5. One heads-up (not a blocker)
 

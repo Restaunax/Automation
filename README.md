@@ -24,7 +24,7 @@ npm run report         # generate + open the Allure report (needs Java)
 
 # Email-sending tests are tagged @email and excluded from the default run above
 # (they'd drain the Mailtrap 500/mo quota). Run them deliberately:
-npm run test:email     # ⚠️ the @email group (~19 emails)
+npm run test:email     # ⚠️ the @email group (~14 emails)
 npm run test:demo      # ⚠️ just the demo flow
 npm run test:all       # ⚠️ full suite incl. email
 # Writing one test? Run just it: npx playwright test -g "TC-142"

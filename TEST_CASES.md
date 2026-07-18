@@ -1480,7 +1480,7 @@ Delivery had zero coverage — every prior order test used Pickup. A broken addr
 
 ## TC-165–170 — Gift Card Purchase and Balance Check
 
-**Status:** ✅ Passing (needs `TEMPLATE_WIND_URL` + `ADMIN_EMAIL`/`ADMIN_PASSWORD`)
+**Status:** ✅ TC-167–170 passing (needs `TEMPLATE_WIND_URL` + `ADMIN_EMAIL`/`ADMIN_PASSWORD`). TC-165/TC-166 (the two Stripe-payment purchase flows) are `test.fixme` as of 2026-07-11 — intermittently blocked by Stripe Radar's invisible hCaptcha challenge on the Pay click, confirmed via live network trace, not a product or test-code bug. See TEST_COVERAGE.md's Known Technical Debt.
 
 ### What they check
 
@@ -1954,8 +1954,8 @@ This step is unavoidable for every single new restaurant, and its default-value 
 | TC-162          | Edit pre-fills the form with the coupon's existing values                                       | Owner                 | ✅ Passing                                                                                                                                |
 | TC-163          | Send to Customers is disabled for an expired coupon                                             | Owner                 | ✅ Passing                                                                                                                                |
 | TC-164          | Reset Form clears the create-coupon form back to defaults                                       | Owner                 | ✅ Passing                                                                                                                                |
-| TC-165          | Guest purchases a gift card (preset denomination, Send as Gift)                                 | Customer              | ✅ Passing                                                                                                                                |
-| TC-166          | Guest purchases a gift card with a custom amount                                                | Customer              | ✅ Passing                                                                                                                                |
+| TC-165          | Guest purchases a gift card (preset denomination, Send as Gift)                                 | Customer              | ⏭️ `test.fixme` — intermittently blocked by Stripe Radar's invisible hCaptcha, see TEST_COVERAGE.md                                       |
+| TC-166          | Guest purchases a gift card with a custom amount                                                | Customer              | ⏭️ `test.fixme` — same cause as TC-165                                                                                                    |
 | TC-167          | Custom gift-card amount below the minimum is rejected                                           | Customer              | ✅ Passing                                                                                                                                |
 | TC-168          | Custom gift-card amount above the maximum is rejected                                           | Customer              | ✅ Passing                                                                                                                                |
 | TC-169          | Gift card balance check shows the correct balance                                               | Customer              | ✅ Passing                                                                                                                                |

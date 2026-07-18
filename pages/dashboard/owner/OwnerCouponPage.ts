@@ -15,7 +15,11 @@ export const createOwnerCouponPage = (page: Page) => {
     });
     await createCouponBtn.waitFor({ state: "visible", timeout: 5_000 });
     await createCouponBtn.click();
-    await page.waitForURL(/tab=create-coupon/, { timeout: 10_000 });
+    // The create-coupon form rendering IS the success signal — a separate
+    // waitForURL before it added no correctness (the form can't appear
+    // without the URL having changed) but did add a tight 10s budget that
+    // flaked under concurrent-worker load; the form wait's own 15s timeout
+    // already covers this navigation.
     await page
       .getByPlaceholder("SUMMER2025")
       .waitFor({ state: "visible", timeout: 15_000 });

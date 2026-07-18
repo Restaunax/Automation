@@ -490,7 +490,7 @@ Configured in `Automation/.env`.
 ## Test execution strategy
 
 Some tests make the backend deliver **real email** into the quota-limited
-Mailtrap sandbox (500/mo). A full email run is ~19 messages — a demo submission
+Mailtrap sandbox (500/mo). A full email run is ~14 messages — a demo submission
 emails the requester **and** a company inbox, so demo = 2 each. To keep routine
 runs from draining that quota, those tests are **tagged and excluded by default**
 — never gated behind an env flag someone has to remember to unset.
@@ -510,21 +510,24 @@ with `--grep`, which would AND to an empty set).
 | ----------------------------- | ---------------------------------------------------------------------- | ------------ |
 | Run the normal suite          | `npm test`                                                             | No           |
 | Run just the test I'm writing | `npx playwright test -g "TC-142"` (or a file path) / `npm run test:ui` | No           |
-| Validate the email flows      | `npm run test:email`                                                   | ⚠️ ~19       |
+| Validate the email flows      | `npm run test:email`                                                   | ⚠️ ~14       |
 | Validate just the demo flow   | `npm run test:demo`                                                    | ⚠️ a few     |
-| Full validation incl. email   | `npm run test:all`                                                     | ⚠️ ~21       |
+| Full validation incl. email   | `npm run test:all`                                                     | ⚠️ ~16       |
 
 **Which tests are `@email`:** demo TC-01 / TC-04 / all of 02-demo-actions
 (`@demo @email`); admin **invite** TC-101, **password reset** TC-117, and the
-**invite → claim → login** journey TC-123; self-serve **sign-up** TC-93/94;
-gift-card **purchase** TC-165/166/169. Negative/validation cases that never send
-(TC-74/75, TC-95/96, duplicate-invite TC-104, gift-card TC-167/168/170) are
-untagged and keep running. Order-confirmation from a completed checkout (TC-26,
-TC-178, ~1 email each) also stays in the default run.
+**invite → claim → login** journey TC-123; self-serve **sign-up** TC-93/94.
+Negative/validation cases that never send (TC-74/75, TC-95/96, duplicate-invite
+TC-104) are untagged and keep running. Order-confirmation from a completed
+checkout (TC-26, TC-178, ~1 email each) also stays in the default run. The
+gift-card **purchase** tests (TC-165/166/169) are **not** `@email` — they're
+`test.fixme` (blocked by Stripe Radar's invisible hCaptcha; see TEST_COVERAGE →
+Known Technical Debt); the non-purchase gift-card cases (TC-167/168/170) keep
+running.
 
 **CI.** The nightly (`e2e-nightly.yml`) excludes `@email`. The group runs on
 `e2e-email-weekly.yml` — a weekly schedule plus on-demand `workflow_dispatch` —
-which sets `INCLUDE_EMAIL_TESTS=1`. ~19 × ~4/mo ≈ 76 emails/mo, well under 500.
+which sets `INCLUDE_EMAIL_TESTS=1`. ~14 × ~4/mo ≈ 56 emails/mo, well under 500.
 
 **Local dev.** When writing or iterating on a test, run just that one
 (`npx playwright test <file>` / `-g TC-XX` / `npm run test:ui`) — don't run the

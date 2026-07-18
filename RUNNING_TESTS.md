@@ -47,7 +47,7 @@ sends **no** email); `globalTeardown` cleans up the data the run created.
 > them deliberately when you're validating those flows and the quota allows:
 >
 > ```bash
-> npm run test:email    # ⚠️ the @email group (~19 emails)
+> npm run test:email    # ⚠️ the @email group (~14 emails)
 > npm run test:demo     # ⚠️ just the demo flow
 > npm run test:all      # ⚠️ full suite incl. email
 > ```
