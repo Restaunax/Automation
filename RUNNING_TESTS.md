@@ -110,13 +110,22 @@ and grouping features, but requires a Java runtime.
 
 ### CI results
 
-- **GitHub Actions** (`e2e-nightly` workflow): the Allure report is uploaded
-  as a run artifact (14-day retention); failure traces/screenshots are
-  uploaded on failure.
-- **Grafana dashboard**: every CI run is also published as per-test rows via
-  `scripts/publish-results.ts` (JSON reporter → backend ingest → Postgres →
-  Grafana). Failures alert Slack automatically, except runs superseded by a
-  mid-run QA deploy.
+- **Hosted report (easiest):** every CI run publishes an Allure report to GitHub
+  Pages → **https://restaunax.github.io/Automation/**. One click shows the latest
+  run's pass/fail, per-test steps, screenshots/traces on failures, and a Trend
+  widget across runs — no download, no local server, no Java. A _failing_ run
+  still publishes.
+- **GitHub Actions artifacts** (`e2e-nightly` workflow): the raw Allure report is
+  also uploaded as a run artifact (14-day retention); failure traces/screenshots
+  on failure.
+- **Slack:** genuine failures alert automatically (except runs superseded by a
+  mid-run QA deploy).
+
+> The old Grafana dashboard pipeline (`scripts/publish-results.ts` → backend
+> ingest → Postgres → Grafana) was **backed out** (backend migration
+> `remove_qa_test_results`). The ingest POST is a no-op today; only the Slack
+> alert still fires. Trend history now lives in the hosted report above — don't
+> rebuild it.
 
 ## 5. Clean up artifacts
 
