@@ -16,7 +16,6 @@ import {
   deleteTestMenuGroupWithItems,
   deleteAutomationMenuGroups,
   deleteAutomationCoupons,
-  deleteDemoRequestByEmail,
   deleteRecordedUsers,
   freezeGiftCardApi,
   BACKEND_URL,
@@ -151,30 +150,14 @@ export default async function globalTeardown(): Promise<void> {
     );
   }
 
-  // 2. Admin-token cleanup: recorded test users + this run's demo request
-  //    (globalSetup submits one per run; without this it accumulates forever).
+  // 2. Admin-token cleanup: recorded test users. (globalSetup no longer submits
+  //    a demo request — the demo specs self-seed and delete their own.)
   if (adminToken) {
     try {
       await deleteRecordedUsers(adminToken);
       console.log("[globalTeardown] Cleaned up recorded test users");
     } catch (err) {
       console.warn("[globalTeardown] Failed to clean up test users:", err);
-    }
-
-    if (fs.existsSync(STATE_FILE)) {
-      try {
-        const { email } = readSharedState();
-        if (email && (await deleteDemoRequestByEmail(adminToken, email))) {
-          console.log(
-            `[globalTeardown] Deleted this run's demo request (${email})`
-          );
-        }
-      } catch (err) {
-        console.warn(
-          "[globalTeardown] Failed to delete this run's demo request:",
-          err
-        );
-      }
     }
 
     // Gift cards have no delete endpoint and server-generated codes (no AUTO*

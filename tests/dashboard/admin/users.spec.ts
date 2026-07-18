@@ -37,7 +37,6 @@ import { loginViaUi } from "../../../utils/auth";
 import {
   generateUserEmail,
   recordUserForCleanup,
-  ACCOUNT_EMAILS_ENABLED,
 } from "../../../utils/testData";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
@@ -90,23 +89,23 @@ test.describe("Admin — User Management", () => {
 
   // ── Group A — Invite dialog ────────────────────────────────────────────────
   test.describe("Invite dialog", () => {
-    test("TC-101: admin can invite a new user", async ({ adminPage }) => {
-      test.skip(
-        !ACCOUNT_EMAILS_ENABLED,
-        "Account emails held (Mailtrap quota) — invite sends mail; set SEND_ACCOUNT_EMAILS=true"
-      );
-      const users = createAdminUsersPage(adminPage);
-      const email = generateUserEmail("invite");
-      recordUserForCleanup(email);
+    test(
+      "TC-101: admin can invite a new user",
+      { tag: "@email" },
+      async ({ adminPage }) => {
+        const users = createAdminUsersPage(adminPage);
+        const email = generateUserEmail("invite");
+        recordUserForCleanup(email);
 
-      await users.goto();
-      await users.openInviteDialog();
-      await users.fillInvite({ email, role: "User" });
-      const resp = await users.submitInvite();
+        await users.goto();
+        await users.openInviteDialog();
+        await users.fillInvite({ email, role: "User" });
+        const resp = await users.submitInvite();
 
-      expect(resp.status()).toBe(201);
-      await users.assertSnackbar(users.S.invitationSentSnackbar);
-    });
+        expect(resp.status()).toBe(201);
+        await users.assertSnackbar(users.S.invitationSentSnackbar);
+      }
+    );
 
     test("TC-102: invalid email shows an error and sends no request", async ({
       adminPage,
@@ -331,24 +330,24 @@ test.describe("Admin — User Management", () => {
       expect((await adminGetUser(adminToken, id)).isActive).toBe(true);
     });
 
-    test("TC-117: admin can send a password reset email", async ({
-      adminPage,
-    }) => {
-      test.skip(
-        !ACCOUNT_EMAILS_ENABLED,
-        "Account emails held (Mailtrap quota) — reset sends mail; set SEND_ACCOUNT_EMAILS=true"
-      );
-      const { email } = await createTargetUser("USER");
-      const users = createAdminUsersPage(adminPage);
-      await users.goto();
-      await users.searchUser(email);
-      await users.openUserDetails(email);
-      await users.switchTab(users.S.tabSettings);
+    test(
+      "TC-117: admin can send a password reset email",
+      {
+        tag: "@email",
+      },
+      async ({ adminPage }) => {
+        const { email } = await createTargetUser("USER");
+        const users = createAdminUsersPage(adminPage);
+        await users.goto();
+        await users.searchUser(email);
+        await users.openUserDetails(email);
+        await users.switchTab(users.S.tabSettings);
 
-      const resp = await users.sendPasswordReset();
-      expect(resp.ok()).toBeTruthy();
-      await users.assertSideSheetAlert(users.S.passwordResetSuccess);
-    });
+        const resp = await users.sendPasswordReset();
+        expect(resp.ok()).toBeTruthy();
+        await users.assertSideSheetAlert(users.S.passwordResetSuccess);
+      }
+    );
   });
 
   // ── Group E — Permissions tab (fully dynamic) ──────────────────────────────
@@ -440,16 +439,13 @@ test.describe("Admin — User Management", () => {
     });
   });
 
-  // ── Group G — Full journey: invite → email → claim → login (gated) ─────────
-  test.describe("Invite → claim → login journey", () => {
+  // ── Group G — Full journey: invite → email → claim → login (@email) ────────
+  // Sends a real invite email — excluded from default runs by the @email tag;
+  // run via `npm run test:email`. Still requires Mailtrap creds to read the token.
+  test.describe("Invite → claim → login journey", { tag: "@email" }, () => {
     test.skip(
       !mailtrapReady,
       "Requires Mailtrap Email Testing token (MAILTRAP_API_TOKEN / MAILTRAP_INBOX_ID)"
-    );
-    // Sends a real invite email — held with the rest of the account-email surface.
-    test.skip(
-      !ACCOUNT_EMAILS_ENABLED,
-      "Account emails held (Mailtrap quota) — set SEND_ACCOUNT_EMAILS=true"
     );
 
     test("TC-123: invited user claims access, and sees their access level", async ({

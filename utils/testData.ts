@@ -12,22 +12,13 @@ export const FRONTEND_URL =
 export const TEMPLATE_WIND_URL =
   process.env.TEMPLATE_WIND_URL ?? "https://wind.restaunax.com";
 
-const EMAIL_DOMAIN = process.env.TEST_EMAIL_DOMAIN ?? "restaunax-test.com";
+// In QA all outbound mail is captured by the quota-limited Mailtrap sandbox, so
+// the domain need not be real. Default matches .env/CI (demomailtrap.co).
+const EMAIL_DOMAIN = process.env.TEST_EMAIL_DOMAIN ?? "demomailtrap.co";
 
-// Demo tests submit real demo requests and send follow-up emails, which the
-// backend delivers to the (quota-limited) Mailtrap sandbox. HELD OFF by default
-// so routine runs don't exhaust the inbox limit; set SEND_DEMO_EMAILS=true to
-// run the demo-email surface (globalSetup demo seed + demo request/management/
-// actions specs). See TEST_PLAN → "Email-sending tests".
-export const DEMO_EMAILS_ENABLED = process.env.SEND_DEMO_EMAILS === "true";
-
-// Account-lifecycle emails (admin invite, password reset, self-serve sign-up)
-// also deliver real mail to the quota-limited Mailtrap sandbox — lower volume
-// than demos, but held the same way. Set SEND_ACCOUNT_EMAILS=true to run them.
-// Negative cases that never send (duplicate-invite 400, client-side password
-// validation) are NOT gated. See TEST_PLAN → "Email-sending tests".
-export const ACCOUNT_EMAILS_ENABLED =
-  process.env.SEND_ACCOUNT_EMAILS === "true";
+// Email-sending tests are gated by the @email Playwright tag (@demo = demo
+// subset) and excluded from default runs — see playwright.config.ts and
+// TEST_PLAN → "Test execution strategy". The old opt-in env flags are gone.
 
 // ── Shared temp file paths (all relative to Automation/) ────────────────────
 export const STATE_FILE = path.resolve(__dirname, "../shared-state.tmp.json");
@@ -182,11 +173,9 @@ export function generateRestaurantData() {
 }
 
 // ── Shared state (written by globalSetup, read by specs) ────────────────────
+// No demo fields here: globalSetup no longer submits a demo request (it emailed
+// on every run). Demo specs self-seed their own request instead.
 export interface SharedState {
-  email: string;
-  firstName: string;
-  lastName: string;
-  submittedAt: string; // ISO 8601
   restaurantId: string;
   restaurantName: string;
   menuGroupId: string;

@@ -7,11 +7,7 @@
 
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
-import {
-  generateDemoFormData,
-  readSharedState,
-  DEMO_EMAILS_ENABLED,
-} from "../../../utils/testData";
+import { generateDemoFormData } from "../../../utils/testData";
 import { waitForEmail } from "../../../utils/emailHelper";
 
 test.describe("Demo Request — Public Form", () => {
@@ -20,37 +16,37 @@ test.describe("Demo Request — Public Form", () => {
     await allure.label("severity", "critical");
   });
 
-  test("TC-01: submit demo request form and display success confirmation", async ({
-    demoBookingPage,
-  }) => {
-    test.skip(
-      !DEMO_EMAILS_ENABLED,
-      "Demo emails held (Mailtrap quota) — set SEND_DEMO_EMAILS=true to run"
-    );
-    await allure.description(
-      "End user navigates to /demo, fills personal and business info, " +
-        "submits the form, and sees the success dialog."
-    );
+  test(
+    "TC-01: submit demo request form and display success confirmation",
+    {
+      tag: ["@demo", "@email"],
+    },
+    async ({ demoBookingPage }) => {
+      await allure.description(
+        "End user navigates to /demo, fills personal and business info, " +
+          "submits the form, and sees the success dialog."
+      );
 
-    const formData = generateDemoFormData();
+      const formData = generateDemoFormData();
 
-    await allure.step("Navigate to the demo booking page", async () => {
-      await demoBookingPage.goto();
-    });
+      await allure.step("Navigate to the demo booking page", async () => {
+        await demoBookingPage.goto();
+      });
 
-    await allure.step("Fill in the demo request form", async () => {
-      await demoBookingPage.fillForm(formData);
-    });
+      await allure.step("Fill in the demo request form", async () => {
+        await demoBookingPage.fillForm(formData);
+      });
 
-    await allure.step("Submit the form", async () => {
-      await demoBookingPage.submit();
-    });
+      await allure.step("Submit the form", async () => {
+        await demoBookingPage.submit();
+      });
 
-    await allure.step("Verify success dialog is displayed", async () => {
-      await demoBookingPage.waitForSuccess();
-      await expect(demoBookingPage.successDialog).toBeVisible();
-    });
-  });
+      await allure.step("Verify success dialog is displayed", async () => {
+        await demoBookingPage.waitForSuccess();
+        await expect(demoBookingPage.successDialog).toBeVisible();
+      });
+    }
+  );
 
   test("TC-74: submitting without agreeing to terms does not submit the form", async ({
     demoBookingPage,
@@ -106,13 +102,15 @@ test.describe("Demo Request — Public Form", () => {
 
   // TODO: enable once MAILTRAP_API_TOKEN + MAILTRAP_INBOX_ID are available in CI.
   // Track at: https://github.com/Restaunax/RestauNax/issues (open a ticket when wiring up Mailtrap)
+  // When enabling: globalSetup no longer submits a demo — self-seed one here via
+  // submitDemoRequestRaw (like the other demo specs) and tag @demo @email.
   test.skip("TC-02: receive confirmation email after demo request submission", async () => {
     await allure.description(
-      "After the demo request submitted in globalSetup, the Mailtrap test inbox " +
-        "should contain a confirmation email addressed to the submitted email."
+      "After a demo request is submitted, the Mailtrap test inbox should contain " +
+        "a confirmation email addressed to the submitted email."
     );
 
-    const { email } = readSharedState();
+    const { email } = generateDemoFormData();
 
     await allure.step(
       `Wait for confirmation email to arrive at ${email}`,
