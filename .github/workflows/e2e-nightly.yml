@@ -140,6 +140,14 @@ jobs:
           allure_history: allure-history
           keep_reports: 30
 
+      # simple-elf runs as root in a container and copies the checked-out gh-pages
+      # folder — including its .git — into allure-history. peaceiris then can't
+      # delete that root-owned .git (EACCES) and its push fails. Strip it (sudo,
+      # because the files are root-owned) so peaceiris sees only report files.
+      - name: Strip the stray .git from the report dir
+        if: always()
+        run: sudo rm -rf allure-history/.git
+
       - name: Deploy Allure report to GitHub Pages
         if: always()
         uses: peaceiris/actions-gh-pages@v4
