@@ -1683,3 +1683,52 @@ export async function setOwnerAutomationEnrollmentApi(
     token
   );
 }
+
+export interface ApiAutomationConfig {
+  frequencyCapDays: number;
+  dailySendCapPerRestaurant: number;
+}
+
+export async function getAutomationConfigApi(
+  adminToken: string
+): Promise<ApiAutomationConfig> {
+  const data = await apiRequest<{ config: ApiAutomationConfig }>(
+    "GET",
+    "/api/marketing/automations/config",
+    undefined,
+    adminToken
+  );
+  return data.config;
+}
+
+export async function patchAutomationConfigApi(
+  adminToken: string,
+  patch: Partial<ApiAutomationConfig>
+): Promise<void> {
+  await apiRequest(
+    "PATCH",
+    "/api/marketing/automations/config",
+    patch,
+    adminToken
+  );
+}
+
+export interface ApiAutomationSend {
+  id: string;
+  customerEmail: string;
+  emailStatus: string | null;
+  sentAt: string | null;
+}
+
+export async function getAutomationSendsApi(
+  adminToken: string,
+  automationId: string
+): Promise<ApiAutomationSend[]> {
+  const data = await apiRequest<{ sends: ApiAutomationSend[] }>(
+    "GET",
+    `/api/marketing/automations/${automationId}/sends`,
+    undefined,
+    adminToken
+  );
+  return data.sends ?? [];
+}
