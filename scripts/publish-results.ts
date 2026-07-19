@@ -12,7 +12,8 @@
  * Env:
  *   RESULTS_URL      ingest endpoint (e.g. https://api.restaunax.com/monitoring/e2e-results)
  *   RESULTS_API_KEY  x-api-key for the endpoint (= prod METRICS_API_KEY)
- *   E2E_TRIGGER      qa-deploy | nightly | manual | prod-gate (default "manual")
+ *   E2E_TRIGGER      qa-deploy | wind-deploy | nightly | manual | email-weekly |
+ *                    email-manual (default "manual")
  *   GITHUB_* (Actions-provided): RUN_ID, RUN_NUMBER, SHA, REF_NAME, REPOSITORY, SERVER_URL
  */
 
