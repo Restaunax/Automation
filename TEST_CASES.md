@@ -30,7 +30,7 @@ Each test case includes:
 | 🌐 Public         | Anyone on the internet             | TC-01, TC-02, TC-59 → TC-61, TC-74, TC-75, TC-93 → TC-96                                                                                                                   |
 | 🔐 Admin          | Internal Restaunax staff           | TC-03 → TC-12, TC-32, TC-76, TC-77, TC-98, TC-101 → TC-124 (user management, `users.spec.ts`)                                                                              |
 | 🏠 Owner          | Restaurant owners                  | TC-13 → TC-16, TC-19 → TC-21, TC-27 → TC-31, TC-35, TC-42 → TC-53 (excl. TC-22–26), TC-62 → TC-70, TC-78, TC-82 → TC-92, TC-127 → TC-129, TC-131 → TC-142, TC-145 → TC-164 |
-| 🛒 Customer       | People ordering food               | TC-22 → TC-26, TC-64, TC-99, TC-125, TC-126, TC-165 → TC-178                                                                                                               |
+| 🛒 Customer       | People ordering food               | TC-22 → TC-26, TC-64, TC-99, TC-125, TC-126, TC-165 → TC-178, TC-184 → TC-188                                                                                              |
 | 🍳 POS            | Restaurant kitchen / tablet        | TC-100 (`--project=pos`)                                                                                                                                                   |
 | 🔒 Access Control | Testing role/permission boundaries | TC-54 → TC-58, TC-71 → TC-73, TC-81                                                                                                                                        |
 | 🚪 Onboarding     | New restaurant owners              | TC-93 → TC-97, TC-182, TC-183 (spans Public sign-up and Employee restaurant creation)                                                                                      |
@@ -1517,6 +1517,20 @@ TC-177 set out to prove a gift card that fully covers an order's total skips Str
 
 ---
 
+## TC-184–188 — Customer Checkout Quick Wins
+
+**Status:** ✅ Passing (verified on CI against QA, 2026-07-19)
+
+### What they check
+
+Five previously-untested checkout behaviors, all over existing wiring: TC-184 (the `?item=<id>` landing-page deep link auto-opens that item's modal — no card click), TC-185 (`/checkout` with an empty cart renders the "Your Cart is Empty" screen instead of the form), TC-186 (tip presets and the custom tip input flow into the **server-quoted** total — asserted as relative total movement so no tax-math assumptions), TC-187 (a `minOrderAmount` coupon is **auto-removed** when removing a cart line drops the order below its minimum — CouponSection's debounced revalidation against `/api/coupons/validate`), TC-188 (a $0.25 item quotes a total under Stripe's $0.50 floor — the proceed button disables with "Minimum $0.50 Required" plus the explainer banner, and no order is ever created).
+
+### Notes from authoring
+
+Two findings worth keeping: (1) the backend's "Order must be at least $X to use this coupon" revalidation message renders only **transiently** before the next revalidation cycle clears it, so TC-187 asserts the removal itself (applied block gone, box back to code-entry state), not the error copy; (2) cleaning up a seeded menu category requires **permanent** (admin) item deletion first — soft-deleted items still trip the category-delete guard (the TC-67 rule), which is why TC-188's fixture teardown passes the admin token. TC-188's cheap item is real, not just a sessionStorage entry, because the server quote reprices the cart from DB prices.
+
+---
+
 ## TC-100 — Restaurant Receives and Processes an Order Through the POS Lifecycle
 
 **Status:** ✅ Passing (needs `OWNER_EMAIL`/`OWNER_PASSWORD`); run with `--project=pos`
@@ -1970,8 +1984,15 @@ This step is unavoidable for every single new restaurant, and its default-value 
 | TC-178          | Gift card partially covering the order still charges the remainder                              | Customer              | ✅ Passing                                                                                                                                |
 | TC-182          | Full onboarding chain: sign-up → create → hours → menu → assign → owner sees it                 | Onboarding / Employee | ⏭️ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` (verified live via ADMIN substitution before commit)                                        |
 | TC-183          | Business Hours step: defaults, Open/24 Hours/Closed toggling, advances to Menu                  | Onboarding / Employee | ⏭️ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` (verified live via ADMIN substitution before commit)                                        |
+| TC-184          | `?item=` deep link auto-opens that item's modal                                                 | Customer              | ✅ Passing                                                                                                                                |
+| TC-185          | /checkout with an empty cart shows the empty-cart message                                       | Customer              | ✅ Passing                                                                                                                                |
+| TC-186          | Tip presets and custom tip flow into the server-quoted total                                    | Customer              | ✅ Passing                                                                                                                                |
+| TC-187          | Coupon auto-removed when the cart drops below its minimum order amount                          | Customer              | ✅ Passing                                                                                                                                |
+| TC-188          | Quoted total under Stripe's $0.50 minimum blocks payment                                        | Customer              | ✅ Passing                                                                                                                                |
 
 A 2026-07-11 pass added TC-182/183, the first chained end-to-end onboarding test and dedicated Business Hours coverage — see their write-ups above for two real product findings surfaced along the way (no dashboard UI path to assign a new owner; an assign-restaurant 500 on a request that actually succeeded). See `docs/onboarding-product-fix-proposal.md`.
+
+A 2026-07-19 pass added TC-184–188 (customer checkout quick wins: item deep link, empty cart, tip → server quote, coupon minimum-order revalidation, Stripe $0.50 floor — all passing; see the write-up above). This batch is the first coverage added under the new wind-deploy trigger model, where every push to template-wind's `qa` branch runs the customer project automatically.
 
 **144 passing · 21 skipped · 1 failing (env-only)** — as of 2026-07-10. The one failure (TC-58) fails only in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` set; it passes wherever those credentials exist. (Owner-side expansion on 2026-07-07 added TC-35 + TC-127–129 for the Analytics tab, TC-131–135 deepening the Orders tab, TC-136–138 for the Customers tab, TC-139–140 for the Owner Settings tab, and TC-141–142 for the Daily Report tab — all passing. A 2026-07-10 pass added TC-145–164, expanding Coupons UI coverage far beyond the original 4 tests: all three discount types, the full Manage Coupons list (search/filter/sort/copy), and row actions — duplicate, delete, edit-prefill, and disabled Send-to-Customers. Two of these (TC-147, TC-150) surfaced a real UX finding: the code and menu-item fields rely on native HTML5 `required` validation, so the app's own custom error text for those specific fields never has a chance to render — the browser's native constraint-validation UI intercepts the submit first. A same-day follow-up pass added TC-165–178, giving gift cards their first-ever coverage (purchase + checkout redemption) and expanding the customer-checkout coupon path beyond the original single combined test — this also required setting `TEMPLATE_WIND_URL` for the first time in this environment, which surfaced and fixed several previously-latent regressions in the whole customer suite: the checkout coupon Apply button colliding with the new (unconditionally-rendered) gift-card Apply button, a `seedCart()` race that could leave a prior coupon/gift-card applied across re-seeds within one test, a stale rejection-message regex, `selectPickup()` targeting a since-removed radio input (the control is now a button), and a stale order-number regex on the confirmation page.)
 
