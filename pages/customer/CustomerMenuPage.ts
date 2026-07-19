@@ -10,6 +10,15 @@ export const createCustomerMenuPage = (page: Page) => {
     });
   };
 
+  // ?item=<id> is the landing-page deep link: MenuPage auto-opens that item's
+  // modal and scrolls to its group once the menu loads.
+  const gotoWithItem = async (restaurantId: string, itemId: string) => {
+    await page.goto(
+      `${TEMPLATE_WIND_URL}/menu?restaurantId=${restaurantId}&item=${itemId}`,
+      { waitUntil: "domcontentloaded" }
+    );
+  };
+
   // Testid-first with legacy fallback (TEST_PLAN → "Locator strategy"):
   // data-testid=menu-item-card exists in template-wind source; until the QA
   // deployment carries it, fall back to the item-name <h3> heading (the click
@@ -66,6 +75,7 @@ export const createCustomerMenuPage = (page: Page) => {
 
   return {
     goto,
+    gotoWithItem,
     menuItemCard,
     floatingCartButton,
     assertPageLoaded,

@@ -20,32 +20,38 @@ export const createCustomerCheckoutPage = (page: Page) => {
   // coupon/gift-card. addInitScript runs before any of the app's own scripts
   // on every subsequent navigation in this page, so CartContext's very first
   // read already sees the fresh payload — there's nothing stale to reload.
-  const seedCart = async (
+  const seedCartItems = async (
     restaurantId: string,
-    menuItemId: string,
-    menuItemName: string,
-    menuItemPrice: number
+    items: Array<{
+      menuItemId: string;
+      name: string;
+      price: number;
+      quantity?: number;
+    }>
   ) => {
     await page.addInitScript(
-      ({ rid, iid, iname, iprice }) => {
+      ({ rid, seedItems }) => {
+        const cartItems = seedItems.map((it, i) => ({
+          cartId: `auto-test-${i + 1}`,
+          menuItemId: it.menuItemId,
+          name: it.name,
+          price: it.price,
+          quantity: it.quantity ?? 1,
+          selectedModifiers: [],
+          modifiersPrice: 0,
+        }));
+        const subtotal = cartItems.reduce(
+          (sum, it) => sum + it.price * it.quantity,
+          0
+        );
         sessionStorage.setItem(
           "cart",
           JSON.stringify({
-            items: [
-              {
-                cartId: "auto-test-1",
-                menuItemId: iid,
-                name: iname,
-                price: iprice,
-                quantity: 1,
-                selectedModifiers: [],
-                modifiersPrice: 0,
-              },
-            ],
+            items: cartItems,
             deals: [],
-            subtotal: iprice,
+            subtotal,
             tax: 0,
-            total: iprice,
+            total: subtotal,
             deliveryFee: 0,
             tip: 0,
             coupon: null,
@@ -53,12 +59,7 @@ export const createCustomerCheckoutPage = (page: Page) => {
           })
         );
       },
-      {
-        rid: restaurantId,
-        iid: menuItemId,
-        iname: menuItemName,
-        iprice: menuItemPrice,
-      }
+      { rid: restaurantId, seedItems: items }
     );
     await page.goto(`${TEMPLATE_WIND_URL}/menu?restaurantId=${restaurantId}`, {
       waitUntil: "domcontentloaded",
@@ -71,6 +72,30 @@ export const createCustomerCheckoutPage = (page: Page) => {
     );
     await firstNameInput().waitFor({ state: "visible", timeout: 15_000 });
   };
+
+  const seedCart = (
+    restaurantId: string,
+    menuItemId: string,
+    menuItemName: string,
+    menuItemPrice: number
+  ) =>
+    seedCartItems(restaurantId, [
+      { menuItemId, name: menuItemName, price: menuItemPrice },
+    ]);
+
+  // /checkout with nothing in sessionStorage renders the EmptyCartMessage
+  // instead of the form — no addInitScript, a fresh context has no cart.
+  const gotoCheckoutEmpty = async (restaurantId: string) => {
+    await page.goto(
+      `${TEMPLATE_WIND_URL}/checkout?restaurantId=${restaurantId}`,
+      { waitUntil: "domcontentloaded" }
+    );
+  };
+
+  const assertEmptyCart = () =>
+    expect(
+      page.getByRole("heading", { name: "Your Cart is Empty" })
+    ).toBeVisible({ timeout: 15_000 });
 
   // name-attribute-first with placeholder fallback (TEST_PLAN → "Locator
   // strategy"): CustomerInfoForm's inputs carry stable name attributes in
@@ -251,6 +276,63 @@ export const createCustomerCheckoutPage = (page: Page) => {
     ).toHaveCount(0);
   };
 
+  // ── Tip (TipSection — "Add a Tip" box with 15/18/20/25% preset buttons and a
+  // "Custom Amount" input; default 15%). Scoped from the heading exactly like
+  // giftCardBox: heading → its flex wrapper → the box root.
+  const tipBox = () =>
+    page
+      .getByRole("heading", { name: "Add a Tip" })
+      .locator("xpath=ancestor::div[2]");
+  // Accessible name is "18% $2.34" (percent + computed amount) — prefix match.
+  const tipPresetButton = (percent: number) =>
+    tipBox().getByRole("button", { name: new RegExp(`^${percent}%`) });
+  const customTipInput = () => tipBox().getByPlaceholder("0.00");
+  const totalTipValue = () =>
+    tipBox().getByText("Total Tip:").locator("xpath=following-sibling::span");
+
+  const selectTipPreset = (percent: number) => tipPresetButton(percent).click();
+  // The input is cents-based: every typed digit shifts left (e.g. "500" →
+  // $5.00), so pass raw digits, not a decimal string.
+  const fillCustomTip = (digits: string) => customTipInput().fill(digits);
+  const assertTipTotal = (amount: string) =>
+    expect(totalTipValue()).toHaveText(`$${amount}`, { timeout: 10_000 });
+
+  // ── Order summary total — the server-quoted amountToCharge (OrderSummary's
+  // Total row; a pulsing skeleton while the quote is in flight). The amount
+  // span's text-xl font-bold classes are its only stable hook — it's the only
+  // such span on the page.
+  const orderTotalAmount = () => page.locator("span.text-xl.font-bold").first();
+
+  // NaN while the quote skeleton is showing — poll with expect.poll.
+  const readOrderTotal = async (): Promise<number> => {
+    const text = (
+      await orderTotalAmount()
+        .innerText()
+        .catch(() => "")
+    ).trim();
+    const amount = text.match(/\$([\d.]+)/)?.[1];
+    return amount ? parseFloat(amount) : NaN;
+  };
+
+  // ── Cart line removal at checkout (OrderSummary rows only have a Remove
+  // button — no quantity steppers).
+  const removeFirstCartItem = () =>
+    page.getByRole("button", { name: "Remove item" }).first().click();
+
+  // ── Stripe minimum — a quoted total in (0, $0.50) disables the proceed
+  // button (label swaps to "Minimum $0.50 Required") and shows an amber
+  // explainer banner. No order is ever created in this state.
+  const assertBelowStripeMinimum = async () => {
+    await expect(page.getByText(/below the \$0\.50 minimum/i)).toBeVisible({
+      timeout: 15_000,
+    });
+    const blockedButton = page.getByRole("button", {
+      name: "Minimum $0.50 Required",
+    });
+    await expect(blockedButton).toBeVisible({ timeout: 10_000 });
+    await expect(blockedButton).toBeDisabled();
+  };
+
   // ── Delivery (ServiceTypeSelector — buttons, not radios; Delivery hidden on
   // pickup-only/ship-only restaurants).
   const deliveryButton = () => page.getByRole("button", { name: /delivery/i });
@@ -284,6 +366,15 @@ export const createCustomerCheckoutPage = (page: Page) => {
 
   return {
     seedCart,
+    seedCartItems,
+    gotoCheckoutEmpty,
+    assertEmptyCart,
+    selectTipPreset,
+    fillCustomTip,
+    assertTipTotal,
+    readOrderTotal,
+    removeFirstCartItem,
+    assertBelowStripeMinimum,
     fillCustomerInfo,
     selectPickup,
     proceedToPaymentButton,
