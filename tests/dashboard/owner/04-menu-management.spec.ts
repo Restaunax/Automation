@@ -138,6 +138,24 @@ test.describe("Owner — Menu Management", () => {
       );
     });
 
+    test("TC-67: owner cannot delete a category that has items", async () => {
+      await allure.description(
+        "A category that still contains items must not be deletable — the owner-facing menu editor hides the category 'Delete' button until the category is empty, preventing accidental bulk-deletion of its items. (Runs after TC-21, which leaves an item in the category.)"
+      );
+
+      await allure.step(
+        `Verify "${TEST_CATEGORY_NAME}" (holding "${TEST_ITEM_NAME}") exposes no Delete button`,
+        async () => {
+          await menuPage.assertCategoryNotDeletable(
+            TEST_CATEGORY_NAME,
+            TEST_ITEM_NAME
+          );
+          await allure.parameter("Category", TEST_CATEGORY_NAME);
+          await allure.parameter("Item", TEST_ITEM_NAME);
+        }
+      );
+    });
+
     test("TC-62: menu item wizard blocks Next when name and price are blank", async () => {
       await allure.description(
         "Opening the Add Item wizard and blurring name/price with both left blank shows inline " +

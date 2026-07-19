@@ -166,6 +166,32 @@ export const createOwnerMenuPage = (page: Page) => {
       page.getByRole("tab", { name: categoryName, exact: true })
     ).toBeHidden({ timeout: 10_000 });
 
+  // Inverse of deleteCategory: a category that still HAS items must NOT be
+  // deletable — the UI hides the "Delete" button until the category is emptied,
+  // so the owner can't wipe out all its items in one click. Positive control
+  // first (the item card is present in the scoped panel) so the zero-Delete
+  // assertion can't false-pass on a mis-scoped or empty locator. Scoped with
+  // .last() (innermost Paper carrying the heading = the tightest category panel)
+  // to avoid matching a parent Paper that could hold another category's button.
+  const assertCategoryNotDeletable = async (
+    categoryName: string,
+    itemName: string
+  ) => {
+    await activateCategory(categoryName);
+    const categoryPanel = page
+      .locator(".MuiPaper-root")
+      .filter({
+        has: page.getByRole("heading", { name: categoryName, exact: true }),
+      })
+      .last();
+    await expect(categoryPanel.getByText(itemName).first()).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(
+      categoryPanel.getByRole("button", { name: "Delete", exact: true })
+    ).toHaveCount(0);
+  };
+
   // Find item card by name, click its Edit button.
   // Locator is testid-first with a legacy fallback (see TEST_PLAN → "Locator
   // strategy"): [data-testid=menu-item-edit] exists in frontend source but may
@@ -248,6 +274,7 @@ export const createOwnerMenuPage = (page: Page) => {
     activateCategory,
     deleteCategory,
     assertCategoryDeleted,
+    assertCategoryNotDeletable,
     clickEditItem,
     editItemInWizard,
     assertEditSuccessToast,
