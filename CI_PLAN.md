@@ -122,10 +122,13 @@ overlays; `process.env` wins everywhere in this codebase).
 
 - **Phase 1 (DONE):** Allure HTML as a run artifact. Failures link straight to
   the Actions run.
-- **Phase 2 (DONE):** Allure published with history to GitHub Pages →
-  **https://restaunax.github.io/Automation/** — built with
+- **Phase 2 (DONE):** Allure published with history to GitHub Pages — nightly at
+  **https://restaunax.github.io/Automation/nightly/** (site root redirects here),
+  weekly @email at **https://restaunax.github.io/Automation/email/** — built with
   `simple-elf/allure-report-action` and `peaceiris/actions-gh-pages`
-  (`keep_reports: 30`). A required cleanup step runs
+  (`keep_reports: 30`). Each suite gets its own `subfolder`: simple-elf's
+  keep_reports cleanup deletes non-numeric siblings of the run folders first, so
+  reports must never share a level. A required cleanup step runs
   `sudo rm -rf allure-history/.git` before the deploy, because simple-elf copies a
   root-owned `.git` into the report dir that otherwise breaks peaceiris. All Pages
   steps use `if: always()` so failing runs still publish.
