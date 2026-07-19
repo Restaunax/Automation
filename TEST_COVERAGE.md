@@ -66,6 +66,9 @@
 | templateId locked at the API                | TC-204 (marketing-automations.spec.ts) | ✅ PATCH templateId silently ignored (allowlist)                                                                                                                                                       |
 | Run-now on disabled automation → 400        | TC-205 (marketing-automations.spec.ts) | ✅ Disabled half of the contract                                                                                                                                                                       |
 | Run-now on ENABLED automation delivers mail | TC-210 (marketing-automations.spec.ts) | ✅ `@email` — QA mail is sandboxed (one shared Mailtrap inbox); cap pinned to 1, state restored; send row → SENT → Mailtrap arrival (0-new-sends runs skip the delivery assert — cycleKey idempotency) |
+| Org coupon form: Free Delivery type         | TC-211 (marketing-campaigns.spec.ts)   | ✅ Value field hidden, fee-cap relabel ("Covers Delivery Fee Up To"), cancelled without creating                                                                                                       |
+| Automation stats funnel shape               | TC-212 (marketing-automations.spec.ts) | ✅ pending/sent/failed/skipped/opened/clicked/redeemed/discountValueGiven all numeric                                                                                                                  |
+| SMS channel controls in edit dialog         | TC-213 (marketing-automations.spec.ts) | ✅ Email+SMS switches (role=switch); SMS on reveals message editor; draft-only, cancelled                                                                                                              |
 
 > **Lead onboarding / demo-to-restaurant AI conversion wizard** (`LeadOnboarding.tsx`, `/restaurant/manage` → "Lead Onboarding" tab): investigated but **not implemented**. The live QA deployment's `/restaurant/manage` page doesn't match the checked-out frontend source at all — no "Lead Onboarding" tab exists, and QA shows a "STAFF CONSOLE" layout that isn't present anywhere in the local frontend source tree. QA appears to be running a build that's diverged from what's on disk. Needs someone to confirm which frontend branch/commit QA is actually deployed from before this path can be tested.
 
@@ -213,6 +216,13 @@ As of 2026-07-11, chained end to end for the first time (TC-182) after reading t
 | Sign-up happy path (see Onboarding above)    | TC-93–96                        | ✅                                   |
 
 ---
+
+### Free-delivery coupon (`customer/07-free-delivery.spec.ts`)
+
+| Feature                                  | Test   | Status                                                                                      |
+| ---------------------------------------- | ------ | ------------------------------------------------------------------------------------------- |
+| FREE_DELIVERY code rejected on pickup    | TC-214 | ⏭️ Written — needs template-wind #60 deployed to QA (checkout must send serviceType)        |
+| Delivery order: fee waived, shows "Free" | TC-215 | ⏭️ Written — needs template-wind #60 + delivery provider availability (skips mirror TC-126) |
 
 ## 🌐 API-Level Negative Cases (`tests/dashboard/owner/api-negative.spec.ts`)
 

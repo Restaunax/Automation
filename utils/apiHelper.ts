@@ -1732,3 +1732,27 @@ export async function getAutomationSendsApi(
   );
   return data.sends ?? [];
 }
+
+export interface ApiAutomationStats {
+  pending: number;
+  sent: number;
+  failed: number;
+  skipped: number;
+  opened: number;
+  clicked: number;
+  redeemed: number;
+  discountValueGiven: number;
+}
+
+export async function getAutomationStatsApi(
+  adminToken: string,
+  automationId: string
+): Promise<ApiAutomationStats> {
+  const data = await apiRequest<{ stats: ApiAutomationStats }>(
+    "GET",
+    `/api/marketing/automations/${automationId}/stats`,
+    undefined,
+    adminToken
+  );
+  return data.stats;
+}

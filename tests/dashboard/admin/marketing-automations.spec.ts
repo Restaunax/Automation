@@ -6,6 +6,7 @@ import {
   getAutomationConfigApi,
   getAutomationsApi,
   getAutomationSendsApi,
+  getAutomationStatsApi,
   patchAutomationApi,
   patchAutomationConfigApi,
   runAutomationNowRaw,
@@ -149,6 +150,68 @@ test.describe("Admin — Marketing automations", () => {
         () => {}
       );
     }
+  });
+
+  test("TC-212: the stats endpoint returns the full campaign-grade funnel", async () => {
+    await allure.description(
+      "Every automation exposes the same funnel the event campaigns report — pending/sent/failed/skipped/opened/clicked/redeemed/discountValueGiven — all numeric, so 'what worked' is always answerable."
+    );
+    const { accessToken } = await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD);
+    const first = (await getAutomationsApi(accessToken))[0];
+    expect(first, "No automations seeded on QA").toBeTruthy();
+    if (!first) return;
+
+    const stats = await getAutomationStatsApi(accessToken, first.id);
+    for (const field of [
+      "pending",
+      "sent",
+      "failed",
+      "skipped",
+      "opened",
+      "clicked",
+      "redeemed",
+      "discountValueGiven",
+    ] as const) {
+      expect(typeof stats[field], `stats.${field}`).toBe("number");
+    }
+  });
+
+  test("TC-213: SMS controls live in the edit dialog behind the channel toggle", async ({
+    adminPage,
+  }) => {
+    await allure.description(
+      "The edit dialog offers Email and SMS channel switches; flipping SMS on reveals the SMS message editor. Dialog is cancelled — nothing persists."
+    );
+    const marketing = createAdminMarketingPage(adminPage);
+    await marketing.gotoCampaignScheduler();
+    await marketing.openAutomationsSubTab();
+    await marketing.openEditDialog("Win-Back");
+
+    // MUI Switch exposes role="switch", not "checkbox"
+    const smsSwitch = marketing
+      .dialog()
+      .getByRole("switch", { name: "SMS", exact: true });
+    await expect(
+      marketing.dialog().getByRole("switch", { name: "Email", exact: true })
+    ).toBeVisible();
+    await expect(smsSwitch).toBeVisible();
+
+    const smsWasOn = await smsSwitch.isChecked();
+    if (!smsWasOn) {
+      await smsSwitch.click();
+    }
+    // The SMS body is a multiline TextField → textarea, not input.
+    await expect(
+      marketing
+        .dialog()
+        .locator(".MuiFormControl-root")
+        .filter({ has: adminPage.locator("label", { hasText: "SMS message" }) })
+        .locator("textarea")
+        .first()
+    ).toBeVisible();
+
+    // Draft-only change — cancel, nothing persists.
+    await marketing.cancelDialog();
   });
 
   test("TC-204: templateId cannot be reassigned through the API (view-only lock)", async () => {

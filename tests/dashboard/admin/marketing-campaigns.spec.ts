@@ -75,6 +75,51 @@ test.describe("Admin — Marketing campaign events", () => {
     ).toHaveLength(0);
   });
 
+  test("TC-211: the org coupon form supports Free Delivery with no discount value", async ({
+    adminPage,
+  }) => {
+    await allure.description(
+      "The admin Create Organization Coupon form offers the Free Delivery type; selecting it hides the Discount Value field (the fee waiver is computed at checkout) and repurposes Maximum Discount as the fee cap. Form is cancelled — nothing is created."
+    );
+    await adminPage.goto("/admin?tab=coupons", {
+      waitUntil: "domcontentloaded",
+    });
+
+    await allure.step("Open the Create Coupon form", async () => {
+      await adminPage
+        .getByRole("button", { name: "Create Coupon", exact: true })
+        .first()
+        .click();
+      await expect(
+        adminPage.getByText("Create Organization Coupon")
+      ).toBeVisible();
+    });
+
+    await allure.step(
+      "Free Delivery hides the value field, keeps the fee cap",
+      async () => {
+        await adminPage.locator("#mui-component-select-type").click();
+        await adminPage
+          .getByRole("option", { name: "Free Delivery", exact: true })
+          .click();
+        await expect(adminPage.getByText("Discount Value")).toBeHidden();
+        // The generic max-discount field is relabeled as the fee cap
+        await expect(
+          adminPage.getByText("Covers Delivery Fee Up To")
+        ).toBeVisible();
+      }
+    );
+
+    await allure.step("Cancel without creating", async () => {
+      await adminPage
+        .getByRole("button", { name: "Cancel", exact: true })
+        .click();
+      await expect(
+        adminPage.getByText("Create Organization Coupon")
+      ).toBeHidden();
+    });
+  });
+
   test("TC-200: renewing an event coupon is idempotent (second renew succeeds as reuse)", async () => {
     await allure.description(
       "Create an org coupon + recurring event via API, renew twice. Both calls must succeed — the second reuses/repairs the existing next-year coupon instead of failing with 'coupon already exists' (the original bug)."
