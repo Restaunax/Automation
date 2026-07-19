@@ -75,6 +75,28 @@ test.describe("Customer — Menu Browsing", () => {
     });
   });
 
+  test("TC-184: the ?item= deep link auto-opens that item's modal", async ({
+    page,
+  }) => {
+    await allure.description(
+      "MenuPage's landing-page deep link: /menu?restaurantId=<id>&item=<itemId> auto-opens the " +
+        "item modal (and scrolls to its group) once the menu loads — no card click needed."
+    );
+
+    const restaurantId = readRestaurantId();
+    const { menuItemId, menuItemName } = readSharedState();
+    const menuPage = createCustomerMenuPage(page);
+
+    await allure.step(`Deep-link to item "${menuItemName}"`, async () => {
+      await menuPage.gotoWithItem(restaurantId, menuItemId);
+      await allure.parameter("itemId", menuItemId);
+    });
+
+    await allure.step("Verify the item modal opened by itself", async () => {
+      await menuPage.assertItemModalOpen();
+    });
+  });
+
   test("TC-99: customer can add an item to the cart and reach checkout through the real UI flow", async ({
     page,
   }) => {

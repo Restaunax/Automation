@@ -5,6 +5,7 @@ import {
   readSharedState,
   readRestaurantId,
   generateCouponCode,
+  generateRunId,
   recordGiftCardForCleanup,
 } from "../../utils/testData";
 import {
@@ -14,6 +15,10 @@ import {
   purchaseGiftCard,
   adjustGiftCardBalance,
   freezeGiftCardApi,
+  createTestMenuGroup,
+  createMenuItemRaw,
+  deleteTestMenuGroupWithItems,
+  type ApiMenuItem,
 } from "../../utils/apiHelper";
 import { STRIPE_CARDS } from "../../utils/stripeCards";
 
@@ -106,6 +111,243 @@ test.describe("Customer — Checkout", () => {
 
     await allure.step("Verify Stripe payment section is visible", async () => {
       await checkoutPage.assertPaymentSectionVisible();
+    });
+  });
+
+  test("TC-185: /checkout with an empty cart shows the empty-cart message", async ({
+    page,
+  }) => {
+    await allure.description(
+      "A customer landing on /checkout without anything in the cart gets the 'Your Cart is Empty' " +
+        "screen instead of the checkout form."
+    );
+
+    const restaurantId = readRestaurantId();
+    const checkoutPage = createCustomerCheckoutPage(page);
+
+    await allure.step("Open checkout with no cart seeded", async () => {
+      await checkoutPage.gotoCheckoutEmpty(restaurantId);
+    });
+
+    await allure.step("Verify the empty-cart message renders", async () => {
+      await checkoutPage.assertEmptyCart();
+    });
+  });
+
+  test("TC-186: tip presets and custom tip flow into the server-quoted total", async ({
+    page,
+  }) => {
+    await allure.description(
+      "Tip is client-selected but the charged total is the server quote (amountToCharge): raising " +
+        "the tip preset raises the quoted Total, zeroing it via the custom input lowers it. Proves " +
+        "the tip → /quote round-trip, with no assumptions about tax math."
+    );
+
+    const restaurantId = readRestaurantId();
+    const { menuItemId, menuItemName, menuItemPrice } = readSharedState();
+    const checkoutPage = createCustomerCheckoutPage(page);
+
+    await checkoutPage.seedCart(
+      restaurantId,
+      menuItemId,
+      menuItemName,
+      menuItemPrice
+    );
+
+    // Default tip is 15% — wait for the first quote to land and record it.
+    let baseTotal = 0;
+    await allure.step("Read the default-tip (15%) quoted total", async () => {
+      await expect
+        .poll(() => checkoutPage.readOrderTotal(), { timeout: 20_000 })
+        .toBeGreaterThan(0);
+      baseTotal = await checkoutPage.readOrderTotal();
+      await allure.parameter("Total @15%", `$${baseTotal.toFixed(2)}`);
+    });
+
+    await allure.step("Select the 25% preset — total rises", async () => {
+      await checkoutPage.selectTipPreset(25);
+      await checkoutPage.assertTipTotal((menuItemPrice * 0.25).toFixed(2));
+      await expect
+        .poll(() => checkoutPage.readOrderTotal(), { timeout: 20_000 })
+        .toBeGreaterThan(baseTotal);
+    });
+
+    await allure.step(
+      "Zero the tip via the custom input — total drops",
+      async () => {
+        await checkoutPage.fillCustomTip("0");
+        await checkoutPage.assertTipTotal("0.00");
+        await expect
+          .poll(() => checkoutPage.readOrderTotal(), { timeout: 20_000 })
+          .toBeLessThan(baseTotal);
+      }
+    );
+  });
+});
+
+// ── Coupon auto-revalidation on cart change — CouponSection re-POSTs
+// /api/coupons/validate (500ms debounce) whenever the cart changes and
+// removes the coupon if the server now rejects it. Driven here with a
+// minOrderAmount coupon: two cart lines clear the minimum, removing one
+// drops below it.
+test.describe("Customer — Checkout coupon revalidation", () => {
+  test.skip(
+    !TEMPLATE_WIND_URL || !OWNER_EMAIL || !OWNER_PASSWORD,
+    "TEMPLATE_WIND_URL, OWNER_EMAIL, and OWNER_PASSWORD must all be set in .env"
+  );
+
+  test.beforeEach(async () => {
+    await allure.label("feature", "Customer Ordering");
+    await allure.label("severity", "critical");
+  });
+
+  test("TC-187: a coupon is auto-removed when the cart drops below its minimum order amount", async ({
+    page,
+  }) => {
+    await allure.description(
+      "A minOrderAmount coupon applies while two cart lines clear the minimum; removing one line " +
+        "triggers CouponSection's debounced revalidation, the backend 400s ('Order must be at " +
+        "least $X'), and the coupon is auto-removed with an explanatory error."
+    );
+
+    const restaurantId = readRestaurantId();
+    const { menuItemId, menuItemName, menuItemPrice } = readSharedState();
+    const checkoutPage = createCustomerCheckoutPage(page);
+
+    // Minimum sits between one line (below) and two lines (above).
+    const minOrder = Math.round(menuItemPrice * 1.5 * 100) / 100;
+    const couponCode = generateCouponCode();
+
+    await allure.step(
+      `Seed an AUTO coupon with minOrderAmount $${minOrder}`,
+      async () => {
+        const { accessToken } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD);
+        const res = await createCouponRaw(accessToken, restaurantId, {
+          code: couponCode,
+          type: "PERCENTAGE",
+          value: 10,
+          minOrderAmount: minOrder,
+          startDate: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+          endDate: new Date(
+            Date.now() + 30 * 24 * 60 * 60 * 1000
+          ).toISOString(),
+          status: "ACTIVE",
+        });
+        expect(res.ok, `coupon seed failed: ${JSON.stringify(res.data)}`).toBe(
+          true
+        );
+        await allure.parameter("Coupon", couponCode);
+        await allure.parameter("minOrderAmount", `$${minOrder}`);
+      }
+    );
+
+    await allure.step("Seed a two-line cart (above the minimum)", async () => {
+      await checkoutPage.seedCartItems(restaurantId, [
+        { menuItemId, name: menuItemName, price: menuItemPrice },
+        { menuItemId, name: menuItemName, price: menuItemPrice },
+      ]);
+    });
+
+    await allure.step("Apply the coupon — accepted", async () => {
+      await checkoutPage.applyCoupon(couponCode);
+      await checkoutPage.assertCouponApplied(couponCode);
+    });
+
+    await allure.step(
+      "Remove one line — revalidation strips the coupon",
+      async () => {
+        await checkoutPage.removeFirstCartItem();
+        // Backend: "Order must be at least $X to use this coupon"; the
+        // section's fallback copy is "Coupon removed: No longer valid…".
+        await expect(
+          page.getByText(/must be at least|no longer valid/i).first()
+        ).toBeVisible({ timeout: 15_000 });
+        await expect(page.getByText(/Saving \$\d/)).toHaveCount(0);
+      }
+    );
+  });
+});
+
+// ── Stripe's $0.50 floor — a real cheap item is seeded because the server
+// quote reprices the cart from DB prices (sessionStorage prices are never
+// trusted). Own "Automation Items" group, deleted in afterAll (and the
+// globalTeardown sweep backstops interrupted runs).
+test.describe("Customer — Checkout Stripe minimum", () => {
+  test.skip(
+    !TEMPLATE_WIND_URL || !OWNER_EMAIL || !OWNER_PASSWORD,
+    "TEMPLATE_WIND_URL, OWNER_EMAIL, and OWNER_PASSWORD must all be set in .env"
+  );
+
+  let ownerToken = "";
+  let cheapGroupId = "";
+  let cheapItem: ApiMenuItem | null = null;
+
+  test.beforeAll(async () => {
+    if (!OWNER_EMAIL || !OWNER_PASSWORD) return;
+    const { accessToken } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD);
+    ownerToken = accessToken;
+    const restaurantId = readRestaurantId();
+    const group = await createTestMenuGroup(accessToken, restaurantId);
+    cheapGroupId = group.id;
+    const res = await createMenuItemRaw(accessToken, {
+      name: `AUTO Cheap Item ${generateRunId()}`,
+      price: 0.25,
+      groupId: group.id,
+    });
+    expect(res.ok, `cheap item seed failed: ${JSON.stringify(res.data)}`).toBe(
+      true
+    );
+    cheapItem = (res.data as { menuItem: ApiMenuItem }).menuItem;
+  });
+
+  test.afterAll(async () => {
+    if (!ownerToken || !cheapGroupId) return;
+    await deleteTestMenuGroupWithItems(
+      ownerToken,
+      readRestaurantId(),
+      cheapGroupId
+    );
+  });
+
+  test.beforeEach(async () => {
+    await allure.label("feature", "Customer Ordering");
+    await allure.label("severity", "critical");
+  });
+
+  test("TC-188: a quoted total under Stripe's $0.50 minimum blocks payment", async ({
+    page,
+  }) => {
+    await allure.description(
+      "With a $0.25 item (server-quoted total lands between $0.01 and $0.49), checkout disables " +
+        "the proceed button — label 'Minimum $0.50 Required' — and shows the explainer banner. " +
+        "No order is created."
+    );
+
+    expect(cheapItem, "cheap item was not seeded").not.toBeNull();
+    const restaurantId = readRestaurantId();
+    const checkoutPage = createCustomerCheckoutPage(page);
+
+    await allure.step("Seed the cart with the $0.25 item", async () => {
+      await checkoutPage.seedCart(
+        restaurantId,
+        cheapItem!.id,
+        cheapItem!.name ?? "AUTO Cheap Item",
+        0.25
+      );
+    });
+
+    await allure.step("Fill the form and select Pickup", async () => {
+      await checkoutPage.fillCustomerInfo(
+        "Jane",
+        "Tester",
+        "jane@restaunax-test.com",
+        "5559876543"
+      );
+      await checkoutPage.selectPickup();
+    });
+
+    await allure.step("Verify the below-minimum block", async () => {
+      await checkoutPage.assertBelowStripeMinimum();
     });
   });
 });
