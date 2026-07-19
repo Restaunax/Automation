@@ -30,7 +30,7 @@ Each test case includes:
 | 🌐 Public         | Anyone on the internet             | TC-01, TC-02, TC-59 → TC-61, TC-74, TC-75, TC-93 → TC-96                                                                                                                   |
 | 🔐 Admin          | Internal Restaunax staff           | TC-03 → TC-12, TC-32, TC-76, TC-77, TC-98, TC-101 → TC-124 (user management, `users.spec.ts`)                                                                              |
 | 🏠 Owner          | Restaurant owners                  | TC-13 → TC-16, TC-19 → TC-21, TC-27 → TC-31, TC-35, TC-42 → TC-53 (excl. TC-22–26), TC-62 → TC-70, TC-78, TC-82 → TC-92, TC-127 → TC-129, TC-131 → TC-142, TC-145 → TC-164 |
-| 🛒 Customer       | People ordering food               | TC-22 → TC-26, TC-64, TC-99, TC-125, TC-126, TC-165 → TC-178, TC-184 → TC-194                                                                                              |
+| 🛒 Customer       | People ordering food               | TC-22 → TC-26, TC-64, TC-99, TC-125, TC-126, TC-165 → TC-178, TC-184 → TC-197                                                                                              |
 | 🍳 POS            | Restaurant kitchen / tablet        | TC-100 (`--project=pos`)                                                                                                                                                   |
 | 🔒 Access Control | Testing role/permission boundaries | TC-54 → TC-58, TC-71 → TC-73, TC-81                                                                                                                                        |
 | 🚪 Onboarding     | New restaurant owners              | TC-93 → TC-97, TC-182, TC-183 (spans Public sign-up and Employee restaurant creation)                                                                                      |
@@ -1545,6 +1545,20 @@ Four items are seeded with **inline `modifierGroups` on the item-create endpoint
 
 ---
 
+## TC-195–197 — Deal Builder & Deal↔Coupon Exclusion
+
+**Status:** ✅ Passing (verified on CI against QA, 2026-07-19)
+
+### What they check
+
+The deal purchase path, previously zero coverage: TC-195 (opening `/deals/<id>` auto-adds the deal to the cart, per-slot progress shows "0 of 1 items added", filling the slot via "Add to Deal" flips to "Deal Complete!" and checkout offers the normal Proceed to Payment button), TC-196 (an unfilled slot leaves checkout's proceed button disabled and labeled "Complete Deals to Continue"), TC-197 (with a deal in the cart, applying **any** coupon code is blocked client-side with "Cannot combine coupons with deals" — the check fires before validation, so no seeded coupon is needed).
+
+### How the fixtures work
+
+One own single-slot deal on the seed menu item, created via `POST /api/deals/restaurant/:id` with **no day/time restrictions** so it's always active, `AUTO`-prefixed and deleted in `afterAll` — with a new `deleteAutomationDeals` sweep in globalTeardown (mirroring the coupon sweep) backstopping interrupted runs. New apiHelpers: `createDealRaw`, `getRestaurantDeals`, `deleteDealApi`, `deleteAutomationDeals`; new POM `pages/customer/CustomerDealPage.ts`.
+
+---
+
 ## TC-100 — Restaurant Receives and Processes an Order Through the POS Lifecycle
 
 **Status:** ✅ Passing (needs `OWNER_EMAIL`/`OWNER_PASSWORD`); run with `--project=pos`
@@ -2009,10 +2023,13 @@ This step is unavoidable for every single new restaurant, and its default-value 
 | TC-192          | ADJUSTS_PRICE modifier adds its price to the item total                                         | Customer              | ✅ Passing                                                                                                                                |
 | TC-193          | REPLACES_PRICE modifier overrides the base price                                                | Customer              | ✅ Passing                                                                                                                                |
 | TC-194          | allowsDuplicates quantity stepper multiplies the modifier price                                 | Customer              | ✅ Passing                                                                                                                                |
+| TC-195          | Deal builder auto-adds the deal; completing its slot enables checkout                           | Customer              | ✅ Passing                                                                                                                                |
+| TC-196          | Incomplete deal blocks checkout with "Complete Deals to Continue"                               | Customer              | ✅ Passing                                                                                                                                |
+| TC-197          | A coupon cannot be combined with a deal in the cart                                             | Customer              | ✅ Passing                                                                                                                                |
 
 A 2026-07-11 pass added TC-182/183, the first chained end-to-end onboarding test and dedicated Business Hours coverage — see their write-ups above for two real product findings surfaced along the way (no dashboard UI path to assign a new owner; an assign-restaurant 500 on a request that actually succeeded). See `docs/onboarding-product-fix-proposal.md`.
 
-A 2026-07-19 pass added TC-184–188 (customer checkout quick wins: item deep link, empty cart, tip → server quote, coupon minimum-order revalidation, Stripe $0.50 floor — all passing; see the write-up above). This batch is the first coverage added under the new wind-deploy trigger model, where every push to template-wind's `qa` branch runs the customer project automatically. The same pass added TC-189–194 (ItemModal modifier rules — required groups, radio semantics, selection caps, ADJUSTS/REPLACES pricing, duplicate quantities), all passing.
+A 2026-07-19 pass added TC-184–188 (customer checkout quick wins: item deep link, empty cart, tip → server quote, coupon minimum-order revalidation, Stripe $0.50 floor — all passing; see the write-up above). This batch is the first coverage added under the new wind-deploy trigger model, where every push to template-wind's `qa` branch runs the customer project automatically. The same pass added TC-189–194 (ItemModal modifier rules — required groups, radio semantics, selection caps, ADJUSTS/REPLACES pricing, duplicate quantities), all passing. And TC-195–197 (deal builder, incomplete-deal checkout gate, deal↔coupon exclusion — the deal purchase path's first coverage), all passing.
 
 **144 passing · 21 skipped · 1 failing (env-only)** — as of 2026-07-10. The one failure (TC-58) fails only in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` set; it passes wherever those credentials exist. (Owner-side expansion on 2026-07-07 added TC-35 + TC-127–129 for the Analytics tab, TC-131–135 deepening the Orders tab, TC-136–138 for the Customers tab, TC-139–140 for the Owner Settings tab, and TC-141–142 for the Daily Report tab — all passing. A 2026-07-10 pass added TC-145–164, expanding Coupons UI coverage far beyond the original 4 tests: all three discount types, the full Manage Coupons list (search/filter/sort/copy), and row actions — duplicate, delete, edit-prefill, and disabled Send-to-Customers. Two of these (TC-147, TC-150) surfaced a real UX finding: the code and menu-item fields rely on native HTML5 `required` validation, so the app's own custom error text for those specific fields never has a chance to render — the browser's native constraint-validation UI intercepts the submit first. A same-day follow-up pass added TC-165–178, giving gift cards their first-ever coverage (purchase + checkout redemption) and expanding the customer-checkout coupon path beyond the original single combined test — this also required setting `TEMPLATE_WIND_URL` for the first time in this environment, which surfaced and fixed several previously-latent regressions in the whole customer suite: the checkout coupon Apply button colliding with the new (unconditionally-rendered) gift-card Apply button, a `seedCart()` race that could leave a prior coupon/gift-card applied across re-seeds within one test, a stale rejection-message regex, `selectPickup()` targeting a since-removed radio input (the control is now a button), and a stale order-number regex on the confirmation page.)
 
