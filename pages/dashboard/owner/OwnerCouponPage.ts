@@ -80,7 +80,11 @@ export const createOwnerCouponPage = (page: Page) => {
   };
 
   const selectDiscountType = (
-    type: "Percentage (%)" | "Fixed Amount ($)" | "Item Discount ($)"
+    type:
+      | "Percentage (%)"
+      | "Fixed Amount ($)"
+      | "Item Discount ($)"
+      | "Free Delivery"
   ) => chooseOption(discountTypeSelect(), type);
 
   const selectMenuItem = (itemName: string) =>

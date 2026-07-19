@@ -848,4 +848,45 @@ test.describe("Owner — Coupons", () => {
   // back to a real test once the backend fix ships.
   // Tracked: https://github.com/Restaunax/RestauNax/issues/481
   test.fixme("TC-92: owner can edit an existing coupon's discount value", async () => {});
+
+  test("TC-209: owner can create a Free Delivery coupon (no discount value)", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Selecting the Free Delivery discount type hides the discount-value field (the fee waiver is computed at checkout), and the created coupon persists with type FREE_DELIVERY."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const couponPage = createOwnerCouponPage(ownerPage);
+    const couponCode = generateCouponCode();
+
+    await allure.step("Open the Create Coupon form", async () => {
+      await mgmtPage.goto(restaurantId);
+      await couponPage.navigateToCreateCoupon();
+    });
+
+    await allure.step(
+      "Pick Free Delivery — the value field disappears",
+      async () => {
+        await couponPage.couponCodeInput().fill(couponCode);
+        await allure.parameter("Coupon code", couponCode);
+        await couponPage.selectDiscountType("Free Delivery");
+        await expect(couponPage.discountValueInput()).toBeHidden();
+      }
+    );
+
+    await allure.step("Submit and verify success toast", async () => {
+      await couponPage.submit();
+      await couponPage.assertSuccessToast();
+    });
+
+    await allure.step("Coupon persisted as FREE_DELIVERY (API)", async () => {
+      const { accessToken } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD);
+      const coupons = await getRestaurantCoupons(accessToken, restaurantId);
+      const created = coupons.find((c) => c.code === couponCode);
+      expect(created, `coupon ${couponCode} missing from API`).toBeTruthy();
+      expect(created?.type).toBe("FREE_DELIVERY");
+    });
+  });
 });

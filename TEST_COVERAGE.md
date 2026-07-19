@@ -1,6 +1,6 @@
 # Restaunax — Test Coverage Map
 
-> Last updated: 2026-07-10
+> Last updated: 2026-07-19
 
 ---
 
@@ -17,46 +17,58 @@
 
 ## 🔐 Admin
 
-| Feature                                     | Test                   | Status                                                                                            |
-| ------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------- |
-| Demo form submission                        | TC-01                  | ✅                                                                                                |
-| Confirmation email sent                     | TC-02                  | ⏭️ Skipped (Mailtrap not configured)                                                              |
-| Admin login                                 | TC-03                  | ✅                                                                                                |
-| Find demo request by email                  | TC-04                  | ✅                                                                                                |
-| Demo action menu items visible              | TC-05                  | ✅                                                                                                |
-| Change demo status inline                   | TC-06                  | ✅                                                                                                |
-| View/Edit details — notes field edit & save | TC-07                  | ✅ PUTs `/api/demo-requests/:id`; drawer auto-closes on success, verified by reopening            |
-| Send follow-up email                        | TC-08                  | ✅ Flips status NEW→CONTACTED; verified via Mailtrap `waitForEmail()` when configured             |
-| Assign request to a team member             | TC-10                  | ✅ Verified via the PUT response body (`assignedToId`) — UI doesn't surface the assignee anywhere |
-| Schedule a demo                             | TC-11                  | ✅ Types into the masked MM/DD/YYYY hh:mm aa field; flips status to Scheduled                     |
-| Delete confirmation + cancel                | TC-09                  | ✅ Cancel path                                                                                    |
-| Permanently delete a demo request           | TC-98                  | ✅ Uses a seeded throwaway demo request (not the shared one TC-04–TC-12 depend on)                |
-| Proceed to onboarding navigation            | TC-12                  | ✅                                                                                                |
-| Admin restaurant list                       | TC-32                  | ✅                                                                                                |
-| Invite a new user                           | TC-101 (users.spec.ts) | ✅                                                                                                |
-| Invalid email → error, no request           | TC-102 (users.spec.ts) | ✅                                                                                                |
-| Invite submit disabled w/o role             | TC-103 (users.spec.ts) | ✅                                                                                                |
-| Inviting existing email rejected            | TC-104 (users.spec.ts) | ✅                                                                                                |
-| Owner role reveals restaurant autocomplete  | TC-105                 | ✅                                                                                                |
-| Cancel resets invite form                   | TC-106 (users.spec.ts) | ✅                                                                                                |
-| Search finds user by email                  | TC-107                 | ✅                                                                                                |
-| Role filter narrows list                    | TC-109                 | ✅                                                                                                |
-| Status filter narrows list                  | TC-110 (users.spec.ts) | ✅                                                                                                |
-| Detail side sheet opens/closes              | TC-111, TC-114         | ✅                                                                                                |
-| USER/OWNER detail tabs correct              | TC-112, TC-113         | ✅                                                                                                |
-| Change user role                            | TC-115 (users.spec.ts) | ✅                                                                                                |
-| Deactivate/reactivate user                  | TC-116 (users.spec.ts) | ✅                                                                                                |
-| Send password reset email                   | TC-117 (users.spec.ts) | ✅                                                                                                |
-| Add/remove user-specific permission         | TC-118                 | ✅                                                                                                |
-| Bogus invite token grants no access         | TC-124                 | ✅                                                                                                |
-| Full invite → claim → login journey         | TC-123                 | ✅ Needs Mailtrap (`MAILTRAP_API_TOKEN`/`MAILTRAP_INBOX_ID`)                                      |
-| Role change to unknown value rejected       | TC-76                  | ✅ (400, role unchanged server-side)                                                              |
-| Status toggle on nonexistent user rejected  | TC-77                  | ✅ (404)                                                                                          |
-| Admin subscription management               | —                      | ❌ Not written                                                                                    |
-| Admin finance reports                       | —                      | ❌ Not written                                                                                    |
-| Admin system logs                           | —                      | ❌ Not written                                                                                    |
-| Admin leads management                      | —                      | ❌ Not written — see "Lead onboarding" note below                                                 |
-| Admin chains management                     | TC-181                 | ❌ `test.fixme` scaffold — tracked [#12](https://github.com/Restaunax/Automation/issues/12)       |
+| Feature                                     | Test                                   | Status                                                                                                                                                                                                 |
+| ------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Demo form submission                        | TC-01                                  | ✅                                                                                                                                                                                                     |
+| Confirmation email sent                     | TC-02                                  | ⏭️ Skipped (Mailtrap not configured)                                                                                                                                                                   |
+| Admin login                                 | TC-03                                  | ✅                                                                                                                                                                                                     |
+| Find demo request by email                  | TC-04                                  | ✅                                                                                                                                                                                                     |
+| Demo action menu items visible              | TC-05                                  | ✅                                                                                                                                                                                                     |
+| Change demo status inline                   | TC-06                                  | ✅                                                                                                                                                                                                     |
+| View/Edit details — notes field edit & save | TC-07                                  | ✅ PUTs `/api/demo-requests/:id`; drawer auto-closes on success, verified by reopening                                                                                                                 |
+| Send follow-up email                        | TC-08                                  | ✅ Flips status NEW→CONTACTED; verified via Mailtrap `waitForEmail()` when configured                                                                                                                  |
+| Assign request to a team member             | TC-10                                  | ✅ Verified via the PUT response body (`assignedToId`) — UI doesn't surface the assignee anywhere                                                                                                      |
+| Schedule a demo                             | TC-11                                  | ✅ Types into the masked MM/DD/YYYY hh:mm aa field; flips status to Scheduled                                                                                                                          |
+| Delete confirmation + cancel                | TC-09                                  | ✅ Cancel path                                                                                                                                                                                         |
+| Permanently delete a demo request           | TC-98                                  | ✅ Uses a seeded throwaway demo request (not the shared one TC-04–TC-12 depend on)                                                                                                                     |
+| Proceed to onboarding navigation            | TC-12                                  | ✅                                                                                                                                                                                                     |
+| Admin restaurant list                       | TC-32                                  | ✅                                                                                                                                                                                                     |
+| Invite a new user                           | TC-101 (users.spec.ts)                 | ✅                                                                                                                                                                                                     |
+| Invalid email → error, no request           | TC-102 (users.spec.ts)                 | ✅                                                                                                                                                                                                     |
+| Invite submit disabled w/o role             | TC-103 (users.spec.ts)                 | ✅                                                                                                                                                                                                     |
+| Inviting existing email rejected            | TC-104 (users.spec.ts)                 | ✅                                                                                                                                                                                                     |
+| Owner role reveals restaurant autocomplete  | TC-105                                 | ✅                                                                                                                                                                                                     |
+| Cancel resets invite form                   | TC-106 (users.spec.ts)                 | ✅                                                                                                                                                                                                     |
+| Search finds user by email                  | TC-107                                 | ✅                                                                                                                                                                                                     |
+| Role filter narrows list                    | TC-109                                 | ✅                                                                                                                                                                                                     |
+| Status filter narrows list                  | TC-110 (users.spec.ts)                 | ✅                                                                                                                                                                                                     |
+| Detail side sheet opens/closes              | TC-111, TC-114                         | ✅                                                                                                                                                                                                     |
+| USER/OWNER detail tabs correct              | TC-112, TC-113                         | ✅                                                                                                                                                                                                     |
+| Change user role                            | TC-115 (users.spec.ts)                 | ✅                                                                                                                                                                                                     |
+| Deactivate/reactivate user                  | TC-116 (users.spec.ts)                 | ✅                                                                                                                                                                                                     |
+| Send password reset email                   | TC-117 (users.spec.ts)                 | ✅                                                                                                                                                                                                     |
+| Add/remove user-specific permission         | TC-118                                 | ✅                                                                                                                                                                                                     |
+| Bogus invite token grants no access         | TC-124                                 | ✅                                                                                                                                                                                                     |
+| Full invite → claim → login journey         | TC-123                                 | ✅ Needs Mailtrap (`MAILTRAP_API_TOKEN`/`MAILTRAP_INBOX_ID`)                                                                                                                                           |
+| Role change to unknown value rejected       | TC-76                                  | ✅ (400, role unchanged server-side)                                                                                                                                                                   |
+| Status toggle on nonexistent user rejected  | TC-77                                  | ✅ (404)                                                                                                                                                                                               |
+| Admin subscription management               | —                                      | ❌ Not written                                                                                                                                                                                         |
+| Admin finance reports                       | —                                      | ❌ Not written                                                                                                                                                                                         |
+| Admin system logs                           | —                                      | ❌ Not written                                                                                                                                                                                         |
+| Admin leads management                      | —                                      | ❌ Not written — see "Lead onboarding" note below                                                                                                                                                      |
+| Admin chains management                     | TC-181                                 | ❌ `test.fixme` scaffold — tracked [#12](https://github.com/Restaunax/Automation/issues/12)                                                                                                            |
+| Campaign events default to Upcoming filter  | TC-198 (marketing-campaigns.spec.ts)   | ✅ Past view never shows Upcoming rows                                                                                                                                                                 |
+| Recurring holiday events never duplicated   | TC-199 (marketing-campaigns.spec.ts)   | ✅ API-level seed-dedup regression                                                                                                                                                                     |
+| Event coupon renew is idempotent            | TC-200 (marketing-campaigns.spec.ts)   | ✅ Renew-twice via own API fixture (org coupon + event, self-cleaning) — the original "coupon already exists" bug                                                                                      |
+| Automations tab lists 3 programs + caps UI  | TC-201 (marketing-automations.spec.ts) | ✅ Intro banner, caps fields, pace helper text                                                                                                                                                         |
+| Automation edit dialog + view-only template | TC-202 (marketing-automations.spec.ts) | ✅ Per-type fields; template input disabled; cooldown round-trip (restored)                                                                                                                            |
+| Automation enable toggle persists           | TC-203 (marketing-automations.spec.ts) | ✅ API-verified, original state restored                                                                                                                                                               |
+| templateId locked at the API                | TC-204 (marketing-automations.spec.ts) | ✅ PATCH templateId silently ignored (allowlist)                                                                                                                                                       |
+| Run-now on disabled automation → 400        | TC-205 (marketing-automations.spec.ts) | ✅ Disabled half of the contract                                                                                                                                                                       |
+| Run-now on ENABLED automation delivers mail | TC-210 (marketing-automations.spec.ts) | ✅ `@email` — QA mail is sandboxed (one shared Mailtrap inbox); cap pinned to 1, state restored; send row → SENT → Mailtrap arrival (0-new-sends runs skip the delivery assert — cycleKey idempotency) |
+| Org coupon form: Free Delivery type         | TC-211 (marketing-campaigns.spec.ts)   | ✅ Value field hidden, fee-cap relabel ("Covers Delivery Fee Up To"), cancelled without creating                                                                                                       |
+| Automation stats funnel shape               | TC-212 (marketing-automations.spec.ts) | ✅ pending/sent/failed/skipped/opened/clicked/redeemed/discountValueGiven all numeric                                                                                                                  |
+| SMS channel controls in edit dialog         | TC-213 (marketing-automations.spec.ts) | ✅ Email+SMS switches (role=switch); SMS on reveals message editor; draft-only, cancelled                                                                                                              |
 
 > **Lead onboarding / demo-to-restaurant AI conversion wizard** (`LeadOnboarding.tsx`, `/restaurant/manage` → "Lead Onboarding" tab): investigated but **not implemented**. The live QA deployment's `/restaurant/manage` page doesn't match the checked-out frontend source at all — no "Lead Onboarding" tab exists, and QA shows a "STAFF CONSOLE" layout that isn't present anywhere in the local frontend source tree. QA appears to be running a build that's diverged from what's on disk. Needs someone to confirm which frontend branch/commit QA is actually deployed from before this path can be tested.
 
@@ -97,6 +109,7 @@
 | Edit an existing coupon                                    | TC-92                             | ⏭️ `test.fixme` — editing ANY coupon 500s server-side (frontend sends `value` as a string, Prisma expects Float)                    |
 | Create a FIXED_AMOUNT coupon                               | TC-145                            | ✅                                                                                                                                  |
 | Create a FIXED_ITEM coupon                                 | TC-146                            | ✅                                                                                                                                  |
+| Create a FREE_DELIVERY coupon (value field hidden)         | TC-209                            | ✅ Persists as FREE_DELIVERY via API check                                                                                          |
 | FIXED_ITEM with no menu item selected → blocked            | TC-147                            | ✅ Blocked by native HTML5 `required` validation, not the app's custom `menuItemId`-required message — see Known Technical Debt     |
 | Non-positive FIXED_AMOUNT value rejected                   | TC-148                            | ✅                                                                                                                                  |
 | End date before start date rejected                        | TC-149                            | ✅                                                                                                                                  |
@@ -150,6 +163,9 @@
 | Daily Report — KPIs reflect seeded orders (delta)          | TC-142                            | ✅ `createSeededOrder` seeds nonzero CONFIRMED orders (no Stripe); asserts orderCount/netSales grew ≥ seeded                        |
 | Daily Report — "Close Day" (create close record)           | —                                 | ❌ Not written — mutates the real current day (persisted DailyClose); needs its own cleanup story                                   |
 | Edit restaurant info (name/address/etc, beyond prep time)  | —                                 | ❌ Not written                                                                                                                      |
+| Automated Marketing tab renders all programs               | TC-206 (16-marketing-automations) | ✅ Deep link `?tab=marketing-automations`; rows match settings API                                                                  |
+| Master opt-out switch persists + restores                  | TC-207 (16-marketing-automations) | ✅ API-verified `lifecycleMarketingOptOut`, self-restoring                                                                          |
+| Per-program pause leaves sibling programs untouched        | TC-208 (16-marketing-automations) | ✅ API-verified enrollment isolation, self-restoring                                                                                |
 
 ---
 
@@ -200,6 +216,13 @@ As of 2026-07-11, chained end to end for the first time (TC-182) after reading t
 | Sign-up happy path (see Onboarding above)    | TC-93–96                        | ✅                                   |
 
 ---
+
+### Free-delivery coupon (`customer/07-free-delivery.spec.ts`)
+
+| Feature                                  | Test   | Status                                                                                      |
+| ---------------------------------------- | ------ | ------------------------------------------------------------------------------------------- |
+| FREE_DELIVERY code rejected on pickup    | TC-214 | ⏭️ Written — needs template-wind #60 deployed to QA (checkout must send serviceType)        |
+| Delivery order: fee waived, shows "Free" | TC-215 | ⏭️ Written — needs template-wind #60 + delivery provider availability (skips mirror TC-126) |
 
 ## 🌐 API-Level Negative Cases (`tests/dashboard/owner/api-negative.spec.ts`)
 
