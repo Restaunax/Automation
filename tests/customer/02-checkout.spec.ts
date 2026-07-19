@@ -257,12 +257,17 @@ test.describe("Customer — Checkout coupon revalidation", () => {
       "Remove one line — revalidation strips the coupon",
       async () => {
         await checkoutPage.removeFirstCartItem();
-        // Backend: "Order must be at least $X to use this coupon"; the
-        // section's fallback copy is "Coupon removed: No longer valid…".
-        await expect(
-          page.getByText(/must be at least|no longer valid/i).first()
-        ).toBeVisible({ timeout: 15_000 });
-        await expect(page.getByText(/Saving \$\d/)).toHaveCount(0);
+        // Assert the auto-removal itself (applied "Saving $" block gone, box
+        // back to code-entry state) — NOT the explanatory error copy: the
+        // backend's "Order must be at least $X" message renders only
+        // transiently before another revalidation cycle clears it (confirmed
+        // via CI error-context snapshot, run 29692228760).
+        await expect(page.getByText(/Saving \$\d/)).toHaveCount(0, {
+          timeout: 15_000,
+        });
+        await expect(checkoutPage.couponCodeInput()).toBeVisible({
+          timeout: 15_000,
+        });
       }
     );
   });
@@ -271,21 +276,31 @@ test.describe("Customer — Checkout coupon revalidation", () => {
 // ── Stripe's $0.50 floor — a real cheap item is seeded because the server
 // quote reprices the cart from DB prices (sessionStorage prices are never
 // trusted). Own "Automation Items" group, deleted in afterAll (and the
-// globalTeardown sweep backstops interrupted runs).
+// globalTeardown sweep backstops interrupted runs). ADMIN creds required:
+// the group delete needs its items PERMANENTLY deleted first (soft-deleted
+// items still block category deletion — the TC-67 guard), and permanent
+// item deletion is an admin endpoint.
 test.describe("Customer — Checkout Stripe minimum", () => {
   test.skip(
-    !TEMPLATE_WIND_URL || !OWNER_EMAIL || !OWNER_PASSWORD,
-    "TEMPLATE_WIND_URL, OWNER_EMAIL, and OWNER_PASSWORD must all be set in .env"
+    !TEMPLATE_WIND_URL ||
+      !OWNER_EMAIL ||
+      !OWNER_PASSWORD ||
+      !ADMIN_EMAIL ||
+      !ADMIN_PASSWORD,
+    "TEMPLATE_WIND_URL, OWNER_EMAIL/PASSWORD, and ADMIN_EMAIL/PASSWORD must all be set in .env"
   );
 
   let ownerToken = "";
+  let adminToken = "";
   let cheapGroupId = "";
   let cheapItem: ApiMenuItem | null = null;
 
   test.beforeAll(async () => {
-    if (!OWNER_EMAIL || !OWNER_PASSWORD) return;
+    if (!OWNER_EMAIL || !OWNER_PASSWORD || !ADMIN_EMAIL || !ADMIN_PASSWORD)
+      return;
     const { accessToken } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD);
     ownerToken = accessToken;
+    adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
     const restaurantId = readRestaurantId();
     const group = await createTestMenuGroup(accessToken, restaurantId);
     cheapGroupId = group.id;
@@ -305,7 +320,8 @@ test.describe("Customer — Checkout Stripe minimum", () => {
     await deleteTestMenuGroupWithItems(
       ownerToken,
       readRestaurantId(),
-      cheapGroupId
+      cheapGroupId,
+      adminToken
     );
   });
 
