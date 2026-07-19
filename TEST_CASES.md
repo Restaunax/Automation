@@ -97,7 +97,7 @@ If the confirmation email is not sent, potential clients might think their reque
 
 ### Why it's currently skipped
 
-This test requires a special email testing service (Mailtrap) to be connected. Once configured, it will run automatically.
+This test is unfinished: it waits for a confirmation email but never submits the demo form. QA’s Mailpit sandbox is wired up, so only the missing submit step blocks it.
 
 ---
 
@@ -234,7 +234,7 @@ Clicking "Send Follow-up Email" opens a pre-filled email (subject and body alrea
 1. The test opens the Actions menu and clicks "Send Follow-up Email"
 2. It clicks "Send Email" on the pre-filled dialog
 3. It confirms the request's status badge changes from "New" to "Contacted"
-4. If email testing is configured (Mailtrap), it also confirms a real email actually arrived in the test inbox
+4. If email testing is configured (Mailpit), it also confirms a real email actually arrived in the test inbox
 5. It resets the status back to "New" so it doesn't affect other tests that expect a fresh request
 
 ### Why it matters
@@ -374,7 +374,7 @@ Admin oversight of all restaurant accounts is essential for account management, 
 
 ## TC-101 → TC-124 — Admin User Management (`users.spec.ts`)
 
-**Status:** ✅ Passing (invite/reset/claim cases are tagged `@email` — excluded from the default run to protect the Mailtrap quota; run via `npm run test:email`)
+**Status:** ✅ Passing (invite/reset/claim cases are tagged `@email` — run in the default suite; `npm run test:email` selects just them)
 
 The admin Users screen is where Restaunax staff invite, inspect, and manage every account on the platform. This block covers the whole surface; each test in one line:
 
@@ -1827,7 +1827,7 @@ The real, previously-untested production onboarding journey, chained end to end 
 Before this test, sign-up (TC-93), restaurant creation (TC-97), and publish (TC-143/144) were four disconnected fragments in different spec files, with nothing proving they chain into a real journey — `TEST_COVERAGE.md` called this out explicitly. Building this test surfaced two real product findings along the way, not just a coverage gap:
 
 - **There is no dashboard UI path to assign a restaurant to a new owner.** The only frontend components referencing the assign-restaurant endpoint are dead code (imported nowhere), and the tab that would host that action is never rendered for a fresh `USER` account in the first place. This test calls the backend endpoint directly as a stand-in — there's nothing to click yet. See `docs/onboarding-product-fix-proposal.md`.
-- **That same endpoint can 500 on a request that actually succeeded** — a non-critical welcome-email failure (confirmed live: a Mailtrap quota exhaustion) throws from inside the same try block as the (already-committed) database writes. The test's helper tolerates this specific known cause and verifies the real outcome instead of trusting the HTTP status.
+- **That same endpoint can 500 on a request that actually succeeded** — a non-critical welcome-email failure (confirmed live: a Mailtrap quota exhaustion) throws from inside the same try block as the (already-committed) database writes. The test's helper tolerates this specific known cause and verifies the real outcome instead of trusting the HTTP status. _(2026-07-19: QA moved to self-hosted Mailpit, so that particular trigger is gone — but the non-transactional bug stands and any send failure reproduces it.)_
 
 Deliberately stops short of Publish — the checklist requires Payment Processing (Stripe Connect), which is out of scope for this pass (no API shortcut exists to fake that state).
 
@@ -2033,7 +2033,7 @@ A 2026-07-19 pass added TC-184–188 (customer checkout quick wins: item deep li
 
 **144 passing · 21 skipped · 1 failing (env-only)** — as of 2026-07-10. The one failure (TC-58) fails only in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` set; it passes wherever those credentials exist. (Owner-side expansion on 2026-07-07 added TC-35 + TC-127–129 for the Analytics tab, TC-131–135 deepening the Orders tab, TC-136–138 for the Customers tab, TC-139–140 for the Owner Settings tab, and TC-141–142 for the Daily Report tab — all passing. A 2026-07-10 pass added TC-145–164, expanding Coupons UI coverage far beyond the original 4 tests: all three discount types, the full Manage Coupons list (search/filter/sort/copy), and row actions — duplicate, delete, edit-prefill, and disabled Send-to-Customers. Two of these (TC-147, TC-150) surfaced a real UX finding: the code and menu-item fields rely on native HTML5 `required` validation, so the app's own custom error text for those specific fields never has a chance to render — the browser's native constraint-validation UI intercepts the submit first. A same-day follow-up pass added TC-165–178, giving gift cards their first-ever coverage (purchase + checkout redemption) and expanding the customer-checkout coupon path beyond the original single combined test — this also required setting `TEMPLATE_WIND_URL` for the first time in this environment, which surfaced and fixed several previously-latent regressions in the whole customer suite: the checkout coupon Apply button colliding with the new (unconditionally-rendered) gift-card Apply button, a `seedCart()` race that could leave a prior coupon/gift-card applied across re-seeds within one test, a stale rejection-message regex, `selectPickup()` targeting a since-removed radio input (the control is now a button), and a stale order-number regex on the confirmation page.)
 
-Skipped tests fall into four groups: **route access** (TC-27, TC-28, TC-81 — publish/tax/loyalty are employee/admin-only and return Access Denied for the owner role); **missing UI** (TC-42, TC-44 — the edit/delete buttons don't exist in the current menu editor); **missing credentials in this environment** (TC-58, TC-97, plus TC-17/TC-18 in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD`; TC-02 without Mailtrap); and **real bugs** (TC-92 — editing any coupon 500s server-side; TC-177 — a gift card fully covering an order 201s the order but then fails a doomed $0 Stripe PaymentIntent — both filed as `test.fixme` with the exact error rather than asserting broken behavior as correct). TC-33 and TC-34 remain narrative-only placeholders with no test code at all — not the same as a skipped/fixme test.
+Skipped tests fall into four groups: **route access** (TC-27, TC-28, TC-81 — publish/tax/loyalty are employee/admin-only and return Access Denied for the owner role); **missing UI** (TC-42, TC-44 — the edit/delete buttons don't exist in the current menu editor); **missing credentials in this environment** (TC-58, TC-97, plus TC-17/TC-18 in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD`; TC-02 without `MAILPIT_BASE_URL`); and **real bugs** (TC-92 — editing any coupon 500s server-side; TC-177 — a gift card fully covering an order 201s the order but then fails a doomed $0 Stripe PaymentIntent — both filed as `test.fixme` with the exact error rather than asserting broken behavior as correct). TC-33 and TC-34 remain narrative-only placeholders with no test code at all — not the same as a skipped/fixme test.
 
 ---
 

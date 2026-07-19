@@ -230,7 +230,7 @@ pages/
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `utils/apiHelper.ts`   | `apiLogin()`, `createTestRestaurant()`, `deleteTestRestaurant()`, `createSeededOrder()` (real-price order, no Stripe — create then bump past INITIALIZED; the backend pricing guard rejects `total:0`), `updateOrderStatus()`, `getDailyReportKpis()` |
 | `utils/testData.ts`    | `generateDemoFormData()`, `generateRestaurantData()`, `readSharedState()`, `writeSharedState()`                                                                                                                                                       |
-| `utils/emailHelper.ts` | Mailtrap API polling for email verification                                                                                                                                                                                                           |
+| `utils/emailHelper.ts` | Mailpit API polling for email verification (`waitForEmail`, `extractInviteToken`)                                                                                                                                                                     |
 | `utils/stripeCards.ts` | Stripe test card constants                                                                                                                                                                                                                            |
 | `fixtures/base.ts`     | `ownerPage`, `adminPage`, `demoBookingPage` — auto-restores auth sessions                                                                                                                                                                             |
 
@@ -266,15 +266,17 @@ TEMPLATE_WIND_URL=https://qa.restaunax.com
 TEMPLATE_WIND_RESTAURANT_ID=...
 SEED_RESTAURANT_ID=...
 
-# Email testing
-MAILTRAP_API_TOKEN=...
-MAILTRAP_INBOX_ID=...
+# Email testing — QA's self-hosted Mailpit sandbox (also browsable at this URL)
+MAILPIT_BASE_URL=https://mail.qa.restaunax.com
+MAILPIT_UI_USER=qa
+MAILPIT_UI_PASSWORD=...
 TEST_EMAIL_DOMAIN=demomailtrap.co
 
-# Email-sending tests are tagged @email (@demo subset) and EXCLUDED from the
-# default run — `npm test` and the nightly send no mail. Run them deliberately
-# with `npm run test:email` / `test:demo`. See TEST_PLAN → "Test execution
-# strategy". (No SEND_* toggles anymore.)
+# Mail-sending tests are tagged @email (@demo subset) and RUN IN THE DEFAULT
+# SUITE — Mailpit is self-hosted and unmetered, so there is no quota to protect.
+# The tags just select them: `npm run test:email` / `test:demo`. They skip if
+# MAILPIT_BASE_URL is unset. The inbox is SHARED — never bulk-delete it. See
+# TEST_PLAN → "Test execution strategy". (No SEND_*/INCLUDE_EMAIL_TESTS toggles.)
 ```
 
 ---

@@ -15,18 +15,15 @@ const DASHBOARD_URL =
 const CUSTOMER_URL =
   process.env.TEMPLATE_WIND_URL ?? "https://wind.restaunax.com";
 
-// Email-sending tests are tagged @email (@demo = demo subset). They are EXCLUDED
-// by default — local runs AND the nightly — so routine runs never touch the
-// Mailtrap 500/mo quota, however Playwright is invoked (`npm test`, a bare
-// `npx playwright test`, or the nightly CI job). Opt in with INCLUDE_EMAIL_TESTS=1
-// (see the test:email / test:demo / test:all scripts + e2e-email-weekly.yml),
-// which DROPS the exclusion so a `--grep @email` selects them instead of colliding
-// with the invert. See TEST_PLAN → "Test execution strategy".
-const includeEmail = !!process.env.INCLUDE_EMAIL_TESTS;
+// Tests that send real mail are tagged @email (@demo = demo subset). They used
+// to be excluded from every run to protect a metered Mailtrap sandbox; QA now
+// sends to a self-hosted, unmetered Mailpit inbox, so they run everywhere —
+// `npm test`, the nightly, and a bare `npx playwright test`. The tags survive
+// purely as selectors for targeted runs (`npm run test:email` / `test:demo`).
+// See TEST_PLAN → "Test execution strategy".
 
 export default defineConfig({
   testDir: "./tests",
-  grepInvert: includeEmail ? undefined : /@email/,
   // Parallelism model: a spec FILE is the isolation unit. fullyParallel stays
   // false so in-file order is preserved (serial CRUD chains, beforeAll
   // seeding); different files run concurrently across workers. The contract

@@ -7,9 +7,11 @@
  *   3. Browser-login as admin → save admin-auth.tmp.json (storageState)
  *   4. Write shared-state.tmp.json with all data specs need
  *
- * Sends NO email. It used to submit a demo request here (2 emails) on EVERY run,
- * which drained the Mailtrap quota. Demo specs now self-seed their own request
- * (see the @demo/@email tags + 01-demo-management / 02-demo-actions).
+ * Sends NO email. It used to submit a demo request here on EVERY run; the demo
+ * specs now self-seed their own request instead (see 01-demo-management /
+ * 02-demo-actions). Keep it that way — a request seeded here is shared state
+ * every demo spec would have to reason about, and it puts noise in the shared
+ * Mailpit inbox that humans also read.
  */
 
 import * as dotenv from "dotenv";
@@ -161,7 +163,7 @@ export default async function globalSetup(): Promise<void> {
   }
   const optionalGaps = [
     ...(!EMPLOYEE_EMAIL || !EMPLOYEE_PASSWORD ? ["employee suite"] : []),
-    ...(!process.env.MAILTRAP_API_TOKEN ? ["email-journey tests"] : []),
+    ...(!process.env.MAILPIT_BASE_URL ? ["email-journey tests"] : []),
   ];
   if (optionalGaps.length) {
     console.warn(

@@ -2,7 +2,7 @@
  * 01-demo-request.spec.ts
  *
  * Public user visits /demo, fills the form, submits it, and receives a
- * confirmation email in the Mailtrap test inbox.
+ * confirmation email in the Mailpit test inbox.
  */
 
 import * as allure from "allure-js-commons";
@@ -100,13 +100,14 @@ test.describe("Demo Request — Public Form", () => {
     );
   });
 
-  // TODO: enable once MAILTRAP_API_TOKEN + MAILTRAP_INBOX_ID are available in CI.
-  // Track at: https://github.com/Restaunax/RestauNax/issues (open a ticket when wiring up Mailtrap)
-  // When enabling: globalSetup no longer submits a demo — self-seed one here via
-  // submitDemoRequestRaw (like the other demo specs) and tag @demo @email.
+  // Still skipped, but NOT for the old reason — the sandbox creds are in CI now
+  // that QA sends to Mailpit. As written this test never submits the form: it
+  // generates an address and immediately waits for mail, so un-skipping it would
+  // just time out. To enable, self-seed the request here via submitDemoRequestRaw
+  // (like the sibling demo specs), gate on MAILPIT_BASE_URL, and tag @demo @email.
   test.skip("TC-02: receive confirmation email after demo request submission", async () => {
     await allure.description(
-      "After a demo request is submitted, the Mailtrap test inbox should contain " +
+      "After a demo request is submitted, the Mailpit sandbox inbox should contain " +
         "a confirmation email addressed to the submitted email."
     );
 

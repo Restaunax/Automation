@@ -41,16 +41,20 @@ npm run test:ui        # interactive Playwright UI (pick & watch tests)
 `globalSetup` logs in the owner/admin/employee sessions once before the run (it
 sends **no** email); `globalTeardown` cleans up the data the run created.
 
-> **Email-sending tests are excluded by default.** Tests tagged `@email` (demo,
-> invite, password-reset, sign-up, gift-card purchases) send real mail into the
-> quota-limited Mailtrap sandbox, so `npm test` and the nightly skip them. Run
-> them deliberately when you're validating those flows and the quota allows:
+> **Mail-sending tests run by default.** Tests tagged `@email` (demo, invite,
+> password-reset, sign-up, gift-card purchases) send real mail to QA's
+> self-hosted Mailpit sandbox. It's unmetered, so `npm test` and the nightly
+> include them — the tags are just selectors:
 >
 > ```bash
-> npm run test:email    # ⚠️ the @email group (~14 emails)
-> npm run test:demo     # ⚠️ just the demo flow
-> npm run test:all      # ⚠️ full suite incl. email
+> npm run test:email    # only the @email group
+> npm run test:demo     # only the demo flow
 > ```
+>
+> They need `MAILPIT_BASE_URL` (+ `MAILPIT_UI_USER` / `MAILPIT_UI_PASSWORD`) in
+> `.env`; without it they skip. To see what a run actually sent, open the same
+> inbox in a browser: **https://mail.qa.restaunax.com** (same credentials). It is
+> SHARED — read it, never bulk-delete it.
 >
 > Full rationale + the "which command, when" table: TEST_PLAN → **Test execution
 > strategy**.

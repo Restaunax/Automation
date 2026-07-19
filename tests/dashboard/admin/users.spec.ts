@@ -8,10 +8,10 @@
  *   • In-tab actions are driven through the UI (adminPage fixture) and confirmed
  *     by the network response and/or an admin API GET of server truth.
  *   • Target users for mutation tests are seeded via the admin create-user API
- *     (a real, deletable row with a known password) — independent of Mailtrap.
- *   • The full claim journey extracts the invite token from the Mailtrap sandbox
+ *     (a real, deletable row with a known password) — independent of email.
+ *   • The full claim journey extracts the invite token from the Mailpit sandbox
  *     email, registers a NEW user, asserts access level via /api/auth/me, then
- *     logs in through the real UI. Gated on the Mailtrap Email Testing token.
+ *     logs in through the real UI. Gated on MAILPIT_BASE_URL.
  *
  * Permissions are ALWAYS discovered at runtime — never hardcoded (the catalog
  * evolves). See utils/apiHelper getRolePermissions / getUserPermissions.
@@ -42,9 +42,9 @@ import {
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 const TEST_USER_PASSWORD = "AutoTest123!@#";
-const mailtrapReady = !!(
-  process.env.MAILTRAP_API_TOKEN && process.env.MAILTRAP_INBOX_ID
-);
+// Gate on the URL only: a missing password should surface as a loud 401 from
+// Mailpit, not as a silently skipped test.
+const mailpitReady = !!process.env.MAILPIT_BASE_URL;
 
 let adminToken = "";
 
@@ -415,7 +415,7 @@ test.describe("Admin — User Management", () => {
     });
   });
 
-  // ── Group F — Negative claim (API, no Mailtrap needed) ─────────────────────
+  // ── Group F — Negative claim (API, no email sandbox needed) ────────────────
   test.describe("Invite claim — defensive", () => {
     test("TC-124: a bogus invite token grants no elevated access", async () => {
       const email = generateUserEmail("badtoken");
@@ -440,13 +440,10 @@ test.describe("Admin — User Management", () => {
   });
 
   // ── Group G — Full journey: invite → email → claim → login (@email) ────────
-  // Sends a real invite email — excluded from default runs by the @email tag;
-  // run via `npm run test:email`. Still requires Mailtrap creds to read the token.
+  // Sends a real invite email and reads the token back out of QA's Mailpit
+  // inbox. Tagged @email so `npm run test:email` can select it on its own.
   test.describe("Invite → claim → login journey", { tag: "@email" }, () => {
-    test.skip(
-      !mailtrapReady,
-      "Requires Mailtrap Email Testing token (MAILTRAP_API_TOKEN / MAILTRAP_INBOX_ID)"
-    );
+    test.skip(!mailpitReady, "Requires the Mailpit sandbox (MAILPIT_BASE_URL)");
 
     test("TC-123: invited user claims access, and sees their access level", async ({
       adminPage,
@@ -468,7 +465,7 @@ test.describe("Admin — User Management", () => {
         expect(resp.status()).toBe(201);
       });
 
-      // 2. Pull the invitation token out of the Mailtrap sandbox email.
+      // 2. Pull the invitation token out of the Mailpit sandbox email.
       const token = await allure.step("Extract token from email", async () => {
         const msg = await waitForEmail(email, {
           subjectPattern: /You've Been Invited to Join RestauNax/i,

@@ -118,7 +118,7 @@ export const createAdminDemoManagementPage = (page: Page) => {
     await drawer().waitFor({ state: "hidden", timeout: 10_000 });
   };
 
-  // ── Send Follow-up Email — pre-filled subject/body, Send via Mailtrap ───
+  // ── Send Follow-up Email — pre-filled subject/body, delivered to Mailpit ───
   const followupSubjectInput = () => page.locator("#followup-subject");
   const followupBodyInput = () => page.locator("#followup-body");
 

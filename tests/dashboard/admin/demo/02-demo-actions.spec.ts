@@ -11,9 +11,9 @@ import { waitForEmail } from "../../../../utils/emailHelper";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
-const mailtrapReady = !!(
-  process.env.MAILTRAP_API_TOKEN && process.env.MAILTRAP_INBOX_ID
-);
+// Gate on the URL only: a missing password should surface as a loud 401 from
+// Mailpit, not as a silently skipped assertion.
+const mailpitReady = !!process.env.MAILPIT_BASE_URL;
 
 const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -28,8 +28,9 @@ const futureScheduleDate = (daysFromNow = 7): string => {
 };
 
 // @demo @email: beforeAll seeds a demo request (emails the requester) and TC-08
-// sends a follow-up email — both hit the quota-limited Mailtrap sandbox. Excluded
-// from default runs by the tag; run via `npm run test:demo` / `test:email`.
+// sends a follow-up email — both land in QA's Mailpit inbox. The tags are
+// selectors for targeted runs (`npm run test:demo` / `test:email`), not an
+// exclusion: these run in the default suite and the nightly.
 test.describe(
   "Admin — Demo Request Actions",
   { tag: ["@demo", "@email"] },
@@ -163,7 +164,7 @@ test.describe(
     test("TC-08: admin can send a follow-up email", async ({ adminPage }) => {
       await allure.description(
         "Sending the pre-filled follow-up email flips demo status NEW -> CONTACTED and delivers a " +
-          "real email through the Mailtrap sandbox (verified via waitForEmail, gated on Mailtrap creds)."
+          "real email through the Mailpit sandbox (verified via waitForEmail, gated on MAILPIT_BASE_URL)."
       );
 
       const email = demoEmail;
@@ -183,7 +184,7 @@ test.describe(
           });
         });
 
-        if (mailtrapReady) {
+        if (mailpitReady) {
           await allure.step("Verify the email actually arrived", async () => {
             const msg = await waitForEmail(email, { timeoutMs: 20_000 });
             expect(msg.subject).toBeTruthy();
