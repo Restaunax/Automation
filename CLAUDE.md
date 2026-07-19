@@ -299,12 +299,23 @@ npm run clean         # Delete test artifacts
 ## CI, reporting & triggers
 
 **Where to SEE results:** every CI run publishes a hosted Allure report to GitHub
-Pages → **https://restaunax.github.io/Automation/** (latest run + a Trend widget of
-history). Built by the Pages steps in `.github/workflows/e2e-nightly.yml` (Allure →
-`gh-pages` via `peaceiris/actions-gh-pages`). **Don't remove the `sudo rm -rf
-allure-history/.git` step** — `simple-elf` copies a root-owned `.git` into the
-report dir that breaks the deploy without it. All Pages steps are `if: always()`
-so a failing run still publishes its report.
+Pages (latest run + a Trend widget of history):
+
+- **https://restaunax.github.io/Automation/nightly/** — the full suite
+  (`e2e-nightly.yml`; the site root redirects here).
+- **https://restaunax.github.io/Automation/email/** — the weekly @email group
+  (`e2e-email-weekly.yml`).
+
+Both workflows push the built report to `gh-pages` via `peaceiris/actions-gh-pages`;
+that push is what triggers GitHub's auto-generated `pages-build-deployment` workflow
+(we never wrote it — it deploys the branch to the URL). The per-run artifact zip is
+just a 14-day raw backup, not the primary viewing path. Two gotchas: **don't remove
+the `sudo rm -rf allure-history/.git` step** (`simple-elf` copies a root-owned
+`.git` into the report dir that breaks the deploy without it), and **each suite must
+keep its own `subfolder`** (simple-elf's keep_reports cleanup deletes non-numeric
+siblings of the run folders first — a report parked at another suite's level gets
+wiped). All Pages steps are `if: always()` so a failing run still publishes its
+report.
 
 **When the suite runs (three triggers):**
 

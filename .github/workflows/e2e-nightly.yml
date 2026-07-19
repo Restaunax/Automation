@@ -118,11 +118,19 @@ jobs:
         run: npx allure generate allure-results -o allure-report --clean
 
       # ── Publish the Allure report to GitHub Pages ─────────────────────────────
-      # One clickable URL (https://restaunax.github.io/Automation/) that always
-      # shows the latest run plus a Trend widget of the last 30 runs — no artifact
-      # download, no local server, no Java. History is pulled from the gh-pages
-      # branch so trends accumulate across runs. All if: always() so a FAILING
-      # suite still publishes its report (that's exactly when you want to see it).
+      # One clickable URL (https://restaunax.github.io/Automation/nightly/ — the
+      # site root redirects there) that always shows the latest run plus a Trend
+      # widget of the last 30 runs — no artifact download, no local server, no
+      # Java. History is pulled from the gh-pages branch so trends accumulate
+      # across runs. All if: always() so a FAILING suite still publishes its
+      # report (that's exactly when you want to see it).
+      #
+      # Each suite MUST live in its own subfolder (this one: nightly/, the weekly
+      # email job: email/): simple-elf's keep_reports cleanup runs
+      # `ls | sort -n | head -n -N | xargs rm -rv` in its publish dir, and
+      # non-numeric names sort first — a sibling report parked next to the run
+      # folders would be the first thing deleted. Subfolders scope the cleanup;
+      # the site root is never cleaned.
       - name: Fetch prior Allure history
         if: always()
         continue-on-error: true # gh-pages doesn't exist yet on the very first run
@@ -131,6 +139,17 @@ jobs:
           ref: gh-pages
           path: gh-pages
 
+      - name: Migrate legacy root history to nightly/
+        if: always()
+        run: |
+          # The report used to live at the site root; seed nightly/ from the
+          # legacy layout so the Trend widget doesn't reset. No-op once
+          # nightly/ exists.
+          if [ -d gh-pages/last-history ] && [ ! -d gh-pages/nightly ]; then
+            mkdir -p gh-pages/nightly
+            cp -r gh-pages/last-history gh-pages/nightly/last-history
+          fi
+
       - name: Build Allure report with history
         if: always()
         uses: simple-elf/allure-report-action@master
@@ -138,15 +157,39 @@ jobs:
           allure_results: allure-results
           gh_pages: gh-pages
           allure_history: allure-history
+          subfolder: nightly
           keep_reports: 30
 
       # simple-elf runs as root in a container and copies the checked-out gh-pages
       # folder — including its .git — into allure-history. peaceiris then can't
       # delete that root-owned .git (EACCES) and its push fails. Strip it (sudo,
       # because the files are root-owned) so peaceiris sees only report files.
-      - name: Strip the stray .git from the report dir
+      # Also drop the pre-subfolder legacy layout: after the migration above,
+      # every real run lives under nightly/, so numeric dirs + last-history at
+      # the root are stale copies (idempotent — globs just miss once gone).
+      - name: Strip the stray .git + legacy root layout from the report dir
         if: always()
-        run: sudo rm -rf allure-history/.git
+        run: sudo rm -rf allure-history/.git allure-history/last-history allure-history/[0-9]*
+
+      # The documented URL is the site root; keep it working now that reports
+      # live in subfolders.
+      - name: Write root index redirect
+        if: always()
+        run: |
+          cat > allure-history/index.html <<'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <meta http-equiv="refresh" content="0; url=./nightly/" />
+            <title>Restaunax E2E reports</title>
+          </head>
+          <body>
+            <p>Redirecting to the <a href="./nightly/">nightly report</a>&hellip;</p>
+            <p>Also available: <a href="./email/">weekly @email report</a></p>
+          </body>
+          </html>
+          EOF
 
       - name: Deploy Allure report to GitHub Pages
         if: always()
@@ -155,6 +198,12 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_branch: gh-pages
           publish_dir: allure-history
+
+      - name: Link hosted report in run summary
+        if: always()
+        run: |
+          echo "### 📊 Allure report" >> "$GITHUB_STEP_SUMMARY"
+          echo "https://restaunax.github.io/Automation/nightly/ — live once pages-build-deployment finishes (~1 min)" >> "$GITHUB_STEP_SUMMARY"
 
       # Parse results.json, detect a mid-run deploy (superseded), and Slack on
       # real failures. (The Grafana ingest POST is a no-op — endpoint backed out;

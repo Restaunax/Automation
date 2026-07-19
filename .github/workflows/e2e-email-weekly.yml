@@ -27,6 +27,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: qa
+    # peaceiris/actions-gh-pages pushes the built Allure report to the gh-pages
+    # branch using the default GITHUB_TOKEN, which needs write access to contents.
+    permissions:
+      contents: write
     env:
       FRONTEND_URL: ${{ vars.FRONTEND_URL }}
       BACKEND_URL: ${{ vars.BACKEND_URL }}
@@ -78,7 +82,59 @@ jobs:
         if: always()
         run: npx allure generate allure-results -o allure-report --clean
 
-      - name: Publish results to the Grafana pipeline
+      # ── Publish the Allure report to GitHub Pages ─────────────────────────────
+      # Same pipeline as e2e-nightly.yml, but under the email/ subfolder →
+      # https://restaunax.github.io/Automation/email/ (the nightly owns nightly/
+      # and the root redirect). Each suite MUST have its own subfolder:
+      # simple-elf's keep_reports cleanup deletes non-numeric siblings first, so
+      # a report parked next to another suite's run folders would get wiped.
+      # keep_reports 30 ≈ 7 months of weekly runs. All if: always() so a failing
+      # run still publishes. No gh-pages push race with the nightly: both
+      # workflows share the qa-e2e concurrency group.
+      - name: Fetch prior Allure history
+        if: always()
+        continue-on-error: true # gh-pages doesn't exist yet on the very first run
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages
+
+      - name: Build Allure report with history
+        if: always()
+        uses: simple-elf/allure-report-action@master
+        with:
+          allure_results: allure-results
+          gh_pages: gh-pages
+          allure_history: allure-history
+          subfolder: email
+          keep_reports: 30
+
+      # simple-elf runs as root in a container and copies the checked-out gh-pages
+      # folder — including its .git — into allure-history. peaceiris then can't
+      # delete that root-owned .git (EACCES) and its push fails. Strip it (sudo,
+      # because the files are root-owned) so peaceiris sees only report files.
+      - name: Strip the stray .git from the report dir
+        if: always()
+        run: sudo rm -rf allure-history/.git
+
+      - name: Deploy Allure report to GitHub Pages
+        if: always()
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: allure-history
+
+      - name: Link hosted report in run summary
+        if: always()
+        run: |
+          echo "### 📊 Allure report (@email group)" >> "$GITHUB_STEP_SUMMARY"
+          echo "https://restaunax.github.io/Automation/email/ — live once pages-build-deployment finishes (~1 min)" >> "$GITHUB_STEP_SUMMARY"
+
+      # Parse results.json and Slack on real failures. (The Grafana ingest POST
+      # is a no-op — endpoint backed out; see e2e-nightly.yml.) Best-effort:
+      # never fails the job.
+      - name: Publish results + Slack alert on failure
         if: always()
         run: npx tsx scripts/publish-results.ts
 
