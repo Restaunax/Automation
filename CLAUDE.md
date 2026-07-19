@@ -302,7 +302,7 @@ npm run clean         # Delete test artifacts
 Pages (latest run + a Trend widget of history):
 
 - **https://restaunax.github.io/Automation/nightly/** — the full suite
-  (`e2e-nightly.yml`; the site root redirects here).
+  (`e2e.yml`; the site root redirects here).
 - **https://restaunax.github.io/Automation/email/** — the weekly @email group
   (`e2e-email-weekly.yml`).
 
@@ -319,15 +319,15 @@ report.
 
 **When the suite runs (three triggers):**
 
-- **Nightly** 06:00 UTC (`e2e-nightly.yml` schedule) — the daily safety net for QA
+- **Nightly** 06:00 UTC (`e2e.yml` schedule) — the daily safety net for QA
   drift / expiring data. **Keep this even though the deploy-trigger exists** (a
   deploy-trigger fires only on backend deploys; weekends/quiet days and env drift
   still need the schedule).
 - **After each healthy QA backend deploy** — the backend repo's
   `post-deploy-smoke.yml` fires `repository_dispatch: qa-deploy`, which
-  `e2e-nightly.yml` listens for. Needs the `AUTOMATION_DISPATCH_TOKEN` secret on
+  `e2e.yml` listens for. Needs the `AUTOMATION_DISPATCH_TOKEN` secret on
   the backend repo (RestauNax PR #499).
-- **Manual** `workflow_dispatch` (Actions tab → e2e-nightly → Run workflow;
+- **Manual** `workflow_dispatch` (Actions tab → e2e → Run workflow;
   optional `grep` / `project` inputs).
 
 **Do NOT rebuild the Grafana pipeline.** `scripts/publish-results.ts` still POSTs

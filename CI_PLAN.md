@@ -1,6 +1,6 @@
 # CI Pipeline Plan — GitHub Actions
 
-> Status: **LIVE.** `static.yml`, `e2e-nightly.yml`, and `e2e-email-weekly.yml`
+> Status: **LIVE.** `static.yml`, `e2e.yml`, and `e2e-email-weekly.yml`
 > run against QA (secrets/vars configured). Reporting **Phase 2 (Allure on GitHub
 > Pages) shipped** → https://restaunax.github.io/Automation/. The **deploy-trigger**
 > (run the suite after each healthy QA deploy) is wired from the backend repo's
@@ -46,7 +46,7 @@ No secrets, no QA access, finishes in ~1 minute. Blocks merge on failure.
 - `npm run lint`
 - `npm run format:check`
 
-## Workflow 2 — `e2e-nightly.yml` (cron + manual)
+## Workflow 2 — `e2e.yml` (formerly e2e-nightly.yml; cron + dispatch + manual)
 
 - **Triggers:**
   - `schedule: cron "0 6 * * *"` (06:00 UTC — before the workday, after any
@@ -163,6 +163,6 @@ overlays; `process.env` wins everywhere in this codebase).
 
 1. `static.yml` (zero risk, immediate value)
 2. Configure the `qa` environment + secrets/vars in GitHub
-3. `e2e-nightly.yml` with artifact upload; watch it for a week
+3. `e2e.yml` with artifact upload; watch it for a week
 4. `@smoke` tags + `e2e-smoke.yml` PR lane
 5. Allure Pages history, then Slack alerts

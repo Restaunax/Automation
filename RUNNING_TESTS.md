@@ -118,7 +118,7 @@ and grouping features, but requires a Java runtime.
   on failures, and a Trend widget across runs — no download, no local server, no
   Java. A _failing_ run still publishes, and each run's Summary tab links to its
   report.
-- **GitHub Actions artifacts** (`e2e-nightly` + `e2e-email-weekly` workflows): the
+- **GitHub Actions artifacts** (`e2e` + `e2e-email-weekly` workflows): the
   raw Allure report is also uploaded as a run artifact (14-day retention) as a
   backup; failure traces/screenshots on failure.
 - **Slack:** genuine failures alert automatically (except runs superseded by a

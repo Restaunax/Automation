@@ -1,9 +1,12 @@
-# Nightly full E2E run against QA + manual dispatch for targeted runs.
+# The QA E2E regression suite (formerly e2e-nightly.yml — renamed when the
+# nightly schedule stopped being its only trigger). Runs the full Playwright
+# suite against QA: nightly (safety net), after each healthy QA backend deploy
+# (repository_dispatch), and manually for targeted runs.
 # See CI_PLAN.md for the full pipeline design and the secrets/vars this needs
 # (GitHub environment `qa`: OWNER/ADMIN/EMPLOYEE creds + Mailtrap; repo vars:
 # URLs + SEED_RESTAURANT_ID). Until those are configured this workflow will
 # run but skip most tests via the suite's own env guards.
-name: e2e-nightly
+name: e2e
 
 # Surface the prod-gate marker in the run name so RestauNax's prod-gate workflow
 # can correlate the run it dispatched. Plain "e2e" for every other trigger.
@@ -14,8 +17,8 @@ on:
   schedule:
     # 06:00 UTC — before the workday, after overnight QA deploys.
     - cron: "0 6 * * *"
-  # Fired by the RestauNax repo's qa-verify workflow after each QA deploy
-  # (once the backend has restarted with the new commit). See qa-verify.yml.
+  # Fired by the RestauNax repo's post-deploy-smoke.yml after each healthy QA
+  # backend deploy (once the new container passes its health gate).
   repository_dispatch:
     types: [qa-deploy]
   workflow_dispatch:
@@ -172,11 +175,13 @@ jobs:
         run: sudo rm -rf allure-history/.git allure-history/last-history allure-history/[0-9]*
 
       # The documented URL is the site root; keep it working now that reports
-      # live in subfolders.
+      # live in subfolders. sudo tee, NOT a plain redirect (>): simple-elf's
+      # container creates allure-history/ contents as root, so an unprivileged
+      # write fails with EACCES and the stale legacy index ships instead.
       - name: Write root index redirect
         if: always()
         run: |
-          cat > allure-history/index.html <<'EOF'
+          sudo tee allure-history/index.html > /dev/null <<'EOF'
           <!DOCTYPE html>
           <html lang="en">
           <head>
@@ -229,3 +234,19 @@ jobs:
           name: test-results-${{ github.run_number }}
           path: test-results
           retention-days: 14
+
+  # Deployment marker whose only job is the URL chip on the run graph — the
+  # same environment+url mechanism GitHub's own pages-build-deployment uses.
+  # The e2e job can't carry it: it already uses the `qa` environment for its
+  # secrets, and a job gets exactly one environment.
+  report:
+    needs: e2e
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: allure-report
+      url: https://restaunax.github.io/Automation/nightly/
+    steps:
+      - name: Report published
+        run: echo "Allure report — https://restaunax.github.io/Automation/nightly/ (live once pages-build-deployment finishes, ~1 min)"
