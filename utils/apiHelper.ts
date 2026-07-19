@@ -325,6 +325,8 @@ export async function deleteAutomationMenuGroups(
 export interface ApiCoupon {
   id: string;
   code: string;
+  /** CouponType enum, e.g. "PERCENTAGE" | "FIXED_AMOUNT" | "FREE_DELIVERY". */
+  type?: string;
   /** "restaurant" | "organization" — org coupons are shared, never delete. */
   source?: string;
 }
@@ -1448,4 +1450,236 @@ export async function findUserIdByEmail(
 ): Promise<string | undefined> {
   const users = await adminListUsers(adminToken, email);
   return users.find((u) => u.email.toLowerCase() === email.toLowerCase())?.id;
+}
+
+// ── Marketing: events, org coupons, lifecycle automations ────────────────────
+// API-level fixtures + verification for the marketing suites
+// (tests/dashboard/admin/marketing-*.spec.ts, owner 16-marketing-automations).
+
+export interface ApiMarketingEvent {
+  id: string;
+  name: string;
+  eventDate: string;
+  isRecurring: boolean;
+  status?: string;
+  couponId?: string | null;
+}
+
+export async function getMarketingEventsApi(
+  adminToken: string,
+  filter: "upcoming" | "past" | "all" = "all"
+): Promise<ApiMarketingEvent[]> {
+  const data = await apiRequest<{ events: ApiMarketingEvent[] }>(
+    "GET",
+    `/api/marketing/events?filter=${filter}`,
+    undefined,
+    adminToken
+  );
+  return data.events ?? [];
+}
+
+export async function createMarketingEventApi(
+  adminToken: string,
+  input: {
+    name: string;
+    eventDate: string;
+    couponId?: string;
+    isRecurring?: boolean;
+  }
+): Promise<ApiMarketingEvent> {
+  const data = await apiRequest<{ event: ApiMarketingEvent }>(
+    "POST",
+    "/api/marketing/events",
+    input,
+    adminToken
+  );
+  return data.event;
+}
+
+export async function deleteMarketingEventApi(
+  adminToken: string,
+  eventId: string
+): Promise<void> {
+  await apiRequest(
+    "DELETE",
+    `/api/marketing/events/${eventId}`,
+    undefined,
+    adminToken
+  );
+}
+
+/**
+ * Renew an event's coupon into the next year. Raw response on purpose — the
+ * renew-twice idempotency regression asserts on the second call's status
+ * (the original bug returned 400 "coupon already exists").
+ */
+export async function renewEventCouponRaw(
+  adminToken: string,
+  eventId: string
+): Promise<
+  RawResponse<{
+    success: boolean;
+    message?: string;
+    coupon?: { id: string; code: string };
+  }>
+> {
+  return apiRequestRaw(
+    "POST",
+    `/api/marketing/events/${eventId}/renew-coupon`,
+    {},
+    adminToken
+  );
+}
+
+export interface ApiOrgCoupon {
+  id: string;
+  code: string;
+  type: string;
+  status?: string;
+}
+
+export async function createOrgCouponApi(
+  adminToken: string,
+  input: {
+    code: string;
+    type: string;
+    value: number;
+    description?: string;
+    startDate: string;
+    endDate: string;
+    autoEnrollRestaurants?: boolean;
+  }
+): Promise<ApiOrgCoupon> {
+  const data = await apiRequest<{ coupon: ApiOrgCoupon }>(
+    "POST",
+    "/api/coupons/organization",
+    { autoEnrollRestaurants: false, ...input },
+    adminToken
+  );
+  return data.coupon;
+}
+
+export async function deleteOrgCouponApi(
+  adminToken: string,
+  couponId: string
+): Promise<void> {
+  await apiRequest(
+    "DELETE",
+    `/api/coupons/organization/${couponId}`,
+    undefined,
+    adminToken
+  );
+}
+
+export interface ApiAutomation {
+  id: string;
+  slug: string;
+  type: "WIN_BACK" | "WELCOME" | "VIP" | "CUSTOM";
+  name: string;
+  isEnabled: boolean;
+  cooldownDays: number;
+  inactiveDays: number | null;
+  templateId: string | null;
+}
+
+export async function getAutomationsApi(
+  adminToken: string
+): Promise<ApiAutomation[]> {
+  const data = await apiRequest<{ automations: ApiAutomation[] }>(
+    "GET",
+    "/api/marketing/automations",
+    undefined,
+    adminToken
+  );
+  return data.automations ?? [];
+}
+
+export async function patchAutomationApi(
+  adminToken: string,
+  automationId: string,
+  patch: Record<string, unknown>
+): Promise<ApiAutomation> {
+  const data = await apiRequest<{ automation: ApiAutomation }>(
+    "PATCH",
+    `/api/marketing/automations/${automationId}`,
+    patch,
+    adminToken
+  );
+  return data.automation;
+}
+
+export async function toggleAutomationApi(
+  adminToken: string,
+  automationId: string,
+  isEnabled: boolean
+): Promise<void> {
+  await apiRequest(
+    "PATCH",
+    `/api/marketing/automations/${automationId}/toggle`,
+    { isEnabled },
+    adminToken
+  );
+}
+
+/** Raw on purpose: run-now on a DISABLED automation must 400 (no sends). */
+export async function runAutomationNowRaw(
+  adminToken: string,
+  automationId: string
+): Promise<RawResponse<{ success: boolean; message?: string }>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/marketing/automations/${automationId}/run-now`,
+    {},
+    adminToken
+  );
+}
+
+export interface ApiOwnerAutomationSettings {
+  lifecycleMarketingOptOut: boolean;
+  automations: {
+    id: string;
+    name: string;
+    type: string;
+    isEnrolled: boolean;
+  }[];
+}
+
+export async function getOwnerAutomationSettingsApi(
+  token: string,
+  restaurantId: string
+): Promise<ApiOwnerAutomationSettings> {
+  const data = await apiRequest<{ settings: ApiOwnerAutomationSettings }>(
+    "GET",
+    `/api/marketing/automations/restaurant/${restaurantId}/settings`,
+    undefined,
+    token
+  );
+  return data.settings;
+}
+
+export async function setOwnerAutomationOptOutApi(
+  token: string,
+  restaurantId: string,
+  optOut: boolean
+): Promise<void> {
+  await apiRequest(
+    "PATCH",
+    `/api/marketing/automations/restaurant/${restaurantId}/opt-out`,
+    { optOut },
+    token
+  );
+}
+
+export async function setOwnerAutomationEnrollmentApi(
+  token: string,
+  restaurantId: string,
+  automationId: string,
+  isEnrolled: boolean
+): Promise<void> {
+  await apiRequest(
+    "PATCH",
+    `/api/marketing/automations/restaurant/${restaurantId}/enrollment/${automationId}`,
+    { isEnrolled },
+    token
+  );
 }
