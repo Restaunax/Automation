@@ -23,7 +23,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
  * seeded programs, the edit dialog (partial save + view-only template), the
  * enable toggle, and the API-level template-lock regression.
  *
- * QA email is fully sandboxed — every send lands in the shared Mailtrap
+ * QA email is fully sandboxed — every send lands in the shared Mailpit
  * inbox, never a real customer — so TC-210 exercises the enabled run-now
  * path for real (tagged @email; cap-bounded, state-restoring). TC-205 covers
  * the disabled contract (400, zero sends).
@@ -235,7 +235,7 @@ test.describe("Admin — Marketing automations", () => {
     { tag: ["@email"] },
     async () => {
       await allure.description(
-        "QA email is fully sandboxed (every send lands in the shared Mailtrap inbox, never a real customer), so the enabled run-now path is exercised for real: cap the daily pace to 1, enable Win-Back, run it, and — when candidates exist — verify the send row flips SENT and the email arrives in Mailtrap. State (enabled flag + caps) is restored afterwards."
+        "QA email is fully sandboxed (every send lands in the shared Mailpit inbox, never a real customer), so the enabled run-now path is exercised for real: cap the daily pace to 1, enable Win-Back, run it, and — when candidates exist — verify the send row flips SENT and the email arrives in Mailpit. State (enabled flag + caps) is restored afterwards."
       );
       test.setTimeout(180_000);
       const { accessToken } = await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD);
@@ -316,15 +316,8 @@ test.describe("Admin — Marketing automations", () => {
           }
         );
 
-        // The shared Mailtrap testing inbox has a hard send quota; when it is
-        // exhausted every send FAILs with "The email limit is reached" (same
-        // known env limit apiHelper tolerates on the welcome-email path). The
-        // pipeline (scan → row → worker → terminal status) IS verified above;
-        // only sandbox delivery is unavailable.
-        test.skip(
-          outcome === "FAILED",
-          "QA Mailtrap quota exhausted — worker processed the send but the sandbox rejected delivery"
-        );
+        // Mailpit is self-hosted and unmetered — a FAILED send is a genuine
+        // defect, never a provider budget artifact.
         expect(outcome).toBe("SENT");
 
         await allure.step(

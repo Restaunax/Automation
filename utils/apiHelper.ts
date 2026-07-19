@@ -1409,13 +1409,15 @@ export async function deleteRecordedUsers(adminToken: string): Promise<void> {
  *
  * Tolerates a specific known false-negative: the controller runs the
  * ownerId/role DB writes BEFORE sending a "you've been assigned a
- * restaurant" welcome email, and the two aren't in one transaction — a
- * Mailtrap-quota (or any email-provider) failure throws from inside the
- * same try block and the whole request 500s, even though the assignment
- * already succeeded. Confirmed live 2026-07-11 (real backend bug, written
- * up for the frontend/backend team — see TEST_COVERAGE.md). Callers should
- * verify the real outcome (e.g. the owner can see the restaurant) rather
- * than trust this call's success alone.
+ * restaurant" welcome email, and the two aren't in one transaction — any
+ * email-provider failure throws from inside the same try block and the
+ * whole request 500s, even though the assignment already succeeded.
+ * Confirmed live 2026-07-11 (real backend bug, written up for the
+ * frontend/backend team — see TEST_COVERAGE.md). The non-transactional bug
+ * is unfixed; only its most common trigger (the metered Mailtrap sandbox's
+ * send quota) went away when QA moved to Mailpit. Callers should verify the
+ * real outcome (e.g. the owner can see the restaurant) rather than trust
+ * this call's success alone.
  */
 export async function assignRestaurantToUserApi(
   adminToken: string,
@@ -1434,7 +1436,7 @@ export async function assignRestaurantToUserApi(
   if (res.status === 500 && /email limit is reached/i.test(detail)) {
     console.warn(
       "[apiHelper] assignRestaurantToUserApi: DB write likely succeeded despite a 500 " +
-        "from the welcome-email send hitting the Mailtrap quota — known backend bug, proceeding."
+        "from the welcome-email send failing — known backend bug, proceeding."
     );
     return;
   }

@@ -110,21 +110,22 @@ Playwright config change (`paths:` filter). Same concurrency group as nightly
 
 **Environment `qa` secrets** (attach the e2e jobs to this environment):
 
-| Secret                                     | Notes                                            |
-| ------------------------------------------ | ------------------------------------------------ |
-| `OWNER_EMAIL` / `OWNER_PASSWORD`           | must own the seed restaurant                     |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD`           | required for teardown sweeps + hard item deletes |
-| `EMPLOYEE_EMAIL` / `EMPLOYEE_PASSWORD`     | unlocks the currently-skipped employee suite     |
-| `MAILTRAP_API_TOKEN` / `MAILTRAP_INBOX_ID` | unlocks TC-02, TC-123 (invite journey)           |
+| Secret                                    | Notes                                            |
+| ----------------------------------------- | ------------------------------------------------ |
+| `OWNER_EMAIL` / `OWNER_PASSWORD`          | must own the seed restaurant                     |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD`          | required for teardown sweeps + hard item deletes |
+| `EMPLOYEE_EMAIL` / `EMPLOYEE_PASSWORD`    | unlocks the currently-skipped employee suite     |
+| `MAILPIT_UI_USER` / `MAILPIT_UI_PASSWORD` | Mailpit basic auth — unlocks the `@email` group  |
 
 **Repo variables (non-secret):** `FRONTEND_URL`, `BACKEND_URL`,
-`TEMPLATE_WIND_URL`, `TEMPLATE_WIND_RESTAURANT_ID`, `SEED_RESTAURANT_ID`.
+`TEMPLATE_WIND_URL`, `TEMPLATE_WIND_RESTAURANT_ID`, `SEED_RESTAURANT_ID`,
+`MAILPIT_BASE_URL`.
 
 Pass all of these as job-level `env:` — no `.env` file needed (dotenv only
 overlays; `process.env` wins everywhere in this codebase).
 
 > Note: CI will exercise tests that are **skipped locally today** (employee
-> suite, Mailtrap-gated, customer project). Expect the first nightly run to
+> suite, Mailpit-gated, customer project). Expect the first nightly run to
 > surface issues in those paths — that's the point. Budget a stabilization
 > week.
 

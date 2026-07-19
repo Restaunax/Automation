@@ -12,13 +12,17 @@ export const FRONTEND_URL =
 export const TEMPLATE_WIND_URL =
   process.env.TEMPLATE_WIND_URL ?? "https://wind.restaunax.com";
 
-// In QA all outbound mail is captured by the quota-limited Mailtrap sandbox, so
-// the domain need not be real. Default matches .env/CI (demomailtrap.co).
+// In QA all outbound mail is captured by the self-hosted Mailpit sandbox, so the
+// domain need not be real. Default matches .env/CI (demomailtrap.co — a leftover
+// from the Mailtrap era, harmless since nothing leaves the sandbox).
 const EMAIL_DOMAIN = process.env.TEST_EMAIL_DOMAIN ?? "demomailtrap.co";
 
-// Email-sending tests are gated by the @email Playwright tag (@demo = demo
-// subset) and excluded from default runs — see playwright.config.ts and
-// TEST_PLAN → "Test execution strategy". The old opt-in env flags are gone.
+// Generated addresses MUST stay unique per test: the Mailpit inbox is shared
+// across runs and with humans, and emailHelper matches on the recipient.
+
+// Email-sending tests carry the @email tag (@demo = demo subset) purely as a
+// selector for targeted runs — they are NOT excluded from the default suite.
+// See playwright.config.ts and TEST_PLAN → "Test execution strategy".
 
 // ── Shared temp file paths (all relative to Automation/) ────────────────────
 export const STATE_FILE = path.resolve(__dirname, "../shared-state.tmp.json");
@@ -78,7 +82,7 @@ export function generateDemoFormData(): DemoFormData & { uniqueId: string } {
 
 // Unique, recognizable email for an invited/registered test user. The
 // TEST_USER_MARKER prefix lets cleanup find leftovers. In QA all outbound mail
-// is captured by the Mailtrap sandbox, so the domain need not be real.
+// is captured by the Mailpit sandbox, so the domain need not be real.
 export function generateUserEmail(label = "u"): string {
   const uniqueId = uuidv4().split("-")[0];
   return `${TEST_USER_MARKER}_${label}_${uniqueId}@${EMAIL_DOMAIN}`;

@@ -27,6 +27,8 @@
 
 Steps 1–2 are not wrapped in a transaction with step 3. If the email send throws (confirmed live: a Mailtrap quota exhaustion — `"The email limit is reached. Please upgrade your plan"`), the catch block returns a 500 to the caller, even though the ownership change already committed to the database. The caller has no way to distinguish "actually failed" from "succeeded, but the notification email didn't send."
 
+> **2026-07-19 update:** QA switched from the metered Mailtrap sandbox to self-hosted Mailpit (`EMAIL_SANDBOX_PROVIDER=mailpit`), so the specific quota-exhaustion trigger recorded above can no longer occur. The defect described here is unchanged — any email-send failure still surfaces as a 500 on an operation that already committed.
+
 **Recommended fix:** wrap the `sendEmail` call in its own try/catch that logs on failure but does not throw — matching the pattern already used elsewhere in this codebase (see `restaurantController.ts`'s demo-affiliate email, which explicitly comments "Don't fail the publish process if email fails"). The data operation and the notification should not share a failure mode.
 
 ## Priority 3 — `CreateStore.tsx` wizard UX debt

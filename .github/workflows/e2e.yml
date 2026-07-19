@@ -5,7 +5,7 @@
 # customer project only after each storefront deploy (repository_dispatch:
 # template-deploy from template-wind's notify-e2e.yml).
 # See CI_PLAN.md for the full pipeline design and the secrets/vars this needs
-# (GitHub environment `qa`: OWNER/ADMIN/EMPLOYEE creds + Mailtrap; repo vars:
+# (GitHub environment `qa`: OWNER/ADMIN/EMPLOYEE creds + Mailpit; repo vars:
 # URLs + SEED_RESTAURANT_ID). Until those are configured this workflow will
 # run but skip most tests via the suite's own env guards.
 name: e2e
@@ -72,8 +72,11 @@ jobs:
       ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
       EMPLOYEE_EMAIL: ${{ secrets.EMPLOYEE_EMAIL }}
       EMPLOYEE_PASSWORD: ${{ secrets.EMPLOYEE_PASSWORD }}
-      MAILTRAP_API_TOKEN: ${{ secrets.MAILTRAP_API_TOKEN }}
-      MAILTRAP_INBOX_ID: ${{ secrets.MAILTRAP_INBOX_ID }}
+      # QA's self-hosted Mailpit inbox. The password is a secret so Actions
+      # masks it in logs; the URL is not sensitive.
+      MAILPIT_BASE_URL: ${{ vars.MAILPIT_BASE_URL }}
+      MAILPIT_UI_USER: ${{ secrets.MAILPIT_UI_USER }}
+      MAILPIT_UI_PASSWORD: ${{ secrets.MAILPIT_UI_PASSWORD }}
       # publish-results.ts reads these only if set. The backend ingest endpoint +
       # Grafana dashboard were BACKED OUT (see restaunax-backend migration
       # remove_qa_test_results, 2026-07-09), so the POST is a no-op today — the
@@ -118,10 +121,9 @@ jobs:
           DISPATCH_TYPE: ${{ github.event.action }}
           DEPLOY_REPO: ${{ github.event.client_payload.repo }}
         run: |
-          # Email-sending tests (@email) are EXCLUDED here by playwright.config.ts
-          # (grepInvert unless INCLUDE_EMAIL_TESTS=1) so the nightly never drains the
-          # Mailtrap quota. The @email group is opt-in only — it runs on the weekly
-          # e2e-email-weekly.yml job (or a manual dispatch of it), not here.
+          # Email-sending tests (@email) run here too — QA sends to a self-hosted,
+          # unmetered Mailpit inbox, so there is no quota to protect. They need
+          # MAILPIT_* above; without it the suite's own env guards skip them.
           # No --reporter override: use the config reporters (list + json →
           # results.json for the publish step + allure). A CLI --reporter would
           # drop the json reporter and its configured outputFile.

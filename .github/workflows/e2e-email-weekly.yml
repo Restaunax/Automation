@@ -1,18 +1,18 @@
-# Deliberate email-flow validation against QA.
+# Targeted email-flow validation against QA — MANUAL DISPATCH ONLY.
 #
 # The @email group (demo request/management/actions, admin invite + password
-# reset + invite→claim journey, sign-up, gift-card purchases) actually sends
-# mail through the quota-limited Mailtrap sandbox (~19 emails per full run, demo
-# = 2 each). The main e2e suite (e2e.yml) EXCLUDES @email so routine runs never
-# drain the 500/mo cap; this job is where those flows get exercised on purpose —
-# weekly, plus on-demand. INCLUDE_EMAIL_TESTS=1 turns off the config's default
-# exclusion so `--grep @email` selects exactly that group.
+# reset + invite→claim journey, sign-up, gift-card purchases) sends real mail to
+# QA's self-hosted Mailpit inbox. It used to run weekly here because the old
+# Mailtrap sandbox was metered and the main suite had to exclude it; Mailpit is
+# unmetered, so e2e.yml now covers @email on every run and the weekly schedule
+# is retired. This workflow survives for on-demand runs of just that group —
+# debugging an email flow without paying for the full suite.
+#
+# Keep the dedicated `email/` Allure subfolder: the report cleanup deletes
+# non-numeric siblings, so a report parked at another suite's level gets wiped.
 name: e2e-email-weekly
 
 on:
-  schedule:
-    # 06:00 UTC every Monday — ~19 emails/run × ~4 runs/mo ≈ 76/mo, well under 500.
-    - cron: "0 6 * * 1"
   workflow_dispatch:
 
 # Share the single Playwright concurrency group with the nightly: the suite
@@ -44,14 +44,13 @@ jobs:
       ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
       EMPLOYEE_EMAIL: ${{ secrets.EMPLOYEE_EMAIL }}
       EMPLOYEE_PASSWORD: ${{ secrets.EMPLOYEE_PASSWORD }}
-      MAILTRAP_API_TOKEN: ${{ secrets.MAILTRAP_API_TOKEN }}
-      MAILTRAP_INBOX_ID: ${{ secrets.MAILTRAP_INBOX_ID }}
+      MAILPIT_BASE_URL: ${{ vars.MAILPIT_BASE_URL }}
+      MAILPIT_UI_USER: ${{ secrets.MAILPIT_UI_USER }}
+      MAILPIT_UI_PASSWORD: ${{ secrets.MAILPIT_UI_PASSWORD }}
       RESULTS_URL: ${{ secrets.RESULTS_URL }}
       RESULTS_API_KEY: ${{ secrets.RESULTS_API_KEY }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-      # Opt in to the email group (drops the config's default @email exclusion).
-      INCLUDE_EMAIL_TESTS: "1"
-      E2E_TRIGGER: ${{ github.event_name == 'schedule' && 'email-weekly' || 'email-manual' }}
+      E2E_TRIGGER: email-manual
     steps:
       - uses: actions/checkout@v4
 
@@ -73,9 +72,8 @@ jobs:
 
       - name: Run the @email group
         run: |
-          # INCLUDE_EMAIL_TESTS=1 (env above) removes the default exclusion, then
-          # --grep @email runs exactly the mail-sending tests. Config reporters
-          # (list + json + allure) are kept — no --reporter override.
+          # --grep @email selects exactly the mail-sending tests. Config
+          # reporters (list + json + allure) are kept — no --reporter override.
           npx playwright test --grep @email
 
       - name: Generate Allure HTML report
