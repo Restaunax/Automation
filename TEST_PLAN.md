@@ -525,18 +525,22 @@ gift-card **purchase** tests (TC-165/166/169) are **not** `@email` — they're
 Known Technical Debt); the non-purchase gift-card cases (TC-167/168/170) keep
 running.
 
-**CI.** The nightly (`e2e-nightly.yml`) excludes `@email`. The group runs on
+**CI.** The nightly (`e2e.yml`) excludes `@email`. The group runs on
 `e2e-email-weekly.yml` — a weekly schedule plus on-demand `workflow_dispatch` —
 which sets `INCLUDE_EMAIL_TESTS=1`. ~14 × ~4/mo ≈ 56 emails/mo, well under 500.
 
-**When the full (non-email) suite runs.** Three triggers: (1) **nightly** 06:00
-UTC — the daily net for QA drift / expiring data; (2) **automatically after each
+**When the suite runs.** Four triggers: (1) **nightly** 06:00 UTC — the daily
+net for QA drift / expiring data (full suite); (2) **automatically after each
 healthy QA backend deploy** — the backend's `post-deploy-smoke.yml` fires
-`repository_dispatch: qa-deploy`, which `e2e-nightly.yml` listens for (needs the
-`AUTOMATION_DISPATCH_TOKEN` secret on the backend repo; RestauNax PR #499); (3)
-**manual** `workflow_dispatch`. Keep the nightly even with the deploy-trigger live
-— a deploy-trigger fires only on backend deploys, so quiet days and env drift
-still need the schedule. Every run publishes the hosted Allure report →
+`repository_dispatch: qa-deploy`, which `e2e.yml` listens for (full suite; needs
+the `AUTOMATION_DISPATCH_TOKEN` secret on the backend repo; RestauNax PR #499);
+(3) **automatically after each template-wind QA deploy** — wind's
+`notify-e2e.yml` fires `repository_dispatch: template-deploy` and `e2e.yml` runs
+**only the customer project** (one storefront changed; report publishes to the
+`wind-deploy/` Pages subfolder; same token secret on the wind repo); (4)
+**manual** `workflow_dispatch`. Keep the nightly even with the deploy-triggers
+live — they fire only on deploys, so quiet days and env drift still need the
+schedule. Every run publishes the hosted Allure report →
 **https://restaunax.github.io/Automation/**.
 
 **Local dev.** When writing or iterating on a test, run just that one

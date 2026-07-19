@@ -3,7 +3,7 @@
 # The @email group (demo request/management/actions, admin invite + password
 # reset + invite→claim journey, sign-up, gift-card purchases) actually sends
 # mail through the quota-limited Mailtrap sandbox (~19 emails per full run, demo
-# = 2 each). The nightly (e2e-nightly.yml) EXCLUDES @email so routine runs never
+# = 2 each). The main e2e suite (e2e.yml) EXCLUDES @email so routine runs never
 # drain the 500/mo cap; this job is where those flows get exercised on purpose —
 # weekly, plus on-demand. INCLUDE_EMAIL_TESTS=1 turns off the config's default
 # exclusion so `--grep @email` selects exactly that group.
@@ -83,7 +83,7 @@ jobs:
         run: npx allure generate allure-results -o allure-report --clean
 
       # ── Publish the Allure report to GitHub Pages ─────────────────────────────
-      # Same pipeline as e2e-nightly.yml, but under the email/ subfolder →
+      # Same pipeline as e2e.yml, but under the email/ subfolder →
       # https://restaunax.github.io/Automation/email/ (the nightly owns nightly/
       # and the root redirect). Each suite MUST have its own subfolder:
       # simple-elf's keep_reports cleanup deletes non-numeric siblings first, so
@@ -132,7 +132,7 @@ jobs:
           echo "https://restaunax.github.io/Automation/email/ — live once pages-build-deployment finishes (~1 min)" >> "$GITHUB_STEP_SUMMARY"
 
       # Parse results.json and Slack on real failures. (The Grafana ingest POST
-      # is a no-op — endpoint backed out; see e2e-nightly.yml.) Best-effort:
+      # is a no-op — endpoint backed out; see e2e.yml.) Best-effort:
       # never fails the job.
       - name: Publish results + Slack alert on failure
         if: always()
@@ -155,3 +155,19 @@ jobs:
           name: test-results-email-${{ github.run_number }}
           path: test-results
           retention-days: 14
+
+  # Deployment marker whose only job is the URL chip on the run graph — the
+  # same environment+url mechanism GitHub's own pages-build-deployment uses.
+  # The e2e-email job can't carry it: it already uses the `qa` environment for
+  # its secrets, and a job gets exactly one environment.
+  report:
+    needs: e2e-email
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: allure-report
+      url: https://restaunax.github.io/Automation/email/
+    steps:
+      - name: Report published
+        run: echo "Allure report — https://restaunax.github.io/Automation/email/ (live once pages-build-deployment finishes, ~1 min)"

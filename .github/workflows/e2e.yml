@@ -1,9 +1,14 @@
-# Nightly full E2E run against QA + manual dispatch for targeted runs.
+# The QA E2E regression suite (formerly e2e-nightly.yml — renamed when the
+# nightly schedule stopped being its only trigger). Runs against QA: the full
+# Playwright suite nightly (safety net), after each healthy QA backend deploy
+# (repository_dispatch: qa-deploy), and manually for targeted runs — plus the
+# customer project only after each storefront deploy (repository_dispatch:
+# template-deploy from template-wind's notify-e2e.yml).
 # See CI_PLAN.md for the full pipeline design and the secrets/vars this needs
 # (GitHub environment `qa`: OWNER/ADMIN/EMPLOYEE creds + Mailtrap; repo vars:
 # URLs + SEED_RESTAURANT_ID). Until those are configured this workflow will
 # run but skip most tests via the suite's own env guards.
-name: e2e-nightly
+name: e2e
 
 # Surface the prod-gate marker in the run name so RestauNax's prod-gate workflow
 # can correlate the run it dispatched. Plain "e2e" for every other trigger.
@@ -14,10 +19,13 @@ on:
   schedule:
     # 06:00 UTC — before the workday, after overnight QA deploys.
     - cron: "0 6 * * *"
-  # Fired by the RestauNax repo's qa-verify workflow after each QA deploy
-  # (once the backend has restarted with the new commit). See qa-verify.yml.
+  # qa-deploy: fired by the RestauNax repo's post-deploy-smoke.yml after each
+  # healthy QA backend deploy (once the new container passes its health gate).
+  # template-deploy: fired by a storefront repo's notify-e2e.yml after its
+  # Dokploy QA deploy settles; client_payload.repo says which storefront, and
+  # the run step narrows to that storefront's customer tests.
   repository_dispatch:
-    types: [qa-deploy]
+    types: [qa-deploy, template-deploy]
   workflow_dispatch:
     inputs:
       grep:
@@ -44,6 +52,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: qa
+    outputs:
+      # Consumed by the report job's environment URL chip below.
+      report_url: ${{ steps.report-subfolder.outputs.url }}
     # peaceiris/actions-gh-pages pushes the built Allure report to the gh-pages
     # branch using the default GITHUB_TOKEN, which needs write access to contents.
     permissions:
@@ -72,7 +83,11 @@ jobs:
       RESULTS_API_KEY: ${{ secrets.RESULTS_API_KEY }}
       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       # What triggered this run (recorded on the run row).
-      E2E_TRIGGER: ${{ github.event_name == 'schedule' && 'nightly' || github.event_name == 'repository_dispatch' && 'qa-deploy' || 'manual' }}
+      E2E_TRIGGER: >-
+        ${{ github.event_name == 'schedule' && 'nightly'
+          || github.event.action == 'template-deploy' && 'wind-deploy'
+          || github.event_name == 'repository_dispatch' && 'qa-deploy'
+          || 'manual' }}
       # For repository_dispatch, the SHA/ref of the qa commit under test come
       # from the dispatch payload; otherwise fall back to this repo's context.
       GITHUB_SHA: ${{ github.event.client_payload.sha || github.sha }}
@@ -100,6 +115,8 @@ jobs:
         env:
           GREP: ${{ inputs.grep }}
           PROJECT: ${{ inputs.project }}
+          DISPATCH_TYPE: ${{ github.event.action }}
+          DEPLOY_REPO: ${{ github.event.client_payload.repo }}
         run: |
           # Email-sending tests (@email) are EXCLUDED here by playwright.config.ts
           # (grepInvert unless INCLUDE_EMAIL_TESTS=1) so the nightly never drains the
@@ -108,6 +125,15 @@ jobs:
           # No --reporter override: use the config reporters (list + json →
           # results.json for the publish step + allure). A CLI --reporter would
           # drop the json reporter and its configured outputFile.
+          #
+          # A template-deploy dispatch means one storefront changed: run only its
+          # customer tests, not the whole suite (backend deploys still run all).
+          if [ "$DISPATCH_TYPE" = "template-deploy" ]; then
+            case "$DEPLOY_REPO" in
+              template-wind) PROJECT=customer ;;
+              *) echo "unknown deploy repo '$DEPLOY_REPO' in template-deploy payload" >&2; exit 1 ;;
+            esac
+          fi
           ARGS=()
           if [ -n "$GREP" ]; then ARGS+=(--grep "$GREP"); fi
           if [ -n "$PROJECT" ] && [ "$PROJECT" != "all" ]; then ARGS+=(--project="$PROJECT"); fi
@@ -131,6 +157,25 @@ jobs:
       # non-numeric names sort first — a sibling report parked next to the run
       # folders would be the first thing deleted. Subfolders scope the cleanup;
       # the site root is never cleaned.
+      # Full-suite runs (nightly / qa-deploy / manual) publish to nightly/;
+      # storefront-deploy runs get their own subfolder (wind-deploy/) — both
+      # because simple-elf cleanup would delete a sibling report (see above) and
+      # because customer-only runs interleaved into nightly/ would wreck the
+      # trend widget's test counts.
+      - name: Resolve Allure report subfolder
+        id: report-subfolder
+        if: always()
+        env:
+          DISPATCH_TYPE: ${{ github.event.action }}
+          DEPLOY_REPO: ${{ github.event.client_payload.repo }}
+        run: |
+          SUB=nightly
+          if [ "$DISPATCH_TYPE" = "template-deploy" ]; then
+            SUB="${DEPLOY_REPO#template-}-deploy" # template-wind → wind-deploy
+          fi
+          echo "REPORT_SUBFOLDER=$SUB" >> "$GITHUB_ENV"
+          echo "url=https://restaunax.github.io/Automation/$SUB/" >> "$GITHUB_OUTPUT"
+
       - name: Fetch prior Allure history
         if: always()
         continue-on-error: true # gh-pages doesn't exist yet on the very first run
@@ -157,7 +202,7 @@ jobs:
           allure_results: allure-results
           gh_pages: gh-pages
           allure_history: allure-history
-          subfolder: nightly
+          subfolder: ${{ env.REPORT_SUBFOLDER }}
           keep_reports: 30
 
       # simple-elf runs as root in a container and copies the checked-out gh-pages
@@ -172,11 +217,13 @@ jobs:
         run: sudo rm -rf allure-history/.git allure-history/last-history allure-history/[0-9]*
 
       # The documented URL is the site root; keep it working now that reports
-      # live in subfolders.
+      # live in subfolders. sudo tee, NOT a plain redirect (>): simple-elf's
+      # container creates allure-history/ contents as root, so an unprivileged
+      # write fails with EACCES and the stale legacy index ships instead.
       - name: Write root index redirect
         if: always()
         run: |
-          cat > allure-history/index.html <<'EOF'
+          sudo tee allure-history/index.html > /dev/null <<'EOF'
           <!DOCTYPE html>
           <html lang="en">
           <head>
@@ -185,8 +232,11 @@ jobs:
             <title>Restaunax E2E reports</title>
           </head>
           <body>
-            <p>Redirecting to the <a href="./nightly/">nightly report</a>&hellip;</p>
-            <p>Also available: <a href="./email/">weekly @email report</a></p>
+            <p>Redirecting to the <a href="./nightly/">full-suite report</a>&hellip;</p>
+            <p>
+              Also available: <a href="./wind-deploy/">wind-deploy customer runs</a>
+              &middot; <a href="./email/">weekly @email runs</a>
+            </p>
           </body>
           </html>
           EOF
@@ -203,7 +253,7 @@ jobs:
         if: always()
         run: |
           echo "### 📊 Allure report" >> "$GITHUB_STEP_SUMMARY"
-          echo "https://restaunax.github.io/Automation/nightly/ — live once pages-build-deployment finishes (~1 min)" >> "$GITHUB_STEP_SUMMARY"
+          echo "https://restaunax.github.io/Automation/$REPORT_SUBFOLDER/ — live once pages-build-deployment finishes (~1 min)" >> "$GITHUB_STEP_SUMMARY"
 
       # Parse results.json, detect a mid-run deploy (superseded), and Slack on
       # real failures. (The Grafana ingest POST is a no-op — endpoint backed out;
@@ -229,3 +279,19 @@ jobs:
           name: test-results-${{ github.run_number }}
           path: test-results
           retention-days: 14
+
+  # Deployment marker whose only job is the URL chip on the run graph — the
+  # same environment+url mechanism GitHub's own pages-build-deployment uses.
+  # The e2e job can't carry it: it already uses the `qa` environment for its
+  # secrets, and a job gets exactly one environment.
+  report:
+    needs: e2e
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: allure-report
+      url: ${{ needs.e2e.outputs.report_url || 'https://restaunax.github.io/Automation/nightly/' }}
+    steps:
+      - name: Report published
+        run: echo "Allure report — ${{ needs.e2e.outputs.report_url || 'https://restaunax.github.io/Automation/nightly/' }} (live once pages-build-deployment finishes, ~1 min)"
