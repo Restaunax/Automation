@@ -16,6 +16,7 @@ import {
   deleteTestMenuGroupWithItems,
   deleteAutomationMenuGroups,
   deleteAutomationCoupons,
+  deleteAutomationDeals,
   deleteRecordedUsers,
   freezeGiftCardApi,
   BACKEND_URL,
@@ -142,6 +143,23 @@ export default async function globalTeardown(): Promise<void> {
         }
       } catch (err) {
         console.warn("[globalTeardown] Coupon sweep failed:", err);
+      }
+
+      // Sweep AUTO* deals the customer deal tests created (mirrors the coupon
+      // sweep — the deal spec deletes its own in afterAll, this catches
+      // interrupted runs).
+      try {
+        const dealsDeleted = await deleteAutomationDeals(
+          accessToken,
+          restaurantId
+        );
+        if (dealsDeleted) {
+          console.log(
+            `[globalTeardown] Deleted ${dealsDeleted} automation deal(s)`
+          );
+        }
+      } catch (err) {
+        console.warn("[globalTeardown] Deal sweep failed:", err);
       }
     }
   } else {

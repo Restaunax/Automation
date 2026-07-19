@@ -384,6 +384,90 @@ export async function deleteAutomationCoupons(
   return deleted;
 }
 
+// ── Deals ────────────────────────────────────────────────────────────────────
+//
+// POST /api/deals/restaurant/:id (MODIFY_RESTAURANT — the owner token has it).
+// Body contract (backend CreateDealBody): {name, dealPrice, items:
+// [{menuItemId, quantity, itemName, itemPrice, isRequired?, sortOrder?}],
+// validDays?/validTimeStart?/validTimeEnd? ...} — omit the restrictions so a
+// seeded deal is always active. AUTO-prefixed names get swept by
+// deleteAutomationDeals in globalTeardown, mirroring the coupon sweep.
+
+export interface ApiDeal {
+  id: string;
+  name: string;
+  dealPrice?: number;
+  status?: string;
+}
+
+/** Raw deal create — create response is { success, message, deal }. */
+export function createDealRaw(
+  accessToken: string,
+  restaurantId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "POST",
+    `/api/deals/restaurant/${restaurantId}`,
+    body,
+    accessToken
+  );
+}
+
+/** GET /api/deals/restaurant/:id — response is { success, deals: [...] }. */
+export async function getRestaurantDeals(
+  accessToken: string,
+  restaurantId: string
+): Promise<ApiDeal[]> {
+  const data = await apiRequest<{ deals?: ApiDeal[] }>(
+    "GET",
+    `/api/deals/restaurant/${restaurantId}`,
+    undefined,
+    accessToken
+  );
+  return data.deals ?? [];
+}
+
+/** DELETE /api/deals/:dealId — requires MODIFY_RESTAURANT (owner token). */
+export async function deleteDealApi(
+  accessToken: string,
+  dealId: string
+): Promise<void> {
+  await apiRequest<unknown>(
+    "DELETE",
+    `/api/deals/${dealId}`,
+    undefined,
+    accessToken
+  );
+}
+
+/**
+ * Sweep all automation-created deals (names starting with `namePrefix`) from
+ * a restaurant — this run's AND leftovers from interrupted runs. Best-effort
+ * per deal; never throws past the per-deal warn.
+ */
+export async function deleteAutomationDeals(
+  accessToken: string,
+  restaurantId: string,
+  namePrefix = "AUTO"
+): Promise<number> {
+  const deals = await getRestaurantDeals(accessToken, restaurantId);
+  let deleted = 0;
+  for (const deal of deals) {
+    if (!deal.name?.startsWith(namePrefix)) continue;
+    try {
+      await deleteDealApi(accessToken, deal.id);
+      deleted++;
+    } catch (err) {
+      console.warn(
+        `[apiHelper] Failed to delete deal ${deal.name} (${deal.id}):`,
+        err
+      );
+    }
+  }
+  return deleted;
+}
+
 // ── Gift Cards ───────────────────────────────────────────────────────────────
 //
 // Codes are server-generated (unlike client-chosen `AUTO*` coupon codes), so
