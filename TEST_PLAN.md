@@ -456,7 +456,11 @@ same file as the settings mutations.
 
 - **Customer OTP login** — no helper yet for `POST /login/send-otp` +
   `/login/verify-otp` (reward-member sessions). Customer tests today are
-  guest-only.
+  guest-only. NOTE (2026-07-19): the backend DOES have a fixed-OTP bypass
+  (`src/utils/testPhones.ts` — phone `5555550100`, code `123456`), but that
+  number is the App/Play Store **reviewer demo account** and the bypass is
+  live in production — don't churn its points/credit from automation. Ask the
+  backend to add a second, QA-scoped test phone before building the helper.
 - **Wire Mailtrap in CI** — set an **Email Testing** token (not a Sending
   token, which 403s) so the demo-confirmation-email check (currently skipped)
   and the admin invite→claim→login journey test (also Mailtrap-gated) can run.
@@ -636,18 +640,25 @@ Each remaining suite lands by filling its existing `test.fixme` placeholder
 
 ### Then — deeper coverage on existing screens
 
-| Suite                                      | Key cases                                                                                      |
-| ------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| `tests/dashboard/owner/06-orders.spec.ts`  | Order status change, refund flow (needs an order-creation API helper)                          |
-| `tests/dashboard/owner/07-coupons.spec.ts` | Re-enable the coupon-edit `test.fixme` once the backend `value`-as-string bug is fixed         |
-| `tests/dashboard/owner/11-deals.spec.ts`   | Full create-deal flow (needs a deals API helper for setup/cleanup)                             |
-| Admin/Employee lead onboarding             | Confirm QA's deployed frontend branch first; only then build coverage for `LeadOnboarding.tsx` |
+| Suite                                      | Key cases                                                                                                                               |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `tests/dashboard/owner/06-orders.spec.ts`  | Order status change, refund flow (needs an order-creation API helper)                                                                   |
+| `tests/dashboard/owner/07-coupons.spec.ts` | Re-enable the coupon-edit `test.fixme` once the backend `value`-as-string bug is fixed                                                  |
+| `tests/dashboard/owner/11-deals.spec.ts`   | Full create-deal flow (the deals API helper now exists — `createDealRaw`/`deleteDealApi`/`deleteAutomationDeals`, added for TC-195–197) |
+| Admin/Employee lead onboarding             | Confirm QA's deployed frontend branch first; only then build coverage for `LeadOnboarding.tsx`                                          |
 
 ### Later — Member ordering, POS, hardening
 
-### Later — Member ordering, POS, hardening
-
-- Reward-member checkout (needs the OTP login helper noted above)
+- Reward-member checkout (needs the OTP login helper noted above — and a
+  QA-scoped test phone backend-side; see the Helpers "Still open" note)
+- Customer availability gates: `acceptingOrders=false` block,
+  `published=false` browsing-only banner, out-of-stock item hidden — need an
+  own throwaway restaurant (never toggle these on the shared seed restaurant)
+- FREE_DELIVERY coupon auto-removal when switching away from Delivery —
+  blocked until template-wind's `feat/free-delivery-display` branch merges
+- Scheduling rules (closed restaurant forces "Schedule for later",
+  `minimumOrderPreparationTime` slot filtering) — timezone-flake-prone and
+  mutates restaurant hours; do on the throwaway restaurant above
 - `tests/pos/**` API-level POS lifecycle (`POST /api/tablet/login`, status transitions)
 - Cross-browser matrix, GitHub Actions on every PR, Allure flakiness trend
 
