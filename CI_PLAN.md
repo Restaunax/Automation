@@ -59,6 +59,18 @@ No secrets, no QA access, finishes in ~1 minute. Blocks merge on failure.
     the `AUTOMATION_DISPATCH_TOKEN` secret). Runs the full suite so a regression is
     caught right after deploy, not only at the nightly. Keep the nightly too — it
     covers quiet days / env drift that a deploy-trigger never sees.
+  - `repository_dispatch: [template-deploy]` — fired by a storefront repo's
+    `notify-e2e.yml` after its Dokploy QA deploy settles. **Sender contract:**
+    `event_type: template-deploy`, `client_payload: {repo, sha, ref, marker}`
+    where `repo` is the storefront repo name (`template-wind` today), `marker`
+    (e.g. `wind-deploy@<short-sha>`) labels the run name, and the sender needs
+    the `AUTOMATION_DISPATCH_TOKEN` secret. The run step narrows to that
+    storefront's customer project (`template-wind → --project=customer`) and the
+    report publishes to its own Pages subfolder (`wind-deploy/`). Readiness on
+    the sender side is a pragmatic proxy — fixed build-window sleep + stable
+    HTTP 200 polls — because storefronts have no health/uptime endpoint and the
+    old container serves 200 during a Dokploy zero-downtime swap; a stale-by-one
+    run is benign (the next trigger self-corrects).
 - **Guard:** `if: github.repository == 'Restaunax/Automation'` (don't run on forks)
 - **Runner:** `ubuntu-latest`, `timeout-minutes: 45`
 - **Steps:**

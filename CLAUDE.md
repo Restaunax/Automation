@@ -303,8 +303,14 @@ Pages (latest run + a Trend widget of history):
 
 - **https://restaunax.github.io/Automation/nightly/** — the full suite
   (`e2e.yml`; the site root redirects here).
+- **https://restaunax.github.io/Automation/wind-deploy/** — customer-project runs
+  fired by template-wind deploys (`e2e.yml`, `template-deploy` dispatch).
 - **https://restaunax.github.io/Automation/email/** — the weekly @email group
   (`e2e-email-weekly.yml`).
+
+Each run's graph also shows a `report` job with the URL chip (an `allure-report`
+environment — the same mechanism `pages-build-deployment` uses), and the Summary
+tab links the report.
 
 Both workflows push the built report to `gh-pages` via `peaceiris/actions-gh-pages`;
 that push is what triggers GitHub's auto-generated `pages-build-deployment` workflow
@@ -317,16 +323,24 @@ siblings of the run folders first — a report parked at another suite's level g
 wiped). All Pages steps are `if: always()` so a failing run still publishes its
 report.
 
-**When the suite runs (three triggers):**
+**When the suite runs (four triggers):**
 
 - **Nightly** 06:00 UTC (`e2e.yml` schedule) — the daily safety net for QA
-  drift / expiring data. **Keep this even though the deploy-trigger exists** (a
-  deploy-trigger fires only on backend deploys; weekends/quiet days and env drift
+  drift / expiring data. **Keep this even though the deploy-triggers exist**
+  (deploy-triggers fire only on deploys; weekends/quiet days and env drift
   still need the schedule).
 - **After each healthy QA backend deploy** — the backend repo's
   `post-deploy-smoke.yml` fires `repository_dispatch: qa-deploy`, which
-  `e2e.yml` listens for. Needs the `AUTOMATION_DISPATCH_TOKEN` secret on
-  the backend repo (RestauNax PR #499).
+  `e2e.yml` listens for (full suite). Needs the `AUTOMATION_DISPATCH_TOKEN`
+  secret on the backend repo (RestauNax PR #499).
+- **After each template-wind QA deploy** — wind's `notify-e2e.yml` waits out the
+  Dokploy deploy window on a push to its `qa` branch, then fires
+  `repository_dispatch: template-deploy` (payload `repo`/`sha`/`ref`/`marker`).
+  `e2e.yml` runs **only `--project=customer`** for it (one storefront changed —
+  no need for the full suite) and publishes to the `wind-deploy/` report. Needs
+  the same `AUTOMATION_DISPATCH_TOKEN` secret on the template-wind repo.
+  template-lima is deliberately NOT wired (no lima tests exist; decision
+  2026-07-19).
 - **Manual** `workflow_dispatch` (Actions tab → e2e → Run workflow;
   optional `grep` / `project` inputs).
 
