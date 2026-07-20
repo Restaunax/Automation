@@ -1,0 +1,2 @@
+"DESCRIPTION","DURATION IN MS","NAME","PARENT SUITE","START TIME","STATUS","STOP TIME","SUB SUITE","SUITE","TEST CLASS","TEST METHOD"
+"","4749","TC-117: admin can send a password reset email","dashboard","2026-07-20","passed","2026-07-20","Admin — User Management > Settings tab","","",""
