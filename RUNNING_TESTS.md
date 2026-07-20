@@ -117,14 +117,14 @@ and grouping features, but requires a Java runtime.
 - **Hosted report (easiest):** every CI run publishes an Allure report to GitHub
   Pages — **https://restaunax.github.io/Automation/nightly/** for the full suite
   (the site root redirects here) and
-  **https://restaunax.github.io/Automation/email/** for the weekly @email group.
-  One click shows the latest run's pass/fail, per-test steps, screenshots/traces
-  on failures, and a Trend widget across runs — no download, no local server, no
-  Java. A _failing_ run still publishes, and each run's Summary tab links to its
-  report.
-- **GitHub Actions artifacts** (`e2e` + `e2e-email-weekly` workflows): the
-  raw Allure report is also uploaded as a run artifact (14-day retention) as a
-  backup; failure traces/screenshots on failure.
+  **https://restaunax.github.io/Automation/wind-deploy/** for customer-project
+  runs fired by template-wind deploys. One click shows the latest run's
+  pass/fail, per-test steps, screenshots/traces on failures, and a Trend widget
+  across runs — no download, no local server, no Java. A _failing_ run still
+  publishes, and each run's Summary tab links to its report.
+- **GitHub Actions artifacts** (the `e2e` workflow): the raw Allure report is
+  also uploaded as a run artifact (14-day retention) as a backup; failure
+  traces/screenshots on failure.
 - **Slack:** genuine failures alert automatically (except runs superseded by a
   mid-run QA deploy).
 
