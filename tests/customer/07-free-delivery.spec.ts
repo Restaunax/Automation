@@ -85,7 +85,9 @@ test.describe("Customer — Free-delivery coupon", () => {
 
     await allure.step(`Apply ${couponCode} → rejected`, async () => {
       await checkoutPage.applyCoupon(couponCode);
-      await checkoutPage.assertCouponRejected();
+      // The specific delivery-only message (api:error.pricingCouponDeliveryOnly),
+      // not just any rejection — this is the serviceType contract under test.
+      await checkoutPage.assertCouponRejected(/only applies to delivery/i);
     });
   });
 

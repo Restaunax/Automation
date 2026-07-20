@@ -212,12 +212,21 @@ export const createCustomerCheckoutPage = (page: Page) => {
     ).toBeVisible({ timeout: 10_000 });
   };
 
-  // Invalid code → red error box; the input stays (no applied block). A
-  // nonexistent code's actual message is "Coupon Not Found" (confirmed live),
-  // which the original "not valid|invalid|error" regex didn't cover.
-  const assertCouponRejected = async () => {
+  // Invalid code → red error box; the input stays (no applied block). The
+  // backend's rejection copy was humanized 2026-07-19 (RestauNax #506 wave):
+  // a nonexistent code now says "We couldn't find that code. Double-check and
+  // try again." and a FREE_DELIVERY code on pickup says "That coupon only
+  // applies to delivery orders." — the old "Coupon Not Found" phrasing is
+  // kept in the regex for resilience. Pass `pattern` to assert a SPECIFIC
+  // rejection reason (e.g. the delivery-only message) instead of any.
+  const assertCouponRejected = async (pattern?: RegExp) => {
     await expect(
-      page.getByText(/not valid|invalid|error|not found/i).first()
+      page
+        .getByText(
+          pattern ??
+            /not valid|invalid|error|not found|couldn't find|only applies to delivery|expired/i
+        )
+        .first()
     ).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText(/Saving \$\d/)).toHaveCount(0);
   };
