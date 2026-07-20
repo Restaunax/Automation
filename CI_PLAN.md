@@ -1,7 +1,11 @@
 # CI Pipeline Plan — GitHub Actions
 
-> Status: **LIVE.** `static.yml`, `e2e.yml`, and `e2e-email-weekly.yml`
-> run against QA (secrets/vars configured). Reporting **Phase 2 (Allure on GitHub
+> Status: **LIVE.** Two workflows: `static.yml` (typecheck/lint/format on every
+> PR + push — no secrets, ~1 min) and `e2e.yml` (the Playwright suite against QA
+> — nightly, after each QA/storefront deploy, or manual). `e2e-email-weekly.yml`
+> was folded into `e2e.yml` on 2026-07-19: it existed only to keep `@email` tests
+> out of the main suite under the old Mailtrap 500/mo cap, which self-hosted
+> Mailpit removed. Reporting **Phase 2 (Allure on GitHub
 > Pages) shipped** → https://restaunax.github.io/Automation/. The **deploy-trigger**
 > (run the suite after each healthy QA deploy) is wired from the backend repo's
 > `post-deploy-smoke.yml` (RestauNax PR #499; needs the `AUTOMATION_DISPATCH_TOKEN`
@@ -136,10 +140,12 @@ overlays; `process.env` wins everywhere in this codebase).
 - **Phase 1 (DONE):** Allure HTML as a run artifact. Failures link straight to
   the Actions run.
 - **Phase 2 (DONE):** Allure published with history to GitHub Pages — nightly at
-  **https://restaunax.github.io/Automation/nightly/** (site root redirects here),
-  weekly @email at **https://restaunax.github.io/Automation/email/** — built with
+  **https://restaunax.github.io/Automation/nightly/** (site root redirects here)
+  and storefront-deploy runs at
+  **https://restaunax.github.io/Automation/wind-deploy/** — built with
   `simple-elf/allure-report-action` and `peaceiris/actions-gh-pages`
-  (`keep_reports: 30`). Each suite gets its own `subfolder`: simple-elf's
+  (`keep_reports: 30`). (`…/email/` is frozen — see the status note at the top.)
+  Each suite gets its own `subfolder`: simple-elf's
   keep_reports cleanup deletes non-numeric siblings of the run folders first, so
   reports must never share a level. A required cleanup step runs
   `sudo rm -rf allure-history/.git` before the deploy, because simple-elf copies a

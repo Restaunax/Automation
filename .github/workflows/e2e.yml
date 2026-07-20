@@ -1,13 +1,24 @@
-# The QA E2E regression suite (formerly e2e-nightly.yml — renamed when the
-# nightly schedule stopped being its only trigger). Runs against QA: the full
-# Playwright suite nightly (safety net), after each healthy QA backend deploy
-# (repository_dispatch: qa-deploy), and manually for targeted runs — plus the
-# customer project only after each storefront deploy (repository_dispatch:
-# template-deploy from template-wind's notify-e2e.yml).
-# See CI_PLAN.md for the full pipeline design and the secrets/vars this needs
-# (GitHub environment `qa`: OWNER/ADMIN/EMPLOYEE creds + Mailpit; repo vars:
-# URLs + SEED_RESTAURANT_ID). Until those are configured this workflow will
-# run but skip most tests via the suite's own env guards.
+# The QA E2E suite — THE one workflow that runs Playwright. Every mode lives
+# here; there is no second Playwright workflow. (e2e-email-weekly.yml was folded
+# in on 2026-07-19: it only ever existed to keep @email tests out of the main
+# suite while the old Mailtrap sandbox was capped at 500 emails/month. QA now
+# uses self-hosted, unmetered Mailpit, so @email just runs with everything else.)
+#
+#   trigger                      what runs                report subfolder
+#   ---------------------------  -----------------------  ----------------
+#   schedule (06:00 UTC)         full suite               nightly/
+#   dispatch: qa-deploy          full suite               nightly/
+#   dispatch: template-deploy    --project=customer       wind-deploy/
+#   manual (workflow_dispatch)   full suite, or --grep    nightly/
+#
+# The OTHER workflow is static.yml: typecheck/lint/format on every PR and push.
+# No secrets, no QA access, ~1 min. It is deliberately separate — fast per-PR
+# checks and a 45-minute credentialed suite have different triggers, different
+# secrets, and different failure meanings. See CI_PLAN.md.
+#
+# Secrets/vars this needs (GitHub environment `qa`: OWNER/ADMIN/EMPLOYEE creds +
+# Mailpit; repo vars: URLs + SEED_RESTAURANT_ID). Until those are configured
+# this workflow will run but skip most tests via the suite's own env guards.
 name: e2e
 
 # Surface the prod-gate marker in the run name so RestauNax's prod-gate workflow
@@ -29,6 +40,9 @@ on:
   workflow_dispatch:
     inputs:
       grep:
+        # Heads-up: a filtered run still publishes into nightly/, so it lands on
+        # the Trend widget as a low test count next to the full ~250-test runs.
+        # Fine for the odd targeted run; don't make it a habit.
         description: "Optional --grep filter (e.g. TC-26 or a describe title)"
         required: false
         default: ""
@@ -153,8 +167,8 @@ jobs:
       # across runs. All if: always() so a FAILING suite still publishes its
       # report (that's exactly when you want to see it).
       #
-      # Each suite MUST live in its own subfolder (this one: nightly/, the weekly
-      # email job: email/): simple-elf's keep_reports cleanup runs
+      # Each suite MUST live in its own subfolder (nightly/, wind-deploy/):
+      # simple-elf's keep_reports cleanup runs
       # `ls | sort -n | head -n -N | xargs rm -rv` in its publish dir, and
       # non-numeric names sort first — a sibling report parked next to the run
       # folders would be the first thing deleted. Subfolders scope the cleanup;
@@ -237,8 +251,12 @@ jobs:
             <p>Redirecting to the <a href="./nightly/">full-suite report</a>&hellip;</p>
             <p>
               Also available: <a href="./wind-deploy/">wind-deploy customer runs</a>
-              &middot; <a href="./email/">weekly @email runs</a>
             </p>
+            <!-- ./email/ still exists on gh-pages but is FROZEN: the workflow
+                 that published it was folded into this one on 2026-07-19 and
+                 @email now runs in the full suite above. Deliberately unlinked
+                 rather than deleted — the old runs stay reachable by URL. -->
+
           </body>
           </html>
           EOF

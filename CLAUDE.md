@@ -300,6 +300,19 @@ npm run clean         # Delete test artifacts
 
 ## CI, reporting & triggers
 
+**Two workflows, and only two:**
+
+| Workflow     | Answers                              | When                                               | Secrets  | Time    |
+| ------------ | ------------------------------------ | -------------------------------------------------- | -------- | ------- |
+| `static.yml` | "does the code compile & look right" | every PR + push to QA/main                         | none     | ~1 min  |
+| `e2e.yml`    | "does the product actually work"     | nightly · after a QA deploy · wind deploy · manual | QA creds | ~45 min |
+
+`e2e.yml` is the ONLY workflow that runs Playwright — every mode lives there.
+They stay separate on purpose: `static.yml` runs on fork PRs with zero secrets,
+while `e2e.yml` carries QA credentials, an `environment:`, and a repo guard.
+Splitting fast per-PR checks from a long credentialed suite is the standard
+shape; don't merge them.
+
 **Where to SEE results:** every CI run publishes a hosted Allure report to GitHub
 Pages (latest run + a Trend widget of history):
 
@@ -307,14 +320,16 @@ Pages (latest run + a Trend widget of history):
   (`e2e.yml`; the site root redirects here).
 - **https://restaunax.github.io/Automation/wind-deploy/** — customer-project runs
   fired by template-wind deploys (`e2e.yml`, `template-deploy` dispatch).
-- **https://restaunax.github.io/Automation/email/** — the weekly @email group
-  (`e2e-email-weekly.yml`).
+
+(`…/email/` is FROZEN — `e2e-email-weekly.yml` was folded into `e2e.yml` on
+2026-07-19 and `@email` now runs in the full suite. The old reports stay
+reachable by URL but nothing publishes there; the site root no longer links it.)
 
 Each run's graph also shows a `report` job with the URL chip (an `allure-report`
 environment — the same mechanism `pages-build-deployment` uses), and the Summary
 tab links the report.
 
-Both workflows push the built report to `gh-pages` via `peaceiris/actions-gh-pages`;
+`e2e.yml` pushes the built report to `gh-pages` via `peaceiris/actions-gh-pages`;
 that push is what triggers GitHub's auto-generated `pages-build-deployment` workflow
 (we never wrote it — it deploys the branch to the URL). The per-run artifact zip is
 just a 14-day raw backup, not the primary viewing path. Two gotchas: **don't remove

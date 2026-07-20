@@ -541,10 +541,11 @@ gift-card **purchase** tests (TC-165/166/169) are **not** `@email` — they're
 Known Technical Debt); the non-purchase gift-card cases (TC-167/168/170) keep
 running.
 
-**CI.** The nightly (`e2e.yml`) runs the `@email` group along with everything
-else. `e2e-email-weekly.yml` kept its name but lost its schedule — it is now
-`workflow_dispatch`-only, for running just that group on demand (it publishes to
-its own `email/` Allure subfolder, which must stay distinct).
+**CI.** `e2e.yml` runs the `@email` group along with everything else, on every
+trigger. It is the ONLY workflow that runs Playwright — `e2e-email-weekly.yml`
+was deleted on 2026-07-19 (it existed solely to keep `@email` out of the main
+suite under the old Mailtrap cap). To run just the email tests, use `--grep
+@email` locally via `npm run test:email`; there is no separate CI job for it.
 
 **When the suite runs.** Four triggers: (1) **nightly** 06:00 UTC — the daily
 net for QA drift / expiring data (full suite); (2) **automatically after each
