@@ -838,16 +838,80 @@ test.describe("Owner — Coupons", () => {
     await expect(couponPage.descriptionInput()).toHaveValue("");
   });
 
-  // Editing ANY coupon currently 500s server-side: the frontend sends `value`
-  // as a string, but Prisma's coupon.update() expects a Float
-  // ("Argument `value`: Invalid value provided. Expected Float or
-  // FloatFieldUpdateOperationsInput, provided String."). Confirmed live by
-  // creating a coupon, opening its row's Edit action, changing the discount
-  // value, and inspecting the PUT /api/coupons/:id response (500). Filed as
-  // fixme rather than asserting the broken 500 as expected behavior — flip
-  // back to a real test once the backend fix ships.
-  // Tracked: https://github.com/Restaunax/RestauNax/issues/481
-  test.fixme("TC-92: owner can edit an existing coupon's discount value", async () => {});
+  test("TC-92: owner can edit an existing coupon's discount value", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Editing a coupon's discount value and saving persists the new value. This previously 500'd " +
+        "server-side because the form sent `value` as a string but Prisma's coupon.update() expects a " +
+        "Float (RestauNax #481); the fix coerces numeric fields on both the form and the update " +
+        "controller. Verifies the update toast appears and the new value is reflected server-side."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const couponPage = createOwnerCouponPage(ownerPage);
+    const couponCode = generateCouponCode();
+
+    // Seed the coupon via API (not the UI) so the edit isn't racing the churn of
+    // a just-created coupon (success toast + list refetch settling).
+    const { accessToken } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD);
+    const start = new Date();
+    const end = new Date();
+    end.setMonth(end.getMonth() + 1);
+    const seed = await createCouponRaw(accessToken, restaurantId, {
+      code: couponCode,
+      type: "PERCENTAGE",
+      value: 10,
+      startDate: start.toISOString(),
+      endDate: end.toISOString(),
+    });
+    expect(seed.status, JSON.stringify(seed.data)).toBe(201);
+
+    await mgmtPage.goto(restaurantId);
+
+    // The coupon edit form has a timing-sensitive init: its async
+    // fetchCouponDetails occasionally loses a race with the form's own reset and
+    // renders empty, and a late debounced search re-render can tear the inline
+    // form down mid-submit (the submit button detaches, no PUT fires). Both are
+    // product-side flakiness, not the #481 fix — so drive the whole open→edit→
+    // save as one retried unit, re-navigating from the list each attempt until
+    // it lands cleanly. Waiting for the filtered list (one row) before opening
+    // Edit keeps the debounce from firing after the form is open.
+    await expect(async () => {
+      await couponPage.navigateToManageCoupons();
+      await couponPage.search(couponCode);
+      await expect(couponPage.couponRowByCode(couponCode)).toBeVisible({
+        timeout: 10_000,
+      });
+      await expect(ownerPage.locator("tbody tr")).toHaveCount(1, {
+        timeout: 10_000,
+      });
+      await couponPage.openRowActionMenu(couponCode);
+      await couponPage.editMenuItem().click();
+      // Form-loaded gate: the code field only pre-fills once fetchCouponDetails
+      // has populated the form. If it rendered empty, this fails and toPass
+      // retries the whole block from a fresh list.
+      await expect(couponPage.couponCodeInput()).toHaveValue(couponCode, {
+        timeout: 8_000,
+      });
+      await couponPage.discountValueInput().fill("25");
+      await couponPage.submit();
+      await couponPage.assertCouponUpdatedToast();
+    }).toPass({ timeout: 70_000, intervals: [1_000, 2_000, 3_000, 5_000] });
+
+    // Verify the new value persisted server-side. Codes are stored uppercased,
+    // so match case-insensitively.
+    const coupons = await getRestaurantCoupons(accessToken, restaurantId);
+    const edited = coupons.find(
+      (c) => c.code.toUpperCase() === couponCode.toUpperCase()
+    );
+    expect(
+      edited,
+      `coupon ${couponCode} not found in restaurant coupons`
+    ).toBeTruthy();
+    expect(edited?.value).toBe(25);
+  });
 
   test("TC-209: owner can create a Free Delivery coupon (no discount value)", async ({
     ownerPage,

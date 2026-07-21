@@ -52,6 +52,13 @@ export const createOwnerCouponPage = (page: Page) => {
   const assertSuccessToast = () =>
     expect(successToast()).toBeVisible({ timeout: 10_000 });
 
+  // Editing an existing coupon shows a distinct "updated" toast, not the
+  // "created" one above (see TC-92).
+  const couponUpdatedToast = () =>
+    page.getByText("Coupon updated successfully!");
+  const assertCouponUpdatedToast = () =>
+    expect(couponUpdatedToast()).toBeVisible({ timeout: 10_000 });
+
   // Duplicate opens the create form pre-filled as a "template" (isFromTemplate),
   // so a successful submit shows a different message than a plain create.
   const successFromTemplateToast = () =>
@@ -242,6 +249,8 @@ export const createOwnerCouponPage = (page: Page) => {
     fillCouponForm,
     submit,
     assertSuccessToast,
+    couponUpdatedToast,
+    assertCouponUpdatedToast,
     successFromTemplateToast,
     assertSuccessFromTemplateToast,
     errorAlert,

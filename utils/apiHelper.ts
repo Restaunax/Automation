@@ -327,6 +327,8 @@ export interface ApiCoupon {
   code: string;
   /** CouponType enum, e.g. "PERCENTAGE" | "FIXED_AMOUNT" | "FREE_DELIVERY". */
   type?: string;
+  /** Discount value (Float). Percentage points or fixed amount per `type`. */
+  value?: number;
   /** "restaurant" | "organization" — org coupons are shared, never delete. */
   source?: string;
 }
