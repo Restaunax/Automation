@@ -329,6 +329,10 @@ export interface ApiCoupon {
   type?: string;
   /** Discount value (Float). Percentage points or fixed amount per `type`. */
   value?: number;
+  /** Minimum order subtotal before the coupon applies (required on FREE_DELIVERY). */
+  minOrderAmount?: number | null;
+  /** Discount/fee cap (on FREE_DELIVERY, "cover up to $X" of the fee). */
+  maxDiscount?: number | null;
   /** "restaurant" | "organization" — org coupons are shared, never delete. */
   source?: string;
 }
@@ -685,6 +689,38 @@ export function createCouponRaw(
     `/api/coupons/restaurant/${restaurantId}`,
     body,
     accessToken
+  );
+}
+
+/** Shape of a successful /api/coupons/validate response (fields we assert on). */
+export interface ValidateCouponResponse {
+  success: boolean;
+  discountAmount: number;
+  /** FREE_DELIVERY fee-waiver estimate, sized from the deliveryFee sent. */
+  deliveryDiscount?: number;
+  coupon?: {
+    id: string | null;
+    code: string;
+    type: string;
+    maxDiscount?: number | null;
+  };
+  message?: string;
+  error?: string;
+}
+
+/**
+ * POST /api/coupons/validate — public (no auth), the endpoint every customer
+ * client hits before applying a code. `serviceType` powers the FREE_DELIVERY
+ * delivery-only gate; `deliveryFee` sizes the returned waiver estimate. Raw so
+ * negative cases (pickup rejection) can assert on status.
+ */
+export function validateCouponRaw(
+  body: Record<string, unknown>
+): Promise<RawResponse<ValidateCouponResponse>> {
+  return apiRequestRaw<ValidateCouponResponse>(
+    "POST",
+    "/api/coupons/validate",
+    body
   );
 }
 
