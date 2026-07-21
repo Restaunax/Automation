@@ -10,7 +10,7 @@ test.describe("Admin — Chains", () => {
   test.fixme("TC-181: admin can view and manage restaurant chains", async ({
     adminPage,
   }) => {
-    await adminPage.goto("/admin?tab=chains", {
+    await adminPage.goto("/admin?tab=restaurant&section=chains", {
       waitUntil: "domcontentloaded",
     });
     // TODO: assert chains table; create/edit a chain

@@ -78,7 +78,9 @@ export const createAdminUsersPage = (page: Page) => {
   const listbox = page.locator('[role="listbox"]');
 
   const goto = async (): Promise<void> => {
-    await page.goto("/admin?tab=user", { waitUntil: "domcontentloaded" });
+    await page.goto("/admin?tab=people&section=user", {
+      waitUntil: "domcontentloaded",
+    });
     await searchInput.waitFor({ state: "visible", timeout: 15_000 });
     // Wait for the initial user-list fetch so the React effect's initialLoadDone
     // flag is true before any search fill — prevents the debounced search from

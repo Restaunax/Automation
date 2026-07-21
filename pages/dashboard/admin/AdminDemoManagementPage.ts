@@ -6,7 +6,9 @@ export const createAdminDemoManagementPage = (page: Page) => {
   const listbox = page.locator('[role="listbox"]');
 
   const goto = async () => {
-    await page.goto("/admin?tab=demo", { waitUntil: "domcontentloaded" });
+    await page.goto("/admin?tab=operations&section=demo", {
+      waitUntil: "domcontentloaded",
+    });
     await searchInput.waitFor({ state: "visible", timeout: 15_000 });
   };
 

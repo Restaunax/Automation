@@ -17,7 +17,9 @@ export const createAdminMarketingPage = (page: Page) => {
     page.locator('[aria-label="campaign scheduler tabs"]');
 
   const gotoCampaignScheduler = async () => {
-    await page.goto("/admin?tab=coupons", { waitUntil: "domcontentloaded" });
+    await page.goto("/admin?tab=marketing&section=coupons", {
+      waitUntil: "domcontentloaded",
+    });
     await outerTabs().getByRole("tab", { name: "Campaigns" }).click();
     await expect(
       schedulerTabs().getByRole("tab", { name: "Events" })
