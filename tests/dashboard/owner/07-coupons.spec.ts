@@ -940,6 +940,14 @@ test.describe("Owner — Coupons", () => {
       }
     );
 
+    await allure.step(
+      "Free Delivery requires a minimum order + fee cap",
+      async () => {
+        // Guardrail: the fee waiver is self-funded, so both are mandatory.
+        await couponPage.fillFreeDeliveryGuards("20", "6");
+      }
+    );
+
     await allure.step("Submit and verify success toast", async () => {
       await couponPage.submit();
       await couponPage.assertSuccessToast();
@@ -951,6 +959,68 @@ test.describe("Owner — Coupons", () => {
       const created = coupons.find((c) => c.code === couponCode);
       expect(created, `coupon ${couponCode} missing from API`).toBeTruthy();
       expect(created?.type).toBe("FREE_DELIVERY");
+    });
+  });
+
+  test("TC-216: a Free Delivery coupon requires a minimum order and a fee cap", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "The minimum-order and fee-cap fields are enabled and required for a " +
+        "Free Delivery coupon: submitting without them is blocked with field " +
+        "errors, and once filled the coupon persists with both values (the " +
+        "margin guardrail — the fee waiver is self-funded)."
+    );
+
+    const { restaurantId } = readSharedState();
+    const mgmtPage = createOwnerRestaurantManagementPage(ownerPage);
+    const couponPage = createOwnerCouponPage(ownerPage);
+    const couponCode = generateCouponCode();
+
+    await allure.step("Open the form and pick Free Delivery", async () => {
+      await mgmtPage.goto(restaurantId);
+      await couponPage.navigateToCreateCoupon();
+      await couponPage.couponCodeInput().fill(couponCode);
+      await allure.parameter("Coupon code", couponCode);
+      await couponPage.selectDiscountType("Free Delivery");
+    });
+
+    await allure.step(
+      "Guardrail fields are enabled (the disabled-field regression)",
+      async () => {
+        await expect(couponPage.minOrderInput()).toBeEnabled();
+        await expect(couponPage.feeCapInput()).toBeEnabled();
+      }
+    );
+
+    await allure.step(
+      "Submitting without them is blocked with field errors",
+      async () => {
+        await couponPage.submit();
+        await expect(couponPage.errorAlert()).toContainText(
+          "Please fix the errors before submitting"
+        );
+        await expect(couponPage.freeDeliveryMinOrderError()).toBeVisible();
+        await expect(couponPage.freeDeliveryFeeCapError()).toBeVisible();
+        // Still on the form — nothing was created.
+        await expect(couponPage.couponCodeInput()).toBeVisible();
+      }
+    );
+
+    await allure.step("Fill both guards and submit → success", async () => {
+      await couponPage.fillFreeDeliveryGuards("20", "6");
+      await couponPage.submit();
+      await couponPage.assertSuccessToast();
+    });
+
+    await allure.step("Both values persisted (API)", async () => {
+      const { accessToken } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD);
+      const coupons = await getRestaurantCoupons(accessToken, restaurantId);
+      const created = coupons.find((c) => c.code === couponCode);
+      expect(created, `coupon ${couponCode} missing from API`).toBeTruthy();
+      expect(created?.type).toBe("FREE_DELIVERY");
+      expect(created?.minOrderAmount).toBe(20);
+      expect(created?.maxDiscount).toBe(6);
     });
   });
 });

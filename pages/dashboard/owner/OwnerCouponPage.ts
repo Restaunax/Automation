@@ -30,6 +30,13 @@ export const createOwnerCouponPage = (page: Page) => {
   // target by name attribute instead (the only input[name="value"] in this form).
   const discountValueInput = () => page.locator('input[name="value"]');
   const descriptionInput = () => page.locator('input[name="description"]');
+  // Guardrail fields — required (and enabled) for FREE_DELIVERY coupons.
+  const minOrderInput = () => page.locator('input[name="minOrderAmount"]');
+  const feeCapInput = () => page.locator('input[name="maxDiscount"]');
+  const fillFreeDeliveryGuards = async (minOrder: string, feeCap: string) => {
+    await minOrderInput().fill(minOrder);
+    await feeCapInput().fill(feeCap);
+  };
   // The sidebar "Create Coupon" nav button and the form submit button share the
   // same text — use type="submit" to target only the form button.
   const createCouponButton = () => page.locator('button[type="submit"]');
@@ -112,6 +119,15 @@ export const createOwnerCouponPage = (page: Page) => {
     page.getByText("Menu item selection is required for item discounts");
   const amountGreaterThanZeroError = () =>
     page.getByText("Amount must be greater than 0");
+  // FREE_DELIVERY guardrail validation (shown as field helper text on submit).
+  const freeDeliveryMinOrderError = () =>
+    page.getByText("Set a minimum order amount for free-delivery coupons", {
+      exact: false,
+    });
+  const freeDeliveryFeeCapError = () =>
+    page.getByText("Set a fee cap for free-delivery coupons", {
+      exact: false,
+    });
   const endDateAfterStartDateError = () =>
     page.getByText("End date must be after start date");
   const codeRequiredError = () => page.getByText("Coupon code is required");
@@ -242,6 +258,9 @@ export const createOwnerCouponPage = (page: Page) => {
     couponCodeInput,
     discountValueInput,
     descriptionInput,
+    minOrderInput,
+    feeCapInput,
+    fillFreeDeliveryGuards,
     createCouponButton,
     resetFormButton,
     successToast,
@@ -265,6 +284,8 @@ export const createOwnerCouponPage = (page: Page) => {
     selectStatus,
     menuItemRequiredError,
     amountGreaterThanZeroError,
+    freeDeliveryMinOrderError,
+    freeDeliveryFeeCapError,
     endDateAfterStartDateError,
     codeRequiredError,
     setStartDate,
