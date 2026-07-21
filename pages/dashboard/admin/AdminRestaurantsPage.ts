@@ -5,7 +5,7 @@ export const createAdminRestaurantsPage = (page: Page) => {
     page.locator('input[placeholder*="Search"]').first();
 
   const goto = async () => {
-    await page.goto("/admin?tab=restaurant", {
+    await page.goto("/admin?tab=restaurant&section=restaurant", {
       waitUntil: "domcontentloaded",
     });
     await page

@@ -81,7 +81,7 @@ test.describe("Admin — Marketing campaign events", () => {
     await allure.description(
       "The admin Create Organization Coupon form offers the Free Delivery type; selecting it hides the Discount Value field (the fee waiver is computed at checkout) and repurposes Maximum Discount as the fee cap. Form is cancelled — nothing is created."
     );
-    await adminPage.goto("/admin?tab=coupons", {
+    await adminPage.goto("/admin?tab=marketing&section=coupons", {
       waitUntil: "domcontentloaded",
     });
 
