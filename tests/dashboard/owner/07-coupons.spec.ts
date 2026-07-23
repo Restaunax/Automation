@@ -748,8 +748,8 @@ test.describe("Owner — Coupons", () => {
     ownerPage,
   }) => {
     await allure.description(
-      "Opening Edit on a coupon loads its current code/value into the form (read-only check — does " +
-        "not submit, since editing currently 500s server-side per TC-92)."
+      "Opening Edit on a coupon loads its current code/value into the form " +
+        "(read-only pre-fill check — does not submit)."
     );
 
     const { restaurantId } = readSharedState();
@@ -763,20 +763,33 @@ test.describe("Owner — Coupons", () => {
     await couponPage.submit();
     await couponPage.assertSuccessToast();
 
-    await couponPage.navigateToManageCoupons();
-    await couponPage.search(couponCode);
-    // Wait for the filtered row before opening its ⋮ menu (see TC-159) — matches
-    // the settled pattern the passing search tests use; its absence is the flake.
-    await expect(couponPage.couponRowByCode(couponCode)).toBeVisible({
-      timeout: 10_000,
-    });
-    await couponPage.openRowActionMenu(couponCode);
-    await couponPage.editMenuItem().click();
+    // The coupon edit form has a timing-sensitive init: its async
+    // fetchCouponDetails can lose a race with a parent re-render and present
+    // empty inputs, and no amount of waiting recovers it (the form must be
+    // re-opened). Drive open→assert as one retried unit, re-navigating from the
+    // list each attempt, and wait for the search to settle to exactly one row
+    // before opening Edit so a late debounce can't tear the form down. Mirrors
+    // the guard TC-92 uses for the same product-side race.
+    await expect(async () => {
+      await couponPage.navigateToManageCoupons();
+      await couponPage.search(couponCode);
+      await expect(couponPage.couponRowByCode(couponCode)).toBeVisible({
+        timeout: 10_000,
+      });
+      await expect(ownerPage.locator("tbody tr")).toHaveCount(1, {
+        timeout: 10_000,
+      });
+      await couponPage.openRowActionMenu(couponCode);
+      await couponPage.editMenuItem().click();
 
-    await expect(couponPage.couponCodeInput()).toHaveValue(couponCode, {
-      timeout: 10_000,
-    });
-    await expect(couponPage.discountValueInput()).toHaveValue("10");
+      // Form-loaded gate: the code field only pre-fills once fetchCouponDetails
+      // populates the form. If it rendered empty, this fails and toPass retries
+      // the whole block from a fresh list.
+      await expect(couponPage.couponCodeInput()).toHaveValue(couponCode, {
+        timeout: 8_000,
+      });
+      await expect(couponPage.discountValueInput()).toHaveValue("10");
+    }).toPass({ timeout: 70_000, intervals: [1_000, 2_000, 3_000, 5_000] });
   });
 
   test("TC-163: Send to Customers is disabled for an expired coupon", async ({
