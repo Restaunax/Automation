@@ -304,7 +304,7 @@ npm run clean         # Delete test artifacts
 
 | Workflow     | Answers                              | When                                               | Secrets  | Time    |
 | ------------ | ------------------------------------ | -------------------------------------------------- | -------- | ------- |
-| `static.yml` | "does the code compile & look right" | every PR + push to QA/main                         | none     | ~1 min  |
+| `static.yml` | "does the code compile & look right" | every PR + push to qa/main                         | none     | ~1 min  |
 | `e2e.yml`    | "does the product actually work"     | nightly · after a QA deploy · wind deploy · manual | QA creds | ~45 min |
 
 `e2e.yml` is the ONLY workflow that runs Playwright — every mode lives there.

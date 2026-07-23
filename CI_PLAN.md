@@ -41,7 +41,7 @@ don't make that the norm).
 
 ---
 
-## Workflow 1 — `static.yml` (every PR + push to QA/main)
+## Workflow 1 — `static.yml` (every PR + push to qa/main)
 
 No secrets, no QA access, finishes in ~1 minute. Blocks merge on failure.
 

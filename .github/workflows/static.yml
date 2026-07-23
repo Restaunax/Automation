@@ -5,7 +5,7 @@ name: static
 on:
   pull_request:
   push:
-    branches: [QA, main]
+    branches: [qa, main]
 
 jobs:
   static:
