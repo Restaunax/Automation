@@ -638,18 +638,27 @@ test.describe("Owner — Coupons", () => {
     });
 
     await allure.step("Duplicate it from the Manage Coupons list", async () => {
-      await couponPage.navigateToManageCoupons();
-      await couponPage.search(couponCode);
-      // Wait for the filtered row before opening its ⋮ menu — matches the
-      // settled pattern the passing search tests use; its absence is the flake.
-      await expect(couponPage.couponRowByCode(couponCode)).toBeVisible({
-        timeout: 10_000,
-      });
-      await couponPage.openRowActionMenu(couponCode);
-      await couponPage.duplicateMenuItem().click();
-      await expect(couponPage.couponCodeInput()).toHaveValue(
-        `${couponCode}-COPY`
-      );
+      // Same coupon-form load race as TC-92/TC-162: opening the form once can
+      // catch it mid-init and present empty inputs, which no amount of waiting
+      // recovers (the form must be re-opened). Drive open→assert as one retried
+      // unit, re-navigating from the list each attempt and waiting for the
+      // search to settle to exactly one row before opening the ⋮ menu.
+      await expect(async () => {
+        await couponPage.navigateToManageCoupons();
+        await couponPage.search(couponCode);
+        await expect(couponPage.couponRowByCode(couponCode)).toBeVisible({
+          timeout: 10_000,
+        });
+        await expect(ownerPage.locator("tbody tr")).toHaveCount(1, {
+          timeout: 10_000,
+        });
+        await couponPage.openRowActionMenu(couponCode);
+        await couponPage.duplicateMenuItem().click();
+        await expect(couponPage.couponCodeInput()).toHaveValue(
+          `${couponCode}-COPY`,
+          { timeout: 8_000 }
+        );
+      }).toPass({ timeout: 70_000, intervals: [1_000, 2_000, 3_000, 5_000] });
     });
 
     await allure.step(
