@@ -109,6 +109,25 @@ export async function getOwnerRestaurants(
 }
 
 /**
+ * Toggle a restaurant's "pass processing fee to customer" setting via the
+ * settings endpoint (PUT /api/restaurantId/:id/settings). Used by the
+ * processing-fee E2E to flip the fee ON/OFF around the customer-facing
+ * assertion. Pass an owner (or admin) token for a restaurant they manage.
+ */
+export async function setPassProcessingFee(
+  accessToken: string,
+  restaurantId: string,
+  enabled: boolean
+): Promise<void> {
+  await apiRequest<unknown>(
+    "PUT",
+    `/api/restaurantId/${restaurantId}/settings`,
+    { passProcessingFeeToCustomer: enabled },
+    accessToken
+  );
+}
+
+/**
  * Deletes a restaurant by ID using an admin-role token.
  * Requires ADMIN role — pass the admin access token.
  */

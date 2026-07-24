@@ -312,6 +312,19 @@ export const createCustomerCheckoutPage = (page: Page) => {
   // such span on the page.
   const orderTotalAmount = () => page.locator("span.text-xl.font-bold").first();
 
+  // ── Processing Fee line (OrderSummary; renders ONLY when the restaurant
+  // passes the payment-processing fee to the customer, sitting after the Tax
+  // row). Server-authoritative — driven by the restaurant's
+  // passProcessingFeeToCustomer setting, so it appears/disappears purely from
+  // that flag. Text-only hook (the row has no id/testid), same style as the
+  // Coupon line assertion above.
+  const processingFeeLabel = () =>
+    page.getByText("Processing Fee", { exact: true });
+  const assertProcessingFeeVisible = () =>
+    expect(processingFeeLabel()).toBeVisible({ timeout: 20_000 });
+  const assertNoProcessingFee = () =>
+    expect(processingFeeLabel()).toHaveCount(0);
+
   // NaN while the quote skeleton is showing — poll with expect.poll.
   const readOrderTotal = async (): Promise<number> => {
     const text = (
@@ -382,6 +395,8 @@ export const createCustomerCheckoutPage = (page: Page) => {
     fillCustomTip,
     assertTipTotal,
     readOrderTotal,
+    assertProcessingFeeVisible,
+    assertNoProcessingFee,
     removeFirstCartItem,
     assertBelowStripeMinimum,
     fillCustomerInfo,
