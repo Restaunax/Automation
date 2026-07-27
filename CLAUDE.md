@@ -13,7 +13,7 @@ up the RestauNax restaurant platform. They share **no code** — every frontend 
 to the central backend over REST.
 
 - **restaunax** — owner/admin dashboard (`restaunax-frontend`: React + Vite + MUI) + the central API (`restaunax-backend`: Node/Express/Prisma/Postgres) + docs. The backend is the single source every app calls.
-- **Restaunax-Owner** — owner mobile app (React Native + Expo Router): manage ONE restaurant from a phone — the mobile counterpart of the dashboard's `restaurant/restaurantManagement` area, not the full admin app. Currently an empty skeleton; functionality incoming.
+- **Restaunax-Owner** — owner mobile app (React Native + Expo Router): run a restaurant (or a chain) from a phone — the mobile counterpart of the dashboard's `restaurant/restaurantManagement` and chain shells, not the full admin app. Built out, not a skeleton: orders, menu, customers, analytics, billing/payouts, store operations, staff, jobs, marketing, menu TVs and owner settings, in both restaurant and chain scope. Screens gate on the backend entitlement set (`useHasFeature` / `FeatureGate`) — never on locally-derived rules. EN+ES.
 - **restaunax-ordering-app** — customer mobile ordering app (React Native + Expo).
 - **device-in-store** — in-store POS / kiosk (React Native + Expo; Stripe Terminal + receipt printers).
 - **restaunax-web** — public marketing & SEO site (Next.js). Distinct from `restaunax-frontend` (the authed app).
