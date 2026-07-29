@@ -4,6 +4,7 @@ import { createOwnerCreateRestaurantPage } from "../../../pages/dashboard/owner/
 import { createOwnerMenuPage } from "../../../pages/dashboard/owner/OwnerMenuPage";
 import { createSignUpPage } from "../../../pages/dashboard/auth/SignUpPage";
 import { createOwnerRestaurantListPage } from "../../../pages/dashboard/owner/OwnerRestaurantListPage";
+import { createOwnerPublishPage } from "../../../pages/dashboard/owner/OwnerPublishPage";
 import {
   apiLogin,
   deleteTestRestaurant,
@@ -41,10 +42,12 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
  * This is arguably the real root cause behind "onboarding has a huge gap" —
  * see TEST_COVERAGE.md's Known Technical Debt and the product-fix write-up.
  *
- * Stops short of Publish deliberately: the publish checklist requires
- * Payment Processing (Stripe Connect), which is out of scope for this chain
- * (see TEST_COVERAGE.md) — a real publish can't be reached without it and
- * there's no API shortcut to fake that state.
+ * Reaches the Publish checklist but stops short of actually publishing: the
+ * checklist requires Payment Processing (Stripe Connect), which is out of
+ * scope for this chain (see TEST_COVERAGE.md) and has no API shortcut to
+ * fake. Instead this asserts the checklist honestly reflects that partial
+ * state — Hours/Menu/Restaurant Info satisfied, Payment Processing not, and
+ * the Publish button correctly disabled as a result.
  *
  * Previously these were four disconnected fragments across different spec
  * files (TC-93 sign-up, TC-97 restaurant creation, ad hoc menu/hours
@@ -132,6 +135,19 @@ test.describe("Onboarding — Full chain", () => {
         await menuPage.createCategory(categoryName);
         await menuPage.assertCategoryVisible(categoryName);
       });
+
+      await allure.step(
+        "Employee reaches the Publish checklist — Hours/Menu/Info satisfied, Payment Processing is not, Publish is blocked",
+        async () => {
+          const publishPage = createOwnerPublishPage(employeePage);
+          await publishPage.goto(restaurantId);
+          await publishPage.assertItemComplete("Hours of Operation");
+          await publishPage.assertItemComplete("Menu Setup");
+          await publishPage.assertItemComplete("Restaurant Information");
+          await publishPage.assertItemIncomplete("Payment Processing");
+          await publishPage.assertPublishButtonDisabled();
+        }
+      );
 
       await allure.step(
         "Admin assigns the still-unowned restaurant to the new user (via API — no UI path exists)",
