@@ -131,6 +131,56 @@ export const createOwnerOrdersPage = (page: Page) => {
       .waitFor({ state: "hidden", timeout: 10_000 });
   };
 
+  // Orders.tsx syncs the open detail sheet to ?detailOrderId=<id> — deep-link
+  // straight to a known order instead of relying on grid row order or search.
+  const gotoOrderDetail = async (restaurantId: string, orderId: string) => {
+    await page.goto(
+      `/restaurant/restaurantId/${restaurantId}/restaurantManagement?tab=Orders&detailOrderId=${orderId}`,
+      { waitUntil: "domcontentloaded" }
+    );
+    await page
+      .getByRole("dialog")
+      .waitFor({ state: "visible", timeout: 15_000 });
+  };
+
+  // ── Status change — a single forward-only "Mark as {next status}" button
+  // in the detail sheet's footer (OrderDetailsDialog.tsx's getNextStatus()),
+  // not a dropdown. Disappears once the order reaches a terminal state
+  // (CANCELLED/REFUNDED).
+  const markAsNextButton = () =>
+    page.getByRole("dialog").getByRole("button", { name: /^Mark as / });
+
+  const clickMarkAsNext = () => markAsNextButton().click();
+
+  // ── Cancel / refund — "Cancel Order" opens a NESTED MUI Dialog on top of
+  // the detail sheet (also role="dialog"), so once it's open there are two
+  // dialog-role elements on the page. Scope every locator below to this one
+  // via its "Cancel Order — Receipt" heading text.
+  const cancelOrderButton = () =>
+    page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Cancel Order", exact: true });
+
+  const openCancelDialog = () => cancelOrderButton().click();
+
+  const cancelRefundDialog = () =>
+    page.getByRole("dialog").filter({ hasText: "Cancel Order — Receipt" });
+
+  const assertRefundCopyVisible = () =>
+    expect(cancelRefundDialog().getByText(/will be refunded/i)).toBeVisible({
+      timeout: 10_000,
+    });
+
+  const cancelReasonInput = () => page.locator("#cancel-refund-reason");
+
+  // Paid orders (paymentStatus === COMPLETED) show "Cancel & Refund"; unpaid
+  // orders show "Cancel Order" — same label as the outer trigger button, so
+  // this must stay scoped to cancelRefundDialog(), not the page at large.
+  const confirmCancelAndRefundButton = () =>
+    cancelRefundDialog().getByRole("button", { name: "Cancel & Refund" });
+
+  const confirmCancelAndRefund = () => confirmCancelAndRefundButton().click();
+
   return {
     navigateToOrdersTab,
     searchInput,
@@ -154,5 +204,15 @@ export const createOwnerOrdersPage = (page: Page) => {
     assertOrderDetailVisible,
     assertOrderDetailHasItemsAndTotal,
     closeOrderDetail,
+    gotoOrderDetail,
+    markAsNextButton,
+    clickMarkAsNext,
+    cancelOrderButton,
+    openCancelDialog,
+    cancelRefundDialog,
+    assertRefundCopyVisible,
+    cancelReasonInput,
+    confirmCancelAndRefundButton,
+    confirmCancelAndRefund,
   };
 };
