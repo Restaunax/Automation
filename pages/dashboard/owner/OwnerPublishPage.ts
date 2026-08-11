@@ -30,6 +30,30 @@ export const createOwnerPublishPage = (page: Page) => {
   const assertPublishedToast = () =>
     expect(page.getByText("Published!")).toBeVisible({ timeout: 10_000 });
 
+  // Checklist state has no data-testid — confirmed live against QA DOM: each
+  // row is `<Stack><Box><svg class="...MuiSvgIcon-color{Success,Error}"/></Box>
+  // <Box>{title Stack}{description}</Box></Stack>`. The title's own MuiStack
+  // wrapper is the row's 1st `div` ancestor; the outer row Stack (the one
+  // carrying the icon) is its 3rd `div` ancestor. Class-based ancestor
+  // filters that should be equivalent (`.//svg`, `and .//svg`) don't match in
+  // this MUI build — verified empirically, not just assumed — so this pins
+  // the exact ancestor depth instead.
+  const checklistRow = (label: string) =>
+    page.getByText(label, { exact: true }).locator("xpath=ancestor::div[3]");
+
+  const assertItemComplete = (label: string) =>
+    expect(checklistRow(label).locator(".MuiSvgIcon-colorSuccess")).toBeVisible(
+      { timeout: 10_000 }
+    );
+
+  const assertItemIncomplete = (label: string) =>
+    expect(checklistRow(label).locator(".MuiSvgIcon-colorError")).toBeVisible({
+      timeout: 10_000,
+    });
+
+  const assertPublishButtonDisabled = () =>
+    expect(publishButton()).toBeDisabled({ timeout: 10_000 });
+
   return {
     goto,
     publishButton,
@@ -38,5 +62,8 @@ export const createOwnerPublishPage = (page: Page) => {
     clickPublish,
     confirmPublish,
     assertPublishedToast,
+    assertItemComplete,
+    assertItemIncomplete,
+    assertPublishButtonDisabled,
   };
 };
