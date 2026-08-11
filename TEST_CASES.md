@@ -776,6 +776,48 @@ Owners export orders for reporting and accounting; this verifies the entry point
 
 ---
 
+## TC-224 — Owner Advances an Order's Status via "Mark as X"
+
+**Status:** ✅ Passing
+
+### What it checks
+
+The order-detail sheet's status control is a single forward-only "Mark as {next status}" button — not a dropdown. Clicking it PUTs `/api/order/orderId/:id/status` and the button itself advances to reflect the next status in the sequence.
+
+### How it works, step by step
+
+1. Seed a `PENDING` order via the API (`createSeededOrder`)
+2. Deep-link straight to that order's detail sheet (`?tab=Orders&detailOrderId=<id>`)
+3. Click "Mark as Confirmed"; capture the status PUT response and confirm it succeeded with `status: "CONFIRMED"`
+4. Confirm the button now reads "Mark as Preparing"
+
+### Why it matters
+
+TC-90 explicitly scoped the order-detail dialog to read-only assertions, leaving status change entirely uncovered. Also surfaced (not new — re-confirms an already-documented finding) that `PUT /api/order/orderId/:id/status` still has no auth/permission middleware live on QA; see `TEST_COVERAGE.md`'s Known Technical Debt (`TC-100`/`TC-179`).
+
+---
+
+## TC-225 — Owner Cancels a Stripe-Paid Order and Triggers a Real Refund
+
+**Status:** ✅ Passing
+
+### What it checks
+
+There is no standalone "Refund" button reachable in the dashboard — the only refund path is "Cancel Order," whose nested confirmation dialog smart-detects a completed Stripe payment and switches to refund copy/wording. Confirming triggers a real `stripe.refunds.create` server-side.
+
+### How it works, step by step
+
+1. Drive a full real customer checkout on Template Wind (Stripe `VISA_SUCCESS` test card, same flow as TC-26) with a run-unique customer name/email; extract the new order's id from the `/order-confirmation/<orderId>` URL
+2. As owner, deep-link to that order's detail sheet and click "Cancel Order"
+3. Confirm the nested dialog shows the paid-refund copy ("will be refunded") and its confirm button reads "Cancel & Refund" — proof the smart-detection branch fired correctly for a real charge
+4. Confirm "Cancel & Refund"; capture the `PUT /api/order/statistics/cancel/:orderId` response and confirm `action: "REFUNDED"` with a real `refundId`
+
+### Why it matters
+
+First-ever coverage of the refund path, and it tests the flow that's actually reachable — the legacy standalone Refund dialog in `OrderDetailsDialog.tsx` (`showRefundDialog`) is dead code, never triggered from anywhere in the component. Also confirms the response shape (`{ success, action, refundAmount, refundId }`), useful for anyone else needing to assert against this endpoint. The separate standalone partial-refund endpoint (`POST /api/order/statistics/refund/:orderId`) has no UI path at all and is out of scope for a dashboard E2E test.
+
+---
+
 ## TC-136 — Owner Can View the Customers Directory
 
 **Status:** ✅ Passing
@@ -2072,6 +2114,8 @@ This step is unavoidable for every single new restaurant, and its default-value 
 | TC-196          | Incomplete deal blocks checkout with "Complete Deals to Continue"                                   | Customer              | ✅ Passing                                                                                                                                |
 | TC-197          | A coupon cannot be combined with a deal in the cart                                                 | Customer              | ✅ Passing                                                                                                                                |
 | TC-223          | Admin creates a chain from an API-seeded founding restaurant via the real Create Chain UI flow      | Admin                 | ✅ Passing                                                                                                                                |
+| TC-224          | Owner advances an order's status via the "Mark as X" button                                         | Owner                 | ✅ Passing                                                                                                                                |
+| TC-225          | Owner cancels a Stripe-paid order and triggers a real refund                                        | Owner                 | ✅ Passing                                                                                                                                |
 
 A 2026-07-11 pass added TC-182/183, the first chained end-to-end onboarding test and dedicated Business Hours coverage — see their write-ups above for two real product findings surfaced along the way (no dashboard UI path to assign a new owner; an assign-restaurant 500 on a request that actually succeeded). See `docs/onboarding-product-fix-proposal.md`.
 
