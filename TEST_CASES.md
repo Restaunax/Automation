@@ -1847,6 +1847,49 @@ Confirms EMPLOYEE gets the same completeness guidance as any other role that can
 
 ---
 
+## TC-181 — Admin Chain Management (list)
+
+**Status:** ✅ Passing
+
+### What it checks
+
+The admin Chain Management screen (`/admin?tab=chains`) loads a DataGrid with its default-visible columns: Chain, Owner, Restaurants (plus a row-action column). Read-only — no chain data is assumed to pre-exist, since chains aren't part of the shared QA seed.
+
+### How it works, step by step
+
+1. The test signs in as ADMIN and navigates to `/admin?tab=chains`
+2. It confirms the "Chain Management" heading is visible
+3. It confirms the grid's default-visible column headers (Chain, Owner, Restaurants) are visible
+
+### Why it matters
+
+This was previously a bare `test.fixme` scaffold with a wrong URL (`/admin?tab=restaurant&section=chains` — the frontend never reads a `section` param; the real route is `/admin?tab=chains`). First-ever coverage for a fully-built admin feature that had none.
+
+---
+
+## TC-223 — Admin Creates a Chain
+
+**Status:** ✅ Passing
+
+### What it checks
+
+The real "Create Chain" flow: an admin picks a "founding" restaurant (one that already has a menu, an assigned owner, and doesn't already belong to a chain) and submits, producing a new chain whose detail panel auto-opens showing the founding restaurant as its first member.
+
+### How it works, step by step
+
+1. The test (as ADMIN) seeds a throwaway restaurant via the API, adds a menu group + item to it, and assigns the seed OWNER account as its owner — all three are hard requirements the UI itself enforces, confirmed live (see "Why it matters")
+2. It navigates to Chain Management, opens "Create Chain", and searches/selects the founding restaurant in the debounced autocomplete
+3. It submits (chain name left blank, so it defaults to the founding restaurant's name) and confirms the "Chain created" success toast
+4. It confirms the detail panel auto-opens with the chain name heading and the founding restaurant listed as a member
+5. It navigates "Back to chains" and confirms the new chain's row is visible in the grid
+6. Cleanup deletes the throwaway restaurant via the existing admin restaurant-delete endpoint
+
+### Why it matters
+
+Surfaced a real, previously-undocumented product requirement: **a founding restaurant must already have an assigned owner**, or the create form shows an inline alert ("This restaurant has no owner assigned...") and blocks submission — confirmed live 2026-07-29, not mentioned anywhere this test's research initially found. Also confirmed by source read that there is **no edit/rename UI and no `DELETE /api/admin/chains/:id` endpoint** — a chain only dissolves implicitly when unlinked down to its last member — so this test's cleanup (deleting the founding restaurant directly) may leave an orphan `RestaurantGroup` row in QA, the same class of accepted residue already documented for orphan menu groups. See `TEST_COVERAGE.md`'s Known Technical Debt table for both findings, plus a third: `ChainDetailPanel.tsx`'s "Remove from chain" button appears hardcoded `disabled` regardless of member count.
+
+---
+
 ## TC-182 — Full Onboarding Chain
 
 **Status:** ⏭️ Skipped locally (no `EMPLOYEE_*` credentials in this environment) — the Publish-checklist step (new 2026-07-29) is verified live against QA via standalone scratch specs (one against the already-published seed restaurant, one against a throwaway API-created restaurant) rather than the full ADMIN-substituted chain, which currently fails earlier at the Step 0 form for an unrelated, pre-existing reason (see Known Technical Debt)
@@ -2053,6 +2096,7 @@ This step is unavoidable for every single new restaurant, and its default-value 
 | TC-176          | A coupon and a gift card both apply to the same order                                               | Customer              | ✅ Passing                                                                                                                                |
 | TC-177          | Gift card fully covering the order skips Stripe                                                     | Customer              | ⏭️ `test.fixme` — real bug: order 201s, then frontend still attempts a doomed $0 PaymentIntent (400), customer stuck with no confirmation |
 | TC-178          | Gift card partially covering the order still charges the remainder                                  | Customer              | ✅ Passing                                                                                                                                |
+| TC-181          | Admin navigates to Chain Management and sees the chains grid with its default columns               | Admin                 | ✅ Passing                                                                                                                                |
 | TC-182          | Full onboarding chain: sign-up → create → hours → menu → publish checklist → assign → owner sees it | Onboarding / Employee | ⏭️ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` (checklist step verified live via standalone scratch specs, see write-up)                   |
 | TC-183          | Business Hours step: defaults, Open/24 Hours/Closed toggling, advances to Menu                      | Onboarding / Employee | ⏭️ Needs `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` (verified live via ADMIN substitution before commit)                                        |
 | TC-184          | `?item=` deep link auto-opens that item's modal                                                     | Customer              | ✅ Passing                                                                                                                                |
@@ -2069,6 +2113,7 @@ This step is unavoidable for every single new restaurant, and its default-value 
 | TC-195          | Deal builder auto-adds the deal; completing its slot enables checkout                               | Customer              | ✅ Passing                                                                                                                                |
 | TC-196          | Incomplete deal blocks checkout with "Complete Deals to Continue"                                   | Customer              | ✅ Passing                                                                                                                                |
 | TC-197          | A coupon cannot be combined with a deal in the cart                                                 | Customer              | ✅ Passing                                                                                                                                |
+| TC-223          | Admin creates a chain from an API-seeded founding restaurant via the real Create Chain UI flow      | Admin                 | ✅ Passing                                                                                                                                |
 | TC-224          | Owner advances an order's status via the "Mark as X" button                                         | Owner                 | ✅ Passing                                                                                                                                |
 | TC-225          | Owner cancels a Stripe-paid order and triggers a real refund                                        | Owner                 | ✅ Passing                                                                                                                                |
 
