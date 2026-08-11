@@ -154,7 +154,7 @@ Automation/
 │   │   │   ├── users.spec.ts                 # ✅ real — full CRUD + invite/claim/login journey + negative role/status API cases
 │   │   │   ├── marketing-campaigns.spec.ts   # ✅ real — event list filters/status, seed-dedup regression, renew idempotency (API fixture)
 │   │   │   ├── marketing-automations.spec.ts # ✅ real — lifecycle programs table, edit dialog (locked template), toggle, templateId API lock, safe run-now
-│   │   │   └── chains.spec.ts                # scaffold (test.fixme)
+│   │   │   └── chains.spec.ts                # ✅ real — grid loads (TC-181), admin creates a chain from an API-seeded founding restaurant via the real UI flow (TC-223)
 │   │   ├── owner/                            # feature tests, owner as primary actor (shared screens)
 │   │   │   ├── 01-restaurant-list.spec.ts    # ✅ real
 │   │   │   ├── 02-restaurant-management.spec.ts  # ✅ real (incl. real Store Settings field edit/save, self-reverting)
@@ -626,8 +626,8 @@ current pass/skip status of every TC, see `TEST_CASES.md` and
 | Customer free-delivery coupon                     | `customer/07-free-delivery.spec.ts`                                                                | FREE_DELIVERY code rejected on pickup; on delivery the fee flips to "Free" after apply (needs template-wind #60 deployed; delivery-provider skips mirror TC-126)                                                                                                                                                                                                                                                                                                                                     |
 | Customer menu browsing, checkout, order placement | `customer/{01-menu-browsing,02-checkout,03-order-placement}.spec.ts`                               | Reach menu, open item modal, seed cart, fill checkout form, full Stripe payment → Order Confirmed; DECLINED-card negative                                                                                                                                                                                                                                                                                                                                                                            |
 
-Still `test.fixme` / `test.skip` scaffolds: `dashboard/admin/chains.spec.ts`,
-`dashboard/employee/menu-publish.spec.ts`, `dashboard/staff/staff-portal.spec.ts`,
+Still `test.fixme` / `test.skip` scaffolds: `dashboard/employee/menu-publish.spec.ts`,
+`dashboard/staff/staff-portal.spec.ts` (blocked — no `RESTAURANT_STAFF` credentials),
 `dashboard/owner/05-publish.spec.ts` (permanently skipped — OWNER is denied
 that route), `dashboard/owner/07-coupons.spec.ts`'s coupon-edit case (real
 backend bug, not a missing-test gap), and a few individual cases with no
@@ -653,8 +653,7 @@ Each remaining suite lands by filling its existing `test.fixme` placeholder
 | Suite                                           | Key cases                                                            |
 | ----------------------------------------------- | -------------------------------------------------------------------- |
 | `tests/dashboard/employee/menu-publish.spec.ts` | Employee publishes a menu; OWNER-denied already covered in `access/` |
-| `tests/dashboard/admin/chains.spec.ts`          | Chain management (needs an `AdminChainsPage` POM)                    |
-| `tests/dashboard/staff/staff-portal.spec.ts`    | RESTAURANT_STAFF PIN card                                            |
+| `tests/dashboard/staff/staff-portal.spec.ts`    | RESTAURANT_STAFF PIN card — blocked until real credentials exist     |
 
 ### Then — deeper coverage on existing screens
 
