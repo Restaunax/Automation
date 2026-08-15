@@ -308,11 +308,9 @@ export const createOwnerOrdersPage = (page: Page) => {
   // aria-label/title is "Receipt #<n>"; the nested Cancel dialog is a
   // separate role=dialog and is excluded by the heading filter) ─────────────
   const detailSheet = () =>
-    page
-      .getByRole("dialog")
-      .filter({
-        has: page.getByRole("banner").filter({ hasText: /^Receipt #/ }),
-      });
+    page.getByRole("dialog").filter({
+      has: page.getByRole("banner").filter({ hasText: /^Receipt #/ }),
+    });
   // The header <header> (role banner) holds "Receipt #<n>", the created date
   // and the Order-#/status chips — assert with toContainText.
   const sheetTitle = () => detailSheet().getByRole("banner");
