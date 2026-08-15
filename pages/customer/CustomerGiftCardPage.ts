@@ -2,8 +2,9 @@ import { type Page, expect } from "@playwright/test";
 import { fillStripePaymentElement } from "../../utils/stripeHelper";
 import { STRIPE_CARDS, STRIPE_DEFAULTS } from "../../utils/stripeCards";
 
-const TEMPLATE_WIND_URL =
-  process.env.TEMPLATE_WIND_URL ?? "https://qa.restaunax.com";
+// Single source of truth for the storefront host (defaults to the QA Template
+// Wind storefront, wind.restaunax.com — NOT qa.restaunax.com, the marketing site).
+import { TEMPLATE_WIND_URL } from "../../utils/testData";
 
 export const createCustomerGiftCardPage = (page: Page) => {
   // ?restaurantId= QA override, same as /menu and /checkout — skips the

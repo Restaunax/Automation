@@ -812,16 +812,91 @@ export async function updateOrderStatus(
   );
 }
 
+export interface SeedDeliveryAddress {
+  street: string;
+  unit?: string;
+  city: string;
+  state: string;
+  zipCode: string;
+  country?: string;
+  deliveryNotes?: string;
+}
+
 export interface SeedOrderOpts {
+  /** Claimed subtotal — only used to pass the pricing floor; the backend
+   *  records the item's real DB price regardless (see createSeededOrder). */
   subtotal?: number;
+  /** IGNORED by the backend — tax is recomputed from the restaurant's tax
+   *  config. Kept for back-compat; read the real tax from the returned order. */
   tax?: number;
+  /** Honoured verbatim. */
   tip?: number;
+  /** Honoured only for DELIVERY/SHIPPING orders (and only when > 0). */
   deliveryFee?: number;
   total?: number;
   orderType?: "PICKUP" | "DELIVERY";
-  /** Status to bump the order to after creation (default CONFIRMED). */
-  status?: string;
+  /**
+   * Status to bump the order to after creation (default CONFIRMED). Pass
+   * `null` to leave the order in INITIALIZED (pre-payment placeholder) — used
+   * to prove the owner-facing list excludes placeholders.
+   */
+  status?: string | null;
   customerEmail?: string;
+  /**
+   * 10 bare digits with digit[0] and digit[3] in 2-9 (NANP rules — the
+   * backend's normalizePhone NULLs anything else, e.g. "5550000000"). Use
+   * generateSeedPhone() from utils/testData. Stored and displayed as bare
+   * digits, so search with the same string.
+   */
+  customerPhone?: string;
+  firstName?: string;
+  lastName?: string;
+  specialInstructions?: string;
+  /** Required for a meaningful DELIVERY seed (Delivery Info tab, CSV address). */
+  deliveryAddress?: SeedDeliveryAddress;
+  /** Omit name/email/phone entirely → the dashboard shows "Guest" / "N/A". */
+  guest?: boolean;
+  quantity?: number;
+}
+
+/**
+ * Server-truth snapshot of a seeded order (the 201 body of placeOrder plus
+ * the status we bumped it to). Money fields are what the pricing engine
+ * actually recorded — assert against THESE, never against the opts you passed.
+ */
+export interface SeededOrder extends ApiOrder {
+  receiptNumber: string;
+  orderNumber?: number | null;
+  subtotal: number;
+  tax: number;
+  tip: number;
+  deliveryFee: number;
+  total: number;
+  paymentStatus?: string;
+  orderType: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  specialInstructions?: string | null;
+  deliveryAddress?: (SeedDeliveryAddress & { id?: string }) | null;
+  orderItems?: Array<{
+    id: string;
+    menuItemId: string;
+    menuItemName?: string;
+    quantity: number;
+    price: number;
+  }>;
+  customerId?: string | null;
+  /** The email/phone/name we SENT (undefined for guest seeds). */
+  seed: {
+    email?: string;
+    phone?: string;
+    firstName?: string;
+    lastName?: string;
+  };
+  /** false when a DELIVERY seed had to fall back to deliveryFee:0 (tax policy). */
+  deliveryFeeApplied: boolean;
 }
 
 /**
@@ -830,72 +905,327 @@ export interface SeedOrderOpts {
  * Two steps:
  *   1. POST the public new-order endpoint with real subtotal/total. A nonzero
  *      order is created in status INITIALIZED (the pre-payment placeholder),
- *      which reports and the POS current-orders feed exclude.
+ *      which reports, the owner Orders tab and the POS feed all exclude.
  *   2. PUT the status to an included status (default CONFIRMED) with an
  *      owner/admin token — the status endpoint validates only allowlist
  *      membership (no source-state check), so INITIALIZED→CONFIRMED is accepted.
+ *      Pass `status: null` to skip this step.
  *
- * The backend's pricing guard recomputes the subtotal from DB menu prices and
- * rejects a claimed total below that floor ("Order Price Mismatch"). Live
- * evidence (2026-07-11, TC-142) shows this is NOT merely a floor: the
- * backend records net sales as the item's real DB price regardless of a
- * higher claimed opts.subtotal — the claimed amount only matters for passing
- * the floor check, not for what gets recorded. So callers that need the
- * *recorded* net-sales figure to match (e.g. Daily Report/Analytics
- * assertions) must use the default (subtotal = item.price) and read the
- * expected amount back from item.price, not from whatever opts.subtotal they
- * pass. Tax/tip/deliveryFee only add and are unaffected by this recompute.
+ * Money is SERVER-AUTHORITATIVE (pricing engine, verified 2026-08-15):
+ *   • subtotal = the item's real DB price (claimed subtotal only has to clear
+ *     the floor; a higher claim is ignored — TC-142 evidence 2026-07-11);
+ *   • tax is RECOMPUTED from the restaurant's tax config (opts.tax ignored);
+ *   • tip is honoured; deliveryFee is honoured only for DELIVERY and > 0;
+ *   • total may include a processing fee if the restaurant opted in.
+ * So the returned SeededOrder carries the recorded values — assert against
+ * those (e.g. `formatCurrency(order.total)`), never a hand-computed sum.
  *
- * The order's createdAt is "now", so it lands in the current business day's
- * Daily Report / Analytics with real revenue.
+ * DELIVERY + deliveryFee > 0 can be rejected (400) when the restaurant's state
+ * has an unsupported delivery-tax policy; we retry once with deliveryFee: 0 and
+ * flag `deliveryFeeApplied: false` so tests can guard the fee-row assertion.
  *
- * There is no order-delete API, so seeded orders are permanent QA residue —
- * tests that rely on them must assert DELTAS, not absolute totals.
+ * Contact fields (firstName/lastName/email/phone/specialInstructions) are
+ * persisted as an on-order snapshot AND on the Customer row, so search by any
+ * of them works. Phone must follow the NANP rule documented on SeedOrderOpts.
+ *
+ * The order's createdAt is "now", so it lands in the current business day.
+ * There is no order-delete API — seeded orders are permanent QA residue;
+ * tests must assert on their OWN rows / on DELTAS, never absolute totals.
  */
 export async function createSeededOrder(
   ownerToken: string,
   restaurantId: string,
   item: SeedOrderItem,
   opts: SeedOrderOpts = {}
-): Promise<ApiOrder> {
-  const subtotal = opts.subtotal ?? item.price;
+): Promise<SeededOrder> {
+  const quantity = opts.quantity ?? 1;
+  const subtotal = opts.subtotal ?? item.price * quantity;
   const tax = opts.tax ?? 0;
   const tip = opts.tip ?? 0;
-  const deliveryFee = opts.deliveryFee ?? 0;
-  const total = opts.total ?? subtotal + tax + tip + deliveryFee;
   const orderType = opts.orderType ?? "PICKUP";
-  const status = opts.status ?? "CONFIRMED";
-  const customerEmail =
-    opts.customerEmail ??
-    `autoseed_${Date.now()}_${Math.random().toString(36).slice(2, 8)}@restaunax-test.com`;
+  const status = opts.status === undefined ? "CONFIRMED" : opts.status;
+  const seed = opts.guest
+    ? {}
+    : {
+        email:
+          opts.customerEmail ??
+          `autoseed_${Date.now()}_${Math.random().toString(36).slice(2, 8)}@restaunax-test.com`,
+        phone: opts.customerPhone ?? "5552000000",
+        firstName: opts.firstName ?? "Auto",
+        lastName: opts.lastName ?? "Seed",
+      };
 
-  const data = await apiRequest<{ order?: ApiOrder } & ApiOrder>(
+  const buildBody = (deliveryFee: number) => ({
+    orderType,
+    subtotal,
+    tax,
+    deliveryFee,
+    tip,
+    total: opts.total ?? subtotal + tax + tip + deliveryFee,
+    ...(opts.guest
+      ? {}
+      : {
+          customerEmail: seed.email,
+          customerPhone: seed.phone,
+          firstName: seed.firstName,
+          lastName: seed.lastName,
+        }),
+    ...(opts.specialInstructions
+      ? { specialInstructions: opts.specialInstructions }
+      : {}),
+    ...(opts.deliveryAddress ? { deliveryAddress: opts.deliveryAddress } : {}),
+    orderItems: [
+      {
+        menuItemId: item.menuItemId,
+        menuItemName: item.name,
+        quantity,
+        price: item.price,
+      },
+    ],
+  });
+
+  const requestedFee = opts.deliveryFee ?? 0;
+  let deliveryFeeApplied = requestedFee > 0;
+  let res = await apiRequestRaw<{ order?: SeededOrder } & SeededOrder>(
     "POST",
     `/api/order/new/restaurantId/${restaurantId}`,
-    {
-      orderType,
-      subtotal,
-      tax,
-      deliveryFee,
-      tip,
-      total,
-      customerEmail,
-      customerPhone: "+15550000000",
-      firstName: "Auto",
-      lastName: "Seed",
-      orderItems: [
-        {
-          menuItemId: item.menuItemId,
-          menuItemName: item.name,
-          quantity: 1,
-          price: subtotal,
-        },
-      ],
-    }
+    buildBody(requestedFee)
   );
-  const order = (data.order ?? (data as ApiOrder)) as ApiOrder;
-  await updateOrderStatus(ownerToken, order.id, status);
-  return { ...order, status, total };
+  if (
+    !res.ok &&
+    res.status === 400 &&
+    orderType === "DELIVERY" &&
+    requestedFee > 0
+  ) {
+    // Tax-policy fallback (see doc comment) — retry without a delivery fee.
+    deliveryFeeApplied = false;
+    res = await apiRequestRaw<{ order?: SeededOrder } & SeededOrder>(
+      "POST",
+      `/api/order/new/restaurantId/${restaurantId}`,
+      buildBody(0)
+    );
+  }
+  if (!res.ok) {
+    const detail =
+      typeof res.data === "string" ? res.data : JSON.stringify(res.data);
+    throw new Error(
+      `API POST /api/order/new/restaurantId/${restaurantId} → ${res.status}: ${detail || "(no body)"}`
+    );
+  }
+  const data = res.data;
+  const order = (data.order ?? (data as SeededOrder)) as SeededOrder;
+  if (status !== null) {
+    await updateOrderStatus(ownerToken, order.id, status);
+  }
+  return {
+    ...order,
+    status: status ?? order.status,
+    seed,
+    deliveryFeeApplied,
+  };
+}
+
+// ── Owner order-management API (Layer-1 contract tests) ─────────────────────
+//
+// Raw (non-throwing) wrappers around /api/order/statistics/* so specs can
+// assert status codes + bodies directly. All need an owner/admin token.
+
+export interface OrderListParams {
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  sortDirection?: "asc" | "desc";
+  startDate?: string;
+  endDate?: string;
+  status?: string;
+  orderType?: string;
+  search?: string;
+}
+
+export interface OrderListResponse {
+  orders: Array<
+    ApiOrder & {
+      receiptNumber?: string;
+      orderNumber?: number | null;
+      phone?: string | null;
+      email?: string | null;
+      firstName?: string | null;
+      lastName?: string | null;
+      customer?: {
+        phone?: string | null;
+        email?: string | null;
+        firstName?: string | null;
+        lastName?: string | null;
+      } | null;
+    }
+  >;
+  totalCount: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+function toQuery(params: object): string {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(params) as Array<
+    [string, string | number | undefined]
+  >) {
+    if (v !== undefined) q.set(k, String(v));
+  }
+  const s = q.toString();
+  return s ? `?${s}` : "";
+}
+
+/** GET /api/order/statistics/management/:restaurantId — the Orders-tab grid feed. */
+export function listOrdersRaw(
+  accessToken: string,
+  restaurantId: string,
+  params: OrderListParams = {}
+): Promise<RawResponse<OrderListResponse>> {
+  return apiRequestRaw<OrderListResponse>(
+    "GET",
+    `/api/order/statistics/management/${restaurantId}${toQuery(params)}`,
+    undefined,
+    accessToken
+  );
+}
+
+export async function listOrders(
+  accessToken: string,
+  restaurantId: string,
+  params: OrderListParams = {}
+): Promise<OrderListResponse> {
+  return apiRequest<OrderListResponse>(
+    "GET",
+    `/api/order/statistics/management/${restaurantId}${toQuery(params)}`,
+    undefined,
+    accessToken
+  );
+}
+
+export interface OrderStats {
+  totalOrders: number;
+  totalRevenue: number;
+  averageOrderValue: number;
+  ordersByStatus: Array<{ status: string; count: number }>;
+  ordersByType: Array<{ type: string; count: number; revenue: number }>;
+  topSellingItems: Array<{
+    name: string;
+    totalQuantity: number;
+    totalRevenue: number;
+  }>;
+}
+
+/** GET /api/order/statistics/restaurantId/:id — the Orders-tab header cards. */
+export function getOrderStatsRaw(
+  accessToken: string,
+  restaurantId: string,
+  range: { startDate?: string; endDate?: string } = {}
+): Promise<RawResponse<OrderStats>> {
+  return apiRequestRaw<OrderStats>(
+    "GET",
+    `/api/order/statistics/restaurantId/${restaurantId}${toQuery(range)}`,
+    undefined,
+    accessToken
+  );
+}
+
+export async function getOrderStats(
+  accessToken: string,
+  restaurantId: string,
+  range: { startDate?: string; endDate?: string } = {}
+): Promise<OrderStats> {
+  return apiRequest<OrderStats>(
+    "GET",
+    `/api/order/statistics/restaurantId/${restaurantId}${toQuery(range)}`,
+    undefined,
+    accessToken
+  );
+}
+
+/**
+ * Non-throwing status update. `via: "order"` = PUT /api/order/orderId/:id/status
+ * (what the dashboard + POS call); `via: "statistics"` = the sibling
+ * PUT /api/order/statistics/:id/status. Both share the same 9-value allowlist.
+ */
+export function updateOrderStatusRaw(
+  accessToken: string,
+  orderId: string,
+  status: string,
+  via: "order" | "statistics" = "order"
+): Promise<RawResponse<Record<string, unknown>>> {
+  const path =
+    via === "order"
+      ? `/api/order/orderId/${orderId}/status`
+      : `/api/order/statistics/${orderId}/status`;
+  return apiRequestRaw<Record<string, unknown>>(
+    "PUT",
+    path,
+    { status },
+    accessToken
+  );
+}
+
+/** PUT /api/order/statistics/cancel/:orderId — the dashboard's Cancel Order path. */
+export function cancelOrderRaw(
+  accessToken: string,
+  orderId: string,
+  body: {
+    reason?: string;
+    reasonCode?: string;
+    requestPhotos?: boolean;
+    evidenceMode?: "OPTIONAL" | "REQUIRED";
+    finalize?: boolean;
+    rejectCancellation?: boolean;
+  } = {}
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw<Record<string, unknown>>(
+    "PUT",
+    `/api/order/statistics/cancel/${orderId}`,
+    body,
+    accessToken
+  );
+}
+
+/** POST /api/order/statistics/refund/:orderId — standalone (partial) refund. */
+export function refundOrderRaw(
+  accessToken: string,
+  orderId: string,
+  body: { amount?: number | string; reason?: string } = {}
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw<Record<string, unknown>>(
+    "POST",
+    `/api/order/statistics/refund/${orderId}`,
+    body,
+    accessToken
+  );
+}
+
+/**
+ * POST /api/order/statistics/export/:restaurantId — CSV export. On success
+ * `data` is the raw CSV text (apiRequestOnce falls back to text when the
+ * body isn't JSON); on 400 it's the JSON error body.
+ */
+export function exportOrdersRaw(
+  accessToken: string,
+  restaurantId: string,
+  body: {
+    exportType?: "current" | "last_30_days" | "last_90_days" | "all" | string;
+    startDate?: string;
+    endDate?: string;
+    status?: string;
+    orderType?: string;
+    search?: string;
+    sortBy?: string;
+    sortDirection?: string;
+  } = {}
+): Promise<RawResponse<string | Record<string, unknown>>> {
+  return apiRequestRaw<string | Record<string, unknown>>(
+    "POST",
+    `/api/order/statistics/export/${restaurantId}`,
+    body,
+    accessToken
+  );
 }
 
 /** KPI block from the daily-close report (data.comparisons.current). */

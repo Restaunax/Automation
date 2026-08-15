@@ -1,7 +1,8 @@
 import { type Page, expect } from "@playwright/test";
 
-const TEMPLATE_WIND_URL =
-  process.env.TEMPLATE_WIND_URL ?? "https://qa.restaunax.com";
+// Single source of truth for the storefront host (defaults to the QA Template
+// Wind storefront, wind.restaunax.com — NOT qa.restaunax.com, the marketing site).
+import { TEMPLATE_WIND_URL } from "../../utils/testData";
 
 export const createCustomerMenuPage = (page: Page) => {
   const goto = async (restaurantId: string) => {
