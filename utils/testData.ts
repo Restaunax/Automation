@@ -59,6 +59,19 @@ export const TEST_USER_MARKER = "autouser";
 // run (e.g. a duplicate coupon code → 400 on create).
 export const generateRunId = () => uuidv4().slice(0, 8);
 
+// Order-seed identity helpers (see apiHelper.createSeededOrder):
+//   • generateSeedPhone — 10 bare digits that survive the backend's NANP
+//     normalizePhone (digit[0] and digit[3] must be 2-9; "555" + "0…" is
+//     NULLed). "5552" + 6 random digits → stored & displayed as-is, so a test
+//     can search the exact same string.
+//   • generateSeedSurname — run-unique last name shared by one spec file's seed
+//     set, so `search=<surname>` returns exactly that file's rows.
+export const generateSeedPhone = () =>
+  `5552${Math.floor(Math.random() * 1_000_000)
+    .toString()
+    .padStart(6, "0")}`;
+export const generateSeedSurname = (runId: string) => `Seed${runId}`;
+
 // Coupon codes created by automation. The shared prefix is the sweep marker
 // globalTeardown uses to delete this run's coupons AND leftovers from
 // interrupted runs — see apiHelper.deleteAutomationCoupons.
