@@ -596,7 +596,7 @@ test.describe("Owner — Orders Tab", () => {
       "The search box is one field for name / email / phone (backend ORs over customer.* AND the " +
         "on-order contact snapshot). Surname: the run-unique last name returns exactly the three named " +
         "seed rows (the guest seed has no name). Email: the unique local part returns order A. " +
-        "(Phone is TC-262 — currently a known backend bug.)"
+        "(Phone is TC-262.)"
     );
     const ordersPage = await gotoOrders(ownerPage);
 
@@ -665,25 +665,19 @@ test.describe("Owner — Orders Tab", () => {
     );
   });
 
-  test("TC-262: [known bug] searching by a customer phone number should find the seeded order", async ({
+  test("TC-262: searching by a customer phone number finds the seeded order", async ({
     ownerPage,
   }) => {
-    // KNOWN BACKEND BUG (found 2026-08-15 by this test): getFilteredOrders
-    // treats any all-digit search term as an orderNumber and hands
-    // Number(term) to Prisma as an int4 — a 10-digit phone overflows Postgres
-    // integer range and the endpoint 500s ("Value out of range for the type").
-    // So "Search by … phone" (the placeholder's own promise) is broken for
-    // essentially every real phone number. test.fail() keeps this test RED-
-    // AS-EXPECTED: the moment the backend guards the orderNumber branch
-    // (e.g. only when the term fits int4 / ≤ 9 digits) this flips to a
-    // failure that says "unexpected pass" — remove the test.fail() then.
-    test.fail(
-      true,
-      "Backend: phone search 500s — numeric term overflows int4 orderNumber match (orderStatisticsController.getFilteredOrders)"
-    );
+    // Regression guard. This test FOUND a backend bug on 2026-08-15: any
+    // all-digit search term was matched against orderNumber (int4) without a
+    // magnitude check, so a 10-digit phone overflowed Postgres integer range
+    // and the whole search 500'd. Fixed in RestauNax commit 48726a9e (PR #589,
+    // guard /^\d{1,9}$/ in getFilteredOrders, exportOrders and the chain order
+    // feed). Kept as a permanent guard so the branch can't regress.
     await allure.description(
       "Typing the customer's 10-digit phone number into search returns their order (backend matches " +
-        "customer.phone and the on-order phone snapshot with `contains`). Currently 500s — see test body."
+        "customer.phone and the on-order phone snapshot with `contains`). Regression guard for the " +
+        "int4-overflow bug fixed in RestauNax #589 — see test body."
     );
     const ordersPage = await gotoOrders(ownerPage);
     const { json } = await ordersPage.waitForManagementResponse(
