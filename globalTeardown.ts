@@ -69,8 +69,8 @@ export default async function globalTeardown(): Promise<void> {
   //    restaurant — do NOT delete it. Each step has its own try/catch so one
   //    failure can't skip the rest of the cleanup.
   if (OWNER_EMAIL && OWNER_PASSWORD && fs.existsSync(STATE_FILE)) {
-    const { menuItemId, menuGroupId, restaurantId, restaurantName } =
-      readSharedState();
+    const state = readSharedState();
+    const { menuItemId, menuGroupId, restaurantId, restaurantName } = state;
     let accessToken = "";
     try {
       ({ accessToken } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD));
@@ -127,6 +127,27 @@ export default async function globalTeardown(): Promise<void> {
         }
       } catch (err) {
         console.warn("[globalTeardown] Menu group sweep failed:", err);
+      }
+      // Same sweep on the persistent chain-fixture locations (chain-menu specs
+      // seed "Automation Menu <id>" groups there). The chain itself stays.
+      for (const locId of [state.chainLocationAId, state.chainLocationBId]) {
+        if (!locId) continue;
+        try {
+          const n = await deleteAutomationMenuGroups(
+            accessToken,
+            locId,
+            adminToken
+          );
+          if (n)
+            console.log(
+              `[globalTeardown] Deleted ${n} automation menu group(s) from chain location ${locId}`
+            );
+        } catch (err) {
+          console.warn(
+            `[globalTeardown] Chain-location menu sweep failed (${locId}):`,
+            err
+          );
+        }
       }
 
       // Sweep AUTO* coupons the coupon tests created (never cleaned before —

@@ -25,6 +25,7 @@ import {
   getOwnerRestaurants,
   createTestMenuGroup,
   createTestMenuItem,
+  ensureAutomationChain,
   BACKEND_URL,
 } from "./utils/apiHelper";
 import { readProcessStartedAt } from "./utils/deployGuard";
@@ -196,9 +197,13 @@ export default async function globalSetup(): Promise<void> {
   let menuItemId = "";
   let menuItemName = "";
   let menuItemPrice = 0;
+  let chain: Awaited<ReturnType<typeof ensureAutomationChain>> = null;
 
   if (OWNER_EMAIL && OWNER_PASSWORD) {
-    const { accessToken } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD);
+    const { accessToken, userId: ownerUserId } = await apiLogin(
+      OWNER_EMAIL,
+      OWNER_PASSWORD
+    );
     const restaurants = await getOwnerRestaurants(accessToken);
     if (!restaurants.length) {
       throw new Error(
@@ -230,7 +235,7 @@ export default async function globalSetup(): Promise<void> {
     restaurantName = restaurant.name;
     console.log(
       `[globalSetup] Using existing restaurant: ${restaurantName} (${restaurantId})` +
-        (restaurants.length > 1
+        (restaurants.length > 1 && !pinned
           ? ` — owner has ${restaurants.length} restaurants; pin with SEED_RESTAURANT_ID to keep this stable`
           : "")
     );
@@ -244,6 +249,33 @@ export default async function globalSetup(): Promise<void> {
     console.log(
       `[globalSetup] Seed menu item created: ${menuItemName} (${menuItemId})`
     );
+
+    // Persistent two-location chain fixture for the chain-menu suites
+    // (docs/MENU_TAB_TEST_STRATEGY.md §5, Option A). Create-if-missing: one
+    // GET on a normal run; the admin-driven build happens once per QA env.
+    // Never torn down — chain membership can't be cleanly undone via API.
+    try {
+      const adminToken =
+        ADMIN_EMAIL && ADMIN_PASSWORD
+          ? (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken
+          : undefined;
+      chain = await ensureAutomationChain(accessToken, ownerUserId, adminToken);
+      if (chain) {
+        console.log(
+          `[globalSetup] Chain fixture: ${chain.name} (${chain.groupId}) — ` +
+            `${chain.locationA.name} / ${chain.locationB.name}`
+        );
+      } else {
+        console.warn(
+          "[globalSetup] Chain fixture unavailable (no admin creds to build it) — chain-menu specs will skip"
+        );
+      }
+    } catch (err) {
+      console.warn(
+        "[globalSetup] Chain fixture setup failed — chain-menu specs will skip:",
+        err
+      );
+    }
   } else {
     console.warn(
       "[globalSetup] OWNER_EMAIL/PASSWORD not set — skipping owner auth + restaurant seed"
@@ -287,6 +319,11 @@ export default async function globalSetup(): Promise<void> {
     menuItemName,
     menuItemPrice,
     processStartedAt,
+    chainGroupId: chain?.groupId ?? "",
+    chainLocationAId: chain?.locationA.id ?? "",
+    chainLocationAName: chain?.locationA.name ?? "",
+    chainLocationBId: chain?.locationB.id ?? "",
+    chainLocationBName: chain?.locationB.name ?? "",
   });
 
   console.log(`[globalSetup] shared-state.tmp.json written.\n`);
