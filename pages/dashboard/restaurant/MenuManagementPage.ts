@@ -51,8 +51,14 @@ export const createMenuAvailabilityPage = (page: Page) => {
 
   const heading = () =>
     page.getByRole("heading", { name: "Menu Availability Management" });
+  // Standalone: name "Manage Menu". Chain member / chain shell: the tooltip
+  // becomes the accessible name ("Open the builder for <A> only — …" /
+  // "Manage the shared chain menu — …") while the visible text stays
+  // "Manage Menu" / "Manage shared menu (all locations)".
   const manageMenuButton = () =>
-    page.getByRole("button", { name: /^Manage (Menu|shared menu)/ });
+    page.getByRole("button", {
+      name: /^Manage (Menu|shared menu)|^Open the builder for .* only|^Manage the shared chain menu/,
+    });
   const refreshButton = () =>
     page.getByRole("button", { name: /^Refresh(ing…|ing\.\.\.)?$/ });
   const sidebarMenuTab = () =>
@@ -314,6 +320,16 @@ export const createMenuAvailabilityPage = (page: Page) => {
     page.getByText(
       /This is your shared menu — changes here apply to all \d+ locations/
     );
+  /** Location-view header line "Managing: <name> • part of your chain" + switch button. */
+  const managingLine = () => page.getByText("Managing:");
+  const switchToChainViewButton = () =>
+    page.getByRole("button", {
+      name: /Switch to chain view \(\d+ locations\)/,
+    });
+  const differentPriceChip = (categoryName: string, itemName: string) =>
+    itemRow(categoryName, itemName).getByText(
+      /\d+ locations? (has|have) a different price/
+    );
   const menuSplitSummary = () =>
     page.getByText(/\d+ shared \(chain\) · \d+ only this location/);
   const sourceChip = (
@@ -364,6 +380,9 @@ export const createMenuAvailabilityPage = (page: Page) => {
     openMenuBuilderButton,
     chainLocationBanner,
     chainSharedBanner,
+    managingLine,
+    switchToChainViewButton,
+    differentPriceChip,
     menuSplitSummary,
     sourceChip,
   };

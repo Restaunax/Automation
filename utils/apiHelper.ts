@@ -912,6 +912,39 @@ export function adminLinkRestaurantToChainRaw(
   );
 }
 
+/**
+ * Give a restaurant 24-hour business hours if it has none — POST
+ * /restaurant/hours?restaurantId=… (rows are {day, is24Hours}). The builder
+ * page (/restaurant/restaurantId/:id, CreateStore) is a data-driven wizard
+ * that shows its Business Hours step INSTEAD of the menu builder while a
+ * restaurant has no hours, so fixture restaurants that tests open in the
+ * builder must have hours.
+ */
+export async function ensureBusinessHours(
+  accessToken: string,
+  restaurantId: string
+): Promise<void> {
+  const data = await apiRequest<{
+    restaurant?: { businessHours?: unknown[] };
+  }>("GET", `/restaurant/restaurantId/${restaurantId}`, undefined, accessToken);
+  if ((data.restaurant?.businessHours ?? []).length > 0) return;
+  const days = [
+    "MONDAY",
+    "TUESDAY",
+    "WEDNESDAY",
+    "THURSDAY",
+    "FRIDAY",
+    "SATURDAY",
+    "SUNDAY",
+  ];
+  await apiRequest<unknown>(
+    "POST",
+    `/restaurant/hours?restaurantId=${restaurantId}`,
+    { hoursOfOperation: days.map((day) => ({ day, is24Hours: true })) },
+    accessToken
+  );
+}
+
 /** Persistent chain-fixture identity — see docs/MENU_TAB_TEST_STRATEGY.md §5 (Option A). */
 export const AUTOMATION_CHAIN_NAME = "Automation Chain";
 export const AUTOMATION_CHAIN_LOCATION_NAMES = [
@@ -948,10 +981,23 @@ export async function ensureAutomationChain(
     return { groupId: c.groupId, name: c.name, locationA: a, locationB: b };
   };
 
+  const withHours = async (chain: AutomationChain | null) => {
+    if (!chain) return chain;
+    for (const loc of [chain.locationA, chain.locationB]) {
+      await ensureBusinessHours(ownerToken, loc.id).catch((err) =>
+        console.warn(
+          `[ensureAutomationChain] hours for ${loc.name} failed:`,
+          err
+        )
+      );
+    }
+    return chain;
+  };
+
   const existing = (await getOwnedChains(ownerToken)).find(
     (c) => c.name === AUTOMATION_CHAIN_NAME && c.locationCount >= 2
   );
-  if (existing) return toResult(existing);
+  if (existing) return withHours(toResult(existing));
   if (!adminToken) return null;
 
   const owned = await getOwnerRestaurants(ownerToken);
@@ -1012,7 +1058,7 @@ export async function ensureAutomationChain(
       `[ensureAutomationChain] chain ${chain.id} created but not visible in /api/chains/owned`
     );
   }
-  return toResult(created);
+  return withHours(toResult(created));
 }
 
 /**
