@@ -998,6 +998,20 @@ export async function ensureTaxRate(
   );
 }
 
+/** POST /api/admin/chains/:gid/restaurants/:rid/unlink → 200 {dissolved} | 400 anchor/established | 404. */
+export function adminUnlinkRestaurantFromChainRaw(
+  adminToken: string,
+  groupId: string,
+  restaurantId: string
+): Promise<RawResponse<{ dissolved?: boolean; message?: string }>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/admin/chains/${groupId}/restaurants/${restaurantId}/unlink`,
+    {},
+    adminToken
+  );
+}
+
 /** Persistent chain-fixture identity — see docs/MENU_TAB_TEST_STRATEGY.md §5 (Option A). */
 export const AUTOMATION_CHAIN_NAME = "Automation Chain";
 export const AUTOMATION_CHAIN_LOCATION_NAMES = [
