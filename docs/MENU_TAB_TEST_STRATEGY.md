@@ -27,6 +27,20 @@ Sources read for this audit (all in the `restaunax` repo unless noted):
 
 ---
 
+> **Status 2026-08-17:** §4 + §6 are **implemented and green on QA** — `api-menu.spec.ts` (TC-263..287, 25),
+> `04b-menu-availability.spec.ts` (TC-288..293), `04c-menu-item-editor.spec.ts` (TC-294..307), `17-chain-menu.spec.ts`
+> (TC-308..319), `customer/06-menu-handoff.spec.ts` (TC-320..322), `admin/chains.spec.ts` (TC-323/324) — 62 tests, six
+> `test.fail()` pins. Deviations from the plan below, all recorded in the specs: TC-317 became the "Reset all to shared"
+> pin (its planned content merged into TC-308); TC-319 asserts the real behaviour (no chain-scoped builder route —
+> "Manage shared menu" opens a chain-aware location builder); TC-321 asserts the charge on the public `/quote` endpoint
+> because the fixture locations are unpublished (Wind's item modal is inert there); TC-302's soft-deleted card stays in
+> the builder with a "No longer available" badge (the builder reads `/restaurant/restaurantId/:id`, not the filtered menus
+> read). New findings beyond §1: `LocationPricingEditor.resetAll` bug (TC-317), the inverted availability caption, the
+> `$` quick-adjust being relative to SHARED prices, and "admin restaurant DELETE only archives and never detaches chain
+> membership" (TC-324). The fan-out confirm IS live on QA (shared category save, shared featured toggle) but the wizard
+> save did not show it. Frontend testids were NOT added — every needed control already exposes a stable accessible name
+> (MUI tooltips become `aria-label`s on the icon buttons), so the POMs use those; §5's testid list stays a nice-to-have.
+
 ## 0. TL;DR
 
 - **How the menu system works (one paragraph):** a `Menu` belongs to exactly one restaurant **or** one
