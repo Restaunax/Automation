@@ -189,7 +189,7 @@ test.describe("Owner — Menu API contract", () => {
 
   // ── Reads ──────────────────────────────────────────────────────────────────
 
-  test("TC-263: the owner menu read is public, hides soft-deleted items and carries the availability flags", async () => {
+  test("TC-263: the owner menu read is public, hides soft-deleted items and carries the availability flags @smoke", async () => {
     await allure.description(
       "GET /menu/restaurants/:id/menus needs no token (the storefront and the owner UI share it). " +
         "The merged shape is {menus[{groups[{items}]}], chain}; each item exposes outOfStock + featured; " +
@@ -456,7 +456,7 @@ test.describe("Owner — Menu API contract", () => {
 
   // ── Availability / featured ────────────────────────────────────────────────
 
-  test("TC-268: availability toggle writes MenuItem.outOfStock on a standalone item and requires the flag", async () => {
+  test("TC-268: availability toggle writes MenuItem.outOfStock on a standalone item and requires the flag @smoke", async () => {
     await allure.description(
       "PATCH /menu/menu-items/:id/availability {outOfStock} flips the master flag for a standalone " +
         "restaurant's item (visible on the public read); a body without outOfStock is a 400."
@@ -955,45 +955,70 @@ test.describe("Owner — Menu API contract", () => {
     }
   });
 
-  test("TC-282: 🔴 pin — chain reset-availability should un-86 locations (currently a no-op)", async () => {
+  test("TC-282: chain reset-availability with restaurantId un-86s that location only; without it, the master flag", async () => {
     skipWithoutChain();
-    test.fail(
-      true,
-      "resetGroupAvailability clears only MenuItem.outOfStock; per-location MenuItemLocationOverride.isOutOfStock rows are left set — see MENU_TAB_TEST_STRATEGY.md §1.2. Flip to a plain test when fixed."
-    );
     await allure.description(
-      "Chain: 86 a shared item at A, then POST /menu/menu-groups/:sharedGroup/reset-availability. Expected: " +
-        "A reads outOfStock:false. Today the location override is untouched, so this test.fail()s until the " +
-        "backend clears location rows too."
+      "Chain: 86 a shared item at A and at B. POST /menu/menu-groups/:sharedGroup/reset-availability " +
+        "{restaurantId:A} → A reads outOfStock:false while B is still out of stock (only A's override rows are " +
+        "cleared — RestauNax #602). The legacy call without restaurantId only clears the master flag, so B " +
+        "stays 86'd until its own location reset. A non-member restaurantId → 400."
     );
     const item = await seedChainItem("ResetChain", 6);
-    expect(
-      (
-        await setAvailabilityRaw(token, item.id, {
-          outOfStock: true,
-          restaurantId: locA,
-        })
-      ).status
-    ).toBe(200);
+    for (const rid of [locA, locB]) {
+      expect(
+        (
+          await setAvailabilityRaw(token, item.id, {
+            outOfStock: true,
+            restaurantId: rid,
+          })
+        ).status
+      ).toBe(200);
+    }
     try {
-      const reset = await resetGroupAvailabilityRaw(token, sharedGroupId);
-      expect(reset.status).toBe(200);
+      const resetA = await resetGroupAvailabilityRaw(
+        token,
+        sharedGroupId,
+        locA
+      );
+      expect(resetA.status, errorMessage(resetA.data)).toBe(200);
       const rowA = flattenMenuItems(
         (await getRestaurantMenusApi(locA, { accessToken: token })).menus
       ).find((i) => i.id === item.id);
+      const rowB = flattenMenuItems(
+        (await getRestaurantMenusApi(locB, { accessToken: token })).menus
+      ).find((i) => i.id === item.id);
+      expect(rowA?.outOfStock, "A restored").toBe(false);
+      expect(rowB?.outOfStock, "B untouched by A's reset").toBe(true);
+
+      // Legacy / chain-shell path: no restaurantId → master flag only.
+      const resetMaster = await resetGroupAvailabilityRaw(token, sharedGroupId);
+      expect(resetMaster.status).toBe(200);
+      const rowB2 = flattenMenuItems(
+        (await getRestaurantMenusApi(locB, { accessToken: token })).menus
+      ).find((i) => i.id === item.id);
       expect(
-        rowA?.outOfStock,
-        "A should be back in stock after group reset"
-      ).toBe(false);
+        rowB2?.outOfStock,
+        "B still 86'd — location rows are not master"
+      ).toBe(true);
+      expect((await getMenuItemApi(token, item.id)).outOfStock).toBe(false);
+
+      const bad = await resetGroupAvailabilityRaw(
+        token,
+        sharedGroupId,
+        restaurantId
+      );
+      expect(bad.status, "non-member restaurantId").toBe(400);
     } finally {
-      await setAvailabilityRaw(token, item.id, {
-        outOfStock: false,
-        restaurantId: locA,
-      });
+      for (const rid of [locA, locB]) {
+        await setAvailabilityRaw(token, item.id, {
+          outOfStock: false,
+          restaurantId: rid,
+        });
+      }
     }
   });
 
-  // ── Authorization pins (second owner) ──────────────────────────────────────
+  // ── Authorization (second owner) — were expected-fail pins until RestauNax #602 ─────
 
   test.describe("authorization — a second owner against our menu", () => {
     let other = "";
@@ -1029,11 +1054,7 @@ test.describe("Owner — Menu API contract", () => {
       await allure.label("severity", "critical");
     });
 
-    test("TC-283: 🔴 pin — another owner must not be able to edit our item (PUT …/changes)", async () => {
-      test.fail(
-        true,
-        "PUT /menu/menu-items/:id/changes has no ownership check (authenticated IDOR) — MENU_TAB_TEST_STRATEGY.md §1.1"
-      );
+    test("TC-283: another owner must not be able to edit our item (PUT …/changes)", async () => {
       const res = await applyMenuItemChangesRaw(other, target!.id, {
         menuItemId: target!.id,
         name: `HACKED ${runId}`,
@@ -1049,22 +1070,14 @@ test.describe("Owner — Menu API contract", () => {
       expect(res.status).toBe(403);
     });
 
-    test("TC-284: 🔴 pin — another owner must not be able to delete our item", async () => {
-      test.fail(
-        true,
-        "DELETE /menu/menuItemId/:id has no ownership check — MENU_TAB_TEST_STRATEGY.md §1.1"
-      );
+    test("TC-284: another owner must not be able to delete our item", async () => {
       const victim = await seedItem("IDOR Delete", 6);
       const res = await deleteMenuItemRaw(other, victim.id);
       await allure.parameter("status", String(res.status));
       expect(res.status).toBe(403);
     });
 
-    test("TC-285: 🔴 pin — another owner must not create into, or delete, our category", async () => {
-      test.fail(
-        true,
-        "POST /menu/item/new and DELETE /menu/group/:id have no ownership check — MENU_TAB_TEST_STRATEGY.md §1.1"
-      );
+    test("TC-285: another owner must not create into, or delete, our category", async () => {
       const create = await createMenuItemRaw(other, {
         name: `IDOR Create ${runId}`,
         price: 3,
@@ -1081,11 +1094,7 @@ test.describe("Owner — Menu API contract", () => {
       expect(del.status).toBe(403);
     });
 
-    test("TC-286: 🔴 pin — another owner must not upload an image onto our item", async () => {
-      test.fail(
-        true,
-        "POST /upload/menu/item/picture/:id has no ownership check — MENU_TAB_TEST_STRATEGY.md §1.1"
-      );
+    test("TC-286: another owner must not upload an image onto our item", async () => {
       const res = await uploadMenuItemImageRaw(other, target!.id, {
         buffer: fs.readFileSync(PNG_FIXTURE),
         filename: "menu-item.png",

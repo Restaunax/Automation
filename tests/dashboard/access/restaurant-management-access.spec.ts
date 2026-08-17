@@ -37,7 +37,7 @@ test.describe("Access — Restaurant management (shared screens)", () => {
   });
 
   for (const role of ROLES_WITH_MENU_ACCESS) {
-    test(`TC-${TC_NUMBERS[role]}: ${role} can reach menu management`, async ({
+    test(`TC-${TC_NUMBERS[role]}: ${role} can reach menu management${role === "owner" ? " @smoke" : ""}`, async ({
       pageForRole,
     }) => {
       test.skip(

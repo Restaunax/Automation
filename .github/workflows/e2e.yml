@@ -32,6 +32,12 @@ on:
     - cron: "0 6 * * *"
   # qa-deploy: fired by the RestauNax repo's post-deploy-smoke.yml after each
   # healthy QA backend deploy (once the new container passes its health gate).
+  # Since 2026-08-17 that dispatch runs the SMOKE LANE (--grep @smoke, ~12
+  # tests, ~2 min): "did this deploy break QA?" The full ~250-test suite is the
+  # nightly's job. Pass client_payload.lane: "full" to force a full run from a
+  # deploy (rare). Rationale: Actions minutes — the full suite on every one of
+  # 30+ deploys/month cost ~500 min/month and was red on QA drift most of the
+  # time; the nightly gives the same signal once a day.
   # template-deploy: fired by a storefront repo's notify-e2e.yml after its
   # Dokploy QA deploy settles; client_payload.repo says which storefront, and
   # the run step narrows to that storefront's customer tests.
@@ -69,6 +75,7 @@ jobs:
     outputs:
       # Consumed by the report job's environment URL chip below.
       report_url: ${{ steps.report-subfolder.outputs.url }}
+      lane: ${{ steps.lane.outputs.lane }}
     # peaceiris/actions-gh-pages pushes the built Allure report to the gh-pages
     # branch using the default GITHUB_TOKEN, which needs write access to contents.
     permissions:
@@ -128,6 +135,23 @@ jobs:
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
+      # Which lane is this run? "smoke" for a qa-deploy dispatch (unless the
+      # payload asks for lane: full), "full" for everything else. Smoke runs
+      # skip the Allure Pages publish below (their few tests would pollute the
+      # nightly Trend widget) — the run's list output, the Slack alert on
+      # failure and the uploaded artifacts are the smoke lane's reporting.
+      - name: Resolve lane
+        id: lane
+        env:
+          DISPATCH_TYPE: ${{ github.event.action }}
+          PAYLOAD_LANE: ${{ github.event.client_payload.lane }}
+        run: |
+          LANE=full
+          if [ "$DISPATCH_TYPE" = "qa-deploy" ] && [ "$PAYLOAD_LANE" != "full" ]; then LANE=smoke; fi
+          echo "lane=$LANE" >> "$GITHUB_OUTPUT"
+          echo "LANE=$LANE" >> "$GITHUB_ENV"
+          echo "Lane: $LANE"
+
       - name: Run Playwright tests
         env:
           GREP: ${{ inputs.grep }}
@@ -151,6 +175,7 @@ jobs:
             esac
           fi
           ARGS=()
+          if [ "$LANE" = "smoke" ]; then GREP="@smoke"; fi
           if [ -n "$GREP" ]; then ARGS+=(--grep "$GREP"); fi
           if [ -n "$PROJECT" ] && [ "$PROJECT" != "all" ]; then ARGS+=(--project="$PROJECT"); fi
           npx playwright test "${ARGS[@]}"
@@ -193,7 +218,7 @@ jobs:
           echo "url=https://restaunax.github.io/Automation/$SUB/" >> "$GITHUB_OUTPUT"
 
       - name: Fetch prior Allure history
-        if: always()
+        if: always() && env.LANE != 'smoke'
         continue-on-error: true # gh-pages doesn't exist yet on the very first run
         uses: actions/checkout@v4
         with:
@@ -201,7 +226,7 @@ jobs:
           path: gh-pages
 
       - name: Migrate legacy root history to nightly/
-        if: always()
+        if: always() && env.LANE != 'smoke'
         run: |
           # The report used to live at the site root; seed nightly/ from the
           # legacy layout so the Trend widget doesn't reset. No-op once
@@ -212,7 +237,7 @@ jobs:
           fi
 
       - name: Build Allure report with history
-        if: always()
+        if: always() && env.LANE != 'smoke'
         uses: simple-elf/allure-report-action@master
         with:
           allure_results: allure-results
@@ -229,7 +254,7 @@ jobs:
       # every real run lives under nightly/, so numeric dirs + last-history at
       # the root are stale copies (idempotent — globs just miss once gone).
       - name: Strip the stray .git + legacy root layout from the report dir
-        if: always()
+        if: always() && env.LANE != 'smoke'
         run: sudo rm -rf allure-history/.git allure-history/last-history allure-history/[0-9]*
 
       # The documented URL is the site root; keep it working now that reports
@@ -237,7 +262,7 @@ jobs:
       # container creates allure-history/ contents as root, so an unprivileged
       # write fails with EACCES and the stale legacy index ships instead.
       - name: Write root index redirect
-        if: always()
+        if: always() && env.LANE != 'smoke'
         run: |
           sudo tee allure-history/index.html > /dev/null <<'EOF'
           <!DOCTYPE html>
@@ -262,7 +287,7 @@ jobs:
           EOF
 
       - name: Deploy Allure report to GitHub Pages
-        if: always()
+        if: always() && env.LANE != 'smoke'
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -270,7 +295,7 @@ jobs:
           publish_dir: allure-history
 
       - name: Link hosted report in run summary
-        if: always()
+        if: always() && env.LANE != 'smoke'
         run: |
           echo "### 📊 Allure report" >> "$GITHUB_STEP_SUMMARY"
           echo "https://restaunax.github.io/Automation/$REPORT_SUBFOLDER/ — live once pages-build-deployment finishes (~1 min)" >> "$GITHUB_STEP_SUMMARY"
@@ -314,4 +339,9 @@ jobs:
       url: ${{ needs.e2e.outputs.report_url || 'https://restaunax.github.io/Automation/nightly/' }}
     steps:
       - name: Report published
-        run: echo "Allure report — ${{ needs.e2e.outputs.report_url || 'https://restaunax.github.io/Automation/nightly/' }} (live once pages-build-deployment finishes, ~1 min)"
+        run: |
+          if [ "${{ needs.e2e.outputs.lane }}" = "smoke" ]; then
+            echo "Smoke lane — no Pages publish (see the run's test output / artifacts). Full report stays at https://restaunax.github.io/Automation/nightly/"
+          else
+            echo "Allure report — ${{ needs.e2e.outputs.report_url || 'https://restaunax.github.io/Automation/nightly/' }} (live once pages-build-deployment finishes, ~1 min)"
+          fi

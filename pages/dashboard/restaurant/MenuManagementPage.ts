@@ -28,11 +28,9 @@ import { type Page, type Locator, expect } from "@playwright/test";
  * source but were NOT on the QA deploy — the accessible names are the
  * contract until then.
  *
- * NOTE (UX, not asserted): the caption under the switch reads "Out of Stock"
- * while the item is available and vice-versa (MenuManagementPage.tsx ~2056
- * `item.outOfStock ? available : outOfStock`) — it labels the opposite state.
- * The chip next to the item NAME ("Available" / "Out of Stock") is correct
- * and is what this POM asserts on. Flagged in the strategy doc.
+ * NOTE: until RestauNax #602 the caption under the switch labelled the
+ * OPPOSITE state; since #602 it matches the chip next to the item name, so the
+ * state text appears twice per row — the assertions use .first() (the chip).
  */
 export const createMenuAvailabilityPage = (page: Page) => {
   const goto = async (restaurantId: string): Promise<void> => {
@@ -220,20 +218,24 @@ export const createMenuAvailabilityPage = (page: Page) => {
       .first();
 
   /** State chip next to the item name — the TRUE state (see NOTE above). */
+  // Since RestauNax #602 the caption under the switch matches the chip next to
+  // the name, so the state text appears TWICE per row — .first() is the chip.
   const assertItemAvailable = (categoryName: string, itemName: string) =>
     Promise.all([
       expect(availabilitySwitch(categoryName, itemName)).toBeChecked(),
       expect(
-        itemRow(categoryName, itemName).getByText("Available", { exact: true })
+        itemRow(categoryName, itemName)
+          .getByText("Available", { exact: true })
+          .first()
       ).toBeVisible(),
     ]);
   const assertItemOutOfStock = (categoryName: string, itemName: string) =>
     Promise.all([
       expect(availabilitySwitch(categoryName, itemName)).not.toBeChecked(),
       expect(
-        itemRow(categoryName, itemName).getByText("Out of Stock", {
-          exact: true,
-        })
+        itemRow(categoryName, itemName)
+          .getByText("Out of Stock", { exact: true })
+          .first()
       ).toBeVisible(),
     ]);
 

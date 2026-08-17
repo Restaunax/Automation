@@ -98,7 +98,7 @@ test.describe("Owner — Menu tab (availability / featured)", () => {
     token = await freshToken();
   });
 
-  test("TC-288: the sidebar Menu tab opens Menu Availability Management and Manage Menu opens the builder", async ({
+  test("TC-288: the sidebar Menu tab opens Menu Availability Management and Manage Menu opens the builder @smoke", async ({
     ownerPage,
   }) => {
     await allure.description(

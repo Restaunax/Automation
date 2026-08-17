@@ -722,15 +722,22 @@ export async function setAvailability(
   }
 }
 
-/** POST /menu/menu-groups/:groupId/reset-availability — clears MASTER outOfStock for the group. */
+/**
+ * POST /menu/menu-groups/:groupId/reset-availability. Without `restaurantId`
+ * it clears the MASTER outOfStock flag for the group; with `restaurantId` (a
+ * chain member's Menu tab) it clears ONLY that location's
+ * MenuItemLocationOverride.isOutOfStock rows + the location's own items —
+ * RestauNax #602 (2026-08-17).
+ */
 export function resetGroupAvailabilityRaw(
   accessToken: string | undefined,
-  groupId: string
+  groupId: string,
+  restaurantId?: string
 ): Promise<RawResponse> {
   return apiRequestRaw(
     "POST",
     `/menu/menu-groups/${groupId}/reset-availability`,
-    {},
+    restaurantId ? { restaurantId } : {},
     accessToken
   );
 }

@@ -566,17 +566,13 @@ test.describe("Owner — Chain menu (per-location overrides, shared vs local)", 
     }
   });
 
-  test("TC-317: 🔴 pin — 'Reset all to shared' should reset SAVED overrides to the shared prices", async ({
+  test("TC-317: 'Reset all to shared' resets SAVED overrides to the shared prices", async ({
     ownerPage,
   }) => {
-    test.fail(
-      true,
-      "LocationPricingEditor.resetAll() re-seeds drafts from currentOverride ?? master, so with saved overrides the button only discards unsaved edits; the per-row reset uses master. Flip to a plain test when fixed."
-    );
     await allure.description(
       "With base 13 / Large 18 saved at A, reopen the $ dialog and click 'Reset all to shared'. Expected: both " +
-        "rows read 12.00 / 15.00 with no 'Overridden' chip. Today they stay 13.00 / 18.00 (frontend bug: " +
-        "resetAll seeds from the saved override, not the shared price)."
+        "rows read 12.00 / 15.00 with no 'Overridden' chip (was an expected-fail pin until RestauNax #602 fixed " +
+        "LocationPricingEditor.resetAll, which re-seeded from the saved override)."
     );
     const tab = createMenuAvailabilityPage(ownerPage);
     const dlg = createLocationPricingDialog(ownerPage);

@@ -310,6 +310,10 @@ npm run clean         # Delete test artifacts
 | `e2e.yml`    | "does the product actually work"     | nightly · after a QA deploy · wind deploy · manual | QA creds | ~45 min |
 
 `e2e.yml` is the ONLY workflow that runs Playwright — every mode lives there.
+Its `concurrency: qa-e2e` group never cancels a running suite (a killed run
+skips `globalTeardown` and leaves QA residue) — GitHub still collapses a queue
+storm to one running + one pending, so five deploys in an hour never queue five
+suites; and with the smoke lane each queued deploy run costs ~2 min, not ~10.
 They stay separate on purpose: `static.yml` runs on fork PRs with zero secrets,
 while `e2e.yml` carries QA credentials, an `environment:`, and a repo guard.
 Splitting fast per-PR checks from a long credentialed suite is the standard
@@ -350,8 +354,13 @@ report.
   still need the schedule).
 - **After each healthy QA backend deploy** — the backend repo's
   `post-deploy-smoke.yml` fires `repository_dispatch: qa-deploy`, which
-  `e2e.yml` listens for (full suite). Needs the `AUTOMATION_DISPATCH_TOKEN`
-  secret on the backend repo (RestauNax PR #499).
+  `e2e.yml` listens for. **Since 2026-08-17 this runs the `@smoke` lane only**
+  (~12 tests, ~2 min, no Pages publish; `client_payload.lane: "full"` forces
+  the whole suite) — the full suite is the nightly's job. Why: Actions minutes.
+  In Aug 2026 the org burned ~3,400 min in 17 days; the full suite on every
+  deploy was ~500 of that and mostly red on QA drift, so it bought no signal.
+  Needs the `AUTOMATION_DISPATCH_TOKEN` secret on the backend repo (RestauNax
+  PR #499).
 - **After each template-wind QA deploy** — wind's `notify-e2e.yml` waits out the
   Dokploy deploy window on a push to its `qa` branch, then fires
   `repository_dispatch: template-deploy` (payload `repo`/`sha`/`ref`/`marker`).

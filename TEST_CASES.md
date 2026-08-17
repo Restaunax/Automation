@@ -1506,7 +1506,7 @@ If the form doesn't accept customer details or the Proceed button doesn't work, 
 
 ## TC-263 → TC-324 — Menu Management, Deep Coverage (owner portal + chains, 2026-08-16)
 
-**Status:** ✅ Passing (6 deliberate `test.fail()` pins — see below)
+**Status:** ✅ Passing. The six `test.fail()` pins this batch shipped with (TC-282, TC-283..286, TC-317) were flipped to plain tests on 2026-08-17 the same day RestauNax PR #602 (issue #601) reached QA — they now assert the FIXED behaviour.
 
 Added by the second tab-by-tab audit (`docs/MENU_TAB_TEST_STRATEGY.md`). Until now the menu had builder smoke coverage only (TC-19..67). These tests cover the actual **Menu tab** (`?tab=Menu`, "Menu Availability Management"), the **builder** cards, the 4-step **item wizard** (modifiers + image), the **item detail** page, the whole **chain** menu model (shared vs. per-location), the backend **API contract**, and the **storefront hand-off**. Layout: `api-menu.spec.ts` (TC-263..287), `04b-menu-availability.spec.ts` (TC-288..293), `04c-menu-item-editor.spec.ts` (TC-294..307), `17-chain-menu.spec.ts` (TC-308..319), `customer/06-menu-handoff.spec.ts` (TC-320..322), `admin/chains.spec.ts` (TC-323, TC-324).
 

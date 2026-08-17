@@ -22,7 +22,7 @@ test.describe("Customer — Menu Browsing", () => {
     await allure.label("severity", "critical");
   });
 
-  test("TC-22: customer can reach the menu page for the seed restaurant", async ({
+  test("TC-22: customer can reach the menu page for the seed restaurant @smoke", async ({
     page,
   }) => {
     await allure.description(

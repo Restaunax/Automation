@@ -519,6 +519,15 @@ tests run in **every** invocation — including the nightly.
 
 - `@email` — the test causes a backend email send.
 - `@demo` — the demo subset of `@email` (demo request / management / actions).
+- `@smoke` — the **deploy smoke lane** (added 2026-08-17): ~12 fast, side-effect-free
+  tests spanning every role and the API layer (sign-in, owner restaurant list, menu
+  builder + Menu tab, Orders tab, Customers tab, admin restaurants, owner→menu access,
+  customer menu page, menu + orders API contract). `e2e.yml` runs ONLY this tag on the
+  `qa-deploy` dispatch (each backend deploy) — "did this deploy break QA?" in ~2 min —
+  and skips the Allure Pages publish for it; the full suite is the nightly's job.
+  `npm run test:smoke` locally. Keep it small and boring: no `@email`, no Stripe,
+  nothing that seeds more than a few rows; add a test here only when its screen going
+  down would be an incident. Rationale: GitHub Actions minutes — see CLAUDE.md → CI.
 
 **How selection works.** There is no `grepInvert` and no opt-in env flag. Every
 invocation — `npm test`, a bare `npx playwright test`, the nightly — runs the

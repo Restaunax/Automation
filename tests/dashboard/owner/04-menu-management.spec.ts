@@ -30,7 +30,7 @@ test.describe("Owner — Menu Management", () => {
     await allure.label("severity", "normal");
   });
 
-  test("TC-19: owner can navigate to the Menu tab and see the category section", async ({
+  test("TC-19: owner can navigate to the Menu tab and see the category section @smoke", async ({
     ownerPage,
   }) => {
     await allure.description(

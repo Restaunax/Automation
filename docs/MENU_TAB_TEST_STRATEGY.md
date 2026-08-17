@@ -41,6 +41,11 @@ Sources read for this audit (all in the `restaunax` repo unless noted):
 > save did not show it. Frontend testids were NOT added — every needed control already exposes a stable accessible name
 > (MUI tooltips become `aria-label`s on the icon buttons), so the POMs use those; §5's testid list stays a nice-to-have.
 
+> **Update 2026-08-17 (later):** RestauNax #602 is merged and on QA; the six pins were flipped to plain tests
+> (TC-282 rewritten to the agreed contract — location-scoped reset with `restaurantId`, master path without it).
+> The QA frontend now also renders the corrected switch caption, so the state text appears twice per row and
+> `MenuAvailabilityPage` asserts on the chip (`.first()`).
+>
 > **Fix status 2026-08-17:** the §1 findings are fixed in RestauNax PR
 > [#602](https://github.com/Restaunax/RestauNax/pull/602) (issue #601): ownership guards on every menu write,
 > per-location Restore All (`restaurantId` in the body; button hidden in the chain shell), Reset-all-to-shared,
