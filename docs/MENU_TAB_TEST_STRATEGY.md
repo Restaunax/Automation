@@ -41,6 +41,16 @@ Sources read for this audit (all in the `restaunax` repo unless noted):
 > save did not show it. Frontend testids were NOT added — every needed control already exposes a stable accessible name
 > (MUI tooltips become `aria-label`s on the icon buttons), so the POMs use those; §5's testid list stays a nice-to-have.
 
+> **Fix status 2026-08-17:** the §1 findings are fixed in RestauNax PR
+> [#602](https://github.com/Restaunax/RestauNax/pull/602) (issue #601): ownership guards on every menu write,
+> per-location Restore All (`restaurantId` in the body; button hidden in the chain shell), Reset-all-to-shared,
+> the inverted caption, quick-adjust hint, plus `data-testid`s (`menu-availability-switch`, `menu-featured-toggle`,
+> `menu-price-override`, `menu-carry-toggle`, `menu-restore-all`, `menu-source-chip` — the POMs are testid-first
+> with the accessible-name fallback). **When #602 reaches QA, the pins TC-282, TC-283..286 and TC-317 will start
+> failing on the nightly — that is the signal to flip them to plain tests** (also drop the `test.fail()` and update
+> `TEST_CASES.md`). Decisions recorded with the user: quick-adjust stays relative to the SHARED price (label
+> fixed); Restore All at a location clears that location's overrides only.
+
 ## 0. TL;DR
 
 - **How the menu system works (one paragraph):** a `Menu` belongs to exactly one restaurant **or** one

@@ -135,10 +135,17 @@ export const createMenuAvailabilityPage = (page: Page) => {
     }
   };
 
+  // testid-first with legacy fallback (RestauNax #602 adds the testids; both
+  // branches resolve to the SAME button once deployed).
   const restoreAllButton = (categoryName: string) =>
-    categorySummary(categoryName).getByRole("button", {
-      name: "Restore All to Available",
-    });
+    categorySummary(categoryName)
+      .getByTestId("menu-restore-all")
+      .or(
+        categorySummary(categoryName).getByRole("button", {
+          name: "Restore All to Available",
+        })
+      )
+      .first();
 
   /** Click "Restore All to Available" → ConsequenceDialog → "Restore all". */
   const restoreAll = async (categoryName: string) => {
@@ -174,6 +181,9 @@ export const createMenuAvailabilityPage = (page: Page) => {
       .filter({ hasText: itemName })
       .first();
 
+  // Stays role-based on purpose: `data-testid="menu-availability-switch"` sits
+  // on the MUI Switch ROOT span, while toBeChecked()/click need the input the
+  // switch role resolves to.
   const availabilitySwitch = (categoryName: string, itemName: string) =>
     itemRow(categoryName, itemName).getByRole("switch");
   const editButton = (categoryName: string, itemName: string) =>
@@ -181,9 +191,14 @@ export const createMenuAvailabilityPage = (page: Page) => {
       name: "Edit this menu item",
     });
   const featureButton = (categoryName: string, itemName: string) =>
-    itemRow(categoryName, itemName).getByRole("button", {
-      name: /^(Add to|Remove from) featured items$/,
-    });
+    itemRow(categoryName, itemName)
+      .getByTestId("menu-featured-toggle")
+      .or(
+        itemRow(categoryName, itemName).getByRole("button", {
+          name: /^(Add to|Remove from) featured items$/,
+        })
+      )
+      .first();
   /** Chain (location view) only. */
   const priceOverrideButton = (categoryName: string, itemName: string) =>
     itemRow(categoryName, itemName)
@@ -337,10 +352,18 @@ export const createMenuAvailabilityPage = (page: Page) => {
     itemName: string,
     kind: "shared" | "local"
   ) =>
-    itemRow(categoryName, itemName).getByText(
-      kind === "shared" ? "From shared menu" : "This location only",
-      { exact: true }
-    );
+    itemRow(categoryName, itemName)
+      .getByTestId("menu-source-chip")
+      .filter({
+        hasText: kind === "shared" ? "From shared menu" : "This location only",
+      })
+      .or(
+        itemRow(categoryName, itemName).getByText(
+          kind === "shared" ? "From shared menu" : "This location only",
+          { exact: true }
+        )
+      )
+      .first();
 
   return {
     goto,
