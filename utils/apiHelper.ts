@@ -855,6 +855,32 @@ export function deleteMenuItemImageRaw(
   );
 }
 
+/**
+ * Public, stateless price quote — POST /api/order/:restaurantId/quote with the
+ * same legacy checkout body the storefront submits ({orderItems:[{menuItemId,
+ * quantity, selectedModifiers?}], orderType}). Returns {quote:{subtotal, tax,
+ * amountToCharge, …}} — the server-authoritative "what will be charged", i.e.
+ * the number that must reflect per-location price overrides.
+ */
+export function quoteOrderRaw(
+  restaurantId: string,
+  body: {
+    orderItems: {
+      menuItemId: string;
+      quantity: number;
+      selectedModifiers?: { modifierId: string; quantity?: number }[];
+    }[];
+    orderType?: "PICKUP" | "DELIVERY";
+  }
+): Promise<
+  RawResponse<{ quote?: { subtotal?: number; amountToCharge?: number } }>
+> {
+  return apiRequestRaw("POST", `/api/order/${restaurantId}/quote`, {
+    orderType: "PICKUP",
+    ...body,
+  });
+}
+
 // ── Chains (RestaurantGroup) ─────────────────────────────────────────────────
 //
 // A chain IS a RestaurantGroup; membership is Restaurant.restaurantGroupId.
@@ -945,6 +971,33 @@ export async function ensureBusinessHours(
   );
 }
 
+/**
+ * Give a restaurant a tax rate if it has none — PUT /api/restaurantId/:id/settings
+ * {tax}. Chain-location provisioning leaves tax null and the public /quote
+ * endpoint refuses to price ("hasn't set its tax rate yet"), so fixture
+ * restaurants that any storefront/quote test touches need one. Owner
+ * (or admin) token.
+ */
+export async function ensureTaxRate(
+  accessToken: string,
+  restaurantId: string,
+  rate = 8
+): Promise<void> {
+  const data = await apiRequest<{ restaurant?: { tax?: number | null } }>(
+    "GET",
+    `/restaurant/restaurantId/${restaurantId}`,
+    undefined,
+    accessToken
+  );
+  if (data.restaurant?.tax != null) return;
+  await apiRequest<unknown>(
+    "PUT",
+    `/api/restaurantId/${restaurantId}/settings`,
+    { tax: rate },
+    accessToken
+  );
+}
+
 /** Persistent chain-fixture identity — see docs/MENU_TAB_TEST_STRATEGY.md §5 (Option A). */
 export const AUTOMATION_CHAIN_NAME = "Automation Chain";
 export const AUTOMATION_CHAIN_LOCATION_NAMES = [
@@ -989,6 +1042,9 @@ export async function ensureAutomationChain(
           `[ensureAutomationChain] hours for ${loc.name} failed:`,
           err
         )
+      );
+      await ensureTaxRate(ownerToken, loc.id).catch((err) =>
+        console.warn(`[ensureAutomationChain] tax for ${loc.name} failed:`, err)
       );
     }
     return chain;
