@@ -12,7 +12,11 @@
  * minutes of test execution — re-login instead.
  */
 
-import { readUsersForCleanup, clearUsersForCleanup } from "./testData";
+import {
+  readUsersForCleanup,
+  clearUsersForCleanup,
+  recordUserForCleanup,
+} from "./testData";
 
 export const BACKEND_URL =
   process.env.BACKEND_URL ?? "https://api.qa.restaunax.com";
@@ -304,7 +308,7 @@ export async function deleteAutomationMenuGroups(
   accessToken: string,
   restaurantId: string,
   adminToken?: string,
-  namePattern = /^(Test Starters|TC45 Delete|Automation Items) ?/
+  namePattern = /^(Test Starters|TC45 Delete|Automation Items|Automation Menu) ?/
 ): Promise<number> {
   const groups = await getRestaurantMenuGroups(accessToken, restaurantId);
   let deleted = 0;
@@ -337,6 +341,864 @@ export async function deleteAutomationMenuGroups(
     );
   }
   return deleted;
+}
+
+// ── Menu: deep helpers (item detail, modifiers, availability, featured,
+//    chain overrides, images) ────────────────────────────────────────────────
+//
+// Backing routes: src/routes/menu/menu.ts + src/routes/upload/upload.ts in the
+// backend; the rules each one enforces are catalogued in
+// docs/MENU_TAB_TEST_STRATEGY.md §3.5. Raw variants return {status, data} for
+// contract tests; throwing variants are for seeding/cleanup.
+
+export type ModifierPricingMode =
+  | "INCLUDED"
+  | "ADJUSTS_PRICE"
+  | "REPLACES_PRICE";
+
+/** Body shape of a modifier as POST /menu/item/new and the `added` branch of PUT …/changes accept it. */
+export interface ModifierInput {
+  name: string;
+  price?: number;
+  isDefault?: boolean;
+  allowsDuplicates?: boolean;
+  outOfStock?: boolean;
+  /** One level only — the backend forces child groups to INCLUDED/0 and drops grandchildren. */
+  childModifierGroups?: ModifierGroupInput[];
+}
+
+export interface ModifierGroupInput {
+  name: string;
+  pricingMode: ModifierPricingMode;
+  minSelections?: number;
+  /** null/undefined = unlimited */
+  maxSelections?: number | null;
+  modifiers: ModifierInput[];
+}
+
+export interface CreateMenuItemOpts {
+  description?: string;
+  modifierGroups?: ModifierGroupInput[];
+  /** Chain: stamp the item as location-only (see CHAIN_RESTAURANTS.md). */
+  ownerRestaurantId?: string;
+  weightOz?: number;
+}
+
+/** Full menu item as GET /menu/itemId/:id returns it (fields the suite asserts on). */
+export interface ApiMenuItemDetail {
+  id: string;
+  name: string;
+  description?: string | null;
+  price: number;
+  outOfStock: boolean;
+  isActive: boolean;
+  featured: boolean;
+  ownerRestaurantId?: string | null;
+  groupId: string;
+  imageUrls?: Record<string, string | null> | null;
+  group?: { menu?: { restaurantGroupId?: string | null } };
+  modifierGroups?: ApiModifierGroup[];
+}
+
+export interface ApiModifierGroup {
+  id: string;
+  name: string;
+  pricingMode: ModifierPricingMode;
+  minSelections: number;
+  maxSelections: number | null;
+  sortOrder: number;
+  modifiers: ApiModifier[];
+}
+
+export interface ApiModifier {
+  id: string;
+  name: string;
+  price: number;
+  isDefault: boolean;
+  allowsDuplicates: boolean;
+  outOfStock: boolean;
+  sortOrder: number;
+  childModifierGroups?: ApiModifierGroup[];
+}
+
+/** One item as the merged-menu resolver (GET /menu/restaurants/:id/menus, customer menu) emits it. */
+export interface ApiMergedMenuItem {
+  id: string;
+  name: string;
+  price: number;
+  outOfStock: boolean;
+  featured?: boolean;
+  isActive?: boolean;
+  ownerRestaurantId?: string | null;
+  source?: "CHAIN" | "RESTAURANT";
+  masterPrice?: number;
+  priceOverride?: number | null;
+  effectivePrice?: number;
+  isCarried?: boolean;
+  modifierGroups?: ApiModifierGroup[];
+}
+
+export interface ApiMergedMenuGroup {
+  id: string;
+  name: string;
+  items: ApiMergedMenuItem[];
+}
+
+export interface ApiMergedMenu {
+  id: string;
+  groups: ApiMergedMenuGroup[];
+  source?: "CHAIN" | "RESTAURANT";
+}
+
+export interface ApiChainContext {
+  groupId: string;
+  ownerId: string;
+  name: string;
+  locationCount: number;
+}
+
+/**
+ * Owner-path menu read — GET /menu/restaurants/:id/menus (public route; the
+ * owner UI calls it with a token). Always `includeUncarried:true` server-side,
+ * so uncarried chain items are still listed with `isCarried:false`. Pass
+ * `sharedItemsOnly` for the chain-shell "all locations" view.
+ */
+export async function getRestaurantMenusApi(
+  restaurantId: string,
+  opts: { accessToken?: string; sharedItemsOnly?: boolean } = {}
+): Promise<{ menus: ApiMergedMenu[]; chain: ApiChainContext | null }> {
+  const qs = opts.sharedItemsOnly ? "?sharedItemsOnly=true" : "";
+  const data = await apiRequest<{
+    menus?: ApiMergedMenu[];
+    chain?: ApiChainContext | null;
+  }>(
+    "GET",
+    `/menu/restaurants/${restaurantId}/menus${qs}`,
+    undefined,
+    opts.accessToken
+  );
+  return { menus: data.menus ?? [], chain: data.chain ?? null };
+}
+
+export function getRestaurantMenusRaw(
+  restaurantId: string
+): Promise<RawResponse> {
+  return apiRequestRaw("GET", `/menu/restaurants/${restaurantId}/menus`);
+}
+
+/** Flatten every item across menus/groups (owner path). */
+export function flattenMenuItems(menus: ApiMergedMenu[]): ApiMergedMenuItem[] {
+  return menus.flatMap((m) => (m.groups ?? []).flatMap((g) => g.items ?? []));
+}
+
+/**
+ * CUSTOMER-path menu read — GET /api/order/restaurantId/:id (what template-wind
+ * / the ordering app render). Uncarried chain items are DROPPED here (vs kept +
+ * flagged on the owner path) and prices are the location-effective ones.
+ */
+export async function getPublicMenuItems(
+  restaurantId: string
+): Promise<ApiMergedMenuItem[]> {
+  const data = await apiRequest<{ restaurant?: { menus?: ApiMergedMenu[] } }>(
+    "GET",
+    `/api/order/restaurantId/${restaurantId}`
+  );
+  return flattenMenuItems(data.restaurant?.menus ?? []);
+}
+
+/** GET /menu/itemId/:id — item + image + full modifier tree (still 200 for soft-deleted items). */
+export async function getMenuItemApi(
+  accessToken: string,
+  menuItemId: string
+): Promise<ApiMenuItemDetail> {
+  const data = await apiRequest<{ item: ApiMenuItemDetail }>(
+    "GET",
+    `/menu/itemId/${menuItemId}`,
+    undefined,
+    accessToken
+  );
+  return data.item;
+}
+
+export function getMenuItemRaw(
+  accessToken: string | undefined,
+  menuItemId: string
+): Promise<RawResponse<{ item?: ApiMenuItemDetail }>> {
+  return apiRequestRaw(
+    "GET",
+    `/menu/itemId/${menuItemId}`,
+    undefined,
+    accessToken
+  );
+}
+
+/**
+ * Create a menu group with an explicit name. Chain: pass `groupId` (the
+ * RestaurantGroup id) INSTEAD of restaurantId to create a shared category on
+ * the chain's master menu.
+ */
+export async function createMenuGroupNamed(
+  accessToken: string,
+  name: string,
+  scope: { restaurantId: string } | { groupId: string }
+): Promise<ApiMenuGroup> {
+  const data = await apiRequest<{ group: ApiMenuGroup }>(
+    "POST",
+    "/menu/group/new",
+    { menuGroup: name, ...scope },
+    accessToken
+  );
+  return data.group;
+}
+
+export function createMenuGroupRaw(
+  accessToken: string | undefined,
+  body: Record<string, unknown>
+): Promise<RawResponse> {
+  return apiRequestRaw("POST", "/menu/group/new", body, accessToken);
+}
+
+/** Create a menu item with a name/price and optional modifiers/owner stamp. */
+export async function createMenuItemFull(
+  accessToken: string,
+  groupId: string,
+  name: string,
+  price: number,
+  opts: CreateMenuItemOpts = {}
+): Promise<ApiMenuItem> {
+  const data = await apiRequest<{ menuItem: ApiMenuItem }>(
+    "POST",
+    "/menu/item/new",
+    { name, price, groupId, ...opts },
+    accessToken
+  );
+  return data.menuItem;
+}
+
+export function deleteMenuItemRaw(
+  accessToken: string | undefined,
+  menuItemId: string
+): Promise<
+  RawResponse<{ blockers?: { coupons: unknown[]; deals: unknown[] } }>
+> {
+  return apiRequestRaw(
+    "DELETE",
+    `/menu/menuItemId/${menuItemId}`,
+    undefined,
+    accessToken
+  );
+}
+
+export function permanentlyDeleteMenuItemRaw(
+  accessToken: string | undefined,
+  menuItemId: string
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "DELETE",
+    `/menu/menuItemId/${menuItemId}/permanent`,
+    undefined,
+    accessToken
+  );
+}
+
+export function deleteMenuGroupRaw(
+  accessToken: string | undefined,
+  groupId: string
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "DELETE",
+    `/menu/group/${groupId}`,
+    undefined,
+    accessToken
+  );
+}
+
+/**
+ * PUT /menu/menu-items/:id/changes — the deep editor's diff payload. Top-level
+ * name/description/price plus modifierGroups {deleted:[ids], added:[groups],
+ * modified:[{id,name,minSelections,maxSelections,pricingMode}]}. `menuItemId`
+ * in the body must equal the param (400 otherwise).
+ */
+export interface MenuItemChanges {
+  menuItemId: string;
+  name?: string;
+  description?: string;
+  price?: number;
+  weightOz?: number | null;
+  modifierGroups?: {
+    deleted?: string[];
+    added?: ModifierGroupInput[];
+    modified?: {
+      id: string;
+      name?: string;
+      minSelections?: number;
+      maxSelections?: number | null;
+      pricingMode?: ModifierPricingMode;
+    }[];
+  };
+}
+
+export function applyMenuItemChangesRaw(
+  accessToken: string | undefined,
+  menuItemId: string,
+  changes: MenuItemChanges | Record<string, unknown>
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "PUT",
+    `/menu/menu-items/${menuItemId}/changes`,
+    changes,
+    accessToken
+  );
+}
+
+export async function applyMenuItemChanges(
+  accessToken: string,
+  menuItemId: string,
+  changes: Omit<MenuItemChanges, "menuItemId">
+): Promise<void> {
+  const res = await applyMenuItemChangesRaw(accessToken, menuItemId, {
+    menuItemId,
+    ...changes,
+  });
+  if (!res.ok) {
+    throw new Error(
+      `PUT /menu/menu-items/${menuItemId}/changes → ${res.status}: ${JSON.stringify(res.data)}`
+    );
+  }
+}
+
+/** PUT /menu/menu-items/:id/modifier-order — nested id order; index becomes sortOrder. */
+export function reorderModifiersRaw(
+  accessToken: string | undefined,
+  menuItemId: string,
+  groups: {
+    id: string;
+    modifiers?: {
+      id: string;
+      childGroups?: { id: string; modifiers?: { id: string }[] }[];
+    }[];
+  }[]
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "PUT",
+    `/menu/menu-items/${menuItemId}/modifier-order`,
+    { groups },
+    accessToken
+  );
+}
+
+/**
+ * PATCH /menu/menu-items/:id/availability. Standalone / location-owned item →
+ * writes MenuItem.outOfStock. Shared chain item → `restaurantId` REQUIRED and
+ * only that location's MenuItemLocationOverride.isOutOfStock is written.
+ */
+export function setAvailabilityRaw(
+  accessToken: string | undefined,
+  menuItemId: string,
+  body: { outOfStock?: boolean; restaurantId?: string }
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "PATCH",
+    `/menu/menu-items/${menuItemId}/availability`,
+    body,
+    accessToken
+  );
+}
+
+export async function setAvailability(
+  accessToken: string,
+  menuItemId: string,
+  outOfStock: boolean,
+  restaurantId?: string
+): Promise<void> {
+  const res = await setAvailabilityRaw(accessToken, menuItemId, {
+    outOfStock,
+    ...(restaurantId ? { restaurantId } : {}),
+  });
+  if (!res.ok) {
+    throw new Error(
+      `PATCH availability ${menuItemId} → ${res.status}: ${JSON.stringify(res.data)}`
+    );
+  }
+}
+
+/**
+ * POST /menu/menu-groups/:groupId/reset-availability. Without `restaurantId`
+ * it clears the MASTER outOfStock flag for the group; with `restaurantId` (a
+ * chain member's Menu tab) it clears ONLY that location's
+ * MenuItemLocationOverride.isOutOfStock rows + the location's own items —
+ * RestauNax #602 (2026-08-17).
+ */
+export function resetGroupAvailabilityRaw(
+  accessToken: string | undefined,
+  groupId: string,
+  restaurantId?: string
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "POST",
+    `/menu/menu-groups/${groupId}/reset-availability`,
+    restaurantId ? { restaurantId } : {},
+    accessToken
+  );
+}
+
+/** PATCH /menu/menu-items/:id/featured {featured} — standalone cap 5; chain master items chain-wide. */
+export function setFeaturedRaw(
+  accessToken: string | undefined,
+  menuItemId: string,
+  featured: boolean
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "PATCH",
+    `/menu/menu-items/${menuItemId}/featured`,
+    { featured },
+    accessToken
+  );
+}
+
+/** PATCH /menu/menu-items/:id/price-override {restaurantId, priceOverride|null} — SHARED chain items only. */
+export function setPriceOverrideRaw(
+  accessToken: string | undefined,
+  menuItemId: string,
+  body: { restaurantId?: string; priceOverride?: number | null }
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "PATCH",
+    `/menu/menu-items/${menuItemId}/price-override`,
+    body,
+    accessToken
+  );
+}
+
+/**
+ * PATCH /menu/menu-items/:id/location-pricing — base + per-modifier overrides
+ * in one transaction. `basePriceOverride` undefined = untouched, null = clear;
+ * modifier `priceOverride:null` deletes that row.
+ */
+export function setLocationPricingRaw(
+  accessToken: string | undefined,
+  menuItemId: string,
+  body: {
+    restaurantId?: string;
+    basePriceOverride?: number | null;
+    modifierOverrides?: { modifierId: string; priceOverride: number | null }[];
+  }
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "PATCH",
+    `/menu/menu-items/${menuItemId}/location-pricing`,
+    body,
+    accessToken
+  );
+}
+
+/** PATCH /menu/menu-items/:id/carried {restaurantId, isCarried} — SHARED chain items only. */
+export function setCarriedRaw(
+  accessToken: string | undefined,
+  menuItemId: string,
+  body: { restaurantId?: string; isCarried?: boolean }
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "PATCH",
+    `/menu/menu-items/${menuItemId}/carried`,
+    body,
+    accessToken
+  );
+}
+
+/** POST /menu/restaurant/clone — {sourceRestaurantId, targetRestaurantId, cloneType, …}. */
+export function cloneMenuRaw(
+  accessToken: string | undefined,
+  body: Record<string, unknown>
+): Promise<RawResponse> {
+  return apiRequestRaw("POST", "/menu/restaurant/clone", body, accessToken);
+}
+
+/**
+ * Multipart upload of a menu item picture — POST /upload/menu/item/picture/:id
+ * (multer field `item`, applied at mount level). Uses Node's global FormData /
+ * Blob; bypasses apiRequestRaw's JSON body handling on purpose.
+ */
+export async function uploadMenuItemImageRaw(
+  accessToken: string | undefined,
+  menuItemId: string,
+  file: { buffer: Buffer; filename: string; mimeType: string }
+): Promise<RawResponse> {
+  const form = new FormData();
+  form.append(
+    "item",
+    new Blob([new Uint8Array(file.buffer)], { type: file.mimeType }),
+    file.filename
+  );
+  const headers: Record<string, string> = {};
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+  const res = await fetch(
+    `${BACKEND_URL}/upload/menu/item/picture/${menuItemId}`,
+    {
+      method: "POST",
+      headers,
+      body: form,
+    }
+  );
+  const text = await res.text();
+  let data: unknown = text;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    /* leave as text */
+  }
+  return { status: res.status, ok: res.ok, data };
+}
+
+export function deleteMenuItemImageRaw(
+  accessToken: string | undefined,
+  menuItemId: string
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "DELETE",
+    `/upload/menu/item/picture/${menuItemId}`,
+    undefined,
+    accessToken
+  );
+}
+
+/**
+ * Public, stateless price quote — POST /api/order/:restaurantId/quote with the
+ * same legacy checkout body the storefront submits ({orderItems:[{menuItemId,
+ * quantity, selectedModifiers?}], orderType}). Returns {quote:{subtotal, tax,
+ * amountToCharge, …}} — the server-authoritative "what will be charged", i.e.
+ * the number that must reflect per-location price overrides.
+ */
+export function quoteOrderRaw(
+  restaurantId: string,
+  body: {
+    orderItems: {
+      menuItemId: string;
+      quantity: number;
+      selectedModifiers?: { modifierId: string; quantity?: number }[];
+    }[];
+    orderType?: "PICKUP" | "DELIVERY";
+  }
+): Promise<
+  RawResponse<{ quote?: { subtotal?: number; amountToCharge?: number } }>
+> {
+  return apiRequestRaw("POST", `/api/order/${restaurantId}/quote`, {
+    orderType: "PICKUP",
+    ...body,
+  });
+}
+
+// ── Chains (RestaurantGroup) ─────────────────────────────────────────────────
+//
+// A chain IS a RestaurantGroup; membership is Restaurant.restaurantGroupId.
+// Admin routes form/link/unlink (src/routes/admin/chainRoutes.ts); the owner
+// reads its chains via GET /api/chains/owned (locationCount >= 2 only).
+
+export interface ApiOwnedChain {
+  /** The RestaurantGroup id (the payload key is `groupId`, not `id`). */
+  groupId: string;
+  name: string;
+  ownerId?: string;
+  locationCount: number;
+  restaurants: { id: string; name: string }[];
+}
+
+export async function getOwnedChains(
+  accessToken: string
+): Promise<ApiOwnedChain[]> {
+  const data = await apiRequest<{ chains?: ApiOwnedChain[] }>(
+    "GET",
+    "/api/chains/owned",
+    undefined,
+    accessToken
+  );
+  return data.chains ?? [];
+}
+
+/** POST /api/admin/chains {foundingRestaurantId, name} → {chain:{id,name}} (ADMIN/EMPLOYEE). */
+export async function adminCreateChain(
+  adminToken: string,
+  foundingRestaurantId: string,
+  name: string
+): Promise<{ id: string; name: string }> {
+  const data = await apiRequest<{ chain: { id: string; name: string } }>(
+    "POST",
+    "/api/admin/chains",
+    { foundingRestaurantId, name },
+    adminToken
+  );
+  return data.chain;
+}
+
+/** POST /api/admin/chains/:gid/restaurants/:rid/link {seedMaster?, menu?: "keep"|"adopt"}. */
+export function adminLinkRestaurantToChainRaw(
+  adminToken: string,
+  groupId: string,
+  restaurantId: string,
+  body: { seedMaster?: boolean; menu?: "keep" | "adopt" } = {}
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "POST",
+    `/api/admin/chains/${groupId}/restaurants/${restaurantId}/link`,
+    body,
+    adminToken
+  );
+}
+
+/**
+ * Give a restaurant 24-hour business hours if it has none — POST
+ * /restaurant/hours?restaurantId=… (rows are {day, is24Hours}). The builder
+ * page (/restaurant/restaurantId/:id, CreateStore) is a data-driven wizard
+ * that shows its Business Hours step INSTEAD of the menu builder while a
+ * restaurant has no hours, so fixture restaurants that tests open in the
+ * builder must have hours.
+ */
+export async function ensureBusinessHours(
+  accessToken: string,
+  restaurantId: string
+): Promise<void> {
+  const data = await apiRequest<{
+    restaurant?: { businessHours?: unknown[] };
+  }>("GET", `/restaurant/restaurantId/${restaurantId}`, undefined, accessToken);
+  if ((data.restaurant?.businessHours ?? []).length > 0) return;
+  const days = [
+    "MONDAY",
+    "TUESDAY",
+    "WEDNESDAY",
+    "THURSDAY",
+    "FRIDAY",
+    "SATURDAY",
+    "SUNDAY",
+  ];
+  await apiRequest<unknown>(
+    "POST",
+    `/restaurant/hours?restaurantId=${restaurantId}`,
+    { hoursOfOperation: days.map((day) => ({ day, is24Hours: true })) },
+    accessToken
+  );
+}
+
+/**
+ * Give a restaurant a tax rate if it has none — PUT /api/restaurantId/:id/settings
+ * {tax}. Chain-location provisioning leaves tax null and the public /quote
+ * endpoint refuses to price ("hasn't set its tax rate yet"), so fixture
+ * restaurants that any storefront/quote test touches need one. Owner
+ * (or admin) token.
+ */
+export async function ensureTaxRate(
+  accessToken: string,
+  restaurantId: string,
+  rate = 8
+): Promise<void> {
+  const data = await apiRequest<{ restaurant?: { tax?: number | null } }>(
+    "GET",
+    `/restaurant/restaurantId/${restaurantId}`,
+    undefined,
+    accessToken
+  );
+  if (data.restaurant?.tax != null) return;
+  await apiRequest<unknown>(
+    "PUT",
+    `/api/restaurantId/${restaurantId}/settings`,
+    { tax: rate },
+    accessToken
+  );
+}
+
+/** POST /api/admin/chains/:gid/restaurants/:rid/unlink → 200 {dissolved} | 400 anchor/established | 404. */
+export function adminUnlinkRestaurantFromChainRaw(
+  adminToken: string,
+  groupId: string,
+  restaurantId: string
+): Promise<RawResponse<{ dissolved?: boolean; message?: string }>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/admin/chains/${groupId}/restaurants/${restaurantId}/unlink`,
+    {},
+    adminToken
+  );
+}
+
+/** Persistent chain-fixture identity — see docs/MENU_TAB_TEST_STRATEGY.md §5 (Option A). */
+export const AUTOMATION_CHAIN_NAME = "Automation Chain";
+export const AUTOMATION_CHAIN_LOCATION_NAMES = [
+  "Automation Chain Loc A",
+  "Automation Chain Loc B",
+] as const;
+
+export interface AutomationChain {
+  groupId: string;
+  name: string;
+  locationA: { id: string; name: string };
+  locationB: { id: string; name: string };
+}
+
+/**
+ * Create-if-missing: the seed OWNER's persistent two-location "Automation
+ * Chain". Idempotent — first looks the chain up by name in the owner's
+ * /api/chains/owned; only when absent does it (with the ADMIN token) create
+ * two throwaway restaurants, assign the owner, form the chain from A (its
+ * "Automation Chain Menu" group becomes the shared master) and link B.
+ * Reuses same-named owned restaurants left by a partial earlier attempt.
+ * Returns null when it cannot build (missing admin token) — callers skip.
+ */
+export async function ensureAutomationChain(
+  ownerToken: string,
+  ownerUserId: string,
+  adminToken: string | undefined
+): Promise<AutomationChain | null> {
+  const toResult = (c: ApiOwnedChain): AutomationChain | null => {
+    const [a, b] = [...c.restaurants].sort((x, y) =>
+      x.name.localeCompare(y.name)
+    );
+    if (!a || !b) return null;
+    return { groupId: c.groupId, name: c.name, locationA: a, locationB: b };
+  };
+
+  const withHours = async (chain: AutomationChain | null) => {
+    if (!chain) return chain;
+    for (const loc of [chain.locationA, chain.locationB]) {
+      await ensureBusinessHours(ownerToken, loc.id).catch((err) =>
+        console.warn(
+          `[ensureAutomationChain] hours for ${loc.name} failed:`,
+          err
+        )
+      );
+      await ensureTaxRate(ownerToken, loc.id).catch((err) =>
+        console.warn(`[ensureAutomationChain] tax for ${loc.name} failed:`, err)
+      );
+    }
+    return chain;
+  };
+
+  const existing = (await getOwnedChains(ownerToken)).find(
+    (c) => c.name === AUTOMATION_CHAIN_NAME && c.locationCount >= 2
+  );
+  if (existing) return withHours(toResult(existing));
+  if (!adminToken) return null;
+
+  const owned = await getOwnerRestaurants(ownerToken);
+  const ids: string[] = [];
+  for (const locName of AUTOMATION_CHAIN_LOCATION_NAMES) {
+    const reuse = owned.find((r) => r.name === locName);
+    if (reuse) {
+      ids.push(reuse.id);
+      continue;
+    }
+    const res = await createRestaurantRaw(adminToken, {
+      name: locName,
+      street: "200 Chain Street",
+      city: "Miami",
+      state: "FL",
+      zipCode: "33101",
+      cuisineType: "American",
+      restaurantPhone: "3055550142",
+      description:
+        "Persistent Automation chain-menu fixture — do not edit by hand",
+      minimumOrderPreparationTime: 0,
+    });
+    const id = (res.data as { restaurant?: { id?: string } })?.restaurant?.id;
+    if (!id) {
+      throw new Error(
+        `[ensureAutomationChain] failed to create ${locName}: ${res.status} ${JSON.stringify(res.data)}`
+      );
+    }
+    await assignRestaurantToUserApi(adminToken, ownerUserId, id);
+    ids.push(id);
+  }
+  const [aId, bId] = ids as [string, string];
+
+  // The founding store needs a menu — that group becomes the chain's shared master.
+  const menusA = await getRestaurantMenuGroups(ownerToken, aId);
+  if (!menusA.length) {
+    await createMenuGroupNamed(ownerToken, "Automation Chain Menu", {
+      restaurantId: aId,
+    });
+  }
+
+  const chain = await adminCreateChain(adminToken, aId, AUTOMATION_CHAIN_NAME);
+  const link = await adminLinkRestaurantToChainRaw(adminToken, chain.id, bId, {
+    seedMaster: false,
+  });
+  if (!link.ok) {
+    throw new Error(
+      `[ensureAutomationChain] link B failed: ${link.status} ${JSON.stringify(link.data)}`
+    );
+  }
+  // Re-resolve by name (not the create response's id) so a partially
+  // materialised list can't hand back null after a successful build.
+  const created = (await getOwnedChains(ownerToken)).find(
+    (c) => c.name === AUTOMATION_CHAIN_NAME && c.locationCount >= 2
+  );
+  if (!created) {
+    throw new Error(
+      `[ensureAutomationChain] chain ${chain.id} created but not visible in /api/chains/owned`
+    );
+  }
+  return withHours(toResult(created));
+}
+
+/**
+ * Mint a per-run second OWNER (real user with a known password) that owns ONE
+ * throwaway restaurant — used for tenant-isolation / IDOR contract tests without
+ * a second credential in .env. Records the email for globalTeardown's user
+ * sweep; the caller deletes the restaurant. Falls back to OWNER2_EMAIL/PASSWORD
+ * when both are set.
+ */
+export async function createSecondOwner(
+  adminToken: string,
+  runId: string
+): Promise<{
+  accessToken: string;
+  userId: string;
+  email: string;
+  restaurantId: string | null;
+}> {
+  const envEmail = process.env.OWNER2_EMAIL;
+  const envPassword = process.env.OWNER2_PASSWORD;
+  if (envEmail && envPassword) {
+    const login = await apiLogin(envEmail, envPassword);
+    const owned = await getOwnerRestaurants(login.accessToken);
+    return {
+      accessToken: login.accessToken,
+      userId: login.userId,
+      email: envEmail,
+      restaurantId: owned[0]?.id ?? null,
+    };
+  }
+  const domain = process.env.TEST_EMAIL_DOMAIN ?? "demomailtrap.co";
+  const email = `auto-owner2-${runId}@${domain}`;
+  const password = "Automation!Owner2-" + runId;
+  recordUserForCleanup(email);
+  const user = await adminCreateUser(adminToken, {
+    firstName: "Auto",
+    lastName: "SecondOwner",
+    email,
+    password,
+    role: "OWNER",
+  });
+  const res = await createRestaurantRaw(adminToken, {
+    name: `Automation Owner2 Store ${runId}`,
+    street: "300 Other Street",
+    city: "Miami",
+    state: "FL",
+    zipCode: "33101",
+    cuisineType: "Mexican",
+    restaurantPhone: "3055550177",
+    description: "Throwaway second-owner restaurant (IDOR contract tests)",
+    minimumOrderPreparationTime: 0,
+  });
+  const restaurantId =
+    (res.data as { restaurant?: { id?: string } })?.restaurant?.id ?? null;
+  if (restaurantId)
+    await assignRestaurantToUserApi(adminToken, user.id, restaurantId);
+  const login = await apiLogin(email, password);
+  return {
+    accessToken: login.accessToken,
+    userId: user.id,
+    email,
+    restaurantId,
+  };
 }
 
 // ── Coupons ──────────────────────────────────────────────────────────────────

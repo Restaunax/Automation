@@ -17,7 +17,7 @@ test.describe("Owner — My Restaurants List", () => {
     await allure.label("severity", "critical");
   });
 
-  test("TC-13: owner can reach /restaurant/stores and see the My Restaurants heading", async ({
+  test("TC-13: owner can reach /restaurant/stores and see the My Restaurants heading @smoke", async ({
     ownerPage,
   }) => {
     await allure.description(

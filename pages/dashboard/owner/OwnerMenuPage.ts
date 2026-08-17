@@ -257,8 +257,135 @@ export const createOwnerMenuPage = (page: Page) => {
   const itemNameInput = () => page.getByPlaceholder("Enter the menu item name");
   const basePriceInput = () => page.getByPlaceholder("Enter the base price");
 
+  // ── Builder header / dialogs (MenuGroupDisplay) ─────────────────────────
+  const gotoBuilder = (restaurantId: string) =>
+    page.goto(`/restaurant/restaurantId/${restaurantId}`, {
+      waitUntil: "domcontentloaded",
+    });
+  const gotoChainBuilder = (groupId: string) =>
+    page.goto(`/chain/${groupId}`, { waitUntil: "domcontentloaded" });
+  const builderHeading = () =>
+    page.getByRole("heading", { name: "Menu Categories" });
+  const cloneMenuButton = () =>
+    page.getByRole("button", { name: "Clone Menu" });
+  const generateMenuButton = () =>
+    page.getByRole("button", { name: "Generate Menu" });
+  const generateImagesButton = () =>
+    page.getByRole("button", { name: "Generate Images" });
+  const categoryTabs = () =>
+    page.getByRole("tablist", { name: "menu categories tabs" });
+  const emptyState = () => page.getByText("No categories yet");
+
+  /** "New Category" dialog pieces. */
+  const categoryDialog = () =>
+    page.getByRole("dialog").filter({ hasText: "Add Category" });
+  const categoryPreset = (name: string) =>
+    categoryDialog().getByRole("button", { name, exact: true });
+  const categoryNameInput = () =>
+    page.getByPlaceholder("appetizer, Main Course, Dessert...");
+  const categorySaveButton = () =>
+    page.getByRole("button", { name: "Save changes" });
+  const categoryScopeRadio = (scope: "this" | "all") =>
+    categoryDialog().getByRole("radio", {
+      name: scope === "this" ? /Just this store/ : /All my stores/,
+    });
+  const openCategoryDialog = async () => {
+    await addCategoryButton().click();
+    await categoryDialog().waitFor({ state: "visible", timeout: 10_000 });
+  };
+
+  /** Category chips + heading in the builder's category section. */
+  const categorySection = (categoryName: string) =>
+    page
+      .locator(".MuiPaper-root")
+      .filter({
+        has: page.getByRole("heading", { name: categoryName, exact: true }),
+      })
+      .last();
+  const categoryChip = (categoryName: string, kind: "shared" | "local") =>
+    categorySection(categoryName).getByText(
+      kind === "shared" ? /Shared · all \d+ locations/ : "Only at this location"
+    );
+
+  // ── Item cards (MenuItemCard: data-testid menu-item-card / -edit / -clone) ─
+  const itemCard = (itemName: string) =>
+    page
+      .getByTestId("menu-item-card")
+      .filter({ hasText: itemName })
+      .or(page.locator(".MuiCard-root").filter({ hasText: itemName }))
+      .first();
+  const openItemDetail = async (itemName: string) => {
+    const card = itemCard(itemName);
+    await card.waitFor({ state: "visible", timeout: 15_000 });
+    // Click the card body (the name), not an action button.
+    await card.getByText(itemName, { exact: true }).first().click();
+    await page.waitForURL(/\/itemId\/[^/]+$/, { timeout: 15_000 });
+  };
+  const cloneItemButton = (itemName: string) =>
+    itemCard(itemName)
+      .getByTestId("menu-item-clone")
+      .or(itemCard(itemName).locator(".MuiCardActions-root button").nth(2));
+  const cardFeaturedButton = (itemName: string) =>
+    itemCard(itemName).locator(".MuiCardActions-root button").first();
+  const cardBadge = (itemName: string, badge: string) =>
+    itemCard(itemName).getByText(badge, { exact: true });
+
+  /** "Who is this item for?" (chain owner adding to a shared category). */
+  const scopeDialog = () =>
+    page.getByRole("dialog", { name: "Who is this item for?" });
+  const chooseItemScope = (scope: "all" | "this") =>
+    scopeDialog()
+      .getByRole("button", {
+        name: scope === "all" ? /All my stores/ : /Just this store/,
+      })
+      .click();
+
+  // ── Chain scope bar (MenuScopeBar) ──────────────────────────────────────
+  const scopeBarEditingFor = () => page.getByText("Editing menu for:");
+  const scopeBarSwitchToShared = () =>
+    page
+      .getByRole("button", { name: /Switch to all \d+ locations/ })
+      .or(page.getByRole("link", { name: /Switch to all \d+ locations/ }));
+  const scopeBarSharedTitle = () => page.getByText("EDITING SHARED MENU");
+  const scopeBarBackToLocation = () =>
+    page
+      .getByRole("button", { name: /Back to .* only/ })
+      .or(page.getByRole("link", { name: /Back to .* only/ }));
+
+  // ── Clone Menu dialog ───────────────────────────────────────────────────
+  const cloneMenuDialog = () =>
+    page.getByRole("dialog").filter({ hasText: "Clone Menu Items" });
+
   return {
     navigateToMenuTab,
+    gotoBuilder,
+    gotoChainBuilder,
+    builderHeading,
+    cloneMenuButton,
+    generateMenuButton,
+    generateImagesButton,
+    categoryTabs,
+    emptyState,
+    categoryDialog,
+    categoryPreset,
+    categoryNameInput,
+    categorySaveButton,
+    categoryScopeRadio,
+    openCategoryDialog,
+    categorySection,
+    categoryChip,
+    itemCard,
+    openItemDetail,
+    cloneItemButton,
+    cardFeaturedButton,
+    cardBadge,
+    scopeDialog,
+    chooseItemScope,
+    scopeBarEditingFor,
+    scopeBarSwitchToShared,
+    scopeBarSharedTitle,
+    scopeBarBackToLocation,
+    cloneMenuDialog,
     addCategoryButton,
     itemNameInput,
     basePriceInput,

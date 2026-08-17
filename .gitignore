@@ -21,3 +21,6 @@ results.json
 # Personal Claude skills (not part of the test suite)
 .claude/skills/
 .vscode
+# playwright-cli exploration artefacts + local scratch scripts
+.playwright-cli/
+scripts/tmp-scratch/

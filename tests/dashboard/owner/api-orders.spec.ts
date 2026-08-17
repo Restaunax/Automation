@@ -89,7 +89,7 @@ test.describe("Owner — Orders API contract", () => {
     token = await freshToken();
   });
 
-  test("TC-255: an unknown status value is rejected by both status endpoints", async () => {
+  test("TC-255: an unknown status value is rejected by both status endpoints @smoke", async () => {
     await allure.description(
       "PUT /api/order/orderId/:id/status and PUT /api/order/statistics/:id/status validate the " +
         "status against a 9-value allowlist (PENDING…REFUNDED). A bogus value is a 400 'Invalid order " +

@@ -25,17 +25,17 @@ Each test case includes:
 
 ## The Areas We Test
 
-| Area              | Who Uses It                        | Tests                                                                                                                                                                                                               |
-| ----------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 🌐 Public         | Anyone on the internet             | TC-01, TC-02, TC-59 → TC-61, TC-74, TC-75, TC-93 → TC-96                                                                                                                                                            |
-| 🔐 Admin          | Internal Restaunax staff           | TC-03 → TC-12, TC-32, TC-76, TC-77, TC-98, TC-101 → TC-124 (user management, `users.spec.ts`)                                                                                                                       |
-| 🏠 Owner          | Restaurant owners                  | TC-13 → TC-16, TC-19 → TC-21, TC-27 → TC-31, TC-35, TC-42 → TC-53 (excl. TC-22–26), TC-62 → TC-70, TC-78, TC-82 → TC-92, TC-127 → TC-129, TC-131 → TC-142, TC-145 → TC-164, TC-224, TC-225, TC-231 → TC-254, TC-262 |
-| 🛒 Customer       | People ordering food               | TC-22 → TC-26, TC-64, TC-99, TC-125, TC-126, TC-165 → TC-178, TC-184 → TC-197                                                                                                                                       |
-| 🍳 POS            | Restaurant kitchen / tablet        | TC-100 (`--project=pos`)                                                                                                                                                                                            |
-| 🔒 Access Control | Testing role/permission boundaries | TC-54 → TC-58, TC-71 → TC-73, TC-81                                                                                                                                                                                 |
-| 🚪 Onboarding     | New restaurant owners              | TC-93 → TC-97, TC-182, TC-183 (spans Public sign-up and Employee restaurant creation)                                                                                                                               |
-| 👔 Employee       | Company-side setup staff           | TC-143, TC-144, TC-182, TC-183 (TC-17/18 tax and TC-97 also run under the EMPLOYEE role)                                                                                                                            |
-| 🌐 API-Level      | No UI — direct backend calls       | TC-65, TC-66, TC-68, TC-69, TC-79, TC-80, TC-255 → TC-261 (`api-orders.spec.ts`)                                                                                                                                    |
+| Area              | Who Uses It                        | Tests                                                                                                                                                                                                                                |
+| ----------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 🌐 Public         | Anyone on the internet             | TC-01, TC-02, TC-59 → TC-61, TC-74, TC-75, TC-93 → TC-96                                                                                                                                                                             |
+| 🔐 Admin          | Internal Restaunax staff           | TC-03 → TC-12, TC-32, TC-76, TC-77, TC-98, TC-101 → TC-124 (user management, `users.spec.ts`)                                                                                                                                        |
+| 🏠 Owner          | Restaurant owners                  | TC-13 → TC-16, TC-19 → TC-21, TC-27 → TC-31, TC-35, TC-42 → TC-53 (excl. TC-22–26), TC-62 → TC-70, TC-78, TC-82 → TC-92, TC-127 → TC-129, TC-131 → TC-142, TC-145 → TC-164, TC-224, TC-225, TC-231 → TC-254, TC-262, TC-288 → TC-319 |
+| 🛒 Customer       | People ordering food               | TC-22 → TC-26, TC-64, TC-99, TC-125, TC-126, TC-165 → TC-178, TC-184 → TC-197                                                                                                                                                        |
+| 🍳 POS            | Restaurant kitchen / tablet        | TC-100 (`--project=pos`)                                                                                                                                                                                                             |
+| 🔒 Access Control | Testing role/permission boundaries | TC-54 → TC-58, TC-71 → TC-73, TC-81                                                                                                                                                                                                  |
+| 🚪 Onboarding     | New restaurant owners              | TC-93 → TC-97, TC-182, TC-183 (spans Public sign-up and Employee restaurant creation)                                                                                                                                                |
+| 👔 Employee       | Company-side setup staff           | TC-143, TC-144, TC-182, TC-183 (TC-17/18 tax and TC-97 also run under the EMPLOYEE role)                                                                                                                                             |
+| 🌐 API-Level      | No UI — direct backend calls       | TC-65, TC-66, TC-68, TC-69, TC-79, TC-80, TC-255 → TC-261 (`api-orders.spec.ts`), TC-263 → TC-287 (`api-menu.spec.ts`), TC-323, TC-324                                                                                               |
 
 TC-17 and TC-18 (tax settings) run under the **Employee** role, not Owner —
 `/tax` is an EMPLOYEE/ADMIN-only route and the OWNER role gets Access Denied.
@@ -1501,6 +1501,92 @@ A customer can fill in their name, email, and phone number, choose "Pickup," and
 ### Why it matters
 
 If the form doesn't accept customer details or the Proceed button doesn't work, the checkout process is completely broken — no one can pay.
+
+---
+
+## TC-263 → TC-324 — Menu Management, Deep Coverage (owner portal + chains, 2026-08-16)
+
+**Status:** ✅ Passing. The six `test.fail()` pins this batch shipped with (TC-282, TC-283..286, TC-317) were flipped to plain tests on 2026-08-17 the same day RestauNax PR #602 (issue #601) reached QA — they now assert the FIXED behaviour.
+
+Added by the second tab-by-tab audit (`docs/MENU_TAB_TEST_STRATEGY.md`). Until now the menu had builder smoke coverage only (TC-19..67). These tests cover the actual **Menu tab** (`?tab=Menu`, "Menu Availability Management"), the **builder** cards, the 4-step **item wizard** (modifiers + image), the **item detail** page, the whole **chain** menu model (shared vs. per-location), the backend **API contract**, and the **storefront hand-off**. Layout: `api-menu.spec.ts` (TC-263..287), `04b-menu-availability.spec.ts` (TC-288..293), `04c-menu-item-editor.spec.ts` (TC-294..307), `17-chain-menu.spec.ts` (TC-308..319), `customer/06-menu-handoff.spec.ts` (TC-320..322), `admin/chains.spec.ts` (TC-323, TC-324).
+
+**Chain fixture:** a persistent two-location "Automation Chain" (Loc A / Loc B, owned by the seed OWNER, 24-h hours + tax) is created once by `globalSetup` (`ensureAutomationChain`) and reused; chain tests skip with a reason if it can't be built.
+
+### API contract (`api-menu.spec.ts`)
+
+| TC                     | What it checks                                                                                                                                                                                                                                   | Why it matters                                                           |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
+| **TC-263**             | The menu read is public, hides soft-deleted items, carries `outOfStock`/`featured`.                                                                                                                                                              | Storefront and owner UI share this read.                                 |
+| **TC-264**             | Create item requires price + groupId.                                                                                                                                                                                                            | Validation contract.                                                     |
+| **TC-265**             | Modifier normalisation: Free groups store $0, child groups forced free, one level of nesting, sortOrder = index.                                                                                                                                 | `MENU_MODIFIER_SYSTEM.md` rules every customer app relies on.            |
+| **TC-266**             | The deep-editor diff payload (deleted / added / modified) applies in one call; mismatched id → 400.                                                                                                                                              | The wizard's save contract.                                              |
+| **TC-267**             | Modifier reorder is index-based and ignores foreign ids.                                                                                                                                                                                         | Tenant-safe reorder.                                                     |
+| **TC-268 / 269**       | Availability toggle writes `outOfStock` (400 without the flag); reset-availability restores a whole category.                                                                                                                                    | The Menu tab's two core actions.                                         |
+| **TC-270**             | A standalone restaurant can feature at most 5 items (6th → "You can only have 5 featured items").                                                                                                                                                | Storefront featured strip cap.                                           |
+| **TC-271 / 272 / 273** | Item delete is soft and `/permanent` is admin-only; an item used by an ACTIVE deal can't be deleted (409 + blockers); a category with items can't be deleted (400).                                                                              | Data-loss guards.                                                        |
+| **TC-274**             | Override routes reject standalone items ("only available for chain master items"), require restaurantId and a token.                                                                                                                             | Chain-only machinery stays chain-only.                                   |
+| **TC-275 – 281**       | Chain: per-location price override (A only, null clears), location-pricing for a size, carry off hides from A's storefront only, per-location 86, location-only items invisible to B, clone into a chain member refused, featured is chain-wide. | The whole `CHAIN_RESTAURANTS.md` override model, asserted at the source. |
+| **TC-282** 🔴          | pin — chain reset-availability should un-86 locations (today it only clears the master flag).                                                                                                                                                    | Real bug.                                                                |
+| **TC-283 – 286** 🔴    | pins — another owner must NOT be able to edit / delete / create-into / image-swap our menu (today: 200 — authenticated IDOR on `PUT …/changes`, `DELETE menuItemId`, `POST item/new`, `DELETE group`, `POST upload/…/picture`).                  | Security.                                                                |
+| **TC-287**             | Positive control: the guarded routes (availability / featured / price-override) do return 403 to a second owner.                                                                                                                                 | Proves the pins' fixture.                                                |
+
+### Menu tab (`04b-menu-availability.spec.ts`)
+
+| TC         | What it checks                                                                                                                                          |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **TC-288** | Sidebar Menu → "Menu Availability Management"; seeded category "6 Available"; Manage Menu → builder.                                                    |
+| **TC-289** | Switch OFF → ConsequenceDialog "Mark "X" as sold out?" → PATCH `{outOfStock:true}` → chips 5/1 + toast; ON → no dialog; Cancel keeps it available.      |
+| **TC-290** | "Restore All to Available" appears only with out-of-stock items; its dialog names the count; restores the whole category.                               |
+| **TC-291** | Star → Featured accordion `n/5`; un-star; the 6th is refused with the cap error while the counter stays 5/5.                                            |
+| **TC-292** | Refresh re-fetches and reflects a change made via API behind the page.                                                                                  |
+| **TC-293** | A menu-less restaurant shows "No menu data available" → "Open menu builder" (which, for a hours-less restaurant, is CreateStore's Business Hours step). |
+
+### Builder, wizard, item detail (`04c-menu-item-editor.spec.ts`)
+
+| TC               | What it checks                                                                                                                                          |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **TC-294**       | New Category presets; duplicate name → "already exists in category".                                                                                    |
+| **TC-295**       | Wizard step-0 rules: min 2 chars, price > 0 (QA build says "Price must be positive"), ≤ $9,999.99, description ≤ 500.                                   |
+| **TC-296**       | Wizard saves an item with a Sets-Final-Price size group, a paid extra (Allow Multiples) and a free group; API stores the modes; detail page lists them. |
+| **TC-297**       | Wizard image step uploads a PNG through the hidden file input; item carries `imageUrls`.                                                                |
+| **TC-298**       | "Start from a Template" (lazy per cuisine → Pizza) prefills name/price.                                                                                 |
+| **TC-299**       | Clone Item → wizard prefilled "<name> (Copy)" → second independent item.                                                                                |
+| **TC-300**       | Card click → item detail page; Edit → edit wizard; Back returns.                                                                                        |
+| **TC-301**       | Detail Upload (dialog → Save changes) / Remove Image (confirm) round-trip.                                                                              |
+| **TC-302**       | Detail Delete → soft delete: builder card badged "No longer available", merged-menu read hides it, detail shows the inactive banner.                    |
+| **TC-303**       | Delete blocked by an active deal → "Cannot Delete This Item" dialog listing the deal.                                                                   |
+| **TC-304**       | Reorder modifiers — keyboard drag in the dnd-kit sheet persists the order.                                                                              |
+| **TC-305**       | Card star toggles featured; Menu tab's Featured accordion reflects it.                                                                                  |
+| **TC-306 / 307** | Presence smokes: Clone Menu dialog; AI Menu Import / Bulk AI Images / Paste Menu Item dialogs open and close (nothing generated).                       |
+
+### Chain menu (`17-chain-menu.spec.ts`)
+
+| TC            | What it checks                                                                                                                                                                                                                                                |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **TC-308**    | Location A: "Managing … part of your chain", location banner, split summary, "From shared menu" vs "This location only" chips; only shared items get the $ / carry icons; builder scope bar + disabled Clone Menu; "Switch to all 2 locations" → chain shell. |
+| **TC-309**    | Chain shell Menu tab: shared banner, availability switch disabled, no $ / carry icons, A's private item hidden.                                                                                                                                               |
+| **TC-310**    | $ dialog: base 14 at A → "Location price: $14" + "1 location has a different price"; B still 12; reset row → shared.                                                                                                                                          |
+| **TC-311**    | 86 at A leaves B available (both UI and API).                                                                                                                                                                                                                 |
+| **TC-312**    | Carry off at A → "Add back…" icon, absent from A's customer read, present at B; add back.                                                                                                                                                                     |
+| **TC-313**    | Renaming a shared item at A fans out to B (fan-out confirm accepted when shown).                                                                                                                                                                              |
+| **TC-314**    | "Who is this item for?" — Just this store → `?ownerOnly=1`, location-only banner, item absent at B; All my stores → present at both.                                                                                                                          |
+| **TC-315**    | New Category scope radio: Just this store → "Only at this location"; All my stores → fan-out confirm → "Shared · all 2 locations", visible at B.                                                                                                              |
+| **TC-316**    | Featuring a shared item is chain-wide; a local item stays local.                                                                                                                                                                                              |
+| **TC-317** 🔴 | pin — "Reset all to shared" should reset SAVED overrides to the shared prices (today it only discards unsaved edits — `LocationPricingEditor.resetAll` seeds from the override).                                                                              |
+| **TC-318**    | $ dialog per-modifier override (Large 18) + base; "%" quick-adjust previews relative to the SHARED prices; row resets clear all.                                                                                                                              |
+| **TC-319**    | "Manage shared menu" from the chain shell opens the chain-aware LOCATION builder (there is no separate chain builder).                                                                                                                                        |
+
+### Storefront hand-off (`customer/06-menu-handoff.spec.ts`) and admin chains (`admin/chains.spec.ts`)
+
+| TC         | What it checks                                                                                                                                                      |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **TC-320** | Owner 86s an item → Template Wind no longer lists it → restore → back.                                                                                              |
+| **TC-321** | Per-location override: Wind shows $14 at A and $12 at B; the public `/quote` (what checkout charges) returns 14 at A / 12 at B.                                     |
+| **TC-322** | Uncarry at A → absent from Wind A only.                                                                                                                             |
+| **TC-323** | Admin links an existing store (menu kept): its own items interleave at that location only; unlink → back to 2.                                                      |
+| **TC-324** | Unlink refused for a live store ("gone live") and a non-member (404); cancelling the order lets it leave; admin DELETE only archives and never detaches membership. |
+
+**Real product findings from this batch (2026-08-16):** (1) authenticated IDOR across most `/menu` mutations (TC-283..286 pins); (2) chain "Restore All to Available" doesn't un-86 locations (TC-282 pin); (3) "Reset all to shared" in the per-location pricing dialog doesn't reset saved overrides (TC-317 pin); (4) UX: the caption under the Menu-tab availability switch labels the opposite state (the chip next to the name is correct); (5) `CHANNEL_PRICING_DESIGN.md` says the override routes are unauthenticated — the code mounts them behind `requireAuth` (TC-274 pins the code). The "shown $14, charged $12" chain defect described in that design doc is **fixed on QA** (TC-321 proves the quote uses the override).
 
 ---
 

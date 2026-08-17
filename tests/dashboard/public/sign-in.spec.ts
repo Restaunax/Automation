@@ -26,7 +26,7 @@ test.describe("Public — Sign in", () => {
     await allure.label("severity", "critical");
   });
 
-  test("TC-59: valid credentials reach the dashboard", async ({
+  test("TC-59: valid credentials reach the dashboard @smoke", async ({
     signInPage,
     page,
   }) => {

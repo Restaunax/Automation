@@ -17,7 +17,7 @@ test.describe("Admin — Restaurant Management", () => {
     await allure.label("severity", "critical");
   });
 
-  test("TC-32: admin can navigate to the Restaurants tab and see the list", async ({
+  test("TC-32: admin can navigate to the Restaurants tab and see the list @smoke", async ({
     adminPage,
   }) => {
     await allure.description(

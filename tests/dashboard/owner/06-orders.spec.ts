@@ -168,7 +168,7 @@ test.describe("Owner — Orders Tab", () => {
     await allure.label("severity", "critical");
   });
 
-  test("TC-29: owner can navigate to the Orders tab and see the orders search bar", async ({
+  test("TC-29: owner can navigate to the Orders tab and see the orders search bar @smoke", async ({
     ownerPage,
   }) => {
     await allure.description(

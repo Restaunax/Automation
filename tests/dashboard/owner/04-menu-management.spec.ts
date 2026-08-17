@@ -30,7 +30,7 @@ test.describe("Owner — Menu Management", () => {
     await allure.label("severity", "normal");
   });
 
-  test("TC-19: owner can navigate to the Menu tab and see the category section", async ({
+  test("TC-19: owner can navigate to the Menu tab and see the category section @smoke", async ({
     ownerPage,
   }) => {
     await allure.description(
@@ -236,8 +236,9 @@ test.describe("Owner — Menu Management", () => {
     test("TC-44: owner can delete a menu item", async () => {
       test.skip(
         true,
-        "The current menu item card UI has no delete button — only Edit Item and Clone Item icon buttons. " +
-          "Item deletion is not available from the owner-facing menu editor."
+        "The menu item CARD has no delete button — only Edit Item and Clone Item. Item deletion lives on the " +
+          "item DETAIL page (Delete → soft delete, gated by DELETE_MENU_ITEM) and is covered by TC-302 in " +
+          "04c-menu-item-editor.spec.ts (plus the 409 deal-blocker path in TC-303)."
       );
     });
 

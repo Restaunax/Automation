@@ -203,6 +203,13 @@ export interface SharedState {
   // publish-results to flag a run superseded by a mid-run deploy. Optional so
   // older state files and health-unreachable runs still parse.
   processStartedAt?: number | null;
+  // Persistent "Automation Chain" fixture (globalSetup → ensureAutomationChain).
+  // Empty strings when it could not be built — chain-menu specs skip on that.
+  chainGroupId?: string;
+  chainLocationAId?: string;
+  chainLocationAName?: string;
+  chainLocationBId?: string;
+  chainLocationBName?: string;
 }
 
 export function readSharedState(): SharedState {

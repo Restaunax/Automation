@@ -11,6 +11,7 @@
     "test:ci": "CI=true playwright test",
     "test:email": "playwright test --grep @email",
     "test:demo": "playwright test --grep @demo",
+    "test:smoke": "playwright test --grep @smoke",
     "report": "allure generate allure-results -o allure-report --clean && allure open allure-report",
     "report:html": "playwright show-report",
     "clean": "rm -rf allure-results allure-report test-results playwright-report results.json",

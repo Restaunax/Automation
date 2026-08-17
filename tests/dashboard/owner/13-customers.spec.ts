@@ -18,7 +18,7 @@ test.describe("Owner — Customers Tab", () => {
     await allure.label("severity", "critical");
   });
 
-  test("TC-136: owner can open the Customers tab and see the directory", async ({
+  test("TC-136: owner can open the Customers tab and see the directory @smoke", async ({
     ownerPage,
   }) => {
     await allure.description(
