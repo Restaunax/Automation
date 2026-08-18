@@ -869,19 +869,68 @@ export function deleteMenuItemImageRaw(
  * amountToCharge, …}} — the server-authoritative "what will be charged", i.e.
  * the number that must reflect per-location price overrides.
  */
+export interface QuoteDeal {
+  dealId: string;
+  quantity?: number;
+  /** template-wind sends `orderDealItems`; the backend treats it as `items`. */
+  items?: {
+    menuItemId: string;
+    quantity?: number;
+    selectedModifiers?: { modifierId: string; quantity?: number }[];
+    upchargeAmount?: number;
+  }[];
+  /** Client-precomputed fallback; ignored the moment modifier ids are sent. */
+  upchargeAmount?: number;
+  /** Money the client THINKS it pays — the engine ignores it (server-authoritative). */
+  dealPrice?: number;
+  dealName?: string;
+}
+
+export interface QuoteResponse {
+  success?: boolean;
+  quote?: {
+    subtotal?: number;
+    itemsSubtotal?: number;
+    dealsSubtotal?: number;
+    couponDiscount?: number;
+    discountTotal?: number;
+    tax?: number;
+    amountToCharge?: number;
+    total?: number;
+    deals?: {
+      dealId: string;
+      dealName: string;
+      dealPrice: number;
+      quantity: number;
+      upcharge: number;
+      lineTotal: number;
+      savings: number;
+    }[];
+  };
+  issues?: { code: string; severity: string; message: string }[];
+  message?: string;
+}
+
+/**
+ * PUBLIC POST /api/order/:restaurantId/quote — the price the checkout will
+ * charge. Accepts the legacy checkout body (orderItems / orderDeals / couponId)
+ * exactly as template-wind sends it; every money field on it is ignored and
+ * recomputed from the DB (server-authoritative pricing).
+ */
 export function quoteOrderRaw(
   restaurantId: string,
   body: {
-    orderItems: {
+    orderItems?: {
       menuItemId: string;
       quantity: number;
       selectedModifiers?: { modifierId: string; quantity?: number }[];
     }[];
+    orderDeals?: QuoteDeal[];
+    couponId?: string | null;
+    couponCodeId?: string | null;
     orderType?: "PICKUP" | "DELIVERY";
   }
-): Promise<
-  RawResponse<{ quote?: { subtotal?: number; amountToCharge?: number } }>
-> {
+): Promise<RawResponse<QuoteResponse>> {
   return apiRequestRaw("POST", `/api/order/${restaurantId}/quote`, {
     orderType: "PICKUP",
     ...body,
@@ -1282,23 +1331,412 @@ export async function deleteAutomationCoupons(
 // seeded deal is always active. AUTO-prefixed names get swept by
 // deleteAutomationDeals in globalTeardown, mirroring the coupon sweep.
 
+export interface ApiDealItem {
+  id: string;
+  menuItemId?: string | null;
+  menuGroupId?: string | null;
+  quantity: number;
+  itemName: string;
+  itemPrice: number;
+  isRequired: boolean;
+  sortOrder: number;
+  menuItem?: {
+    id: string;
+    name: string;
+    price: number;
+    outOfStock?: boolean;
+  } | null;
+}
+
+/**
+ * A deal as the owner routes return it (create/get/list). Money fields are
+ * SERVER-computed (originalPrice = Σ itemPrice, savingsAmount = max(0, orig −
+ * deal), savingsPercentage 1 dp) — assert against them, never a hand sum.
+ * `computedStatus` / `hasOutOfStockItem` / `isAvailable` are list-only
+ * projections (GET /restaurant/:id) — see docs/DEALS_TAB_TEST_STRATEGY.md §3.6.
+ */
 export interface ApiDeal {
   id: string;
   name: string;
+  description?: string | null;
   dealPrice?: number;
+  originalPrice?: number;
+  savingsAmount?: number;
+  savingsPercentage?: number;
+  status?: string;
+  computedStatus?: string;
+  hasOutOfStockItem?: boolean;
+  isAvailable?: boolean;
+  validDays?: string[];
+  validTimeStart?: string | null;
+  validTimeEnd?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  aiGenerated?: boolean;
+  imageUrl?: string | null;
+  imageStatus?: string | null;
+  timesUsed?: number;
+  totalRevenue?: number;
+  restaurantId?: string | null;
+  restaurantGroupId?: string | null;
+  createdAt?: string;
+  items?: ApiDealItem[];
+}
+
+/** Body of POST /api/deals/restaurant/:id and PUT /api/deals/:id (all optional on PUT). */
+export interface DealBody {
+  name?: string;
+  description?: string;
+  dealPrice?: number;
+  items?: {
+    menuItemId?: string;
+    menuGroupId?: string;
+    quantity: number;
+    itemName?: string;
+    itemPrice?: number;
+    isRequired?: boolean;
+    sortOrder?: number;
+  }[];
+  validDays?: string[];
+  validTimeStart?: string;
+  validTimeEnd?: string;
+  startDate?: string;
+  endDate?: string;
+  targetAudience?: string;
+  mealType?: string;
+  occasion?: string;
+  aiGenerated?: boolean;
   status?: string;
 }
 
 /** Raw deal create — create response is { success, message, deal }. */
 export function createDealRaw(
-  accessToken: string,
+  accessToken: string | undefined,
   restaurantId: string,
-  body: Record<string, unknown>
-): Promise<RawResponse> {
+  body: Record<string, unknown> | DealBody
+): Promise<RawResponse<{ deal?: ApiDeal; message?: string }>> {
   return apiRequestRaw(
     "POST",
     `/api/deals/restaurant/${restaurantId}`,
     body,
+    accessToken
+  );
+}
+
+/**
+ * Throwing create for seeding: a fixed-price bundle of the given menu items
+ * (`{id, name, price, quantity?}`), AUTO-prefixed name so globalTeardown's
+ * sweep backstops the afterAll delete. No restrictions unless passed → the
+ * deal is active now.
+ */
+export async function createDealApi(
+  accessToken: string,
+  restaurantId: string,
+  name: string,
+  dealPrice: number,
+  items: { id: string; name: string; price: number; quantity?: number }[],
+  extra: Partial<DealBody> = {}
+): Promise<ApiDeal> {
+  const res = await createDealRaw(accessToken, restaurantId, {
+    name,
+    description: "Automation deal — safe to delete",
+    dealPrice,
+    items: items.map((it, i) => ({
+      menuItemId: it.id,
+      quantity: it.quantity ?? 1,
+      itemName: it.name,
+      itemPrice: it.price,
+      isRequired: true,
+      sortOrder: i,
+    })),
+    ...extra,
+  });
+  if (!res.ok || !res.data?.deal) {
+    throw new Error(
+      `[apiHelper] deal seed failed: ${res.status} ${JSON.stringify(res.data)}`
+    );
+  }
+  return res.data.deal;
+}
+
+/** GET /api/deals/:dealId — { success, deal }. */
+export function getDealRaw(
+  accessToken: string | undefined,
+  dealId: string
+): Promise<RawResponse<{ deal?: ApiDeal; message?: string }>> {
+  return apiRequestRaw("GET", `/api/deals/${dealId}`, undefined, accessToken);
+}
+
+export async function getDealApi(
+  accessToken: string,
+  dealId: string
+): Promise<ApiDeal> {
+  const res = await getDealRaw(accessToken, dealId);
+  if (!res.ok || !res.data?.deal) {
+    throw new Error(
+      `[apiHelper] getDeal failed: ${res.status} ${JSON.stringify(res.data)}`
+    );
+  }
+  return res.data.deal;
+}
+
+/** PUT /api/deals/:dealId — patch semantics; `items` replaces every slot. */
+export function updateDealRaw(
+  accessToken: string | undefined,
+  dealId: string,
+  body: DealBody | Record<string, unknown>
+): Promise<RawResponse<{ deal?: ApiDeal; message?: string }>> {
+  return apiRequestRaw("PUT", `/api/deals/${dealId}`, body, accessToken);
+}
+
+/** PATCH /api/deals/:dealId/status {status: ACTIVE|INACTIVE}. */
+export function setDealStatusRaw(
+  accessToken: string | undefined,
+  dealId: string,
+  status: string
+): Promise<
+  RawResponse<{
+    deal?: ApiDeal;
+    message?: string;
+    error?: string;
+    maxActiveDeals?: number;
+    currentActiveDeals?: number;
+  }>
+> {
+  return apiRequestRaw(
+    "PATCH",
+    `/api/deals/${dealId}/status`,
+    { status },
+    accessToken
+  );
+}
+
+export function deleteDealRaw(
+  accessToken: string | undefined,
+  dealId: string
+): Promise<RawResponse<{ message?: string }>> {
+  return apiRequestRaw(
+    "DELETE",
+    `/api/deals/${dealId}`,
+    undefined,
+    accessToken
+  );
+}
+
+/** GET /api/deals/restaurant/:id — raw (authz pins need the status). */
+export function getRestaurantDealsRaw(
+  accessToken: string | undefined,
+  restaurantId: string
+): Promise<RawResponse<{ deals?: ApiDeal[] }>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/deals/restaurant/${restaurantId}`,
+    undefined,
+    accessToken
+  );
+}
+
+/** GET /api/deals/restaurant/:id/active-count → {activeDealsCount, maxActiveDeals, slotsAvailable}. */
+export function getActiveDealsCountRaw(
+  accessToken: string | undefined,
+  restaurantId: string
+): Promise<
+  RawResponse<{
+    activeDealsCount?: number;
+    maxActiveDeals?: number;
+    slotsAvailable?: number;
+  }>
+> {
+  return apiRequestRaw(
+    "GET",
+    `/api/deals/restaurant/${restaurantId}/active-count`,
+    undefined,
+    accessToken
+  );
+}
+
+export interface DealStatsResponse {
+  success?: boolean;
+  summary?: {
+    totalCount: number;
+    activeCount: number;
+    totalTimesUsed: number;
+    totalRevenue: number;
+    totalSavingsGiven: number;
+    totalUpchargeRevenue?: number;
+    averageOrderValueWithDeals: number;
+  };
+  topDeals?: {
+    id: string;
+    name: string;
+    dealPrice: number;
+    savingsPercentage: number;
+    timesUsed: number;
+    totalRevenue: number;
+  }[];
+  usageTrend?: unknown[];
+  audienceDistribution?: { name: string; value: number }[];
+}
+
+/** GET /api/deals/restaurant/:id/stats (what the Deal Analytics tab renders). */
+export function getDealStatsRaw(
+  accessToken: string | undefined,
+  restaurantId: string
+): Promise<RawResponse<DealStatsResponse>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/deals/restaurant/${restaurantId}/stats`,
+    undefined,
+    accessToken
+  );
+}
+
+/** GET /api/deals/ai/menu-items/:id — the deal-form item picker source. */
+export function getDealMenuItemsRaw(
+  accessToken: string | undefined,
+  restaurantId: string
+): Promise<
+  RawResponse<{
+    menuGroups?: {
+      id: string;
+      name: string;
+      items: { id: string; name: string; price: number; outOfStock: boolean }[];
+    }[];
+    totalItems?: number;
+  }>
+> {
+  return apiRequestRaw(
+    "GET",
+    `/api/deals/ai/menu-items/${restaurantId}`,
+    undefined,
+    accessToken
+  );
+}
+
+/** POST /api/deals/restaurant/:id/bulk {deals:[...]} → {createdCount, enabledCount, inactiveCount, deals}. */
+export function bulkCreateDealsRaw(
+  accessToken: string | undefined,
+  restaurantId: string,
+  deals: DealBody[]
+): Promise<
+  RawResponse<{
+    createdCount?: number;
+    enabledCount?: number;
+    inactiveCount?: number;
+    maxActiveDeals?: number;
+    deals?: ApiDeal[];
+    message?: string;
+    errors?: unknown[];
+  }>
+> {
+  return apiRequestRaw(
+    "POST",
+    `/api/deals/restaurant/${restaurantId}/bulk`,
+    { deals },
+    accessToken
+  );
+}
+
+/** PUBLIC GET /api/deals/restaurant/:id/active — what the storefront lists. */
+export function getActiveDealsPublic(
+  restaurantId: string
+): Promise<RawResponse<{ deals?: ApiDeal[] }>> {
+  return apiRequestRaw("GET", `/api/deals/restaurant/${restaurantId}/active`);
+}
+
+/** PUBLIC POST /api/deals/validate {dealId, restaurantId, selectedItems?}. */
+export function validateDealPublic(body: {
+  dealId?: string;
+  restaurantId?: string;
+  selectedItems?: {
+    dealItemId?: string;
+    menuItemId: string;
+    menuItemName?: string;
+    menuItemPrice?: number;
+    quantity?: number;
+  }[];
+}): Promise<
+  RawResponse<{
+    isValid?: boolean;
+    issues?: string[];
+    message?: string;
+    deal?: { id: string; dealPrice: number };
+  }>
+> {
+  return apiRequestRaw("POST", "/api/deals/validate", body);
+}
+
+/** PUBLIC GET /api/deals/ai/questions — static questionnaire (no AI call). */
+export function getAiDealQuestionsPublic(): Promise<
+  RawResponse<{
+    questions?: {
+      id: string;
+      question: string;
+      options?: { value: string; label: string }[];
+    }[];
+  }>
+> {
+  return apiRequestRaw("GET", "/api/deals/ai/questions");
+}
+
+/** POST /api/chains/:groupId/deals — chain-scoped deal (requireChainOwner). */
+export function createChainDealRaw(
+  accessToken: string | undefined,
+  groupId: string,
+  body: DealBody | Record<string, unknown>
+): Promise<RawResponse<{ deal?: ApiDeal; message?: string }>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/chains/${groupId}/deals`,
+    body,
+    accessToken
+  );
+}
+
+/**
+ * GET /api/order/:orderId — with an OWNER token the full order (incl. orderDeals
+ * + orderDealItems, dealDiscountAmount, dealUpchargeAmount); anonymously the
+ * PII-trimmed view. Used by the storefront hand-off to inspect a placed order.
+ */
+export function getOrderByIdRaw(
+  accessToken: string | undefined,
+  orderId: string
+): Promise<
+  RawResponse<{
+    id?: string;
+    status?: string;
+    subtotal?: number;
+    total?: number;
+    dealDiscountAmount?: number | null;
+    dealUpchargeAmount?: number | null;
+    orderDeals?: {
+      id: string;
+      dealId: string | null;
+      dealName: string;
+      dealPrice: number;
+      quantity: number;
+      upchargeAmount: number | null;
+      orderDealItems?: {
+        menuItemId: string;
+        menuItemName: string;
+        quantity: number;
+      }[];
+    }[];
+    orderItems?: { menuItemId: string; quantity: number }[];
+  }>
+> {
+  return apiRequestRaw("GET", `/api/order/${orderId}`, undefined, accessToken);
+}
+
+/** GET /api/chains/:groupId/deals — { success, deals }. */
+export function getChainDealsRaw(
+  accessToken: string | undefined,
+  groupId: string
+): Promise<RawResponse<{ deals?: ApiDeal[] }>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/chains/${groupId}/deals`,
+    undefined,
     accessToken
   );
 }
