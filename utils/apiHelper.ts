@@ -2572,6 +2572,58 @@ export function exportOrdersRaw(
   );
 }
 
+/**
+ * GET /api/order/statistics/:orderId — the detail sheet's single-order fetch
+ * (deep-link `?detailOrderId=`). 404 for unknown ids (looked up before the
+ * ownership check), 403 when the token's owner doesn't control the order's
+ * restaurant (RestauNax #621).
+ */
+export function getOrderDetailRaw(
+  accessToken: string | undefined,
+  orderId: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw<Record<string, unknown>>(
+    "GET",
+    `/api/order/statistics/${orderId}`,
+    undefined,
+    accessToken
+  );
+}
+
+/** GET /api/order/statistics/:orderId/receipt — printable receipt payload.
+ *  Intended to share getOrderDetailRaw's 404-then-403 ordering, but as of
+ *  2026-08-19 the handler 500s for EVERYONE (invalid Prisma select on the
+ *  nonexistent Restaurant.street scalar) — pinned by TC-227b. */
+export function getOrderReceiptRaw(
+  accessToken: string | undefined,
+  orderId: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw<Record<string, unknown>>(
+    "GET",
+    `/api/order/statistics/${orderId}/receipt`,
+    undefined,
+    accessToken
+  );
+}
+
+/**
+ * GET /api/order/now — the unauthenticated all-orders dump DELETED in
+ * RestauNax #621 (ORDERS_TAB_TEST_STRATEGY §1 #1). With the route gone,
+ * "now" falls through to the public GET /api/order/:orderId matcher and is
+ * treated as an order id → 404 ORDER_NOT_FOUND. Exists only for the TC-226
+ * security pin.
+ */
+export function getOrdersNowRaw(
+  accessToken?: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw<Record<string, unknown>>(
+    "GET",
+    "/api/order/now",
+    undefined,
+    accessToken
+  );
+}
+
 /** KPI block from the daily-close report (data.comparisons.current). */
 export interface DayKpis {
   from: string;

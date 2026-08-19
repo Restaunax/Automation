@@ -6,9 +6,9 @@
  * Orders tab depends on. These are the checks that survive a UI redesign and
  * catch a controller refactor.
  *
- * Deliberately NOT here (deferred by decision 2026-08-15, see
- * docs/ORDERS_TAB_TEST_STRATEGY.md §1 / §4-P0): auth / tenant-isolation pins
- * (TC-226..230). Add them once the backend side is settled.
+ * Auth / tenant-isolation pins (TC-226..230) live in the sibling
+ * api-orders-authz.spec.ts — implemented 2026-08-19 once the backend fix
+ * (RestauNax #621) merged. See docs/ORDERS_TAB_TEST_STRATEGY.md §1 / §4-P0.
  *
  * Own data: every test seeds its own order(s) via createSeededOrder (no
  * Stripe). Seeded orders are permanent QA residue — assert on our rows only.
