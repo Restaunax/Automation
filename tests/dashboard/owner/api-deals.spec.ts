@@ -18,8 +18,10 @@
  * restaurant archived). The seed OWNER is the "intruder" for the authz pins.
  * Chain cases use the persistent "Automation Chain" fixture (seed OWNER's).
  *
- * 🔴 test.fail() pins (RestauNax bugs, flip when the fix lands): TC-334, 335b,
- * 336, 341c, 343, 347..350 — see the strategy doc §1.
+ * The §1 findings (IDOR, cap bypass, PUT validation, coupon ⊥ deal, aiGenerated)
+ * were fixed in RestauNax #618/#619 and are LIVE on QA — the tests that pinned
+ * them as test.fail() now assert the FIXED behaviour (TC-334, 335b, 336, 341,
+ * 343, 347..350). See docs/DEALS_TAB_TEST_STRATEGY.md §1.
  */
 
 import * as allure from "allure-js-commons";
@@ -112,6 +114,16 @@ test.describe("Owner — Deals API contract", () => {
   let groupId = "";
   const createdItemIds: string[] = [];
   const createdDealIds: string[] = [];
+  // Deals created during the CURRENT test — deleted in afterEach so the
+  // throwaway tenant never climbs past the 10-active cap (enforced on create
+  // since RestauNax #618). Persistent deals a describe needs across its tests
+  // (the authz `target`) go to createdDealIds only and survive afterEach.
+  let perTest: string[] = [];
+  const track = (id: string) => {
+    perTest.push(id);
+    createdDealIds.push(id);
+    return id;
+  };
   // Seed items (prices chosen so every sum is a clean cent value).
   let itemA: ApiMenuItem; // 10.00
   let itemB: ApiMenuItem; // 6.50
@@ -159,7 +171,7 @@ test.describe("Owner — Deals API contract", () => {
       items,
       extra
     );
-    createdDealIds.push(deal.id);
+    track(deal.id);
     return deal;
   };
 
@@ -238,6 +250,19 @@ test.describe("Owner — Deals API contract", () => {
     await allure.label("severity", "critical");
     token = await freshToken();
     seedToken = await freshSeedToken();
+    perTest = [];
+  });
+
+  test.afterEach(async () => {
+    if (!perTest.length) return;
+    const t = await freshToken().catch(() => token);
+    const ids = perTest;
+    perTest = [];
+    for (const id of ids) {
+      await deleteDealApi(t, id).catch(() => {});
+      const i = createdDealIds.indexOf(id);
+      if (i >= 0) createdDealIds.splice(i, 1);
+    }
   });
 
   // ── Create / read / update / delete ────────────────────────────────────────
@@ -271,7 +296,7 @@ test.describe("Owner — Deals API contract", () => {
     });
     expect(res.status, JSON.stringify(res.data)).toBe(201);
     const deal = res.data.deal!;
-    createdDealIds.push(deal.id);
+    track(deal.id);
     expect(res.data.message).toBe("Deal created successfully");
     expect(deal.status).toBe("ACTIVE");
     expect(deal.dealPrice).toBe(20);
@@ -369,11 +394,15 @@ test.describe("Owner — Deals API contract", () => {
           "Invalid time format for validTimeEnd. Use HH:MM format (e.g., 21:00)",
       },
       {
-        label: "unknown restaurant",
+        // Since RestauNax #618 the ownership guard runs before the exists check,
+        // so a restaurant you don't control (incl. a nonexistent one) is 403,
+        // not 404 — it no longer leaks whether the restaurant exists.
+        label: "unknown / unowned restaurant",
         rid: "00000000-0000-4000-8000-000000000000",
         body: { name: `AUTO Bad ${runId}`, dealPrice: 5, items: good },
-        status: 404,
-        message: "Restaurant not found",
+        status: 403,
+        message:
+          "You do not have the required permissions to perform this action.",
       },
     ];
     for (const c of cases) {
@@ -383,7 +412,7 @@ test.describe("Owner — Deals API contract", () => {
           c.status
         );
         expect(msg(res.data)).toBe(c.message);
-        if (res.data?.deal?.id) createdDealIds.push(res.data.deal.id);
+        if (res.data?.deal?.id) track(res.data.deal.id);
       });
     }
   });
@@ -700,10 +729,13 @@ test.describe("Owner — Deals API contract", () => {
     expect(inactive.data.issues).toContain("Deal is not active");
   });
 
-  // ── The 10-active cap (this file's tenant is isolated, so it can be filled) ──
-
+  // ── The 10-active cap (RestauNax #618: also enforced on create + PUT) ────────
+  //
+  // The per-test afterEach deletes each test's deals, so every cap test starts
+  // from a CLEAN tenant — settleAtTen fills 0 → 10 deterministically, and the
+  // "10 active + 1 inactive candidate" state is built without ever trying to
+  // create an 11th ACTIVE deal (which the create-cap now refuses).
   test.describe("MAX_ACTIVE_DEALS", () => {
-    const capDealIds: string[] = [];
     const activeCount = async () =>
       (await getActiveDealsCountRaw(token, restaurantId)).data
         .activeDealsCount ?? 0;
@@ -718,57 +750,49 @@ test.describe("Owner — Deals API contract", () => {
           { id: itemB.id, name: itemB.name, price: itemB.price },
         ]
       );
-      capDealIds.push(d.id);
-      createdDealIds.push(d.id);
+      track(d.id);
       return d;
     };
-    /** Bring the tenant to exactly 10 ACTIVE (top up with cap deals / park extras INACTIVE). */
-    const settleAtTen = async () => {
-      let n = await activeCount();
-      while (n < 10) {
-        await capDeal(`#${n + 1}`);
-        n++;
-      }
-      if (n > 10) {
-        const list = await getRestaurantDeals(token, restaurantId);
-        for (const d of list
-          .filter((x) => x.status === "ACTIVE")
-          .slice(0, n - 10))
-          await setDealStatusRaw(token, d.id, "INACTIVE");
-      }
+    /** From a clean tenant, create exactly 10 ACTIVE deals. */
+    const fillToTen = async () => {
+      for (let i = 0; i < 10; i++) await capDeal(`#${i + 1}`);
       expect(await activeCount()).toBe(10);
     };
-
-    test.afterAll(async () => {
-      const t = await freshToken().catch(() => token);
-      for (const id of capDealIds) await deleteDealApi(t, id).catch(() => {});
-    });
+    /**
+     * 10 ACTIVE deals + one INACTIVE candidate, built without ever holding 11
+     * active at once (create is capped): 9 active → candidate (10th) →
+     * deactivate candidate (9) → one more (10). Returns the candidate.
+     */
+    const tenPlusInactiveCandidate = async (): Promise<ApiDeal> => {
+      for (let i = 0; i < 9; i++) await capDeal(`#${i + 1}`);
+      const candidate = await capDeal("cand");
+      expect(
+        (await setDealStatusRaw(token, candidate.id, "INACTIVE")).status
+      ).toBe(200);
+      await capDeal("#10");
+      expect(await activeCount()).toBe(10);
+      return candidate;
+    };
 
     test("TC-335: active-count contract; PATCH → ACTIVE at 10/10 is refused with MAX_ACTIVE_DEALS_REACHED", async () => {
       await allure.description(
-        "active-count is {activeDealsCount, maxActiveDeals:10, slotsAvailable}. The tenant is filled to ten " +
-          "ACTIVE deals, an eleventh is created and set INACTIVE; PATCH-ing it to ACTIVE returns 400 " +
-          "{error:'MAX_ACTIVE_DEALS_REACHED', maxActiveDeals:10, currentActiveDeals:10} with the hard-coded " +
-          "English message the dashboard shows as a warning snackbar. Freeing a slot lets it through."
+        "Clean tenant → active-count {activeDealsCount:0, maxActiveDeals:10, slotsAvailable:10}. Ten ACTIVE " +
+          "deals plus one INACTIVE candidate are built; PATCH-ing the candidate to ACTIVE returns 400 " +
+          "{error:'MAX_ACTIVE_DEALS_REACHED', maxActiveDeals:10, currentActiveDeals:10} with the i18n message " +
+          "the dashboard shows as a warning snackbar. Freeing a slot lets it through."
       );
-      const shape = await getActiveDealsCountRaw(token, restaurantId);
-      expect(shape.status).toBe(200);
-      expect(shape.data.maxActiveDeals).toBe(10);
-      expect(shape.data.slotsAvailable).toBe(
-        Math.max(0, 10 - (shape.data.activeDealsCount ?? 0))
-      );
-      await settleAtTen();
+      const zero = await getActiveDealsCountRaw(token, restaurantId);
+      expect(zero.status).toBe(200);
+      expect(zero.data).toMatchObject({
+        activeDealsCount: 0,
+        maxActiveDeals: 10,
+        slotsAvailable: 10,
+      });
+      const candidate = await tenPlusInactiveCandidate();
       expect(
         (await getActiveDealsCountRaw(token, restaurantId)).data
-      ).toMatchObject({
-        activeDealsCount: 10,
-        slotsAvailable: 0,
-      });
-      const eleventh = await capDeal("#11");
-      expect(
-        (await setDealStatusRaw(token, eleventh.id, "INACTIVE")).status
-      ).toBe(200);
-      const on = await setDealStatusRaw(token, eleventh.id, "ACTIVE");
+      ).toMatchObject({ activeDealsCount: 10, slotsAvailable: 0 });
+      const on = await setDealStatusRaw(token, candidate.id, "ACTIVE");
       expect(on.status).toBe(400);
       expect(on.data.error).toBe("MAX_ACTIVE_DEALS_REACHED");
       expect(on.data.maxActiveDeals).toBe(10);
@@ -776,25 +800,24 @@ test.describe("Owner — Deals API contract", () => {
       expect(on.data.message).toBe(
         "You can only have 10 active deals at a time. Please deactivate another deal before activating this one."
       );
-      // Freeing a slot (any other ACTIVE deal) lets it through.
+      // Freeing a slot (any other ACTIVE deal) lets the candidate through.
       const someActive = (await getRestaurantDeals(token, restaurantId)).find(
-        (d) => d.status === "ACTIVE" && d.id !== eleventh.id
+        (d) => d.status === "ACTIVE" && d.id !== candidate.id
       )!;
       expect(
         (await setDealStatusRaw(token, someActive.id, "INACTIVE")).status
       ).toBe(200);
       expect(
-        (await setDealStatusRaw(token, eleventh.id, "ACTIVE")).status
+        (await setDealStatusRaw(token, candidate.id, "ACTIVE")).status
       ).toBe(200);
     });
 
-    test("TC-334: 🔴 pin — creating an 11th ACTIVE deal at the cap is refused", async () => {
-      test.fail(
-        true,
-        "RestauNax bug: createDeal never checks MAX_ACTIVE_DEALS (status defaults to ACTIVE) — the cap only " +
-          "guards PATCH /status. Expected 400 at the cap; today 201. Flip when the fix lands."
+    test("TC-334: creating an 11th ACTIVE deal at the cap is refused (RestauNax #618)", async () => {
+      await allure.description(
+        "The product rule is at most 10 active deals; since #618 the create path enforces it too (it used to " +
+          "only guard PATCH /status). Clean tenant → 10 ACTIVE → POST an 11th → 400 MAX_ACTIVE_DEALS_REACHED."
       );
-      await settleAtTen();
+      await fillToTen();
       const res = await createDealRaw(token, restaurantId, {
         name: `AUTO Cap overflow ${runId}`,
         dealPrice: 9,
@@ -813,56 +836,50 @@ test.describe("Owner — Deals API contract", () => {
           },
         ],
       });
-      if (res.data?.deal?.id) {
-        capDealIds.push(res.data.deal.id);
-        createdDealIds.push(res.data.deal.id);
-      }
+      if (res.data?.deal?.id) track(res.data.deal.id);
       expect(res.status, JSON.stringify(res.data)).toBe(400);
+      expect(res.data as { error?: string }).toMatchObject({
+        error: "MAX_ACTIVE_DEALS_REACHED",
+      });
     });
 
-    test("TC-335b: 🔴 pin — PUT /:dealId {status:'ACTIVE'} at the cap is refused", async () => {
-      test.fail(
-        true,
-        "RestauNax bug: updateDeal writes `status` with no MAX_ACTIVE_DEALS check — an INACTIVE deal can be " +
-          "activated past the cap through PUT. Expected 400; today 200. Flip when the fix lands."
+    test("TC-335b: PUT /:dealId {status:'ACTIVE'} at the cap is refused (RestauNax #618)", async () => {
+      await allure.description(
+        "updateDeal now runs the same cap check — an INACTIVE deal can't be activated past the cap through " +
+          "PUT. 10 active + 1 inactive candidate → PUT {status:'ACTIVE'} → 400."
       );
-      await settleAtTen();
-      const candidate = await capDeal("#put");
-      expect(
-        (await setDealStatusRaw(token, candidate.id, "INACTIVE")).status
-      ).toBe(200);
-      expect(await activeCount()).toBe(10);
+      const candidate = await tenPlusInactiveCandidate();
       const res = await updateDealRaw(token, candidate.id, {
         status: "ACTIVE",
       });
-      // Park it again so a still-buggy run leaves the tenant at ten.
-      await setDealStatusRaw(token, candidate.id, "INACTIVE");
       expect(res.status, JSON.stringify(res.data)).toBe(400);
+      expect(res.data as { error?: string }).toMatchObject({
+        error: "MAX_ACTIVE_DEALS_REACHED",
+      });
     });
   });
 
-  test("TC-336: 🔴 pin — PUT /:dealId re-applies create's validation (price > 0, HH:MM)", async () => {
-    test.fail(
-      true,
-      "RestauNax bug: updateDeal has no validation — dealPrice 0/negative and validTimeStart '9am' are " +
-        "accepted and the 0 price then flows into the pricing engine as the authoritative charge. Expected " +
-        "400 with the create-path messages; today 200. Flip when the fix lands."
+  test("TC-336: PUT /:dealId re-applies create's validation — price > 0, HH:MM (RestauNax #618)", async () => {
+    await allure.description(
+      "updateDeal used to skip all of createDeal's validation, so dealPrice 0/negative and a malformed " +
+        "validTimeStart were accepted (and a 0 price flowed into the pricing engine as the charge). Since " +
+        "#618 the patch is validated against the merged row with the same messages/status codes as create."
     );
     const deal = await seedDeal("Unvalidated", 12, [
       { id: itemA.id, name: itemA.name, price: itemA.price },
       { id: itemB.id, name: itemB.name, price: itemB.price },
     ]);
     const zero = await updateDealRaw(token, deal.id, { dealPrice: 0 });
-    // Restore immediately so a passing (i.e. still-buggy) run leaves a sane row.
-    await updateDealRaw(token, deal.id, { dealPrice: 12 });
+    expect(zero.status, `price 0: ${JSON.stringify(zero.data)}`).toBe(400);
+    expect(msg(zero.data)).toBe("Deal price must be greater than 0");
     const badTime = await updateDealRaw(token, deal.id, {
       validTimeStart: "9am",
     });
-    await updateDealRaw(token, deal.id, { validTimeStart: "09:00" });
-    expect(zero.status, `price 0: ${JSON.stringify(zero.data)}`).toBe(400);
     expect(badTime.status, `time 9am: ${JSON.stringify(badTime.data)}`).toBe(
       400
     );
+    // The deal was never mutated by the rejected patches.
+    expect((await getDealApi(token, deal.id)).dealPrice).toBe(12);
   });
 
   // ── What the customer is charged (public /quote) ───────────────────────────
@@ -1002,13 +1019,12 @@ test.describe("Owner — Deals API contract", () => {
     );
   });
 
-  test("TC-343: 🔴 pin — the pricing engine must not price a coupon on top of a deal (Coupon ⊥ deal)", async () => {
-    test.fail(
-      true,
-      "COUPON_RULES_AND_FREE_DELIVERY.md: 'A coupon and a deal cannot both apply to one order … the engine " +
-        "never prices both'. pricingEngine.ts computes couponDiscount on subtotal = items + deals with no " +
-        "deal exclusion; only template-wind blocks it client-side. Expected couponDiscount 0 (or an ERROR " +
-        "issue); today the % coupon stacks. Flip when the engine enforces the rule."
+  test("TC-343: the pricing engine enforces Coupon ⊥ deal — a coupon on an order with a deal is priced at 0 (RestauNax #619)", async () => {
+    await allure.description(
+      "COUPON_RULES_AND_FREE_DELIVERY.md: 'a coupon and a deal cannot both apply to one order … the engine " +
+        "never prices both'. #619 (product decision: option A) makes the engine enforce it for every client " +
+        "(not just template-wind): /quote with a deal + a % coupon returns couponDiscount 0 and a " +
+        "coupon_deal_exclusive ERROR issue."
     );
     const deal = await seedDeal("CouponStack", 20, [
       { id: itemA.id, name: itemA.name, price: itemA.price },
@@ -1098,7 +1114,7 @@ test.describe("Owner — Deals API contract", () => {
     ).toBe(true);
   });
 
-  test("TC-341: bulk create — [] is 400; two deals → 201 with counts; 🔴 aiGenerated:false must be honoured", async () => {
+  test("TC-341: bulk create — [] is 400; two deals → 201 with counts; aiGenerated:false honoured (RestauNax #618)", async () => {
     const empty = await bulkCreateDealsRaw(token, restaurantId, []);
     expect(empty.status).toBe(400);
     expect(msg(empty.data)).toBe("No deals provided");
@@ -1118,7 +1134,7 @@ test.describe("Owner — Deals API contract", () => {
       },
     ]);
     expect(res.status, JSON.stringify(res.data)).toBe(201);
-    for (const d of res.data.deals ?? []) createdDealIds.push(d.id);
+    for (const d of res.data.deals ?? []) track(d.id);
     expect(res.data.createdCount).toBe(2);
     expect(res.data.maxActiveDeals).toBe(10);
     expect((res.data.enabledCount ?? 0) + (res.data.inactiveCount ?? 0)).toBe(
@@ -1129,13 +1145,8 @@ test.describe("Owner — Deals API contract", () => {
     expect(bulk2).toBeTruthy();
     expect(bulk2.dealPrice).toBe(12);
     await allure.step(
-      "🔴 pin: aiGenerated:false is stored as false (today `|| true` forces true)",
+      "aiGenerated:false is stored as false (RestauNax #618: `|| true` → `?? false`)",
       async () => {
-        test.fail(
-          true,
-          "RestauNax bug: bulkCreateDeals sets aiGenerated: dealData.aiGenerated || true — always true. " +
-            "Expected false when the client sends false. Flip when fixed."
-        );
         expect(bulk2.aiGenerated).toBe(false);
       }
     );
@@ -1298,7 +1309,7 @@ test.describe("Owner — Deals API contract", () => {
     expect(still.status).toBe("ACTIVE");
   });
 
-  test.describe("authorization — another owner (the seed OWNER) against this tenant's deals (🔴 pins)", () => {
+  test.describe("authorization — another owner (the seed OWNER) against this tenant's deals", () => {
     let other = "";
     let target: ApiDeal;
 
@@ -1335,13 +1346,10 @@ test.describe("Owner — Deals API contract", () => {
       expect(create.status).toBe(403);
     });
 
-    test("TC-347: 🔴 pin — a second owner cannot READ our deals, stats, deal-picker menu or a deal by id", async () => {
-      test.fail(
-        true,
-        "RestauNax IDOR: requirePermission(VIEW_RESTAURANT) is a global capability (every USER has it) and " +
-          "no deal handler calls userControlsRestaurant — verified live on QA 2026-08-17 (200 on a foreign " +
-          "restaurant's deals/stats/menu). Here the SEED owner reads this tenant's data. Expected 403; today " +
-          "200. Same class as menu #601."
+    test("TC-347: a second owner cannot READ our deals, stats, deal-picker menu or a deal by id (RestauNax #618)", async () => {
+      await allure.description(
+        "Since #618 every deal handler asserts restaurant/deal ownership (was a global-capability IDOR — the " +
+          "seed owner could read a foreign restaurant's deals/stats/menu with 200). The seed owner now gets 403."
       );
       const list = await getRestaurantDealsRaw(other, restaurantId);
       const stats = await getDealStatsRaw(other, restaurantId);
@@ -1359,40 +1367,26 @@ test.describe("Owner — Deals API contract", () => {
       }
     });
 
-    test("TC-348: 🔴 pin — a second owner cannot deactivate our deal (PATCH /:dealId/status)", async () => {
-      test.fail(
-        true,
-        "RestauNax IDOR: updateDealStatus looks the deal up by id only. Expected 403; today 200 (our deal " +
-          "is deactivated by a stranger). Flip when fixed."
-      );
+    test("TC-348: a second owner cannot deactivate our deal — PATCH /:dealId/status (RestauNax #618)", async () => {
       const r = await setDealStatusRaw(other, target.id, "INACTIVE");
-      // Undo the damage a still-buggy run does before asserting.
-      await setDealStatusRaw(token, target.id, "ACTIVE");
       expect(r.status, JSON.stringify(r.data)).toBe(403);
+      // Untouched: still ACTIVE.
+      expect((await getDealApi(token, target.id)).status).toBe("ACTIVE");
     });
 
-    test("TC-349: 🔴 pin — a second owner cannot edit our deal (PUT /:dealId)", async () => {
-      test.fail(
-        true,
-        "RestauNax IDOR: updateDeal looks the deal up by id only. Expected 403; today 200. Flip when fixed."
-      );
+    test("TC-349: a second owner cannot edit our deal — PUT /:dealId (RestauNax #618)", async () => {
       const r = await updateDealRaw(other, target.id, {
         name: `AUTO Hijacked ${runId}`,
         dealPrice: 1,
       });
-      await updateDealRaw(token, target.id, {
-        name: target.name,
-        dealPrice: 12,
-      });
       expect(r.status, JSON.stringify(r.data)).toBe(403);
+      // Untouched: name and price unchanged.
+      const after = await getDealApi(token, target.id);
+      expect(after.name).toBe(target.name);
+      expect(after.dealPrice).toBe(12);
     });
 
-    test("TC-350: 🔴 pin — a second owner cannot create a deal on our restaurant nor delete ours", async () => {
-      test.fail(
-        true,
-        "RestauNax IDOR: createDeal only checks the restaurant exists; deleteDeal looks the deal up by id. " +
-          "Expected 403 for both; today 201/200. Flip when fixed."
-      );
+    test("TC-350: a second owner cannot create a deal on our restaurant nor delete ours (RestauNax #618)", async () => {
       const created = await createDealRaw(other, restaurantId, {
         name: `AUTO Intruder ${runId}`,
         dealPrice: 5,

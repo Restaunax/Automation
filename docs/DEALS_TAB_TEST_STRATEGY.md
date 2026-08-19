@@ -47,6 +47,21 @@ Sources read for this audit (all in the `restaunax` repo unless noted):
 > customer name, not the name typed at checkout (TC-371 uses a fresh NANP phone) — product question, note only.
 > Frontend testids were NOT added — every needed control had a stable id / accessible name (see §2).
 
+> **Fix status 2026-08-19:** all §1 findings are FIXED and LIVE on QA — RestauNax
+> [#618](https://github.com/Restaunax/RestauNax/pull/618) (authz IDOR on every `/api/deals` route via
+> `assertControlsRestaurant`/`assertControlsDeal`; `MAX_ACTIVE_DEALS` now enforced on create + `PUT`;
+> `PUT /:dealId` re-validates the merged row; `bulkCreateDeals` `aiGenerated` `|| true` → `?? false`;
+> DealsDashboard pagination resets to page 0 on filter) and
+> [#619](https://github.com/Restaunax/RestauNax/pull/619) (Coupon ⊥ deal enforced in the pricing engine —
+> product decision **Option A**: coupon priced at 0 + a `coupon_deal_exclusive` ERROR issue for every client).
+> The eleven `test.fail()` pins were flipped to plain passing tests (TC-334, 335b, 336, 341, 343, 347..350, 358),
+> verified against QA 2026-08-19. Two behaviour changes the flip absorbed: (1) the ownership guard now precedes
+> the not-found check, so creating a deal on an unknown/unowned restaurant is **403**, not 404 (TC-326); (2) with
+> create now capped, the seed restaurant (5 real active deals) can't host both deal UI files' active deals at
+> once — `11-deals` keeps a 2-deal active footprint (`restricted` parked INACTIVE), `08-deals-handoff` seeds via
+> `createDealApiCapSafe` (retries the transient cap), and the cap tests build "10 active + 1 inactive candidate"
+> without ever creating an 11th active deal.
+
 ## 0. TL;DR
 
 - **How deals work.** A deal is a **fixed-price bundle** (`dealPrice`) of 1..n menu-item slots

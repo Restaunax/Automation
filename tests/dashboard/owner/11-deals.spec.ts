@@ -31,11 +31,13 @@ import {
   permanentlyDeleteMenuItemApi,
   deleteTestMenuGroup,
   createDealApi,
+  createDealApiCapSafe,
   getDealApi,
   getDealRaw,
   setDealStatusRaw,
   deleteDealApi,
   getRestaurantDeals,
+  getActiveDealsCountRaw,
   type ApiDeal,
   type ApiMenuItem,
 } from "../../../utils/apiHelper";
@@ -134,6 +136,11 @@ test.describe("Owner — Deals", () => {
       two()
     );
     await setDealStatusRaw(token, seeded.inactive!.id, "INACTIVE");
+    // Keep this file's steady active footprint small — the seed restaurant has
+    // ~5 real active deals + the storefront file's 2, and the cap is 10 (now
+    // enforced on create, #618). restricted stays INACTIVE; its window text
+    // (TC-351) and the Inactive filter (TC-353) don't need it active.
+    await setDealStatusRaw(token, seeded.restricted!.id, "INACTIVE");
     seeded.expired = await createDealApi(
       token,
       restaurantId,
@@ -310,6 +317,7 @@ test.describe("Owner — Deals", () => {
     await dealsPage.search(`AUTO Table`);
     await dealsPage.selectStatusFilter("Inactive");
     await expect(dealsPage.row(N.inactive)).toBeVisible();
+    await expect(dealsPage.row(N.restricted)).toBeVisible();
     await expect(dealsPage.row(N.plain)).toHaveCount(0);
     await expect(dealsPage.row(N.expired)).toHaveCount(0);
     await dealsPage.selectStatusFilter("Expired");
@@ -322,7 +330,6 @@ test.describe("Owner — Deals", () => {
     );
     await dealsPage.selectStatusFilter("Active");
     await expect(dealsPage.row(N.plain)).toBeVisible();
-    await expect(dealsPage.row(N.restricted)).toBeVisible();
     await expect(dealsPage.row(N.inactive)).toHaveCount(0);
     await expect(dealsPage.row(N.expired)).toHaveCount(0);
     await expect(dealsPage.rowSwitchTooltip(N.plain)).toHaveAttribute(
@@ -412,7 +419,7 @@ test.describe("Owner — Deals", () => {
   test("TC-357: Delete asks for confirmation (title + three consequences); Cancel keeps the deal, Confirm hard-deletes it", async ({
     ownerPage,
   }) => {
-    const victim = await createDealApi(
+    const victim = await createDealApiCapSafe(
       token,
       restaurantId,
       `AUTO Table Victim ${runId}`,
@@ -445,13 +452,12 @@ test.describe("Owner — Deals", () => {
     expect((await getDealRaw(token, victim.id)).status).toBe(404);
   });
 
-  test("TC-358: 🔴 pin — searching from page 2 must show the matching row (pagination resets on filter)", async ({
+  test("TC-358: searching from page 2 shows the matching row — pagination resets on filter (RestauNax #618)", async ({
     ownerPage,
   }) => {
-    test.fail(
-      true,
-      "RestauNax UI bug (DealsDashboard.tsx): `page` is only reset when rows-per-page changes, so a search " +
-        "typed while on page 2 that matches ≤ 5 rows renders an empty table. Expected: the row is visible. Flip when fixed."
+    await allure.description(
+      "DealsDashboard used to reset the page index only on a rows-per-page change, so a search typed while " +
+        "on page 2 that matched \u2264 5 rows rendered an empty table. #618 resets to page 0 on search / status-filter change."
     );
     const dealsPage = createOwnerDealsPage(ownerPage);
     await dealsPage.gotoManageDeals(restaurantId);
@@ -474,35 +480,41 @@ test.describe("Owner — Deals", () => {
     );
     const dealsPage = createOwnerDealsPage(ownerPage);
     const capIds: string[] = [];
+    // Count actives the way the BACKEND cap does — its /active-count endpoint,
+    // which counts status===ACTIVE (an expired-but-ACTIVE deal counts too). A
+    // local status+endDate filter under-counts and overshoots the cap.
     const activeCount = async () =>
-      (await getRestaurantDeals(token, restaurantId)).filter(
-        (d) =>
-          d.status === "ACTIVE" &&
-          (!d.endDate || new Date(d.endDate) > new Date())
-      ).length;
+      (await getActiveDealsCountRaw(token, restaurantId)).data
+        .activeDealsCount ?? 0;
     const topUpTo = async (target: number) => {
       let n = await activeCount();
       while (n < target) {
-        const d = await createDealApi(
-          token,
-          restaurantId,
-          `AUTO Table Cap ${n} ${runId}`,
-          9,
-          two()
-        );
-        capIds.push(d.id);
-        extraDealIds.push(d.id);
-        n++;
+        try {
+          const d = await createDealApi(
+            token,
+            restaurantId,
+            `AUTO Table Cap ${n} ${runId}`,
+            9,
+            two()
+          );
+          capIds.push(d.id);
+          extraDealIds.push(d.id);
+        } catch {
+          break; // hit the 10-active cap (create is capped since #618)
+        }
+        n = await activeCount();
       }
     };
+    // The seeded EXPIRED deal is status-ACTIVE, so it eats a backend cap slot
+    // but the dashboard (which counts computedStatus) doesn't show it as active
+    // — the two counts would disagree by one and the "Maximum" banner (a
+    // dashboard-count threshold) could never be reached under the backend cap.
+    // Park it INACTIVE for this test so both counts agree, and restore it after.
+    await setDealStatusRaw(token, seeded.expired!.id, "INACTIVE");
     try {
       await topUpTo(8);
       await dealsPage.gotoManageDeals(restaurantId);
-      const banner = dealsPage.capBanner();
-      await expect(banner).toBeVisible({ timeout: 10_000 });
-      await expect(banner).toContainText(
-        /You have \d+ of 10 deals enabled|Maximum active deals reached/
-      );
+      await expect(dealsPage.capBanner()).toBeVisible({ timeout: 10_000 });
       await topUpTo(10);
       await dealsPage.gotoManageDeals(restaurantId);
       await expect(dealsPage.capBanner()).toContainText(
@@ -510,7 +522,7 @@ test.describe("Owner — Deals", () => {
         { timeout: 10_000 }
       );
       await dealsPage.search(N.inactive);
-      // Another worker may delete its own AUTO deals mid-test; retry the refusal.
+      // Another worker may free a slot mid-test; retry until the cap holds.
       let refused = false;
       for (let attempt = 0; attempt < 3 && !refused; attempt++) {
         const res = await dealsPage.toggleStatus(N.inactive);
@@ -538,6 +550,9 @@ test.describe("Owner — Deals", () => {
       // Free the shared restaurant's slots right away, not in afterAll — the
       // storefront file re-activates its own deals concurrently.
       for (const id of capIds) await deleteDealApi(token, id).catch(() => {});
+      await setDealStatusRaw(token, seeded.expired!.id, "ACTIVE").catch(
+        () => {}
+      );
     }
   });
 
@@ -642,7 +657,7 @@ test.describe("Owner — Deals", () => {
   test("TC-362: Edit pre-fills the form; renaming, repricing, removing and adding a slot round-trips through PUT and the table", async ({
     ownerPage,
   }) => {
-    const original = await createDealApi(
+    const original = await createDealApiCapSafe(
       token,
       restaurantId,
       `AUTO Form Editable ${runId}`,

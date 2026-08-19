@@ -34,7 +34,7 @@ import {
   permanentlyDeleteMenuItemApi,
   deleteTestMenuGroup,
   setAvailability,
-  createDealApi,
+  createDealApiCapSafe,
   deleteDealApi,
   getDealApi,
   getDealStatsRaw,
@@ -130,7 +130,7 @@ test.describe("Deals → Storefront hand-off", () => {
         ],
       }
     );
-    combo = await createDealApi(
+    combo = await createDealApiCapSafe(
       token,
       restaurantId,
       `AUTO Handoff Combo ${runId}`,
@@ -142,7 +142,7 @@ test.describe("Deals → Storefront hand-off", () => {
       { description: "two burgers and fries", validDays: ALL_DAYS }
     );
     dealIds.push(combo.id);
-    pizzaDeal = await createDealApi(
+    pizzaDeal = await createDealApiCapSafe(
       token,
       restaurantId,
       `AUTO Handoff Pizza ${runId}`,

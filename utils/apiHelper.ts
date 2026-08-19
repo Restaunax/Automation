@@ -1459,6 +1459,50 @@ export async function createDealApi(
   return res.data.deal;
 }
 
+/**
+ * Like createDealApi, but tolerant of the 10-active cap (enforced on create
+ * since RestauNax #618): when another concurrent spec is transiently holding
+ * the restaurant at 10 active deals, retry until a slot frees. Use on the
+ * SHARED seed restaurant; the throwaway-tenant specs don't need it.
+ */
+export async function createDealApiCapSafe(
+  accessToken: string,
+  restaurantId: string,
+  name: string,
+  dealPrice: number,
+  items: { id: string; name: string; price: number; quantity?: number }[],
+  extra: Partial<DealBody> = {},
+  timeoutMs = 45_000
+): Promise<ApiDeal> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const res = await createDealRaw(accessToken, restaurantId, {
+      name,
+      description: "Automation deal — safe to delete",
+      dealPrice,
+      items: items.map((it, i) => ({
+        menuItemId: it.id,
+        quantity: it.quantity ?? 1,
+        itemName: it.name,
+        itemPrice: it.price,
+        isRequired: true,
+        sortOrder: i,
+      })),
+      ...extra,
+    });
+    if (res.ok && res.data?.deal) return res.data.deal;
+    const capped =
+      res.status === 400 &&
+      (res.data as { error?: string })?.error === "MAX_ACTIVE_DEALS_REACHED";
+    if (!capped || Date.now() > deadline) {
+      throw new Error(
+        `[apiHelper] cap-safe deal seed failed: ${res.status} ${JSON.stringify(res.data)}`
+      );
+    }
+    await new Promise((r) => setTimeout(r, 3_000));
+  }
+}
+
 /** GET /api/deals/:dealId — { success, deal }. */
 export function getDealRaw(
   accessToken: string | undefined,
