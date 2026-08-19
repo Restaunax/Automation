@@ -68,7 +68,7 @@ test.describe("Customer — Deals", () => {
     await allure.label("severity", "critical");
   });
 
-  test("TC-195: the deal builder auto-adds the deal and completing its slot enables checkout", async ({
+  test("TC-195: the deal builder auto-adds the deal and completing its slot enables checkout @smoke", async ({
     page,
   }) => {
     await allure.description(
