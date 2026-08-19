@@ -27,6 +27,28 @@ and this repo's `tests/dashboard/owner/06-orders.spec.ts` (TC-29, 70, 89, 90, 13
 
 ## 1. 🔴 Findings that outrank the test plan
 
+> **Status 2026-08-19: BOTH FIXED — RestauNax PR #621 (merged to qa) — and pinned here.**
+>
+> - **#1 FIXED:** `GET /api/order/now` is **deleted**. The path now falls through to the public
+>   `GET /api/order/:orderId` matcher ("now" is treated as an order id), so QA answers
+>   `404 ORDER_NOT_FOUND` — verified live 2026-08-19. An owner token doesn't resurrect it.
+> - **#2 FIXED:** the five statistics **read** routes (`management/:restaurantId`,
+>   `export/:restaurantId`, `restaurantId/:restaurantId`, `:orderId`, `:orderId/receipt`) now
+>   **403** when the authenticated owner doesn't control the restaurant. Unknown orders 404
+>   _before_ the ownership check on the orderId routes.
+> - **Pins TC-226..230 are implemented** in `tests/dashboard/owner/api-orders-authz.spec.ts`
+>   (second tenant minted per run via `createSecondOwner` — no `OWNER2_*` secret needed;
+>   env `OWNER2_EMAIL/PASSWORD` used instead when set).
+> - ⚠️ **New finding while pinning (2026-08-19): the receipt route is a 500 for EVERYONE.**
+>   `generateOrderReceipt` selects the nonexistent `Restaurant.street` scalar
+>   (`street: true as any` — the real street lives on the `address` relation), so
+>   `prisma.order.findUnique` throws before #621's `assertControlsOrderRestaurant` line is ever
+>   reached. The ownership check exists in the code but is unreachable; nothing leaks because
+>   the route is equally dead for its real owner. Pinned as **TC-227b** (+ fixme twin TC-227c
+>   for the post-fix behaviour). File against the backend repo.
+>
+> The table below is kept as the original 2026-08-15 finding record.
+
 Confirmed by reading the code and, for #1, by a live status-only request against QA on 2026-08-15.
 
 | #   | Finding                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Evidence                                                                                                                                                                                                               | Why it matters                                                                                                                                                                                                                                                                                                                                                                       |
@@ -34,7 +56,7 @@ Confirmed by reading the code and, for #1, by a live status-only request against
 | 1   | **`GET /api/order/now` has no auth middleware and returns every order on the platform** (all restaurants, customer name/email/phone/address, payment transaction, items).                                                                                                                                                                                                                                                                                                               | `routes/order/order.ts:34` — `router.get("/now", getOrders)` with no `requireAuth`. Live: `curl -o /dev/null -w '%{http_code} %{size_download}' https://api.qa.restaunax.com/api/order/now` → **`200`, ~170 MB body**. | Anonymous, unpaginated PII dump. Same shape as the 2026-07 finding (order-status endpoints without auth) that was fixed in RestauNax #482 — this route was missed. Nothing in the frontend calls it; it can simply gain `requireAuth` + `requirePermission("ADMIN")` or be deleted. **Check prod too** (`api.restaunax.com`) — same code path.                                       |
 | 2   | **The Orders-tab list, export, stats, receipt and detail endpoints check the _permission_ but not _which restaurant you own_.** `GET /api/order/statistics/management/:restaurantId`, `POST …/export/:restaurantId`, `GET …/restaurantId/:restaurantId`, `GET …/:orderId`, `GET …/:orderId/receipt` all use `requirePermission("VIEW_RESTAURANT")` only; `assertControlsOrderRestaurant` is called only in the three mutating handlers (`orderStatisticsController.ts:605, 963, 1400`). | `orderStatisticsRoutes.ts:22-55`; `getFilteredOrders` at `orderStatisticsController.ts:314-462` builds `where = { restaurantId }` straight from the URL.                                                               | Any owner (or plain `USER`, which also carries `VIEW_RESTAURANT` per `constant/allPermissions.ts:42`) can list/export another restaurant's orders and customer PII by changing the id in the URL. `PUT /api/order/orderId/:id/status`, `PUT /statistics/cancel`, `POST /statistics/refund` and `GET /api/order/restaurant/:id` DO enforce ownership — use them as positive controls. |
 
-Recommended split: file both against the backend repo now; add the "pinning" tests from §4-P0 to this suite so they fail today and pass once fixed (or land them together with the fix).
+Recommended split: file both against the backend repo now; add the "pinning" tests from §4-P0 to this suite so they fail today and pass once fixed (or land them together with the fix). _(Done — backend fix RestauNax #621, pins in `api-orders-authz.spec.ts`, 2026-08-19.)_
 
 ---
 
@@ -147,14 +169,15 @@ Legend: ✅ covered · 🟡 touched but not proven · ❌ untested
 
 ## 4. Gap list, prioritised (proposed TCs start at TC-226)
 
-**P0 — security pins (Layer 1, `tests/dashboard/owner/api-orders.spec.ts` or `tests/dashboard/access/`)**
+**P0 — security pins (Layer 1) — ✅ IMPLEMENTED 2026-08-19 in `tests/dashboard/owner/api-orders-authz.spec.ts` (backend fix: RestauNax #621)**
 | TC | Test |
 |---|---|
-| 226 | `GET /api/order/now` without a token → 401 (fails today) |
-| 227 | Owner A lists `/statistics/management/{restaurantB}` → 403 (fails today; needs `OWNER2_*` creds or an admin-created throwaway owner) |
-| 228 | Owner A exports `/statistics/export/{restaurantB}` → 403 (fails today) |
-| 229 | Owner A `PUT /statistics/cancel/{orderOfB}` and `PUT /api/order/orderId/{orderOfB}/status` → 403 (passes today — positive control) |
-| 230 | Every `/statistics/*` route without Bearer → 401 |
+| 226 | `GET /api/order/now` is deleted: anonymous → 404 `ORDER_NOT_FOUND` (falls through to the public `:orderId` matcher), never 200; owner token also 404 (`@smoke`) |
+| 227 | Owner A reads owner B's `management` list / `restaurantId` stats / order detail → 403 on all three; unknown order ids → 404 first; own-restaurant reads still 200 (positive control). Second tenant minted per run via `createSecondOwner` — no `OWNER2_*` creds required |
+| 227b | [pinned] the **receipt** route 500s for everyone (broken `Restaurant.street` Prisma select — the #621 ownership check is unreachable; no leak, route equally dead for its owner). Fixme twin 227c holds the post-fix expectation (403/404/200) |
+| 228 | Owner A exports `/statistics/export/{restaurantB}` → 403; own export → 200 CSV containing the seeded receipt # |
+| 229 | Owner A `PUT /statistics/{orderOfB}/status`, `PUT /api/order/orderId/{orderOfB}/status`, cancel and refund → 403, order untouched (passed pre-fix — positive control) |
+| 230 | Every `/statistics/*` route (management, stats, export, detail, receipt, status, cancel, refund) without Bearer → 401 |
 
 **P1 — the owner's daily behaviour (Layer 2, `06-orders.spec.ts`)**
 | TC | Test |
