@@ -143,7 +143,7 @@ test.describe("Owner — Orders API auth & tenant isolation", () => {
         "PII cross-tenant). Positive controls: the seed owner gets 200 on the same URLs, and the " +
         "intruder gets 200 on their OWN restaurant. Unknown order ids are 404 — the lookup runs " +
         "before the ownership check, so ids can't be probed for existence via the 403. The " +
-        "receipt route is pinned separately (TC-227b): it currently 500s for everyone."
+        "receipt route is pinned separately (TC-227b)."
     );
     // Cross-tenant reads → 403.
     const list = await listOrdersRaw(intruderToken, seedRestaurantId, {
@@ -181,33 +181,27 @@ test.describe("Owner — Orders API auth & tenant isolation", () => {
     }
   });
 
-  test("TC-227b: [pinned] the receipt route is a 500 for everyone — broken query, but no cross-tenant leak", async () => {
+  test("TC-227b: the receipt route enforces ownership (was a 500 for everyone)", async () => {
     await allure.description(
-      "GET /api/order/statistics/:orderId/receipt currently 500s for EVERY caller (found " +
-        "2026-08-19 while implementing these pins): generateOrderReceipt selects the " +
-        "nonexistent Restaurant.street scalar ('street: true as any' — the real street lives " +
-        "on the address relation), so prisma.order.findUnique throws BEFORE the #621 " +
-        "assertControlsOrderRestaurant line is reached. The ownership check exists in the code " +
-        "but is unreachable; nothing leaks because the route is equally dead for its real " +
-        "owner. Pinned so the eventual backend fix is a conscious flip — see the fixme twin."
+      "GET /api/order/statistics/:orderId/receipt. History: this route 500'd for EVERY " +
+        "caller (invalid Restaurant.street select thrown before the #621 tenant check — " +
+        "found 2026-08-19 while implementing these pins, fixed in RestauNax #622). Now: " +
+        "intruder → 403, unknown order → 404, owner → 200 with the order payload."
     );
     const intruder = await getOrderReceiptRaw(intruderToken, seeded.id);
     await allure.parameter("intruder status", String(intruder.status));
-    expect(intruder.status).toBe(500);
-    // The 500 body is the error envelope, never the order payload.
-    expect((intruder.data as { success?: boolean }).success).toBe(false);
+    expect(intruder.status).toBe(403);
     expect(intruder.data).not.toHaveProperty("order");
 
-    // Same 500 for the legitimate owner — broken query, not an authz gap.
-    const owner = await getOrderReceiptRaw(ownerToken, seeded.id);
-    expect(owner.status).toBe(500);
-  });
+    const unknown = await getOrderReceiptRaw(
+      ownerToken,
+      "00000000-0000-4000-8000-000000000000"
+    );
+    expect(unknown.status).toBe(404);
 
-  test.fixme("TC-227c: [expected once the receipt select is fixed] receipt enforces ownership", async () => {
-    // When the backend repairs generateOrderReceipt's Prisma select
-    // (Restaurant.street → address.street), fold the receipt route back into
-    // TC-227: intruder → 403, unknown order → 404, owner → 200. Then delete
-    // TC-227b and this twin.
+    const owner = await getOrderReceiptRaw(ownerToken, seeded.id);
+    expect(owner.status).toBe(200);
+    expect(owner.data).toHaveProperty("order");
   });
 
   test("TC-228: another owner cannot export a restaurant's orders", async () => {
