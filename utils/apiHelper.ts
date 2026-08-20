@@ -2724,6 +2724,340 @@ export async function deactivateTabletDevice(
   }
 }
 
+// ── Table service (open checks) — the POS tab/* endpoint family ─────────────
+//
+// Feature reference: restaunax/docs/features/TABLE_SERVICE_OPEN_CHECKS.md.
+// Flag-gated per restaurant (RestaurantSettings.tableServiceEnabled). Auth
+// model: every endpoint needs a TABLET JWT; the ones that move money or edit
+// an order additionally need an X-Staff-Session header (staff sign-in JWT).
+// Cash legs are drawer-gated: the device must be REGISTER mode (admin-created
+// devices default to REGISTER; OWNER-created ones default KITCHEN_DISPLAY and
+// owners may not create REGISTER at all) with an OPEN register session
+// assigned to the signed-in staff member.
+
+/** Generic settings PUT — the backend merges arbitrary RestaurantSettings
+ *  fields (creates the row when missing). Used to flip tableServiceEnabled. */
+export async function updateRestaurantSettingsApi(
+  accessToken: string,
+  restaurantId: string,
+  patch: Record<string, unknown>
+): Promise<void> {
+  await apiRequest<unknown>(
+    "PUT",
+    `/api/restaurantId/${restaurantId}/settings`,
+    patch,
+    accessToken
+  );
+}
+
+/**
+ * POST /restaurant/:rid/staff/my-pin — set the owner's own POS PIN. Creates
+ * (or reuses) their MANAGER membership and returns its staffMemberId, which is
+ * what /api/tablet/staff/sign-in needs. PIN: 4–8 digits, not all-identical,
+ * not sequential.
+ */
+export async function setOwnerPosPin(
+  ownerToken: string,
+  restaurantId: string,
+  pin: string
+): Promise<string> {
+  const data = await apiRequest<{ data?: { staffMemberId?: string } }>(
+    "POST",
+    `/restaurant/${restaurantId}/staff/my-pin`,
+    { pin },
+    ownerToken
+  );
+  const id = data.data?.staffMemberId;
+  if (!id) throw new Error("setOwnerPosPin: response missing staffMemberId");
+  return id;
+}
+
+/** POST /api/tablet/staff/sign-in {staffMemberId, pin} → staff session JWT
+ *  (12h TTL), sent on money/edit endpoints as X-Staff-Session. */
+export async function tabletStaffSignIn(
+  tabletToken: string,
+  staffMemberId: string,
+  pin: string
+): Promise<string> {
+  const data = await apiRequest<{ data?: { staffSessionToken?: string } }>(
+    "POST",
+    "/api/tablet/staff/sign-in",
+    { staffMemberId, pin },
+    tabletToken
+  );
+  const token = data.data?.staffSessionToken;
+  if (!token)
+    throw new Error("tabletStaffSignIn: response missing staffSessionToken");
+  return token;
+}
+
+const staffHeaders = (staffSession: string): Record<string, string> => ({
+  "X-Staff-Session": staffSession,
+});
+
+/** POST /api/tablet/register/open — open the device's cash drawer session
+ *  (REGISTER-mode device; MANAGER self-authorizes OPEN_REGISTER). */
+export async function openRegisterSessionPos(
+  tabletToken: string,
+  staffSession: string,
+  openingFloat = 100
+): Promise<string> {
+  const res = await apiRequestRaw<{
+    data?: { sessionId?: string };
+    message?: string;
+  }>(
+    "POST",
+    "/api/tablet/register/open",
+    { openingFloat },
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+  if (!res.ok || !res.data.data?.sessionId) {
+    throw new Error(
+      `openRegisterSessionPos → ${res.status}: ${JSON.stringify(res.data)}`
+    );
+  }
+  return res.data.data.sessionId;
+}
+
+/** One settlement leg as the tab endpoints answer it (giftCardLast4, never the
+ *  full code — wire contract with the POS build). */
+export interface TabLeg {
+  id: string;
+  orderId?: string;
+  purpose?: string;
+  status: string;
+  paymentMethod: string;
+  amount: number;
+  tipAmount: number | null;
+  cashTendered?: number | null;
+  cashChange?: number | null;
+  stripePaymentIntentId?: string | null;
+  giftCardId?: string | null;
+  giftCardLast4?: string | null;
+  clientRequestId?: string | null;
+}
+
+/** Shared response shape of every tab settlement endpoint:
+ *  {leg, remaining, closed} — remaining is SERVER-computed AFTER the leg. */
+export interface TabLegResponse {
+  leg?: TabLeg | null;
+  remaining?: number;
+  closed?: boolean;
+  cashChange?: number;
+  cardBalance?: number | null;
+  replayed?: boolean;
+  paymentIntentId?: string;
+  clientSecret?: string | null;
+  amount?: number;
+  fee?: number;
+  message?: string;
+  success?: boolean;
+}
+
+/** POST /api/tablet/create-order — raw (openCheck bodies included). Response
+ *  201 {id, orderNumber: RECEIPT number, dailyOrderNumber, status, total}. */
+export function createTabletOrderRaw(
+  tabletToken: string,
+  staffSession: string | undefined,
+  body: Record<string, unknown>
+): Promise<
+  RawResponse<{
+    id?: string;
+    /** PERMANENT receipt number (legacy tablet wire name). */
+    orderNumber?: string;
+    /** Daily "Order #" (null for orders without one). */
+    dailyOrderNumber?: number | null;
+    status?: string;
+    total?: number;
+    message?: string;
+  }>
+> {
+  return apiRequestRaw(
+    "POST",
+    "/api/tablet/create-order",
+    body,
+    tabletToken,
+    staffSession ? staffHeaders(staffSession) : undefined
+  );
+}
+
+export interface TabTableSummary {
+  id: string;
+  name: string;
+  section: string | null;
+  capacity: number | null;
+  sortOrder: number;
+  isActive: boolean;
+  openChecks: {
+    orderId: string;
+    /** Daily "Order #" (platform naming rule — never the receipt). */
+    orderNumber: number | null;
+    /** Permanent "Receipt #". */
+    receiptNumber: string;
+    tabOpenedAt: string;
+    remaining: number;
+    serverName: string | null;
+  }[];
+}
+
+/** GET /api/tablet/tables — the section-grouped picker grid with live
+ *  open-check summaries. Tablet JWT only (no staff session needed). */
+export function getTabletTablesRaw(
+  tabletToken?: string
+): Promise<RawResponse<{ tables?: TabTableSummary[]; message?: string }>> {
+  return apiRequestRaw("GET", "/api/tablet/tables", undefined, tabletToken);
+}
+
+/** PATCH /api/tablet/orders/:id/tab/table {tableName} — table transfer. */
+export function transferTabTableRaw(
+  tabletToken: string,
+  staffSession: string,
+  orderId: string,
+  tableName: string
+): Promise<
+  RawResponse<{
+    success?: boolean;
+    order?: { id: string; tableId: string | null; tableNumber: string | null };
+    table?: { id: string; name: string; section: string | null };
+    message?: string;
+  }>
+> {
+  return apiRequestRaw(
+    "PATCH",
+    `/api/tablet/orders/${orderId}/tab/table`,
+    { tableName },
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** PATCH /api/tablet/orders/:id/modify — full-replacement orderItems edit.
+ *  On an unpaid tab the delta just moves Order.total (balanceDue stays 0). */
+export function modifyTabletOrderRaw(
+  tabletToken: string,
+  staffSession: string,
+  orderId: string,
+  body: Record<string, unknown>
+): Promise<
+  RawResponse<{
+    success?: boolean;
+    order?: { id: string; total: number; subtotal: number; tip: number };
+    delta?: number;
+    balanceDue?: number;
+    requiresAdditionalPayment?: number;
+    message?: string;
+  }>
+> {
+  return apiRequestRaw(
+    "PATCH",
+    `/api/tablet/orders/${orderId}/modify`,
+    body,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** POST …/tab/settle-cash {amount, cashTendered, tip?, idempotencyKey} —
+ *  drawer-gated cash leg; idempotent per (orderId, idempotencyKey). */
+export function settleTabCashRaw(
+  tabletToken: string,
+  staffSession: string,
+  orderId: string,
+  body: {
+    amount?: number;
+    cashTendered?: number;
+    tip?: number;
+    idempotencyKey?: string;
+  }
+): Promise<RawResponse<TabLegResponse>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/tablet/orders/${orderId}/tab/settle-cash`,
+    body,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** POST …/tab/settle-gift-card {code, amount, idempotencyKey} — gift leg.
+ *  NO tip allowed (400); not drawer-gated, so no staff session required. */
+export function settleTabGiftCardRaw(
+  tabletToken: string,
+  orderId: string,
+  body: {
+    code?: string;
+    amount?: number;
+    tip?: number;
+    idempotencyKey?: string;
+  }
+): Promise<RawResponse<TabLegResponse>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/tablet/orders/${orderId}/tab/settle-gift-card`,
+    body,
+    tabletToken
+  );
+}
+
+/** POST …/tab/create-terminal-intent {amount, tip?, readerId?} — start a card
+ *  leg: PENDING OrderPayment + bound card_present PaymentIntent. */
+export function createTabTerminalIntentRaw(
+  tabletToken: string,
+  orderId: string,
+  body: { amount?: number; tip?: number; readerId?: string }
+): Promise<RawResponse<TabLegResponse>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/tablet/orders/${orderId}/tab/create-terminal-intent`,
+    body,
+    tabletToken
+  );
+}
+
+/** POST …/tab/cancel-terminal-intent {paymentIntentId} — abandon a PENDING
+ *  card leg (cancels the PI, flips the row FAILED). Idempotent. */
+export function cancelTabTerminalIntentRaw(
+  tabletToken: string,
+  orderId: string,
+  paymentIntentId: string
+): Promise<RawResponse<TabLegResponse>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/tablet/orders/${orderId}/tab/cancel-terminal-intent`,
+    { paymentIntentId },
+    tabletToken
+  );
+}
+
+/** POST /api/tablet/cancel-order/:id {reason} — tab guard: blocked once any
+ *  leg SUCCEEDED; a fresh (no settled legs) check cancels cleanly. */
+export function cancelTabletOrderRaw(
+  tabletToken: string,
+  staffSession: string,
+  orderId: string,
+  reason: string
+): Promise<
+  RawResponse<{ success?: boolean; action?: string; message?: string }>
+> {
+  return apiRequestRaw(
+    "POST",
+    `/api/tablet/cancel-order/${orderId}`,
+    { reason },
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** GET /api/order/:orderId with an owner token — full order, loosely typed for
+ *  the tab assertions (orderType, paymentStatus, table fields, tip, total). */
+export function getOrderFullRaw(
+  accessToken: string,
+  orderId: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw("GET", `/api/order/${orderId}`, undefined, accessToken);
+}
+
 // ── Admin user management ────────────────────────────────────────────────────
 //
 // Helpers for tests/dashboard/admin/users.spec.ts. They seed/inspect/clean up
@@ -2757,7 +3091,8 @@ async function apiRequestRaw<T = unknown>(
   method: string,
   path: string,
   body?: unknown,
-  accessToken?: string
+  accessToken?: string,
+  extraHeaders?: Record<string, string>
 ): Promise<RawResponse<T>> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -2769,7 +3104,13 @@ async function apiRequestRaw<T = unknown>(
       await new Promise((r) => setTimeout(r, delay));
     }
     try {
-      const res = await apiRequestOnce<T>(method, path, body, accessToken);
+      const res = await apiRequestOnce<T>(
+        method,
+        path,
+        body,
+        accessToken,
+        extraHeaders
+      );
       if (RETRYABLE_STATUSES.has(res.status) && attempt < MAX_RETRIES) {
         lastError = new Error(`API ${method} ${path} → ${res.status}`);
         continue;
@@ -2788,10 +3129,12 @@ async function apiRequestOnce<T = unknown>(
   method: string,
   path: string,
   body?: unknown,
-  accessToken?: string
+  accessToken?: string,
+  extraHeaders?: Record<string, string>
 ): Promise<RawResponse<T>> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    ...(extraHeaders ?? {}),
   };
   if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
 
