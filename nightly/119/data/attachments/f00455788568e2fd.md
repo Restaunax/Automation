@@ -1,0 +1,163 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: dashboard/owner/api-orders.spec.ts >> Owner — Orders API contract >> TC-260: CSV export rejects an empty result set and streams a 32-column CSV otherwise
+- Location: tests/dashboard/owner/api-orders.spec.ts:202:7
+
+# Error details
+
+```
+Error: expect(received).toHaveLength(expected)
+
+Expected length: 32
+Received length: 33
+Received array:  ["Order Number", "Customer Name", "Customer Email", "Customer Phone", "Status", "Order Type", "Payment Status", "Total Amount", "Subtotal", "Tax Amount", …]
+```
+
+# Test source
+
+```ts
+  123 |       lastName: surname,
+  124 |       customerPhone: generateSeedPhone(),
+  125 |     });
+  126 |     const first = await cancelOrderRaw(token, order.id, {
+  127 |       reason: `AUTO ${runId} api cancel`,
+  128 |     });
+  129 |     expect(first.status).toBe(200);
+  130 |     expect(first.data.success).toBe(true);
+  131 |     expect(first.data.action).toBe("CANCELLED");
+  132 | 
+  133 |     const second = await cancelOrderRaw(token, order.id, {
+  134 |       reason: "again",
+  135 |     });
+  136 |     await allure.parameter("second status", String(second.status));
+  137 |     expect(second.status).toBe(400);
+  138 |     expect(errorMessage(second.data)).toMatch(/already been/i);
+  139 |   });
+  140 | 
+  141 |   test("TC-257: refunding an unpaid order is rejected", async () => {
+  142 |     await allure.description(
+  143 |       "POST /api/order/statistics/refund/:id requires paymentStatus COMPLETED. A seeded (unpaid) " +
+  144 |         "order → 400 'Only completed payments can be refunded' — no Stripe call is attempted."
+  145 |     );
+  146 |     const res = await refundOrderRaw(token, seeded.id, {
+  147 |       reason: `AUTO ${runId}`,
+  148 |     });
+  149 |     await allure.parameter("status", String(res.status));
+  150 |     expect(res.status).toBe(400);
+  151 |     expect(errorMessage(res.data)).toMatch(/only completed payments/i);
+  152 |   });
+  153 | 
+  154 |   test("TC-258: INITIALIZED (pre-payment) orders are excluded from the owner list unless asked for explicitly", async () => {
+  155 |     await allure.description(
+  156 |       "GET /api/order/statistics/management/:id hides INITIALIZED placeholders by default (a search that " +
+  157 |         "can only match the un-bumped seed returns nothing). Passing status=INITIALIZED explicitly DOES " +
+  158 |         "return it — pinned as current behaviour pending a product decision on whether owners should " +
+  159 |         "ever see placeholders."
+  160 |     );
+  161 |     const hidden = await listOrders(token, restaurantId, {
+  162 |       search: initEmailLocal,
+  163 |     });
+  164 |     expect(hidden.totalCount).toBe(0);
+  165 |     expect(hidden.orders).toEqual([]);
+  166 | 
+  167 |     const explicit = await listOrders(token, restaurantId, {
+  168 |       search: initEmailLocal,
+  169 |       status: "INITIALIZED",
+  170 |     });
+  171 |     expect(explicit.orders.map((o) => o.id)).toEqual([initialized.id]);
+  172 |     expect(explicit.orders[0]?.status).toBe("INITIALIZED");
+  173 |   });
+  174 | 
+  175 |   test("TC-259: [pinned] backwards status moves are currently accepted and clear completedAt", async () => {
+  176 |     await allure.description(
+  177 |       "The dashboard is forward-only but the API is not a state machine: DELIVERED → PENDING is a 200 " +
+  178 |         "today and resets completedAt to null. Pinned on purpose (decision 2026-08-15) so a future " +
+  179 |         "state-machine change is a conscious one — see the fixme twin below."
+  180 |     );
+  181 |     const order = await createSeededOrder(token, restaurantId, seedItem(), {
+  182 |       status: "PENDING",
+  183 |       lastName: surname,
+  184 |       customerPhone: generateSeedPhone(),
+  185 |     });
+  186 |     const delivered = await updateOrderStatusRaw(token, order.id, "PICKED_UP");
+  187 |     expect(delivered.status).toBe(200);
+  188 |     expect(delivered.data.completedAt).toBeTruthy();
+  189 | 
+  190 |     const back = await updateOrderStatusRaw(token, order.id, "PENDING");
+  191 |     await allure.parameter("backwards status", String(back.status));
+  192 |     expect(back.status).toBe(200);
+  193 |     expect(back.data.status).toBe("PENDING");
+  194 |     expect(back.data.completedAt).toBeNull();
+  195 |   });
+  196 | 
+  197 |   test.fixme("TC-259b: [expected once a state machine lands] backwards status moves are rejected with 409", async () => {
+  198 |     // When the backend validates transitions, flip TC-259 to expect 409
+  199 |     // (or 400) for PICKED_UP → PENDING and delete this twin.
+  200 |   });
+  201 | 
+  202 |   test("TC-260: CSV export rejects an empty result set and streams a 32-column CSV otherwise", async () => {
+  203 |     await allure.description(
+  204 |       "POST /api/order/statistics/export/:id with a search that matches nothing → 400 'No orders found'. " +
+  205 |         "With the seed surname → 200 text/csv whose header is the 32 documented columns and whose " +
+  206 |         "'Order Number' column (the receipt number) includes our seeded order."
+  207 |     );
+  208 |     const empty = await exportOrdersRaw(token, restaurantId, {
+  209 |       exportType: "current",
+  210 |       search: `nonexistent-${runId}`,
+  211 |     });
+  212 |     await allure.parameter("empty status", String(empty.status));
+  213 |     expect(empty.status).toBe(400);
+  214 |     expect(errorMessage(empty.data)).toMatch(/no orders found/i);
+  215 | 
+  216 |     const ok = await exportOrdersRaw(token, restaurantId, {
+  217 |       exportType: "current",
+  218 |       search: surname,
+  219 |     });
+  220 |     expect(ok.status).toBe(200);
+  221 |     expect(typeof ok.data).toBe("string");
+  222 |     const rows = parseCsv(ok.data as string);
+> 223 |     expect(rows[0]).toHaveLength(32);
+      |                     ^ Error: expect(received).toHaveLength(expected)
+  224 |     expect(rows[0]?.[0]).toBe("Order Number");
+  225 |     expect(rows[0]?.[4]).toBe("Status");
+  226 |     expect(rows.slice(1).map((r) => r[0])).toContain(seeded.receiptNumber);
+  227 |   });
+  228 | 
+  229 |   test("TC-261: the management list honours sort direction and page size", async () => {
+  230 |     await allure.description(
+  231 |       "sortBy=total&sortDirection=asc returns non-decreasing totals; limit=2 caps the page and " +
+  232 |         "totalPages = ceil(totalCount / limit). Search-scoped to this file's seeds plus whatever else " +
+  233 |         "matches, so it stays true regardless of QA residue."
+  234 |     );
+  235 |     // Make sure there are ≥3 rows with the surname (seeded + TC-256/259 rows).
+  236 |     const asc = await listOrders(token, restaurantId, {
+  237 |       search: surname,
+  238 |       sortBy: "total",
+  239 |       sortDirection: "asc",
+  240 |       limit: 100,
+  241 |     });
+  242 |     const totals = asc.orders.map((o) => Number(o.total));
+  243 |     for (let i = 1; i < totals.length; i++)
+  244 |       expect(totals[i]!).toBeGreaterThanOrEqual(totals[i - 1]!);
+  245 | 
+  246 |     const paged = await listOrders(token, restaurantId, {
+  247 |       search: surname,
+  248 |       limit: 2,
+  249 |       page: 1,
+  250 |     });
+  251 |     expect(paged.orders.length).toBeLessThanOrEqual(2);
+  252 |     expect(paged.limit).toBe(2);
+  253 |     expect(paged.totalPages).toBe(Math.ceil(paged.totalCount / 2));
+  254 | 
+  255 |     const raw = await listOrdersRaw(token, restaurantId, { search: surname });
+  256 |     expect(raw.status).toBe(200);
+  257 |   });
+  258 | });
+  259 | 
+```
