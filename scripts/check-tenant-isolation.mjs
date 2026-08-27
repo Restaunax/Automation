@@ -18,7 +18,9 @@ import { chromium } from "playwright-core";
 const [, , SLUG_A, SLUG_B, BASE = "http://localhost:3000"] = process.argv;
 
 if (!SLUG_A || !SLUG_B) {
-  console.error("usage: node scripts/check-tenant-isolation.mjs <slugA> <slugB> [baseUrl]");
+  console.error(
+    "usage: node scripts/check-tenant-isolation.mjs <slugA> <slugB> [baseUrl]"
+  );
   process.exit(2);
 }
 
@@ -37,7 +39,26 @@ const storageKeys = (page) =>
 const siteKeyOf = (page) =>
   page.evaluate(() => window.__ENV__?.VITE_REACT_APP_SITE_KEY ?? "");
 
+/**
+ * A chain-addressed tenant lands on the location picker, not a menu — correct
+ * behaviour, and a legitimate tenant type to test isolation against (its site
+ * key is c_<chainId>, a different namespace from a restaurant's r_<id>). Pick a
+ * branch so the run can continue into the menu.
+ */
+const passLocationPicker = async (page) => {
+  const picker = page.getByTestId("location-picker");
+  if (!(await picker.isVisible().catch(() => false))) return false;
+  const choose = page.getByRole("button", { name: /order here/i }).first();
+  await choose.waitFor({ state: "visible", timeout: 20000 });
+  await choose.click();
+  await page.waitForLoadState("domcontentloaded");
+  return true;
+};
+
 const addFirstItem = async (page) => {
+  if (await passLocationPicker(page)) {
+    console.log("    (chain tenant — selected a location to reach the menu)");
+  }
   const card = page.getByTestId("menu-item-card").first();
   await card.waitFor({ state: "visible", timeout: 20000 });
   await card.click();
@@ -97,7 +118,11 @@ try {
   await addFirstItem(pageB);
   const afterB = await storageKeys(pageB);
   const bCart = cartKeys(afterB, `rx:${keyB}`);
-  check("tenant B's cart is namespaced separately", bCart.length > 0, bCart.join(", "));
+  check(
+    "tenant B's cart is namespaced separately",
+    bCart.length > 0,
+    bCart.join(", ")
+  );
 
   // Reading A's cart back proves B's write did not overwrite it.
   const aStill = await storageKeys(pageA);
@@ -115,9 +140,18 @@ try {
     "rewardAuthToken",
     "rewardCustomerData",
   ];
-  const allKeys = [...aStill.local, ...aStill.session, ...afterB.local, ...afterB.session];
+  const allKeys = [
+    ...aStill.local,
+    ...aStill.session,
+    ...afterB.local,
+    ...afterB.session,
+  ];
   const foundBare = BARE.filter((b) => allKeys.includes(b));
-  check("no un-namespaced storage keys exist", foundBare.length === 0, foundBare.join(", ") || "none");
+  check(
+    "no un-namespaced storage keys exist",
+    foundBare.length === 0,
+    foundBare.join(", ") || "none"
+  );
 
   const stray = allKeys.filter(
     (k) => !k.startsWith("rx:") && k !== "template-lima-theme-mode"
@@ -138,7 +172,8 @@ try {
   const leaked = [];
   pageB.on("request", (req) => {
     const auth = req.headers()["authorization"];
-    if (auth && auth.includes(TOKEN)) leaked.push(`${req.method()} ${req.url()}`);
+    if (auth && auth.includes(TOKEN))
+      leaked.push(`${req.method()} ${req.url()}`);
   });
   await pageB.reload({ waitUntil: "domcontentloaded" });
   await pageB.waitForTimeout(3000);
