@@ -149,14 +149,23 @@ test.describe("POS — Reservation Configuration (settings, periods, turn times,
 
   test.afterAll(async () => {
     if (!token) return;
+    // Best-effort: the main tenant is about to be archived below regardless,
+    // so a failed revoke here (e.g. already gone, or a transient QA blip)
+    // is not worth surfacing as a test failure.
     await deleteFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,
       "TABLE_RESERVATIONS"
     ).catch(() => {});
+    // Best-effort: every extra throwaway restaurant this file minted
+    // (TC-396's ungated tenant) is disposable — a failed archive here
+    // orphans a harmless tenant rather than breaking the run.
     for (const id of extraRestaurantIds) {
       await deleteTestRestaurant(adminToken, id).catch(() => {});
     }
+    // Best-effort: same reasoning as file 04's afterAll — a failed archive
+    // of the main throwaway restaurant orphans it harmlessly rather than
+    // masking the test results with a teardown failure.
     if (restaurantId && !process.env.OWNER2_EMAIL)
       await deleteTestRestaurant(adminToken, restaurantId).catch(() => {});
   });
