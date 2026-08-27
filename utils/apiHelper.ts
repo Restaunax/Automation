@@ -3305,6 +3305,24 @@ export async function setOwnerPosPin(
   return id;
 }
 
+/** POST /api/tablet/staff/sign-in — RAW sibling of tabletStaffSignIn below,
+ *  for specs that need to assert a refusal (e.g. STAFF_TERMINAL_LOCKED while
+ *  the register is open and assigned to someone else). */
+export function tabletStaffSignInRaw(
+  tabletToken: string,
+  staffMemberId: string,
+  pin: string
+): Promise<
+  RawResponse<{ data?: { staffSessionToken?: string }; message?: string }>
+> {
+  return apiRequestRaw(
+    "POST",
+    "/api/tablet/staff/sign-in",
+    { staffMemberId, pin },
+    tabletToken
+  );
+}
+
 /** POST /api/tablet/staff/sign-in {staffMemberId, pin} → staff session JWT
  *  (12h TTL), sent on money/edit endpoints as X-Staff-Session. */
 export async function tabletStaffSignIn(
@@ -3583,12 +3601,35 @@ export function cancelTabletOrderRaw(
 }
 
 /** GET /api/order/:orderId with an owner token — full order, loosely typed for
- *  the tab assertions (orderType, paymentStatus, table fields, tip, total). */
+ *  the tab assertions (orderType, paymentStatus, table fields, tip, total).
+ *  NOTE (task-3): this controller's own Prisma `include` does NOT select
+ *  `payments` — use `getOrderStatisticsDetailRaw` below when a test needs to
+ *  see the OrderPayment rows themselves (e.g. proving an idempotent replay
+ *  left exactly one). */
 export function getOrderFullRaw(
   accessToken: string,
   orderId: string
 ): Promise<RawResponse<Record<string, unknown>>> {
   return apiRequestRaw("GET", `/api/order/${orderId}`, undefined, accessToken);
+}
+
+/** GET /api/order/statistics/:orderId with an owner token — the owner
+ *  detail-dialog endpoint. Unlike getOrderFullRaw's route, THIS one's
+ *  Prisma `include` selects `payments` (every OrderPayment row: status,
+ *  paymentMethod, amount, ...), which is what a POS idempotency/split-tender
+ *  test needs to count settled legs directly rather than trusting only the
+ *  settle-cash response. Flat response (no {success,data} envelope), same
+ *  as getOrderFullRaw. */
+export function getOrderStatisticsDetailRaw(
+  accessToken: string,
+  orderId: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/order/statistics/${orderId}`,
+    undefined,
+    accessToken
+  );
 }
 
 // ── Table management & reservations — tablet host stand ──────────────────────
