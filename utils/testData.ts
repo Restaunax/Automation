@@ -12,6 +12,17 @@ export const FRONTEND_URL =
 export const TEMPLATE_WIND_URL =
   process.env.TEMPLATE_WIND_URL ?? "https://wind.restaunax.com";
 
+// Template Lima, shared embedded-ordering host. Every tenant lives on ONE
+// origin here, addressed by the first path segment — which is exactly why the
+// isolation specs exist.
+export const LIMA_ORDERING_URL =
+  process.env.LIMA_ORDERING_URL ?? "https://order.qa.restaunax.com";
+
+// The legacy single-tenant Lima deployment, kept as the rollback regression
+// target: it must keep rendering its pinned restaurant unchanged.
+export const LIMA_PINNED_URL =
+  process.env.LIMA_PINNED_URL ?? "https://lima.restaunax.com";
+
 // In QA all outbound mail is captured by the self-hosted Mailpit sandbox, so the
 // domain need not be real. Default matches .env/CI (demomailtrap.co — a leftover
 // from the Mailtrap era, harmless since nothing leaves the sandbox).
@@ -210,6 +221,11 @@ export interface SharedState {
   chainLocationAName?: string;
   chainLocationBId?: string;
   chainLocationBName?: string;
+  // Ordering path slugs for the embedded-ordering storefront (template-lima).
+  // Empty when the backend predates the slug endpoint — those specs skip.
+  restaurantSlug?: string;
+  chainSlug?: string;
+  chainLocationASlug?: string;
 }
 
 export function readSharedState(): SharedState {
@@ -230,6 +246,36 @@ export function writeSharedState(state: SharedState): void {
 // append ?restaurantId=<id> to skip the location picker in QA).
 // Prefers the TEMPLATE_WIND_RESTAURANT_ID env override, else the restaurant
 // seeded by globalSetup.
+/**
+ * Shared state, or null when globalSetup has not run.
+ *
+ * readSharedState() throws by design — most specs cannot do anything useful
+ * without a seed restaurant. The ordering slugs are different: they are
+ * optional fields whose absence means "skip", and the slug specs read them at
+ * describe scope to build their skip condition. Throwing there would stop the
+ * file loading at all, breaking `--list` and any run on a machine that has not
+ * completed setup.
+ */
+function readSharedStateSafe(): Partial<SharedState> {
+  try {
+    return readSharedState();
+  } catch {
+    return {};
+  }
+}
+
+export function readRestaurantSlug(): string {
+  return (
+    process.env.LIMA_RESTAURANT_SLUG ??
+    readSharedStateSafe().restaurantSlug ??
+    ""
+  );
+}
+
+export function readChainSlug(): string {
+  return process.env.LIMA_CHAIN_SLUG ?? readSharedStateSafe().chainSlug ?? "";
+}
+
 export function readRestaurantId(): string {
   return (
     process.env.TEMPLATE_WIND_RESTAURANT_ID ?? readSharedState().restaurantId

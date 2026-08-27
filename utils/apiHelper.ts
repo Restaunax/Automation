@@ -3884,3 +3884,46 @@ export async function getAutomationStatsApi(
   );
   return data.stats;
 }
+
+/**
+ * Ensure a restaurant (or chain) has an ordering path slug, and return it.
+ *
+ * The embedded-ordering storefront resolves its tenant from the first path
+ * segment, so the Lima specs need a known slug. Seeding it here rather than
+ * assuming someone configured QA by hand keeps the suite self-contained — the
+ * PUT is idempotent, so a slug that already exists is returned unchanged.
+ *
+ * Returns "" when the backend has no slug endpoint yet (an older deployment),
+ * so the specs skip rather than fail the whole run.
+ */
+export async function ensureOrderingSlug(
+  adminAccessToken: string,
+  scope: "restaurant" | "chain",
+  id: string,
+  desired: string
+): Promise<string> {
+  const base =
+    scope === "chain"
+      ? `/api/admin/chains/${id}/slug`
+      : `/api/admin/restaurants/${id}/slug`;
+  try {
+    const current = await apiRequest<{ data?: { slug?: string | null } }>(
+      "GET",
+      base,
+      undefined,
+      adminAccessToken
+    );
+    const existing = current?.data?.slug;
+    if (existing) return existing;
+
+    const saved = await apiRequest<{ data?: { slug?: string | null } }>(
+      "PUT",
+      base,
+      { slug: desired },
+      adminAccessToken
+    );
+    return saved?.data?.slug ?? "";
+  } catch {
+    return "";
+  }
+}
