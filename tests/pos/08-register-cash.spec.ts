@@ -115,6 +115,9 @@ test.describe("POS — Register / Cash Drawer", () => {
   let groupId = "";
   let item: ApiMenuItem;
   let device: TabletDevice | undefined;
+  /** TC-427's second device (flipped to KITCHEN_DISPLAY) — the file's ONE
+   *  deliberate exception to one tabletLogin per file. */
+  let secondDevice: TabletDevice | undefined;
   let tabletToken = "";
   /** Currently-active MANAGER staff session on device #1. */
   let staffSession = "";
@@ -271,6 +274,10 @@ test.describe("POS — Register / Cash Drawer", () => {
       restaurantId,
       "TABLE_RESERVATIONS"
     ).catch(() => {});
+    // Best-effort: the throwaway restaurant these belong to is archived
+    // below regardless — a stray menu item/group orphaned by a failed
+    // delete here is harmless, and a teardown failure would only mask the
+    // test results above.
     if (item)
       await permanentlyDeleteMenuItemApi(adminToken, item.id).catch(() => {});
     if (groupId) await deleteTestMenuGroup(t, groupId).catch(() => {});
@@ -288,8 +295,6 @@ test.describe("POS — Register / Cash Drawer", () => {
     await allure.label("severity", "critical");
     token = await freshOwnerToken();
   });
-
-  let secondDevice: TabletDevice | undefined;
 
   test("TC-426: settle-cash is refused with no open register — asserted BEFORE any register/open in this file", async () => {
     await allure.description(

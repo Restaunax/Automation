@@ -282,6 +282,10 @@ test.describe("POS — Waitlist & Public Reservation Booking", () => {
       restaurantId,
       "TABLE_RESERVATIONS"
     ).catch(() => {});
+    // Best-effort: the throwaway restaurant these belong to is archived
+    // below regardless — a stray menu item/group orphaned by a failed
+    // delete here is harmless, and a teardown failure would only mask the
+    // test results above.
     if (item)
       await permanentlyDeleteMenuItemApi(adminToken, item.id).catch(() => {});
     if (groupId) await deleteTestMenuGroup(t, groupId).catch(() => {});
