@@ -40,6 +40,23 @@ export default tseslint.config(
     },
   },
 
+  // Standalone Node scripts (scripts/*.mjs). They run under plain node, not
+  // Playwright's runner, so they need Node globals declared — without this,
+  // process/console read as undefined and every use is a no-undef error.
+  //
+  // Browser globals too, because page.evaluate() callbacks are browser-context
+  // code living inside a Node file. The .ts specs never hit this: typescript-eslint
+  // disables no-undef there and lets the compiler handle it, so plain-JS scripts
+  // are the only place the rule actually fires.
+  {
+    files: ["**/*.mjs"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "module",
+      globals: { ...globals.node, ...globals.browser },
+    },
+  },
+
   // Playwright rules for tests, page objects, and fixtures.
   // A small, common-practice set (not the full opinionated preset) — just the
   // high-value guards. test.fixme scaffolds are intentionally allowed.
