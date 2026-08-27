@@ -186,8 +186,6 @@ export const createOwnerTablesFloorPage = (page: Page) => {
     page.getByRole("menuitem", { name: "Merge into…" });
   const deactivateMenuItem = () =>
     page.getByRole("menuitem", { name: "Deactivate", exact: true });
-  const reactivateMenuItem = () =>
-    page.getByRole("menuitem", { name: "Reactivate", exact: true });
   const deleteTableMenuItem = () =>
     page.getByRole("menuitem", { name: "Delete", exact: true });
 
@@ -416,7 +414,6 @@ export const createOwnerTablesFloorPage = (page: Page) => {
     editMenuItem,
     mergeMenuItem,
     deactivateMenuItem,
-    reactivateMenuItem,
     deleteTableMenuItem,
     mergeDialog,
     mergeTargetSelect,

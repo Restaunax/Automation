@@ -249,9 +249,10 @@ they don't show up in either this file's list or the obvious spec file:
 - **The double-ticket client race** — covered by `device-in-store`'s Jest suite
   (`src/context/__tests__/placeOpenCheck.test.tsx`), not by this repo or by hand. Not physical: it's
   a pure client-state race, fully reproducible in a JS test environment.
-- **The carried-over check** (a table check that survives a device handover/reconnect without
-  duplicating) — covered by backend Vitest in the `restaunax` repo, landing with RestauNax PR
-  #672. Not physical: server-side state machine logic, no hardware involved.
+- **The carried-over check** (an open table check from a prior business day still appears in
+  `GET /orders/current` after the day rolls over) — covered by backend Vitest in the `restaunax`
+  repo, landing with RestauNax PR #672. Not physical: server-side state machine logic, no
+  hardware involved.
 - **`RESERVED_SOON` floor-state derivation** — real, correct, derived code in
   `tableStateService.ts`, confirmed by reading the source during Task 3 of this arc, but
   **unreachable via the API** on this Phase A surface: every write path to `ReservationTable`

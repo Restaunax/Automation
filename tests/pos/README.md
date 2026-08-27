@@ -123,6 +123,12 @@ Helpers live in `utils/apiHelper.ts`: `createSeededOrder`,
 
 ## Gotchas worth knowing before adding more coverage here
 
+- **Device-pairing budget: a full run is already at 7 of the 10 `tabletLogin`
+  pairings QA allows per 15-minute window** (01:1, 03:1, 04:1, 06:1, 07:1,
+  08:2), with three files pairing near t=0 under `workers:3`. Before adding a
+  file that calls `tabletLogin`/`createTabletDevice`, check this budget —
+  there isn't much headroom left before a run (or a single retry of an
+  already-paired file) starts tripping the cap.
 - **Nullable `RestaurantTable.capacity` breaks availability feasibility.**
   `availabilityService.ts`'s feasibility step does
   `staticTables.length === 0 && combos.length === 0 → return {slots: [],

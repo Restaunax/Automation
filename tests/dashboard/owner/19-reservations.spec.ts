@@ -89,6 +89,15 @@ test.describe("Owner — Reservations", () => {
   let session: UiLoginSession;
   let reservationsPage: OwnerReservationsPage;
 
+  let phoneSeq = 1000;
+  const runFrag = parseInt(runId.slice(0, 4), 16) % 1000;
+  /** Unique 10-digit guest phone per call — SMS throttle 5/hr/phone + a
+   *  per-phone open-reservations cap (mirrors the pos specs' nextGuestPhone). */
+  const nextGuestPhone = (): string => {
+    phoneSeq += 1;
+    return `555${String(runFrag).padStart(3, "0")}${String(phoneSeq).padStart(4, "0")}`;
+  };
+
   test.beforeAll(async ({ browser }) => {
     if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return;
     adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
@@ -133,7 +142,9 @@ test.describe("Owner — Reservations", () => {
 
   test.afterAll(async () => {
     if (!adminToken) return;
-    if (session) await session.context.close();
+    // Best-effort — the whole throwaway restaurant is about to be deleted
+    // (or already provisioned externally via OWNER2_EMAIL), so a transient
+    // revoke failure here would only mask the results above.
     await deleteFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,
@@ -142,6 +153,9 @@ test.describe("Owner — Reservations", () => {
     // Best-effort — the whole throwaway restaurant is archived regardless.
     if (restaurantId && !process.env.OWNER2_EMAIL)
       await deleteTestRestaurant(adminToken, restaurantId).catch(() => {});
+    // Closed last, after the API cleanup above, and guarded — a throw
+    // closing the browser context must never skip that cleanup.
+    if (session) await session.context.close().catch(() => {});
   });
 
   test.beforeEach(async () => {
@@ -339,7 +353,7 @@ test.describe("Owner — Reservations", () => {
     const guestName = `Auto Guest ${runId}`;
     await reservationsPage.phoneBookingTimeInput().fill("18:00");
     await reservationsPage.phoneBookingNameInput().fill(guestName);
-    await reservationsPage.phoneBookingPhoneInput().fill("3055550100");
+    await reservationsPage.phoneBookingPhoneInput().fill(nextGuestPhone());
 
     const res = await reservationsPage.submitPhoneBooking();
     expect(res.status()).toBe(201);

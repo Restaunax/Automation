@@ -114,7 +114,9 @@ test.describe("Owner — Tables & Floor", () => {
 
   test.afterAll(async () => {
     if (!adminToken) return;
-    if (session) await session.context.close();
+    // Best-effort — the whole throwaway restaurant is about to be deleted
+    // (or already provisioned externally via OWNER2_EMAIL), so a transient
+    // revoke failure here would only mask the results above.
     await deleteFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,
@@ -124,6 +126,9 @@ test.describe("Owner — Tables & Floor", () => {
     // so a transient delete failure here would only mask the results above.
     if (restaurantId && !process.env.OWNER2_EMAIL)
       await deleteTestRestaurant(adminToken, restaurantId).catch(() => {});
+    // Closed last, after the API cleanup above, and guarded — a throw
+    // closing the browser context must never skip that cleanup.
+    if (session) await session.context.close().catch(() => {});
   });
 
   test.beforeEach(async () => {
@@ -178,6 +183,9 @@ test.describe("Owner — Tables & Floor", () => {
       await expect(negFloorPage.reservationsNavItem()).toHaveCount(0);
     } finally {
       await negSession.context.close();
+      // Best-effort — this negative-case tenant is throwaway and referenced
+      // nowhere else; a transient delete failure here would only mask the
+      // assertions above.
       await deleteTestRestaurant(adminToken, negTenant.restaurantId).catch(
         () => {}
       );

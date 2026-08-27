@@ -2751,17 +2751,31 @@ export async function deactivateTabletDevice(
 // have NO /api prefix (same mount style as setOwnerPosPin / getDailyReportKpis
 // above: /restaurant/:rid/...). All Raw — specs assert status codes/bodies.
 
+/** Every owner/register endpoint's success body wraps its payload in
+ *  {success, data, message} (confirmed live, task-2/task-3) — error bodies
+ *  stay flat ({success:false, message, errorCode}), same as every other
+ *  RawResponse in this suite. Callers read the real payload via
+ *  `res.data.data` (or the specs' own `unwrap()`). */
+export interface OwnerEnvelope<T> {
+  success?: boolean;
+  data?: T;
+  message?: string;
+  errorCode?: string;
+}
+
 /** GET /restaurant/:rid/tables — floor-plan data feed: tables, sections, and
  *  saved combinations. */
 export function listTablesOwnerRaw(
   ownerToken: string,
   restaurantId: string
 ): Promise<
-  RawResponse<{
-    tables?: Record<string, unknown>[];
-    sections?: Record<string, unknown>[];
-    combinations?: Record<string, unknown>[];
-  }>
+  RawResponse<
+    OwnerEnvelope<{
+      tables?: Record<string, unknown>[];
+      sections?: Record<string, unknown>[];
+      combinations?: Record<string, unknown>[];
+    }>
+  >
 > {
   return apiRequestRaw(
     "GET",
@@ -2855,7 +2869,7 @@ export function mergeTableOwnerRaw(
 export function listTableSectionsOwnerRaw(
   ownerToken: string,
   restaurantId: string
-): Promise<RawResponse<{ sections?: Record<string, unknown>[] }>> {
+): Promise<RawResponse<OwnerEnvelope<Record<string, unknown>[]>>> {
   return apiRequestRaw(
     "GET",
     `/restaurant/${restaurantId}/table-sections`,
@@ -2913,7 +2927,7 @@ export function deleteTableSectionOwnerRaw(
 export function listTableCombinationsOwnerRaw(
   ownerToken: string,
   restaurantId: string
-): Promise<RawResponse<{ combinations?: Record<string, unknown>[] }>> {
+): Promise<RawResponse<OwnerEnvelope<Record<string, unknown>[]>>> {
   return apiRequestRaw(
     "GET",
     `/restaurant/${restaurantId}/table-combinations`,
@@ -3015,7 +3029,7 @@ export function putReservationSettingsOwnerRaw(
 export function listReservationServicePeriodsOwnerRaw(
   ownerToken: string,
   restaurantId: string
-): Promise<RawResponse<{ servicePeriods?: Record<string, unknown>[] }>> {
+): Promise<RawResponse<OwnerEnvelope<Record<string, unknown>[]>>> {
   return apiRequestRaw(
     "GET",
     `/restaurant/${restaurantId}/reservation-service-periods`,
@@ -3075,7 +3089,7 @@ export function deleteReservationServicePeriodOwnerRaw(
 export function listReservationTurnTimesOwnerRaw(
   ownerToken: string,
   restaurantId: string
-): Promise<RawResponse<{ turnTimes?: Record<string, unknown>[] }>> {
+): Promise<RawResponse<OwnerEnvelope<Record<string, unknown>[]>>> {
   return apiRequestRaw(
     "GET",
     `/restaurant/${restaurantId}/reservation-turn-times`,
@@ -3133,7 +3147,7 @@ export function deleteReservationTurnTimeOwnerRaw(
 export function listReservationDateOverridesOwnerRaw(
   ownerToken: string,
   restaurantId: string
-): Promise<RawResponse<{ dateOverrides?: Record<string, unknown>[] }>> {
+): Promise<RawResponse<OwnerEnvelope<Record<string, unknown>[]>>> {
   return apiRequestRaw(
     "GET",
     `/restaurant/${restaurantId}/reservation-date-overrides`,
@@ -3845,23 +3859,15 @@ export function cancelManagedReservationRaw(
 }
 
 // ── Register (device + staff) ────────────────────────────────────────────────
-
-/** Every register endpoint's success body wraps its payload in {success,
- *  data, message} (confirmed live, task-3) — error bodies stay flat
- *  ({success:false, message, errorCode}), same as every other RawResponse in
- *  this suite. Callers read the real payload via `res.data.data`. */
-export interface RegisterEnvelope<T> {
-  success?: boolean;
-  data?: T;
-  message?: string;
-  errorCode?: string;
-}
+//
+// Envelope shape confirmed live, task-3 — same `OwnerEnvelope<T>` declared
+// above for the owner table/reservation wrappers.
 
 /** GET /api/tablet/register/status */
 export function getRegisterStatusPosRaw(
   tabletToken: string,
   staffSession: string
-): Promise<RawResponse<RegisterEnvelope<Record<string, unknown>>>> {
+): Promise<RawResponse<OwnerEnvelope<Record<string, unknown>>>> {
   return apiRequestRaw(
     "GET",
     "/api/tablet/register/status",
@@ -3878,7 +3884,7 @@ export function openRegisterSessionPosRaw(
   tabletToken: string,
   staffSession: string,
   body: { openingFloat: number; managerPin?: string; note?: string }
-): Promise<RawResponse<RegisterEnvelope<{ sessionId?: string }>>> {
+): Promise<RawResponse<OwnerEnvelope<{ sessionId?: string }>>> {
   return apiRequestRaw(
     "POST",
     "/api/tablet/register/open",
@@ -3902,7 +3908,7 @@ export function closeRegisterSessionPosRaw(
   }
 ): Promise<
   RawResponse<
-    RegisterEnvelope<{
+    OwnerEnvelope<{
       sessionId?: string;
       expectedCash?: number;
       countedCash?: number;
