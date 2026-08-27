@@ -48,6 +48,9 @@ test.describe("Lima — reward member login", () => {
       "Rewards not enabled for the seed restaurant"
     );
 
+    // Three steps, not two: the navbar field + "Go" opens a "Rewards Sign In"
+    // confirmation dialog showing the number back to you, and the code is only
+    // sent after "Send Code" is pressed there.
     await allure.step("Enter the reviewer phone", async () => {
       await loginTrigger.click();
       const phone = page
@@ -55,21 +58,62 @@ test.describe("Lima — reward member login", () => {
         .or(page.getByPlaceholder(/phone/i))
         .first();
       await phone.fill(REVIEWER_PHONE);
-      await page
-        .getByRole("button", { name: /send|continue|next/i })
-        .first()
-        .click();
+      await page.getByRole("button", { name: /^go$/i }).first().click();
     });
+
+    await allure.step("Confirm and send the code", async () => {
+      const send = page.getByRole("button", { name: /send code/i }).first();
+      await expect(send).toBeVisible({ timeout: 15_000 });
+      await send.click();
+    });
+
+    // Pressing "Send Code" leads to one of two outcomes, and which one is not
+    // knowable up front — so wait for EITHER rather than assuming success and
+    // timing out on a locator when the answer was already on screen.
+    //
+    // The fixed-OTP test phone still has to be an enrolled member of THIS
+    // restaurant's rewards program: the fixed code bypasses SMS delivery, not
+    // membership. The durable fix is enrolling REVIEWER_PHONE in globalSetup
+    // alongside the other seed data, which needs owner credentials.
+    const otpInput = page
+      .getByLabel(/code|otp|verification/i)
+      .or(page.getByPlaceholder(/code|otp|\d ?- ?digit/i))
+      .first();
+    const notAMember = page
+      .getByRole("alert")
+      .filter({ hasText: /not a member|join our rewards/i })
+      .first();
+
+    const outcome = await Promise.race([
+      otpInput
+        .waitFor({ state: "visible", timeout: 20_000 })
+        .then(() => "otp" as const)
+        .catch(() => null),
+      notAMember
+        .waitFor({ state: "visible", timeout: 20_000 })
+        .then(() => "not-a-member" as const)
+        .catch(() => null),
+    ]);
+    await allure.parameter("outcome", outcome ?? "(neither appeared)");
+
+    test.skip(
+      outcome === "not-a-member",
+      `${REVIEWER_PHONE} is not enrolled in this restaurant's rewards program — enroll it to exercise this flow`
+    );
+    expect(outcome, "expected either an OTP field or a membership notice").toBe(
+      "otp"
+    );
 
     await allure.step("Enter the fixed OTP", async () => {
       const otp = page
-        .getByLabel(/code|otp/i)
-        .or(page.getByPlaceholder(/code|otp/i))
+        .getByLabel(/code|otp|verification/i)
+        .or(page.getByPlaceholder(/code|otp|\d ?- ?digit/i))
+        .or(page.getByRole("textbox").last())
         .first();
       await expect(otp).toBeVisible({ timeout: 20_000 });
       await otp.fill(FIXED_OTP);
       await page
-        .getByRole("button", { name: /verify|submit|continue/i })
+        .getByRole("button", { name: /^go$|verify|submit|continue/i })
         .first()
         .click();
     });

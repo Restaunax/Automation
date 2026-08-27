@@ -2,6 +2,7 @@ import * as allure from "allure-js-commons";
 
 import { test, expect } from "../../fixtures/base";
 import { createLimaStorefrontPage } from "../../pages/lima/LimaStorefrontPage";
+import { BACKEND_URL } from "../../utils/apiHelper";
 import {
   LIMA_PINNED_URL,
   readRestaurantSlug,
@@ -77,10 +78,32 @@ test.describe("Lima — basename routing", () => {
         "flash of the landing page first."
     );
 
+    // Whether "/" redirects depends on the tenant's own
+    // brandingConfig.features.enableLandingPage. Asserting the redirect
+    // unconditionally fails against a restaurant that legitimately HAS a
+    // landing page, so read the flag the storefront itself acts on.
+    const resp = await page.request.get(
+      `${BACKEND_URL}/api/public/site?slug=${restaurantSlug}`
+    );
+    const landingEnabled =
+      (
+        (await resp.json()) as {
+          data?: { presentation?: { landingPageEnabled?: boolean } };
+        }
+      )?.data?.presentation?.landingPageEnabled === true;
+    await allure.parameter("landingPageEnabled", String(landingEnabled));
+
     const lima = createLimaStorefrontPage(page);
     await lima.gotoRoot(restaurantSlug);
 
-    await expect(page).toHaveURL(/\/menu/, { timeout: 15_000 });
+    if (landingEnabled) {
+      // Landing page on: stay at the tenant root, do not bounce to /menu.
+      await expect(page).toHaveURL(new RegExp(`/${restaurantSlug}/?$`), {
+        timeout: 15_000,
+      });
+    } else {
+      await expect(page).toHaveURL(/\/menu/, { timeout: 15_000 });
+    }
   });
 
   test("TC-L24: the tenant's own title and branding are served", async ({
@@ -108,13 +131,28 @@ test.describe("Lima — legacy pinned deployment", () => {
     await allure.label("severity", "critical");
   });
 
-  test("TC-L25: the pinned single-tenant deployment still renders @smoke", async ({
+  // Opt-in: point LIMA_PINNED_URL at a deployment that actually pins a tenant
+  // (VITE_REACT_APP_RESTAURANT_ID / _CHAIN_ID set) and this runs.
+  //
+  // It does not run by default any more because there is no longer a pinned
+  // Lima deployment to point it at — restaurants.yml was retired and
+  // lima.restaunax.com now runs the shared multi-tenant app. Left in place
+  // rather than deleted: the precedence rule it guards (pinned env wins over
+  // Host and path) is still live in server.ts and is the rollback path if a
+  // per-restaurant deployment is ever stood up again. A test asserting a
+  // deployment nobody operates is noise; one that skips until you have that
+  // deployment is a checklist item.
+  test("TC-L25: a pinned single-tenant deployment still renders @smoke", async ({
     page,
   }) => {
+    test.skip(
+      !process.env.LIMA_PINNED_URL,
+      "No pinned deployment configured — set LIMA_PINNED_URL to exercise the rollback path"
+    );
+
     await allure.description(
-      "The rollback guarantee. server.ts checks pinned env FIRST, so every " +
-        "existing per-restaurant Lima deployment must behave exactly as before " +
-        "— if this breaks, there is no safe way back."
+      "The rollback guarantee. server.ts checks pinned env FIRST, so a " +
+        "per-restaurant Lima deployment must behave exactly as before."
     );
 
     const resp = await page.goto(LIMA_PINNED_URL, {
