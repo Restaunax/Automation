@@ -2701,6 +2701,27 @@ export async function tabletLogin(name: string, code: string): Promise<string> {
 }
 
 /**
+ * PATCH /api/tablet/restaurant/:rid/device/:deviceId/mode {mode} — owner/admin
+ * device-mode change (REGISTER | KITCHEN_DISPLAY | SERVER | KIOSK). An OWNER
+ * token may only set SERVER/KITCHEN_DISPLAY (403 DEVICE_MODE_NOT_ALLOWED_FOR_ROLE
+ * otherwise) — REGISTER/KIOSK need ADMIN. Raw: task-3 uses this to flip a
+ * SECOND device to KITCHEN_DISPLAY for the DEVICE_NOT_REGISTER negative test.
+ */
+export function updateDeviceModeOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  deviceId: string,
+  mode: "REGISTER" | "KITCHEN_DISPLAY" | "SERVER" | "KIOSK"
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "PATCH",
+    `/api/tablet/restaurant/${restaurantId}/device/${deviceId}/mode`,
+    { mode },
+    ownerToken
+  );
+}
+
+/**
  * PATCH .../device/:deviceId/toggle — deactivate a device. There is no delete
  * endpoint; deactivation is the cleanup path. Best-effort; never throws.
  */
@@ -3784,11 +3805,22 @@ export function cancelManagedReservationRaw(
 
 // ── Register (device + staff) ────────────────────────────────────────────────
 
+/** Every register endpoint's success body wraps its payload in {success,
+ *  data, message} (confirmed live, task-3) — error bodies stay flat
+ *  ({success:false, message, errorCode}), same as every other RawResponse in
+ *  this suite. Callers read the real payload via `res.data.data`. */
+export interface RegisterEnvelope<T> {
+  success?: boolean;
+  data?: T;
+  message?: string;
+  errorCode?: string;
+}
+
 /** GET /api/tablet/register/status */
 export function getRegisterStatusPosRaw(
   tabletToken: string,
   staffSession: string
-): Promise<RawResponse<Record<string, unknown>>> {
+): Promise<RawResponse<RegisterEnvelope<Record<string, unknown>>>> {
   return apiRequestRaw(
     "GET",
     "/api/tablet/register/status",
@@ -3805,7 +3837,7 @@ export function openRegisterSessionPosRaw(
   tabletToken: string,
   staffSession: string,
   body: { openingFloat: number; managerPin?: string; note?: string }
-): Promise<RawResponse<Record<string, unknown>>> {
+): Promise<RawResponse<RegisterEnvelope<{ sessionId?: string }>>> {
   return apiRequestRaw(
     "POST",
     "/api/tablet/register/open",
@@ -3816,7 +3848,7 @@ export function openRegisterSessionPosRaw(
 }
 
 /** POST /api/tablet/register/close {countedCash, dropAmount?, managerPin?,
- *  note?} — blind-count reconciliation. Response {sessionId, expectedCash,
+ *  note?} — blind-count reconciliation. data: {sessionId, expectedCash,
  *  countedCash, overShort}. */
 export function closeRegisterSessionPosRaw(
   tabletToken: string,
@@ -3828,13 +3860,14 @@ export function closeRegisterSessionPosRaw(
     note?: string;
   }
 ): Promise<
-  RawResponse<{
-    sessionId?: string;
-    expectedCash?: number;
-    countedCash?: number;
-    overShort?: number;
-    message?: string;
-  }>
+  RawResponse<
+    RegisterEnvelope<{
+      sessionId?: string;
+      expectedCash?: number;
+      countedCash?: number;
+      overShort?: number;
+    }>
+  >
 > {
   return apiRequestRaw(
     "POST",
