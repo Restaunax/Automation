@@ -2724,6 +2724,479 @@ export async function deactivateTabletDevice(
   }
 }
 
+// ── Owner table & reservation management ─────────────────────────────────────
+//
+// Feature: table-management-reservations-eager-teacup. Owner JWT auth; paths
+// have NO /api prefix (same mount style as setOwnerPosPin / getDailyReportKpis
+// above: /restaurant/:rid/...). All Raw — specs assert status codes/bodies.
+
+/** GET /restaurant/:rid/tables — floor-plan data feed: tables, sections, and
+ *  saved combinations. */
+export function listTablesOwnerRaw(
+  ownerToken: string,
+  restaurantId: string
+): Promise<
+  RawResponse<{
+    tables?: Record<string, unknown>[];
+    sections?: Record<string, unknown>[];
+    combinations?: Record<string, unknown>[];
+  }>
+> {
+  return apiRequestRaw(
+    "GET",
+    `/restaurant/${restaurantId}/tables`,
+    undefined,
+    ownerToken
+  );
+}
+
+/** POST /restaurant/:rid/tables {name, sectionId?, capacity?, minCapacity?,
+ *  shape?, isBookable?, isActive?} — create a table. */
+export function createTableOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/restaurant/${restaurantId}/tables`,
+    body,
+    ownerToken
+  );
+}
+
+/** PATCH /restaurant/:rid/tables/layout {tables:[{id,posX,posY,width,height,
+ *  rotation,shape,sectionId}]} — bulk floor-plan save. NOTE: the server
+ *  registers this literal path BEFORE /:tableId, so "layout" is never matched
+ *  as a table id. */
+export function saveTableLayoutOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  tables: Record<string, unknown>[]
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "PATCH",
+    `/restaurant/${restaurantId}/tables/layout`,
+    { tables },
+    ownerToken
+  );
+}
+
+/** PATCH /restaurant/:rid/tables/:tableId — partial table update. */
+export function updateTableOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  tableId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "PATCH",
+    `/restaurant/${restaurantId}/tables/${tableId}`,
+    body,
+    ownerToken
+  );
+}
+
+/** DELETE /restaurant/:rid/tables/:tableId — data.deleted:true = hard
+ *  delete, false = soft-deactivated (table has order/reservation history). */
+export function deleteTableOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  tableId: string
+): Promise<RawResponse<{ deleted?: boolean; message?: string }>> {
+  return apiRequestRaw(
+    "DELETE",
+    `/restaurant/${restaurantId}/tables/${tableId}`,
+    undefined,
+    ownerToken
+  );
+}
+
+/** POST /restaurant/:rid/tables/:tableId/merge {targetTableId} — merge a
+ *  table into targetTableId. */
+export function mergeTableOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  tableId: string,
+  targetTableId: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/restaurant/${restaurantId}/tables/${tableId}/merge`,
+    { targetTableId },
+    ownerToken
+  );
+}
+
+// ── Table sections ───────────────────────────────────────────────────────────
+
+/** GET /restaurant/:rid/table-sections */
+export function listTableSectionsOwnerRaw(
+  ownerToken: string,
+  restaurantId: string
+): Promise<RawResponse<{ sections?: Record<string, unknown>[] }>> {
+  return apiRequestRaw(
+    "GET",
+    `/restaurant/${restaurantId}/table-sections`,
+    undefined,
+    ownerToken
+  );
+}
+
+/** POST /restaurant/:rid/table-sections {name, sortOrder?, color?} */
+export function createTableSectionOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/restaurant/${restaurantId}/table-sections`,
+    body,
+    ownerToken
+  );
+}
+
+/** PATCH /restaurant/:rid/table-sections/:sectionId */
+export function updateTableSectionOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  sectionId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "PATCH",
+    `/restaurant/${restaurantId}/table-sections/${sectionId}`,
+    body,
+    ownerToken
+  );
+}
+
+/** DELETE /restaurant/:rid/table-sections/:sectionId */
+export function deleteTableSectionOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  sectionId: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "DELETE",
+    `/restaurant/${restaurantId}/table-sections/${sectionId}`,
+    undefined,
+    ownerToken
+  );
+}
+
+// ── Table combinations ───────────────────────────────────────────────────────
+
+/** GET /restaurant/:rid/table-combinations */
+export function listTableCombinationsOwnerRaw(
+  ownerToken: string,
+  restaurantId: string
+): Promise<RawResponse<{ combinations?: Record<string, unknown>[] }>> {
+  return apiRequestRaw(
+    "GET",
+    `/restaurant/${restaurantId}/table-combinations`,
+    undefined,
+    ownerToken
+  );
+}
+
+/** POST /restaurant/:rid/table-combinations {name, capacity, tableIds} */
+export function createTableCombinationOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/restaurant/${restaurantId}/table-combinations`,
+    body,
+    ownerToken
+  );
+}
+
+/** PATCH /restaurant/:rid/table-combinations/:combinationId */
+export function updateTableCombinationOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  combinationId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "PATCH",
+    `/restaurant/${restaurantId}/table-combinations/${combinationId}`,
+    body,
+    ownerToken
+  );
+}
+
+/** DELETE /restaurant/:rid/table-combinations/:combinationId */
+export function deleteTableCombinationOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  combinationId: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "DELETE",
+    `/restaurant/${restaurantId}/table-combinations/${combinationId}`,
+    undefined,
+    ownerToken
+  );
+}
+
+// ── Reservation settings ─────────────────────────────────────────────────────
+
+/** Restaurant-level reservation config (RestaurantSettings-adjacent fields). */
+export interface ReservationSettings {
+  onlineBookingEnabled?: boolean;
+  graceMinutes?: number;
+  waitlistNotifyTimeoutMinutes?: number;
+  reservedSoonLeadMinutes?: number;
+  dirtyDecayMinutes?: number;
+  defaultDurationMinutes?: number;
+  minNoticeMinutes?: number;
+  advanceBookingDays?: number;
+  maxOpenReservationsPerPhone?: number;
+  reminderLeadMinutes?: number;
+  [key: string]: unknown;
+}
+
+/** GET /restaurant/:rid/reservation-settings */
+export function getReservationSettingsOwnerRaw(
+  ownerToken: string,
+  restaurantId: string
+): Promise<RawResponse<ReservationSettings>> {
+  return apiRequestRaw(
+    "GET",
+    `/restaurant/${restaurantId}/reservation-settings`,
+    undefined,
+    ownerToken
+  );
+}
+
+/** PUT /restaurant/:rid/reservation-settings — partial merge body. */
+export function putReservationSettingsOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  patch: Partial<ReservationSettings>
+): Promise<RawResponse<ReservationSettings>> {
+  return apiRequestRaw(
+    "PUT",
+    `/restaurant/${restaurantId}/reservation-settings`,
+    patch,
+    ownerToken
+  );
+}
+
+// ── Reservation service periods ──────────────────────────────────────────────
+
+/** GET /restaurant/:rid/reservation-service-periods */
+export function listReservationServicePeriodsOwnerRaw(
+  ownerToken: string,
+  restaurantId: string
+): Promise<RawResponse<{ servicePeriods?: Record<string, unknown>[] }>> {
+  return apiRequestRaw(
+    "GET",
+    `/restaurant/${restaurantId}/reservation-service-periods`,
+    undefined,
+    ownerToken
+  );
+}
+
+/** POST /restaurant/:rid/reservation-service-periods {name, dayOfWeek,
+ *  startTime, endTime, slotIntervalMinutes, maxCoversPerSlot?,
+ *  maxPartiesPerSlot?, minPartySize?, maxPartySize?, isActive?} */
+export function createReservationServicePeriodOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/restaurant/${restaurantId}/reservation-service-periods`,
+    body,
+    ownerToken
+  );
+}
+
+/** PATCH /restaurant/:rid/reservation-service-periods/:periodId */
+export function updateReservationServicePeriodOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  periodId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "PATCH",
+    `/restaurant/${restaurantId}/reservation-service-periods/${periodId}`,
+    body,
+    ownerToken
+  );
+}
+
+/** DELETE /restaurant/:rid/reservation-service-periods/:periodId */
+export function deleteReservationServicePeriodOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  periodId: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "DELETE",
+    `/restaurant/${restaurantId}/reservation-service-periods/${periodId}`,
+    undefined,
+    ownerToken
+  );
+}
+
+// ── Reservation turn times ───────────────────────────────────────────────────
+
+/** GET /restaurant/:rid/reservation-turn-times */
+export function listReservationTurnTimesOwnerRaw(
+  ownerToken: string,
+  restaurantId: string
+): Promise<RawResponse<{ turnTimes?: Record<string, unknown>[] }>> {
+  return apiRequestRaw(
+    "GET",
+    `/restaurant/${restaurantId}/reservation-turn-times`,
+    undefined,
+    ownerToken
+  );
+}
+
+/** POST /restaurant/:rid/reservation-turn-times */
+export function createReservationTurnTimeOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/restaurant/${restaurantId}/reservation-turn-times`,
+    body,
+    ownerToken
+  );
+}
+
+/** PATCH /restaurant/:rid/reservation-turn-times/:turnTimeId */
+export function updateReservationTurnTimeOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  turnTimeId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "PATCH",
+    `/restaurant/${restaurantId}/reservation-turn-times/${turnTimeId}`,
+    body,
+    ownerToken
+  );
+}
+
+/** DELETE /restaurant/:rid/reservation-turn-times/:turnTimeId */
+export function deleteReservationTurnTimeOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  turnTimeId: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "DELETE",
+    `/restaurant/${restaurantId}/reservation-turn-times/${turnTimeId}`,
+    undefined,
+    ownerToken
+  );
+}
+
+// ── Reservation date overrides ───────────────────────────────────────────────
+
+/** GET /restaurant/:rid/reservation-date-overrides */
+export function listReservationDateOverridesOwnerRaw(
+  ownerToken: string,
+  restaurantId: string
+): Promise<RawResponse<{ dateOverrides?: Record<string, unknown>[] }>> {
+  return apiRequestRaw(
+    "GET",
+    `/restaurant/${restaurantId}/reservation-date-overrides`,
+    undefined,
+    ownerToken
+  );
+}
+
+/** POST /restaurant/:rid/reservation-date-overrides */
+export function createReservationDateOverrideOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/restaurant/${restaurantId}/reservation-date-overrides`,
+    body,
+    ownerToken
+  );
+}
+
+/** DELETE /restaurant/:rid/reservation-date-overrides/:overrideId */
+export function deleteReservationDateOverrideOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  overrideId: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "DELETE",
+    `/restaurant/${restaurantId}/reservation-date-overrides/${overrideId}`,
+    undefined,
+    ownerToken
+  );
+}
+
+// ── Reservations (dashboard/owner-created + list) ────────────────────────────
+
+/** GET /restaurant/:rid/reservations?date=&status=&kind= — date is required
+ *  by the backend; status/kind are optional filters. */
+export function listReservationsOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  params: { date: string; status?: string; kind?: string }
+): Promise<RawResponse<{ reservations?: Record<string, unknown>[] }>> {
+  return apiRequestRaw(
+    "GET",
+    `/restaurant/${restaurantId}/reservations${toQuery(params)}`,
+    undefined,
+    ownerToken
+  );
+}
+
+/** POST /restaurant/:rid/reservations {kind?, partySize, scheduledAt,
+ *  guestName, guestPhone, guestEmail?, guestNotes?, internalNotes?,
+ *  clientRequestId?} */
+export function createReservationOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/restaurant/${restaurantId}/reservations`,
+    body,
+    ownerToken
+  );
+}
+
+/** PATCH /restaurant/:rid/reservations/:reservationId */
+export function patchReservationOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  reservationId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "PATCH",
+    `/restaurant/${restaurantId}/reservations/${reservationId}`,
+    body,
+    ownerToken
+  );
+}
+
 // ── Table service (open checks) — the POS tab/* endpoint family ─────────────
 //
 // Feature reference: restaunax/docs/features/TABLE_SERVICE_OPEN_CHECKS.md.
@@ -2747,6 +3220,45 @@ export async function updateRestaurantSettingsApi(
     `/api/restaurantId/${restaurantId}/settings`,
     patch,
     accessToken
+  );
+}
+
+/**
+ * POST /api/admin/addons/restaurants/:restaurantId/overrides {feature,
+ * enabled, reason?} — admin force-enable/disable of one feature for one
+ * restaurant, independent of its plan. 201 on create. First entitlement
+ * override helper in this repo.
+ */
+export function setFeatureOverrideAdminRaw(
+  adminToken: string,
+  restaurantId: string,
+  feature: string,
+  enabled: boolean,
+  reason?: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/admin/addons/restaurants/${restaurantId}/overrides`,
+    { feature, enabled, ...(reason !== undefined ? { reason } : {}) },
+    adminToken
+  );
+}
+
+/**
+ * DELETE /api/admin/addons/restaurants/:restaurantId/overrides/:feature —
+ * remove the override, reverting the restaurant to its plan-derived
+ * entitlement for that feature.
+ */
+export function deleteFeatureOverrideAdminRaw(
+  adminToken: string,
+  restaurantId: string,
+  feature: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "DELETE",
+    `/api/admin/addons/restaurants/${restaurantId}/overrides/${feature}`,
+    undefined,
+    adminToken
   );
 }
 
@@ -3056,6 +3568,300 @@ export function getOrderFullRaw(
   orderId: string
 ): Promise<RawResponse<Record<string, unknown>>> {
   return apiRequestRaw("GET", `/api/order/${orderId}`, undefined, accessToken);
+}
+
+// ── Table management & reservations — tablet host stand ──────────────────────
+//
+// Feature: table-management-reservations-eager-teacup. Device token only for
+// /floor; device + staff (X-Staff-Session) for everything else here that
+// touches host-stand state, table CRUD, or reservation lifecycle.
+
+/** GET /api/tablet/floor — device token ONLY, no staff session required. */
+export function getFloorRaw(
+  tabletToken?: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw("GET", "/api/tablet/floor", undefined, tabletToken);
+}
+
+/** GET /api/tablet/host[?date=] — host-stand feed: reservations, waitlist,
+ *  and table states for the given date (defaults server-side when omitted). */
+export function getHostRaw(
+  tabletToken: string,
+  staffSession: string,
+  date?: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/tablet/host${toQuery({ date })}`,
+    undefined,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** POST /api/tablet/tables {name, sectionId?, capacity?, minCapacity?,
+ *  isActive?} — create a table from the tablet host screen. */
+export function createTableTabletRaw(
+  tabletToken: string,
+  staffSession: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    "/api/tablet/tables",
+    body,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** PATCH /api/tablet/tables/:tableId */
+export function updateTableTabletRaw(
+  tabletToken: string,
+  staffSession: string,
+  tableId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "PATCH",
+    `/api/tablet/tables/${tableId}`,
+    body,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** POST /api/tablet/tables/:tableId/state {state: "DIRTY"|"BLOCKED"|"CLEAR"}. */
+export function setTableStateTabletRaw(
+  tabletToken: string,
+  staffSession: string,
+  tableId: string,
+  state: "DIRTY" | "BLOCKED" | "CLEAR"
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/tablet/tables/${tableId}/state`,
+    { state },
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** POST /api/tablet/reservations {kind?, partySize, guestName, guestPhone,
+ *  scheduledAt?, quotedWaitMinutes?, guestNotes?, clientRequestId?} — create
+ *  a reservation or waitlist entry from the host stand. */
+export function createReservationTabletRaw(
+  tabletToken: string,
+  staffSession: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    "/api/tablet/reservations",
+    body,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** POST /api/tablet/reservations/:id/notify */
+export function notifyReservationTabletRaw(
+  tabletToken: string,
+  staffSession: string,
+  reservationId: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/tablet/reservations/${reservationId}/notify`,
+    undefined,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** POST /api/tablet/reservations/:id/status {action: "confirm"|"arrive"|
+ *  "partially_seat"|"no_show"|"cancel"|"complete"} — lifecycle transition. */
+export function reservationStatusTabletRaw(
+  tabletToken: string,
+  staffSession: string,
+  reservationId: string,
+  action:
+    | "confirm"
+    | "arrive"
+    | "partially_seat"
+    | "no_show"
+    | "cancel"
+    | "complete"
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/tablet/reservations/${reservationId}/status`,
+    { action },
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** POST /api/tablet/reservations/:id/seat {tableIds, guestCount?,
+ *  clientRequestId?} — seat a reservation; response carries
+ *  {reservation, prefill} (prefill feeds the create-order screen). */
+export function seatReservationTabletRaw(
+  tabletToken: string,
+  staffSession: string,
+  reservationId: string,
+  body: { tableIds: string[]; guestCount?: number; clientRequestId?: string }
+): Promise<
+  RawResponse<{
+    reservation?: Record<string, unknown>;
+    prefill?: Record<string, unknown>;
+    message?: string;
+  }>
+> {
+  return apiRequestRaw(
+    "POST",
+    `/api/tablet/reservations/${reservationId}/seat`,
+    body,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+// ── Public reservations (no auth) ────────────────────────────────────────────
+
+/** GET /api/public/restaurants/:rid/reservation-availability?date=&partySize=
+ *  — the storefront/booking-widget availability check. */
+export function getPublicAvailabilityRaw(
+  restaurantId: string,
+  date: string,
+  partySize: number
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/public/restaurants/${restaurantId}/reservation-availability${toQuery({
+      date,
+      partySize,
+    })}`,
+    undefined
+  );
+}
+
+/** POST /api/public/restaurants/:rid/reservations {guestName, guestPhone,
+ *  partySize, scheduledAt, guestEmail?, guestNotes?, clientRequestId?} —
+ *  guest self-service booking. */
+export function createPublicReservationRaw(
+  restaurantId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/public/restaurants/${restaurantId}/reservations`,
+    body
+  );
+}
+
+/** GET /api/public/reservations/manage/:manageToken — guest self-manage view
+ *  (the link sent by the confirmation SMS/email). */
+export function getManagedReservationRaw(
+  manageToken: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/public/reservations/manage/${manageToken}`,
+    undefined
+  );
+}
+
+/** DELETE /api/public/reservations/manage/:manageToken — guest self-cancel. */
+export function cancelManagedReservationRaw(
+  manageToken: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "DELETE",
+    `/api/public/reservations/manage/${manageToken}`,
+    undefined
+  );
+}
+
+// ── Register (device + staff) ────────────────────────────────────────────────
+
+/** GET /api/tablet/register/status */
+export function getRegisterStatusPosRaw(
+  tabletToken: string,
+  staffSession: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "GET",
+    "/api/tablet/register/status",
+    undefined,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** POST /api/tablet/register/open {openingFloat, managerPin?, note?} — RAW
+ *  sibling of openRegisterSessionPos above, for specs that need to assert
+ *  400s (e.g. a session already open, or a non-REGISTER-mode device). */
+export function openRegisterSessionPosRaw(
+  tabletToken: string,
+  staffSession: string,
+  body: { openingFloat: number; managerPin?: string; note?: string }
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    "/api/tablet/register/open",
+    body,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** POST /api/tablet/register/close {countedCash, dropAmount?, managerPin?,
+ *  note?} — blind-count reconciliation. Response {sessionId, expectedCash,
+ *  countedCash, overShort}. */
+export function closeRegisterSessionPosRaw(
+  tabletToken: string,
+  staffSession: string,
+  body: {
+    countedCash: number;
+    dropAmount?: number;
+    managerPin?: string;
+    note?: string;
+  }
+): Promise<
+  RawResponse<{
+    sessionId?: string;
+    expectedCash?: number;
+    countedCash?: number;
+    overShort?: number;
+    message?: string;
+  }>
+> {
+  return apiRequestRaw(
+    "POST",
+    "/api/tablet/register/close",
+    body,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+// ── Staff manage (device + staff, needs MANAGE_STAFF / MANAGER session) ─────
+
+/** POST /api/tablet/staff/manage {firstName, lastName, pin, staffRole,
+ *  capabilityGrants?, capabilityRevokes?} — mint a PIN-only staff member.
+ *  201; used to create a STAFF-role member for negative capability tests. */
+export function createPinStaffTabletRaw(
+  tabletToken: string,
+  staffSession: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    "/api/tablet/staff/manage",
+    body,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
 }
 
 // ── Admin user management ────────────────────────────────────────────────────
