@@ -46,6 +46,70 @@ The POS uses a different auth model from the dashboard:
   per-leg tips, gift-leg negatives, card-leg intent create/cancel, and the
   settled-leg cancel guard.
 
+- **`04-floor-tables.spec.ts` (TC-384..395)** — the table/section/combination
+  registry (owner portal + tablet host stand) and the derived floor payload
+  (`GET /api/tablet/floor`). Own throwaway tenant (`createSecondOwner`):
+  section/table/combination CRUD, the owner OR-gate (`tableServiceEnabled` OR
+  the `TABLE_RESERVATIONS` entitlement) vs. every tablet host-stand write
+  gating on the entitlement ALONE, layout batch-save, merge (repoints the
+  open check, cleans up the source table), unreferenced hard-delete vs.
+  referenced soft-deactivate + the ghost-table regression, and POS table
+  CRUD / table-state capability splits.
+
+- **`05-reservations-config.spec.ts` (TC-396..405)** — reservation
+  CONFIGURATION (owner portal, pure owner-JWT — no tablet/device pairing).
+  Own throwaway tenant: `ReservationSettings` / `ServicePeriod` / `TurnTime` /
+  `DateOverride` CRUD + validation, the pacing guard (`onlineBookingEnabled`
+  needs ≥1 paced period), duplicate-period 409, turn-time overlap refusal,
+  date-override upsert-by-date, and the owner phone-booking create path
+  (confirmed ADVISORY — never enforces min-notice/advance-window the way the
+  public STRICT path does).
+
+- **`06-reservations-lifecycle.spec.ts` (TC-406..417)** — reservation
+  LIFECYCLE (tablet host stand). Own throwaway tenant + REGISTER device +
+  staff session (a cash settlement needs a register): the full book → arrive
+  → seat → link → settle-in-cash arc `@smoke` (TC-406), the seat-conflict
+  capability split (STAFF sees 409; MANAGER's `OVERRIDE_RESERVATION_CONFLICT`
+  bypasses it entirely and re-assigns the table), double-link 409,
+  not-linkable 400, early no-show split, `clientRequestId` replay, advisory
+  overbook past the paced cap, host list shape, transfer on a seated check,
+  and cancelling a linked order unlinking the reservation WITHOUT reverting
+  its status (confirmed: stays SEATED). TC-417 (`RESERVED_SOON` floor state)
+  is `test.fixme` — no write path assigns a table without seating it; see
+  `docs/PHYSICAL_TEST_LEDGER.md`.
+
+- **`07-waitlist-public.spec.ts` (TC-418..425)** — waitlist (tablet host
+  stand) + PUBLIC self-service booking. Own throwaway tenant + REGISTER
+  device + staff session, no register session opened (this file never
+  settles money): waitlist add/notify, public STRICT-mode availability +
+  create + a public-safe manage view, manage-cancel 409 on repeat DELETE and
+  on cancel-after-seated (not the owner surface's 400), per-phone cap, and
+  the `onlineBookingEnabled` gate flip.
+
+- **`08-register-cash.spec.ts` (TC-426..433)** — register / cash-drawer: the
+  open/close lifecycle, the drawer-exclusive lock, cash-leg math, and the
+  capability/ownership splits that decide whose PIN moves whose money. Own
+  throwaway tenant + a deliberate SECOND device (the file's one exception to
+  one `tabletLogin` per file, for the drawer-exclusivity test): open/close,
+  cash-tendered change math, idempotency replay, `STAFF_TERMINAL_LOCKED`
+  refusing a second PIN staff's sign-in while the register is open elsewhere,
+  split tenders, and blind-count close (`overShort` sign convention).
+
+Every file 04–08 runs on its own per-run throwaway tenant
+(`createSecondOwner`), mirroring 03's pattern — none of this mutates the
+shared seed restaurant. Real-browser coverage of the same two owner-portal
+tabs (Tables & Floor, Reservations) lives in
+`tests/dashboard/owner/18-tables-floor.spec.ts` (TC-434..439) and
+`19-reservations.spec.ts` (TC-440..445) — see `TEST_PLAN.md`'s "Implemented
+Today" table for what those cover; they're browser-level, not API-level, so
+they live under `dashboard/owner/`, not here.
+
+For what none of this — nor any browser automation — can reach (physical
+readers, printers, gestures, real SMS delivery, and the two behaviors this
+arc newly surfaced: the RESERVED_SOON floor state and the owner-portal
+canvas drag gesture), see `docs/PHYSICAL_TEST_LEDGER.md`, this repo's
+release-gate companion to the specs in this folder.
+
 Helpers live in `utils/apiHelper.ts`: `createSeededOrder`,
 `getCurrentOrders`, `updateOrderStatus`, `createTabletDevice`, `tabletLogin`,
 `deactivateTabletDevice`; open-checks family: `updateRestaurantSettingsApi`,
@@ -53,7 +117,34 @@ Helpers live in `utils/apiHelper.ts`: `createSeededOrder`,
 `createTabletOrderRaw`, `getTabletTablesRaw`, `transferTabTableRaw`,
 `modifyTabletOrderRaw`, `settleTabCashRaw`, `settleTabGiftCardRaw`,
 `createTabTerminalIntentRaw`, `cancelTabTerminalIntentRaw`,
-`cancelTabletOrderRaw`, `getOrderFullRaw`.
+`cancelTabletOrderRaw`, `getOrderFullRaw`; register/reservations family (task
+3): `updateDeviceModeOwnerRaw`, `tabletStaffSignInRaw`,
+`getOrderStatisticsDetailRaw`.
+
+## Gotchas worth knowing before adding more coverage here
+
+- **Device-pairing budget: a full run is already at 7 of the 10 `tabletLogin`
+  pairings QA allows per 15-minute window** (01:1, 03:1, 04:1, 06:1, 07:1,
+  08:2), with three files pairing near t=0 under `workers:3`. Before adding a
+  file that calls `tabletLogin`/`createTabletDevice`, check this budget —
+  there isn't much headroom left before a run (or a single retry of an
+  already-paired file) starts tripping the cap.
+- **Nullable `RestaurantTable.capacity` breaks availability feasibility.**
+  `availabilityService.ts`'s feasibility step does
+  `staticTables.length === 0 && combos.length === 0 → return {slots: [],
+closed: false}` before it even generates candidate slots from the period —
+  and a `null` `capacity` never satisfies the `gte` filter that step runs.
+  A table created without an explicit `capacity` is invisible to
+  availability regardless of how correctly the period/settings are
+  configured. File 07's setup creates its table with `capacity: 4`
+  specifically to satisfy this; don't drop that if you touch its setup.
+- **KNOWN BEHAVIOR, not a bug: cancelling a linked order leaves the
+  reservation SEATED.** `unlinkReservationForCancelledOrder` sets
+  `Reservation.orderId = null` and does nothing else — the reservation is
+  the party's real state, the order is just an attempt at collecting money
+  for it, per `tabletOrderController.ts`'s own design comment. TC-415
+  documents this; don't "fix" it into a bug report without checking that
+  comment first.
 
 ## Not yet covered (tracked)
 
@@ -65,9 +156,9 @@ Helpers live in `utils/apiHelper.ts`: `createSeededOrder`,
 - **Card-leg capture** — `…/tab/capture-terminal-intent` needs a physical
   reader to take a `card_present` PaymentIntent to `requires_capture`;
   create-intent validations + cancel are covered (TC-382), capture is
-  device-lane coverage.
-- Register cash-drop / handover / close and manager-approval gates
-  (void / refund / comp / discount), capability-gated by `staffRole`.
-  (Register OPEN + staff sessions are now covered by the 03 harness;
-  tablet-initiated cancel is covered by TC-383 —
-  https://github.com/Restaunax/Automation/issues/15 can close.)
+  device-lane coverage — see `docs/PHYSICAL_TEST_LEDGER.md`.
+- Register cash-drop, peer-to-peer handover, and manager-approval gates
+  (void / refund / comp / discount), capability-gated by `staffRole`. (Register
+  OPEN **and CLOSE**, staff sessions, and the drawer-exclusivity lock are now
+  covered by the 03 + 08 harnesses; tablet-initiated cancel is covered by
+  TC-383 — https://github.com/Restaunax/Automation/issues/15 can close.)
