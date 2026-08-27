@@ -246,6 +246,10 @@ test.describe("POS — Table Management (floor, tables, sections, combinations)"
       }
     }
     const t = await freshOwnerToken().catch(() => token);
+    // Best-effort: the entitlement may already be off (TC-392 leaves it
+    // granted, but an earlier failure could have left it revoked) — either
+    // way the restaurant is about to be deleted, so a 404/failure here is
+    // not a cleanup failure worth surfacing.
     await deleteFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,
@@ -255,6 +259,10 @@ test.describe("POS — Table Management (floor, tables, sections, combinations)"
       await permanentlyDeleteMenuItemApi(adminToken, item.id).catch(() => {});
     if (groupId) await deleteTestMenuGroup(t, groupId).catch(() => {});
     if (device) await deactivateTabletDevice(t, restaurantId, device.id);
+    // Best-effort: the whole throwaway restaurant is being archived — if the
+    // delete fails (e.g. a transient QA gateway blip during teardown), the
+    // tenant is orphaned but harmless (nothing else references it) and a
+    // hard failure here would only mask the test results above.
     if (restaurantId && !process.env.OWNER2_EMAIL)
       await deleteTestRestaurant(adminToken, restaurantId).catch(() => {});
   });
@@ -624,27 +632,43 @@ test.describe("POS — Table Management (floor, tables, sections, combinations)"
         "capability-split tests after this one need the entitlement, per " +
         "the tablet host-stand gating discrepancy noted in the file header."
     );
-    await deleteFeatureOverrideAdminRaw(
-      adminToken,
-      restaurantId,
-      "TABLE_RESERVATIONS"
-    );
-    await updateRestaurantSettingsApi(token, restaurantId, {
-      tableServiceEnabled: false,
-    });
+    // The whole body — setup AND assertion — lives inside the try so that a
+    // throw from EITHER setup call (deleteFeatureOverrideAdminRaw is Raw and
+    // never throws, but updateRestaurantSettingsApi is the throwing wrapper)
+    // still reaches the finally below. Without this, a throw here would skip
+    // restoration entirely and strand the tenant unentitled, cascading into
+    // TC-393/394/395 (which need the entitlement back).
     try {
+      await deleteFeatureOverrideAdminRaw(
+        adminToken,
+        restaurantId,
+        "TABLE_RESERVATIONS"
+      );
+      await updateRestaurantSettingsApi(token, restaurantId, {
+        tableServiceEnabled: false,
+      });
       const res = await listTablesOwnerRaw(token, restaurantId);
       expect(res.status, msg(res.data)).toBe(403);
       expect(errorCode(res.data)).toBe("TABLE_MANAGEMENT_NOT_ENABLED");
     } finally {
+      // Both restores are independent and best-effort: whichever setup step
+      // above actually ran (or didn't), the restore itself must never throw
+      // and skip its sibling — TC-393/394/395 need BOTH tableServiceEnabled
+      // and the entitlement back to pass, so a failed restore is surfaced
+      // (console.warn) rather than silently swallowed or allowed to abort
+      // the second restore.
       await updateRestaurantSettingsApi(token, restaurantId, {
         tableServiceEnabled: true,
-      });
+      }).catch((err) =>
+        console.warn("[TC-392] could not restore tableServiceEnabled:", err)
+      );
       await setFeatureOverrideAdminRaw(
         adminToken,
         restaurantId,
         "TABLE_RESERVATIONS",
         true
+      ).catch((err) =>
+        console.warn("[TC-392] could not re-grant TABLE_RESERVATIONS:", err)
       );
     }
   });
