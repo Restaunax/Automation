@@ -4813,3 +4813,761 @@ export async function ensureOrderingSlug(
     return "";
   }
 }
+
+// ── Supply shop (owner) ──────────────────────────────────────────────────────
+//
+// Every owner supply-shop call carries the restaurant in the `X-Restaurant-Id`
+// header — never the path (`ownerController.restaurantIdFrom`). Money is never
+// moved at placement: `commit` snapshots the estimate and lands the order in
+// IN_DESIGN (every catalog product needs artwork); the admin's fulfil is the
+// one call that charges. Shapes mirror restaunax-frontend/src/types/supplyShop.ts.
+
+export type SupplyOrderStatus =
+  | "DRAFT"
+  | "PLACED"
+  | "AWAITING_PAYMENT"
+  | "PAID"
+  | "INVOICED"
+  | "IN_DESIGN"
+  | "PROOF_READY"
+  | "CHANGES_REQUESTED"
+  | "IN_PRODUCTION"
+  | "SHIPPED"
+  | "DELIVERED"
+  | "FULFILLED_DIGITAL"
+  | "CANCELLED"
+  | "REFUNDED"
+  | "PARTIALLY_REFUNDED";
+
+export type SupplyPaymentTerm =
+  | "IMMEDIATE"
+  | "NEXT_INVOICE"
+  | "FREE_TIER"
+  | "COMP";
+
+export interface SupplyQuote {
+  variantId: string;
+  productId: string;
+  quantity: number;
+  unitPrice: number;
+  subtotal: number;
+  shippingAmount: number;
+  taxAmount: number;
+  total: number;
+  leadDays: number;
+  freeTier: {
+    applies: boolean;
+    alreadyUsed: boolean;
+    productEligible: boolean;
+  };
+  estimate: {
+    spreadPct: number;
+    unitPriceLow: number;
+    unitPriceHigh: number;
+    subtotalLow: number;
+    subtotalHigh: number;
+    shippingLow: number;
+    shippingHigh: number;
+    totalLow: number;
+    totalHigh: number;
+  };
+  credit: { eligible: boolean; reason: string | null; remainingCredit: number };
+}
+
+export interface SupplyOrder {
+  id: string;
+  orderNumber: string;
+  status: SupplyOrderStatus;
+  paymentTerm: SupplyPaymentTerm | null;
+  quantity: number;
+  total: number;
+  estimatedTotalLow: number | null;
+  estimatedTotalHigh: number | null;
+  priceFinalizedAt: string | null;
+  paidAt: string | null;
+  billedAt: string | null;
+  placedAt: string | null;
+  compedAt: string | null;
+  freeTierApplied: boolean;
+  hostedPaymentUrl: string | null;
+  giftCardBatchId: string | null;
+  designId: string | null;
+  designVersionId: string | null;
+  design?: { id: string; name: string } | null;
+  [key: string]: unknown;
+}
+
+export interface SupplyCatalogProduct {
+  id: string;
+  slug: string;
+  name: string;
+  requiresDesign: boolean;
+  estimateSpreadPct: number;
+  leadDays: number;
+  variants: Array<{
+    id: string;
+    slug: string;
+    name: string;
+    priceTiers: Array<{
+      minQuantity: number;
+      unitPrice: number;
+      unitVendorCost?: number;
+      shippingFlatRate: number;
+    }>;
+  }>;
+  [key: string]: unknown;
+}
+
+const restaurantHeader = (restaurantId: string) => ({
+  "X-Restaurant-Id": restaurantId,
+});
+
+export function getSupplyCatalogOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  q?: string
+): Promise<RawResponse<{ success: boolean; data: SupplyCatalogProduct[] }>> {
+  const query = q ? `?q=${encodeURIComponent(q)}` : "";
+  return apiRequestRaw(
+    "GET",
+    `/api/supply-shop/catalog${query}`,
+    undefined,
+    ownerToken,
+    restaurantHeader(restaurantId)
+  );
+}
+
+export function quoteSupplyOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: { variantId: string; quantity: number }
+): Promise<RawResponse<{ success: boolean; data: SupplyQuote }>> {
+  return apiRequestRaw(
+    "POST",
+    "/api/supply-shop/quote",
+    body,
+    ownerToken,
+    restaurantHeader(restaurantId)
+  );
+}
+
+export function createSupplyDesignOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: {
+    variantId: string;
+    name: string;
+    templateSlug?: string;
+    brief?: { purpose?: string; message?: string; notes?: string };
+  }
+): Promise<RawResponse<{ success: boolean; data: { id: string } }>> {
+  return apiRequestRaw(
+    "POST",
+    "/api/supply-shop/designs",
+    body,
+    ownerToken,
+    restaurantHeader(restaurantId)
+  );
+}
+
+export function createSupplyOrderOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: { variantId: string; quantity: number; designId?: string }
+): Promise<RawResponse<{ success: boolean; data: SupplyOrder }>> {
+  return apiRequestRaw(
+    "POST",
+    "/api/supply-shop/orders",
+    body,
+    ownerToken,
+    restaurantHeader(restaurantId)
+  );
+}
+
+export function commitSupplyOrderOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  orderId: string,
+  paymentTerm: string
+): Promise<RawResponse<{ success: boolean; data: { order: SupplyOrder } }>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/supply-shop/orders/${orderId}/commit`,
+    { paymentTerm },
+    ownerToken,
+    restaurantHeader(restaurantId)
+  );
+}
+
+export function listSupplyOrdersOwnerRaw(
+  ownerToken: string,
+  restaurantId: string
+): Promise<RawResponse<{ success: boolean; data: SupplyOrder[] }>> {
+  return apiRequestRaw(
+    "GET",
+    "/api/supply-shop/orders",
+    undefined,
+    ownerToken,
+    restaurantHeader(restaurantId)
+  );
+}
+
+export function getSupplyProofOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  orderId: string
+): Promise<
+  RawResponse<{
+    success: boolean;
+    data: { versionId: string; version: number; proofUrls: string[] };
+  }>
+> {
+  return apiRequestRaw(
+    "GET",
+    `/api/supply-shop/orders/${orderId}/proof`,
+    undefined,
+    ownerToken,
+    restaurantHeader(restaurantId)
+  );
+}
+
+export function approveSupplyProofOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  orderId: string,
+  versionId: string
+): Promise<
+  RawResponse<{ success: boolean; code?: string; data?: SupplyOrder }>
+> {
+  return apiRequestRaw(
+    "POST",
+    `/api/supply-shop/orders/${orderId}/approve-proof`,
+    { versionId },
+    ownerToken,
+    restaurantHeader(restaurantId)
+  );
+}
+
+export function requestSupplyRevisionsOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  orderId: string,
+  note: string
+): Promise<RawResponse<{ success: boolean; data?: SupplyOrder }>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/supply-shop/orders/${orderId}/request-revisions`,
+    { note },
+    ownerToken,
+    restaurantHeader(restaurantId)
+  );
+}
+
+export function cancelSupplyOrderOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  orderId: string
+): Promise<RawResponse<{ success: boolean; data?: SupplyOrder }>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/supply-shop/orders/${orderId}/cancel`,
+    { reason: "automation cleanup" },
+    ownerToken,
+    restaurantHeader(restaurantId)
+  );
+}
+
+/**
+ * Composite: design → order → commit (IMMEDIATE). The order comes back in
+ * IN_DESIGN — every catalog product requires artwork. Throws on any refusal
+ * so a broken setup fails loudly instead of as a mystery later.
+ */
+export async function placeSupplyOrderViaApi(
+  ownerToken: string,
+  restaurantId: string,
+  opts: {
+    variantId: string;
+    quantity: number;
+    message: string;
+    paymentTerm?: string;
+  }
+): Promise<SupplyOrder> {
+  const design = await createSupplyDesignOwnerRaw(ownerToken, restaurantId, {
+    variantId: opts.variantId,
+    name: `Automation design ${opts.message}`,
+    brief: { message: opts.message },
+  });
+  if (!design.ok) {
+    throw new Error(
+      `[supply-shop] design create failed: ${JSON.stringify(design.data)}`
+    );
+  }
+  const order = await createSupplyOrderOwnerRaw(ownerToken, restaurantId, {
+    variantId: opts.variantId,
+    quantity: opts.quantity,
+    designId: design.data.data.id,
+  });
+  if (!order.ok) {
+    throw new Error(
+      `[supply-shop] order create failed: ${JSON.stringify(order.data)}`
+    );
+  }
+  const committed = await commitSupplyOrderOwnerRaw(
+    ownerToken,
+    restaurantId,
+    order.data.data.id,
+    opts.paymentTerm ?? "IMMEDIATE"
+  );
+  if (!committed.ok) {
+    throw new Error(
+      `[supply-shop] commit failed: ${JSON.stringify(committed.data)}`
+    );
+  }
+  return committed.data.data.order;
+}
+
+// ── Supply shop (admin) ──────────────────────────────────────────────────────
+//
+// Role-gated (`requireRole(["ADMIN"])`), not permission-gated — the HQ_CARDS_*
+// permissions only decide what the sidebar shows.
+
+export function getAdminSupplyCatalogRaw(
+  adminToken: string
+): Promise<RawResponse<{ success: boolean; data: SupplyCatalogProduct[] }>> {
+  return apiRequestRaw(
+    "GET",
+    "/api/admin/supply-shop/catalog",
+    undefined,
+    adminToken
+  );
+}
+
+export const SUPPLY_GIFT_CARD_PRODUCT_SLUG = "physical-gift-card";
+export const SUPPLY_GIFT_CARD_VARIANT_SLUG = "cr80-plastic";
+
+/** The `physical-gift-card` variant id on this environment (the catalog is seeded, ids are not). */
+export async function resolveGiftCardVariantId(
+  adminToken: string
+): Promise<string> {
+  const res = await getAdminSupplyCatalogRaw(adminToken);
+  if (!res.ok) {
+    throw new Error(
+      `[supply-shop] admin catalog failed: ${JSON.stringify(res.data)}`
+    );
+  }
+  const product = res.data.data.find(
+    (p) => p.slug === SUPPLY_GIFT_CARD_PRODUCT_SLUG
+  );
+  const variant = product?.variants.find(
+    (v) => v.slug === SUPPLY_GIFT_CARD_VARIANT_SLUG
+  );
+  if (!variant) {
+    throw new Error(
+      `[supply-shop] ${SUPPLY_GIFT_CARD_PRODUCT_SLUG}/${SUPPLY_GIFT_CARD_VARIANT_SLUG} is not in the catalog — has the seed run on this environment?`
+    );
+  }
+  return variant.id;
+}
+
+export interface AdminSupplyOrder extends SupplyOrder {
+  settled: boolean;
+  awaitingOwnerPayment: boolean;
+  margin: number;
+  restaurant: { id: string; name: string };
+  adminNotes?: string | null;
+  pendingFulfilment?: unknown;
+}
+
+export function listAdminSupplyOrdersRaw(
+  adminToken: string,
+  params: {
+    queue?: "design" | "fulfilment";
+    status?: string;
+    restaurantId?: string;
+  } = {}
+): Promise<RawResponse<{ success: boolean; data: AdminSupplyOrder[] }>> {
+  const search = new URLSearchParams();
+  if (params.queue) search.set("queue", params.queue);
+  if (params.status) search.set("status", params.status);
+  if (params.restaurantId) search.set("restaurantId", params.restaurantId);
+  const qs = search.toString();
+  return apiRequestRaw(
+    "GET",
+    `/api/admin/supply-shop/orders${qs ? `?${qs}` : ""}`,
+    undefined,
+    adminToken
+  );
+}
+
+export function getAdminSupplyOrderRaw(
+  adminToken: string,
+  orderId: string
+): Promise<RawResponse<{ success: boolean; data: AdminSupplyOrder }>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/admin/supply-shop/orders/${orderId}`,
+    undefined,
+    adminToken
+  );
+}
+
+export function createSupplyOrderOnBehalfRaw(
+  adminToken: string,
+  body: {
+    restaurantId: string;
+    variantId: string;
+    quantity: number;
+    brief?: { purpose?: string; message?: string; notes?: string };
+    adminNotes?: string;
+    billing: "CHARGE" | "COMP";
+    compReason?: string;
+    paymentTerm?: "IMMEDIATE" | "NEXT_INVOICE";
+  }
+): Promise<
+  RawResponse<{ success: boolean; code?: string; data: AdminSupplyOrder }>
+> {
+  return apiRequestRaw(
+    "POST",
+    "/api/admin/supply-shop/orders",
+    body,
+    adminToken
+  );
+}
+
+export interface SupplyPreflightReport {
+  worstVerdict: "OK" | "WARN" | "BLOCK";
+  sendable: boolean;
+  checks: Array<{
+    key: string;
+    verdict: "OK" | "WARN" | "BLOCK";
+    detail?: unknown;
+  }>;
+}
+
+/** Multipart PDF upload — field name `file`, same shape as uploadMenuItemImageRaw. */
+export async function uploadSupplyArtworkRaw(
+  adminToken: string,
+  orderId: string,
+  pdf: Buffer,
+  filename = "artwork.pdf"
+): Promise<
+  RawResponse<{
+    success: boolean;
+    data?: {
+      versionId: string;
+      version: number;
+      preflight: SupplyPreflightReport;
+    };
+  }>
+> {
+  const form = new FormData();
+  form.append(
+    "file",
+    new Blob([new Uint8Array(pdf)], { type: "application/pdf" }),
+    filename
+  );
+  const res = await fetch(
+    `${BACKEND_URL}/api/admin/supply-shop/orders/${orderId}/artwork`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: form,
+    }
+  );
+  const text = await res.text();
+  let data: unknown = text;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    /* leave as text */
+  }
+  return { status: res.status, ok: res.ok, data: data as never };
+}
+
+export function sendSupplyProofRaw(
+  adminToken: string,
+  orderId: string,
+  versionId: string
+): Promise<RawResponse<{ success: boolean; code?: string }>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/admin/supply-shop/orders/${orderId}/send-proof`,
+    { versionId },
+    adminToken
+  );
+}
+
+export interface SupplyFulfilmentDraft {
+  route: string;
+  deepLink: string | null;
+  orderNumber: string;
+  settled: boolean;
+  paymentTerm: SupplyPaymentTerm | null;
+  quantity: number;
+  finalPrice: { unitPrice: number; shippingAmount: number } | null;
+  estimate: { totalLow: number | null; totalHigh: number | null };
+  draft: Record<string, unknown>;
+  suppliers: Array<{ name: string; isPreferred: boolean; blindShips: boolean }>;
+}
+
+export function getSupplyFulfilmentDraftRaw(
+  adminToken: string,
+  orderId: string,
+  route = "PRINT_ORDER"
+): Promise<RawResponse<{ success: boolean; data: SupplyFulfilmentDraft }>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/admin/supply-shop/orders/${orderId}/fulfilment-draft?route=${route}`,
+    undefined,
+    adminToken
+  );
+}
+
+export interface SupplyFulfilBody {
+  route?: string;
+  vendor?: string;
+  unitCost?: number;
+  shippingCost?: number;
+  taxCost?: number;
+  vendorOrderRef?: string;
+  notes?: string;
+  finalUnitPrice?: number;
+  finalShippingAmount?: number;
+  comp?: boolean;
+  compReason?: string;
+}
+
+export interface SupplyFulfilOutcome {
+  settled: boolean;
+  hostedPaymentUrl: string | null;
+  route: string;
+  recordId: string | null;
+  cost: number;
+  giftCardBatchId?: string | null;
+}
+
+export function fulfilSupplyOrderRaw(
+  adminToken: string,
+  orderId: string,
+  body: SupplyFulfilBody
+): Promise<
+  RawResponse<{ success: boolean; code?: string; data?: SupplyFulfilOutcome }>
+> {
+  return apiRequestRaw(
+    "POST",
+    `/api/admin/supply-shop/orders/${orderId}/fulfil`,
+    body,
+    adminToken
+  );
+}
+
+/** text/csv — the body comes back as the raw CSV string. */
+export function getSupplyGiftCardExportRaw(
+  adminToken: string,
+  orderId: string
+): Promise<RawResponse<string>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/admin/supply-shop/orders/${orderId}/gift-card-export`,
+    undefined,
+    adminToken
+  );
+}
+
+export interface FinanceOverviewSummary {
+  supplyShop: {
+    revenue: number;
+    cost: number;
+    margin: number;
+    freeTierCost: number;
+    compedCost: number;
+    refunds: number;
+  };
+  giftCards: {
+    liability: number;
+    cashReceivable: number;
+    platformHeld: number;
+  };
+}
+
+export function getAdminFinanceRaw(
+  adminToken: string
+): Promise<
+  RawResponse<{ success: boolean; data: { summary: FinanceOverviewSummary } }>
+> {
+  return apiRequestRaw("GET", "/api/admin/finance", undefined, adminToken);
+}
+
+// ── Gift cards: config + physical batches (admin) ────────────────────────────
+
+export interface GiftCardConfigFull extends GiftCardConfig {
+  allowPhysicalActivation?: boolean;
+  allowCashFunding?: boolean;
+  maxCashFloatPerLocation?: number;
+}
+
+export function getGiftCardConfigAdminRaw(
+  adminToken: string,
+  restaurantId: string
+): Promise<RawResponse<{ success: boolean; data: GiftCardConfigFull }>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/admin/gift-cards/config?restaurantId=${restaurantId}`,
+    undefined,
+    adminToken
+  );
+}
+
+/** Upsert — only the keys present change. `isEnabled: true` is what makes the shop show the card product. */
+export function putGiftCardConfigAdminRaw(
+  adminToken: string,
+  restaurantId: string,
+  body: Partial<GiftCardConfigFull>
+): Promise<RawResponse<{ success: boolean; data: GiftCardConfigFull }>> {
+  return apiRequestRaw(
+    "PUT",
+    `/api/admin/gift-cards/config?restaurantId=${restaurantId}`,
+    body,
+    adminToken
+  );
+}
+
+export interface GiftCardBatchRow {
+  id: string;
+  label: string;
+  quantity: number;
+  status: "DRAFT" | "EXPORTED" | "FROZEN";
+  restaurantId: string | null;
+  restaurantGroupId: string | null;
+  exportedAt: string | null;
+  exportCount: number;
+  supplyOrder: { id: string; orderNumber: string } | null;
+  counts: {
+    inactive: number;
+    active: number;
+    depleted: number;
+    frozen: number;
+  };
+}
+
+export function createGiftCardBatchRaw(
+  adminToken: string,
+  body: {
+    restaurantId?: string;
+    restaurantGroupId?: string;
+    quantity: number;
+    label: string;
+    vendorRef?: string;
+    note?: string;
+  }
+): Promise<
+  RawResponse<{ success: boolean; code?: string; data?: GiftCardBatchRow }>
+> {
+  return apiRequestRaw(
+    "POST",
+    "/api/admin/gift-cards/batches",
+    body,
+    adminToken
+  );
+}
+
+export function listGiftCardBatchesRaw(
+  adminToken: string,
+  restaurantId: string
+): Promise<RawResponse<{ success: boolean; data: GiftCardBatchRow[] }>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/admin/gift-cards/batches?restaurantId=${restaurantId}`,
+    undefined,
+    adminToken
+  );
+}
+
+export function exportGiftCardBatchCsvRaw(
+  adminToken: string,
+  batchId: string
+): Promise<RawResponse<string>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/admin/gift-cards/batches/${batchId}/export.csv`,
+    undefined,
+    adminToken
+  );
+}
+
+export function freezeGiftCardBatchRaw(
+  adminToken: string,
+  batchId: string
+): Promise<RawResponse<{ success: boolean; data?: { frozen: number } }>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/admin/gift-cards/batches/${batchId}/freeze`,
+    undefined,
+    adminToken
+  );
+}
+
+export function listGiftCardsAdminRaw(
+  adminToken: string,
+  params: { restaurantId: string; batchId?: string; status?: string }
+): Promise<
+  RawResponse<{
+    success: boolean;
+    data: {
+      giftCards: Array<{ id: string; code: string; status: string }>;
+      total: number;
+    };
+  }>
+> {
+  const search = new URLSearchParams({
+    restaurantId: params.restaurantId,
+    limit: "100",
+  });
+  if (params.batchId) search.set("batchId", params.batchId);
+  if (params.status) search.set("status", params.status);
+  return apiRequestRaw(
+    "GET",
+    `/api/admin/gift-cards?${search.toString()}`,
+    undefined,
+    adminToken
+  );
+}
+
+export function unfreezeGiftCardRaw(
+  adminToken: string,
+  giftCardId: string
+): Promise<RawResponse<{ success: boolean; data?: { status: string } }>> {
+  return apiRequestRaw(
+    "PATCH",
+    `/api/admin/gift-cards/${giftCardId}/unfreeze`,
+    undefined,
+    adminToken
+  );
+}
+
+export function adjustGiftCardBalanceRaw(
+  adminToken: string,
+  giftCardId: string,
+  amount: number,
+  reason: string
+): Promise<RawResponse<{ success: boolean; code?: string }>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/admin/gift-cards/${giftCardId}/adjust`,
+    { amount, reason },
+    adminToken
+  );
+}
+
+export function validateGiftCardPublicRaw(
+  code: string,
+  restaurantId: string
+): Promise<
+  RawResponse<{ success: boolean; data: { valid: boolean; reason?: string } }>
+> {
+  return apiRequestRaw(
+    "POST",
+    `/api/gift-cards/validate/${code.replace(/[^A-Za-z0-9]/g, "")}`,
+    { restaurantId }
+  );
+}

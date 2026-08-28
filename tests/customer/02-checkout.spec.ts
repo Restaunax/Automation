@@ -18,8 +18,12 @@ import {
   createTestMenuGroup,
   createMenuItemRaw,
   deleteTestMenuGroupWithItems,
+  createGiftCardBatchRaw,
+  exportGiftCardBatchCsvRaw,
+  freezeGiftCardBatchRaw,
   type ApiMenuItem,
 } from "../../utils/apiHelper";
+import { csvToObjects } from "../../utils/csvHelper";
 import { STRIPE_CARDS } from "../../utils/stripeCards";
 
 const TEMPLATE_WIND_URL = process.env.TEMPLATE_WIND_URL ?? "";
@@ -784,5 +788,77 @@ test.describe("Customer — Checkout gift card", () => {
     await expect(
       page.getByRole("heading", { name: "Order Confirmed!" })
     ).toBeVisible({ timeout: 20_000 });
+  });
+});
+
+// ── Physical gift card STOCK at checkout. A pre-printed card is a code with no
+// money on it until a register loads it; presenting one at checkout must be
+// refused like any other unusable card. Seeds the stock through the admin
+// batch endpoints (there is no purchase — that is the point) and reads the
+// code back from the printer export.
+test.describe("Customer — Checkout physical gift card stock", () => {
+  test.skip(
+    !TEMPLATE_WIND_URL || !ADMIN_EMAIL || !ADMIN_PASSWORD,
+    "TEMPLATE_WIND_URL and ADMIN_EMAIL/PASSWORD must be set in .env"
+  );
+
+  test.beforeEach(async () => {
+    await allure.label("feature", "Customer Ordering");
+    await allure.label("severity", "critical");
+  });
+
+  test("TC-477: an unloaded (INACTIVE) physical card is refused at checkout", async ({
+    page,
+  }) => {
+    await allure.description(
+      "A card minted for the printer but never loaded at a register has status INACTIVE and a zero " +
+        "balance. Applying its code at checkout shows the rejection and applies nothing — the opposite of " +
+        "TC-171's funded card."
+    );
+
+    const restaurantId = readRestaurantId();
+    const { menuItemId, menuItemName, menuItemPrice } = readSharedState();
+    const checkoutPage = createCustomerCheckoutPage(page);
+    const runId = generateRunId();
+    const adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD))
+      .accessToken;
+
+    const { batchId, code } = await allure.step(
+      "Mint one card of stock and read its code",
+      async () => {
+        const batch = await createGiftCardBatchRaw(adminToken, {
+          restaurantId,
+          quantity: 1,
+          label: `Auto stock ${runId}`,
+        });
+        expect(batch.status, JSON.stringify(batch.data)).toBe(201);
+        const csv = await exportGiftCardBatchCsvRaw(
+          adminToken,
+          batch.data.data!.id
+        );
+        expect(csv.status, String(csv.data).slice(0, 200)).toBe(200);
+        const { rows } = csvToObjects(csv.data);
+        const first = rows[0];
+        expect(first, "one exported row").toBeTruthy();
+        await allure.parameter("Gift card code", first?.code_display ?? "");
+        return { batchId: batch.data.data!.id, code: first?.code ?? "" };
+      }
+    );
+
+    try {
+      await checkoutPage.seedCart(
+        restaurantId,
+        menuItemId,
+        menuItemName,
+        menuItemPrice
+      );
+      await checkoutPage.applyGiftCard(code);
+      await checkoutPage.assertGiftCardRejected();
+    } finally {
+      // Stock that never sold is frozen so the code can never be loaded later.
+      await freezeGiftCardBatchRaw(adminToken, batchId).catch(() => {
+        /* cleanup is best-effort; the tenant is the shared seed restaurant */
+      });
+    }
   });
 });
