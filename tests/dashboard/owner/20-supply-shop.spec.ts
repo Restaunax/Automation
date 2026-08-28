@@ -151,7 +151,7 @@ test.describe("Owner — Print Shop (supply shop)", () => {
       throw new Error(
         `[supply-shop] could not grant SUPPLY_SHOP: ${msg(grant.data)}`
       );
-    // Gift cards OFF to start: TC-446 proves the product is hidden until they're on.
+    // Gift cards OFF to start: TC-446 proves the product is offered anyway.
     const cfg = await putGiftCardConfigAdminRaw(adminToken, restaurantId, {
       isEnabled: false,
     });
@@ -203,29 +203,34 @@ test.describe("Owner — Print Shop (supply shop)", () => {
     await allure.label("severity", "critical");
   });
 
-  test("TC-446: the physical gift card is hidden from the shop until gift cards are on — but never from the admin catalog", async () => {
+  test("TC-446: the physical gift card is offered to every restaurant — gift cards on or not — and the admin catalog agrees", async () => {
     await allure.description(
-      "A restaurant that hasn't switched gift cards on has no way to load or redeem the cards it would buy, " +
-        "so the shop hides the product (keyed on the GIFT_CARD_BATCH hook). The admin catalog lists it regardless."
+      "Ordering a run of cards IS how an owner says they want to sell gift cards; the switch that makes them " +
+        "loadable is flipped on our side when the run is fulfilled. So the product must be in the shop even " +
+        "while this tenant's gift cards are OFF, with its picture, price and lead time."
     );
 
     await allure.step(
-      "Gift cards OFF → not in the shop, not in the owner API",
+      "Gift cards OFF → the card is still in the shop and the owner API",
       async () => {
         await shop.goto(restaurantId);
-        await expect(shop.productCard(PRODUCT_NAME)).toHaveCount(0);
+        const card = shop.productCard(PRODUCT_NAME).first();
+        await expect(card).toBeVisible();
+        await expect(card).toContainText("from $1.10 each");
+        await expect(card).toContainText(/~\d+ days/);
+        await expect(card.locator("img")).toHaveAttribute("src", /.+/);
         const catalog = await getSupplyCatalogOwnerRaw(
           ownerToken,
           restaurantId
         );
         expect(catalog.status, JSON.stringify(catalog.data)).toBe(200);
-        expect(catalog.data.data.map((p) => p.slug)).not.toContain(
+        expect(catalog.data.data.map((p) => p.slug)).toContain(
           SUPPLY_GIFT_CARD_PRODUCT_SLUG
         );
       }
     );
 
-    await allure.step("The admin catalog lists it either way", async () => {
+    await allure.step("The admin catalog lists it too", async () => {
       const admin = await getAdminSupplyCatalogRaw(adminToken);
       expect(admin.data.data.map((p) => p.slug)).toContain(
         SUPPLY_GIFT_CARD_PRODUCT_SLUG
@@ -233,7 +238,7 @@ test.describe("Owner — Print Shop (supply shop)", () => {
     });
 
     await allure.step(
-      "Gift cards ON → the card appears with its price and lead time",
+      "Switch gift cards on for the rest of the file (presets the amount picker will use)",
       async () => {
         const cfg = await putGiftCardConfigAdminRaw(adminToken, restaurantId, {
           isEnabled: true,
@@ -244,11 +249,6 @@ test.describe("Owner — Print Shop (supply shop)", () => {
           canCombineWithCoupons: true,
         });
         expect(cfg.status, JSON.stringify(cfg.data)).toBe(200);
-        await shop.goto(restaurantId);
-        const card = shop.productCard(PRODUCT_NAME).first();
-        await expect(card).toBeVisible();
-        await expect(card).toContainText("from $1.10 each");
-        await expect(card).toContainText(/~\d+ days/);
       }
     );
   });

@@ -32,6 +32,7 @@ import {
   setFeatureOverrideAdminRaw,
   deleteFeatureOverrideAdminRaw,
   putGiftCardConfigAdminRaw,
+  getGiftCardConfigAdminRaw,
   placeSupplyOrderViaApi,
   createSupplyDesignOwnerRaw,
   createSupplyOrderOwnerRaw,
@@ -129,8 +130,9 @@ test.describe("Admin — Supply shop", () => {
       throw new Error(
         `[supply-shop] could not grant SUPPLY_SHOP: ${msg(grant.data)}`
       );
+    // OFF on purpose: TC-462 proves fulfilment of a card run turns it on.
     const cfg = await putGiftCardConfigAdminRaw(adminToken, restaurantId, {
-      isEnabled: true,
+      isEnabled: false,
       presetDenominations: [25, 50],
       allowCustomAmount: true,
       minCustomAmount: 5,
@@ -441,6 +443,10 @@ test.describe("Admin — Supply shop", () => {
       expect(done.paidAt).toBeTruthy();
       expect(done.paymentTerm).toBe("COMP");
       expect(done.giftCardBatchId).toBe(outcome.data.giftCardBatchId);
+      // Fulfilling a card run switches gift cards ON for the scope — the owner
+      // can't flip that switch themselves, and cards nobody can load are plastic.
+      const cfg = await getGiftCardConfigAdminRaw(adminToken, restaurantId);
+      expect(cfg.data.data.isEnabled).toBe(true);
 
       await admin.openTab("History");
       await expect(admin.row(orderE.orderNumber)).toBeVisible();

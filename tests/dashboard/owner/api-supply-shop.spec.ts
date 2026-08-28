@@ -160,7 +160,7 @@ test.describe("Owner — Supply shop API contract", () => {
     expect([400, 403], JSON.stringify(missing.data)).toContain(missing.status);
   });
 
-  test("TC-480: the shop's search finds the gift card only once gift cards are on", async () => {
+  test("TC-480: the shop's search finds the gift card whether or not gift cards are on", async () => {
     await putGiftCardConfigAdminRaw(adminToken, restaurantId, {
       isEnabled: false,
     });
@@ -169,7 +169,7 @@ test.describe("Owner — Supply shop API contract", () => {
       restaurantId,
       "gift"
     );
-    expect(off.data.data.map((p) => p.slug)).not.toContain(
+    expect(off.data.data.map((p) => p.slug)).toContain(
       SUPPLY_GIFT_CARD_PRODUCT_SLUG
     );
     await putGiftCardConfigAdminRaw(adminToken, restaurantId, {
