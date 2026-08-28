@@ -127,10 +127,17 @@ export const createOwnerSupplyShopPage = (page: Page) => {
       name: /^Pay \$[\d.,]+ to print$/,
     });
 
-  const cancelOrder = async (orderNumber: string) => {
+  /** The ⋮ menu on a row — print file and cancel live there, not as buttons. */
+  const openRowMenu = async (orderNumber: string) => {
     await orderRow(orderNumber)
-      .getByRole("button", { name: "Cancel", exact: true })
+      .getByRole("button", { name: "More actions" })
       .click();
+    await expect(page.getByRole("menu")).toBeVisible();
+  };
+
+  const cancelOrder = async (orderNumber: string) => {
+    await openRowMenu(orderNumber);
+    await page.getByRole("menuitem", { name: "Cancel", exact: true }).click();
     await expect(dialog()).toContainText("Cancel this order?");
     // The confirm dialog's affirmative button — the destructive one.
     await dialog()
@@ -163,6 +170,7 @@ export const createOwnerSupplyShopPage = (page: Page) => {
     approveProof,
     requestChanges,
     payNowLink,
+    openRowMenu,
     cancelOrder,
   };
 };

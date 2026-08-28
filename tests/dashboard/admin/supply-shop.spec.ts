@@ -201,9 +201,9 @@ test.describe("Admin — Supply shop", () => {
     await expect(admin.row(orderC.orderNumber)).toContainText(
       `${ESTIMATE} est.`
     );
-    await expect(
-      admin.rowButton(orderC.orderNumber, "Brief pack")
-    ).toBeVisible();
+    await admin.openRowMenu(orderC.orderNumber);
+    await expect(admin.menuItem("Brief pack")).toBeVisible();
+    await admin.closeRowMenu();
     await expect(
       admin.rowButton(orderC.orderNumber, "Upload artwork")
     ).toBeVisible();
@@ -451,9 +451,9 @@ test.describe("Admin — Supply shop", () => {
 
       await admin.openTab("History");
       await expect(admin.row(orderE.orderNumber)).toBeVisible();
-      await expect(
-        admin.rowButton(orderE.orderNumber, "Card export")
-      ).toBeVisible();
+      await admin.openRowMenu(orderE.orderNumber);
+      await expect(admin.menuItem("Card export")).toBeVisible();
+      await admin.closeRowMenu();
 
       await expect
         .poll(

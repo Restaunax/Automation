@@ -222,11 +222,21 @@ export const createAdminSupplyShopPage = (page: Page) => {
       exact: false,
     });
 
-  /** "Card export" downloads through apiService as a blob — a real download event. */
+  /** The ⋮ menu on a row — brief pack, print file and card export live there. */
+  const openRowMenu = async (orderNumber: string) => {
+    await rowButton(orderNumber, "More actions").click();
+    await expect(page.getByRole("menu")).toBeVisible();
+  };
+  const menuItem = (name: string) =>
+    page.getByRole("menuitem", { name, exact: true });
+  const closeRowMenu = () => page.keyboard.press("Escape");
+
+  /** "Card export" (in the ⋮ menu) downloads through apiService as a blob — a real download event. */
   const downloadCardExport = async (orderNumber: string) => {
+    await openRowMenu(orderNumber);
     const [download] = await Promise.all([
       page.waitForEvent("download", { timeout: 60_000 }),
-      rowButton(orderNumber, "Card export").click(),
+      menuItem("Card export").click(),
     ]);
     return download;
   };
@@ -277,6 +287,9 @@ export const createAdminSupplyShopPage = (page: Page) => {
     submitFulfil,
     cancelDialog,
     paymentLinkNotice,
+    openRowMenu,
+    menuItem,
+    closeRowMenu,
     downloadCardExport,
   };
 };
