@@ -144,7 +144,11 @@ test.describe("Owner — Supply shop API contract", () => {
       variantId,
       quantity: 50,
     });
-    expect(tooFew.status).toBe(400);
+    // 409, not 400: the quantity is well-formed, it is the CATALOG that has no
+    // tier for it (NO_PRICE_TIER) — the same status the pricing service uses
+    // for every catalog-state refusal. Only a malformed quantity is a 400.
+    expect(tooFew.status, JSON.stringify(tooFew.data)).toBe(409);
+    expect((tooFew.data as { code?: string }).code).toBe("NO_PRICE_TIER");
   });
 
   test("TC-479: the restaurant comes from X-Restaurant-Id — missing is 400, another owner's restaurant is refused", async () => {
