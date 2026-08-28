@@ -216,6 +216,23 @@ then delete this entry (or mark it done with the date) rather than letting it go
 
 ---
 
+## 11. Physical gift cards — the print run and the card in hand
+
+- **What**: a `physical-gift-card` supply-shop order goes to the printer with the batch CSV
+  (`Card export`), the cards come back with the number and a Code-128 barcode on the back, and a
+  card from the box (a) types in at a register and loads, (b) scans on a USB scanner / the V3H
+  camera, (c) redeems at checkout.
+- **Why it's physical**: everything up to the CSV is automated (TC-446–483). The printer's
+  personalisation — barcode symbology, placement, quiet zone, the readable number beneath it —
+  and the scanner's read of that print exist only on plastic. A CSV that is right and a card
+  that does not scan is the failure mode that costs a whole run.
+- **How**: after the first run from the preferred supplier (Continental BizMag — see the shop's
+  supplier directory) arrives: pick three cards from different parts of the box; for each,
+  `GET /api/gift-cards/balance/<printed number>` must return `INACTIVE`; scan the barcode with a
+  USB scanner in keyboard mode into a text field — the typed string must equal the number under
+  it; then load one at a register by cash, redeem it at checkout, and void one load the same day.
+  Card-vs-barcode mismatches or a non-scanning symbol block the batch, not the release.
+
 ## Known findings awaiting product fixes
 
 Not physical tests — these are real bugs discovered while building this arc's automation, recorded
