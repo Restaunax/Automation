@@ -12,7 +12,9 @@ suite when that repo is next touched.
   in `IN_DESIGN`. The admin's **Fulfil** is the one call that moves money: final price, or comp,
   then charge → cost record → post-fulfilment hook → `IN_PRODUCTION`.
 - **Every catalog product requires artwork**, so the admin design step (upload a PDF → preflight →
-  send proof) sits between placement and fulfilment in every E2E path. `utils/pdfFixture.ts`
+  send proof) sits between placement and fulfilment in every E2E path. Preflight is ADVISORY for
+  size and page count (the printer is the authority; a file may carry several layout options —
+  every page is proofed); only an unreadable file or a wrong QR blocks. `utils/pdfFixture.ts`
   builds the PDF by hand; the right page size is trim + 0.125 in bleed per edge.
 - **Comp is the only E2E route to a minted gift-card batch.** The CHARGE path on a throwaway
   tenant (no saved card) falls back to Stripe hosted Checkout, which cannot be completed on QA

@@ -212,10 +212,11 @@ test.describe("Admin — Supply shop", () => {
     await expect(admin.row(orderC.orderNumber)).toHaveCount(0);
   });
 
-  test("TC-457: artwork at the wrong page size is BLOCKED by preflight and cannot be sent as a proof", async () => {
+  test("TC-457: artwork at the wrong page size is measured and WARNED about — never blocked; size is the printer's call", async () => {
     await allure.description(
-      "US Letter for a credit-card-size product: pageSize BLOCKs, the version still exists (the admin " +
-        "needs the verdict), and send-proof answers 409 PREFLIGHT_BLOCKED."
+      "US Letter for a credit-card-size product: pageSize WARNs with both sizes in the detail, the report " +
+        "stays sendable (the vendor's preflight is the authority on size — Neaj, 2026-08-28), and the " +
+        "version exists for the admin to judge. Nothing is sent here; TC-458 sends the passing file."
     );
     const upload = await uploadSupplyArtworkRaw(
       adminToken,
@@ -225,19 +226,19 @@ test.describe("Admin — Supply shop", () => {
     );
     expect(upload.status, JSON.stringify(upload.data)).toBe(200);
     const report = upload.data.data!.preflight;
-    expect(report.worstVerdict).toBe("BLOCK");
-    expect(report.sendable).toBe(false);
+    expect(report.worstVerdict).toBe("WARN");
+    expect(report.sendable).toBe(true);
     expect(report.checks).toContainEqual(
-      expect.objectContaining({ key: "pageSize", verdict: "BLOCK" })
+      expect.objectContaining({
+        key: "pageSize",
+        verdict: "WARN",
+        detail: expect.objectContaining({
+          actualIn: "8.5 x 11",
+          expectedIn: "3.625 x 2.375",
+        }),
+      })
     );
-
-    const sent = await sendSupplyProofRaw(
-      adminToken,
-      orderC.id,
-      upload.data.data!.versionId
-    );
-    expect(sent.status, JSON.stringify(sent.data)).toBe(409);
-    expect(sent.data.code).toBe("PREFLIGHT_BLOCKED");
+    expect((await adminOrder(orderC.id)).status).toBe("IN_DESIGN");
   });
 
   test(

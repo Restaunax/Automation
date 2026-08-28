@@ -2,11 +2,12 @@
  * pdfFixture — a dependency-free PDF the supply-shop artwork preflight accepts.
  *
  * The admin design step uploads a print-ready PDF that the backend preflights
- * (`restaunax-backend/src/Service/supplyShop/preflightService.ts`). It BLOCKs
- * on the wrong page size (trim + bleed, ±0.5pt) or page count, and only WARNs
- * on fonts / bare edges / flat black — so a single-page PDF at the right size
- * with a solid, non-black fill passes with at most a WARN and can be sent as
- * a proof. No PDF library is installed here (and none is needed): the file is
+ * (`restaunax-backend/src/Service/supplyShop/preflightService.ts`). Since
+ * 2026-08-28 that preflight is ADVISORY for size and page count (the printer
+ * is the authority; a file may carry several layouts) — only an unreadable
+ * file or a wrong QR blocks — so a single-page PDF at the briefed size with a
+ * solid, non-black fill comes back clean (OK/WARN) and can be sent as a proof.
+ * No PDF library is installed here (and none is needed): the file is
  * assembled by hand with a correct xref table, which pdf-lib parses cleanly.
  */
 
@@ -77,6 +78,6 @@ export function buildFlatPdf({
 export const giftCardPassingPdf = (): Buffer =>
   buildFlatPdf({ widthPt: CR80_PAGE_PT.width, heightPt: CR80_PAGE_PT.height });
 
-/** US Letter — the wrong size for every card product, so preflight BLOCKs on pageSize. */
+/** US Letter — the wrong size for every card product, so preflight WARNs on pageSize (advisory: the printer is the authority on size). */
 export const letterPdf = (): Buffer =>
   buildFlatPdf({ widthPt: 612, heightPt: 792 });
