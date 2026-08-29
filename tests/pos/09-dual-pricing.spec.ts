@@ -59,9 +59,6 @@ const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
-// TC-498 pins the reversible conversion (restaunax feat/dual-pricing-revert);
-// gate until that PR is on QA.
-const REVERT_LANDED = process.env.DUAL_PRICING_REVERT === "1";
 
 const MARKUP = 0.035;
 const ITEM_CASH = 12.95;
@@ -643,10 +640,6 @@ test.describe("POS — Dual pricing v2 (per-item cash tier)", () => {
   // Last on purpose: it flips the owner toggle and the stored prices, and the
   // final state (converted, enabled) matches what the earlier cases expect.
   test("TC-498: the conversion is reversible — refused while dual pricing is on, then divides every price back by the recorded markup, and can be run again", async () => {
-    test.skip(
-      !REVERT_LANDED,
-      "pins → restaunax feat/dual-pricing-revert — set DUAL_PRICING_REVERT=1 once it is on QA"
-    );
     await allure.description(
       "REVERT while enabled → 400 (turn it off first). Owner turns dual pricing off → REVERT " +
         "preview lists 13.40→12.95 / 3.11→3.00, execute restores them (menu serves no cashPrice " +
