@@ -1,0 +1,1 @@
+[placeTableFromTray] native drag did not register for "T1 00529de8" — falling back to click-to-place.
