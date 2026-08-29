@@ -15,7 +15,7 @@
  * owner PIN → staff sign-in → register open (cash orders are drawer-gated).
  *
  * Backend: restaunax #683 (merged 2026-08-29, on QA). First green run against
- * QA: 2026-08-29 (10 passed, TC-492 fixme).
+ * QA: 2026-08-29 (all of TC-484..493 live).
  *
  * Expected figures (7% tax, qty 2, item + add-on):
  *   card: 2 × (13.40 + 3.11) = 33.02 · tax 2.31 · total 35.33
