@@ -59,10 +59,6 @@ const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
-// TC-497 pins the attestation columns (restaunax feat/dual-pricing-followups);
-// gate until that PR is on QA.
-const ATTESTATIONS_LANDED = process.env.DUAL_PRICING_ATTESTATIONS === "1";
-
 const MARKUP = 0.035;
 const ITEM_CASH = 12.95;
 const ITEM_CARD = 13.4;
@@ -585,10 +581,6 @@ test.describe("POS — Dual pricing v2 (per-item cash tier)", () => {
   });
 
   test("TC-497: compliance attestations are admin-stamped booleans; owners cannot assert them; raw timestamps are ignored", async () => {
-    test.skip(
-      !ATTESTATIONS_LANDED,
-      "pins → restaunax feat/dual-pricing-followups (attestations) — set DUAL_PRICING_ATTESTATIONS=1 once it is on QA"
-    );
     await allure.description(
       "Admin PUT {dualPricingMenuAttested:true} stamps dualPricingMenuAttestedAt; an owner " +
         "PUT {dualPricingSignageAttested:true} is stripped (stays null); a raw timestamp key " +
