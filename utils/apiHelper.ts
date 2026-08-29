@@ -5588,9 +5588,11 @@ export function getTabletSettingsRaw(
   return apiRequestRaw("GET", "/api/tablet/settings", undefined, tabletToken);
 }
 
-/** POST /api/menu/restaurants/:id/dual-pricing/convert {preview, scope?} —
+/** POST /menu/restaurants/:id/dual-pricing/convert {preview, scope?} —
  *  the one-time "my stored prices were cash prices → raise them to card
- *  prices" conversion (409 once stamped). Owner or ADMIN. */
+ *  prices" conversion (409 once stamped). Owner or ADMIN. The menu router
+ *  is mounted at a bare `/menu` (no `/api` prefix — see the other /menu
+ *  helpers above). */
 export function convertDualPricingMenuRaw(
   accessToken: string,
   restaurantId: string,
@@ -5598,17 +5600,18 @@ export function convertDualPricingMenuRaw(
 ): Promise<RawResponse<Record<string, unknown>>> {
   return apiRequestRaw(
     "POST",
-    `/api/menu/restaurants/${restaurantId}/dual-pricing/convert`,
+    `/menu/restaurants/${restaurantId}/dual-pricing/convert`,
     body,
     accessToken
   );
 }
 
-/** GET /api/restaurant/:id/details — PUBLIC storefront landing payload. */
+/** GET /restaurant/:id/details — PUBLIC storefront landing payload. The
+ *  restaurant router is mounted at a bare `/restaurant` (no `/api` prefix). */
 export function getRestaurantDetailsPublicRaw(
   restaurantId: string
 ): Promise<RawResponse<Record<string, unknown>>> {
-  return apiRequestRaw("GET", `/api/restaurant/${restaurantId}/details`);
+  return apiRequestRaw("GET", `/restaurant/${restaurantId}/details`);
 }
 
 /** GET /api/restaurantId/:id/settings — the owner/admin settings row. */
