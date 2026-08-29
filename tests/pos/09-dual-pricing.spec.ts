@@ -7,9 +7,9 @@
  * that base. The server re-derives the discount from the order's own line
  * fields and refuses a mismatch.
  *
- * Own tenant, deliberately: the menu CONVERSION (TC-486) is a one-way stamp
- * on the restaurant, so this file can never run on the shared seed
- * restaurant. Setup chain mirrors 08-register-cash: admin-minted OWNER →
+ * Own tenant, deliberately: the menu CONVERSION (TC-486) rewrites every stored
+ * price and stamps the restaurant (reversible since TC-498, but never
+ * something to do to the shared seed restaurant). Setup chain mirrors 08-register-cash: admin-minted OWNER →
  * settings (tableServiceEnabled, acceptingOrders, tax 7%) → menu item seeded
  * at CASH prices (12.95 + a 3.00 add-on) → REGISTER device → tablet login →
  * owner PIN → staff sign-in → register open (cash orders are drawer-gated).
@@ -59,6 +59,10 @@ const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
+// TC-498 pins the reversible conversion (restaunax feat/dual-pricing-revert);
+// gate until that PR is on QA.
+const REVERT_LANDED = process.env.DUAL_PRICING_REVERT === "1";
+
 const MARKUP = 0.035;
 const ITEM_CASH = 12.95;
 const ITEM_CARD = 13.4;
@@ -634,5 +638,91 @@ test.describe("POS — Dual pricing v2 (per-item cash tier)", () => {
     const text = JSON.stringify(res.data);
     expect(text).not.toMatch(/dualPricing/);
     expect(text).not.toMatch(/passProcessingFeeToCustomer/);
+  });
+
+  // Last on purpose: it flips the owner toggle and the stored prices, and the
+  // final state (converted, enabled) matches what the earlier cases expect.
+  test("TC-498: the conversion is reversible — refused while dual pricing is on, then divides every price back by the recorded markup, and can be run again", async () => {
+    test.skip(
+      !REVERT_LANDED,
+      "pins → restaunax feat/dual-pricing-revert — set DUAL_PRICING_REVERT=1 once it is on QA"
+    );
+    await allure.description(
+      "REVERT while enabled → 400 (turn it off first). Owner turns dual pricing off → REVERT " +
+        "preview lists 13.40→12.95 / 3.11→3.00, execute restores them (menu serves no cashPrice " +
+        "while off), a second REVERT is 400 not_converted, and CONVERT runs again (12.95→13.40). " +
+        "Dual pricing is re-enabled at the end."
+    );
+    const whileOn = await convertDualPricingMenuRaw(token, restaurantId, {
+      preview: true,
+      direction: "REVERT",
+    });
+    expect(whileOn.status, msg(whileOn.data)).toBe(400);
+    expect(msg(whileOn.data)).toMatch(/turn dual pricing off/i);
+
+    await updateRestaurantSettingsApi(token, restaurantId, {
+      dualPricingEnabled: false,
+    });
+    const preview = await convertDualPricingMenuRaw(token, restaurantId, {
+      preview: true,
+      direction: "REVERT",
+    });
+    expect(preview.status, msg(preview.data)).toBe(200);
+    const rows = preview.data.rows as {
+      id: string;
+      from: number;
+      to: number;
+    }[];
+    expect(rows.find((r) => r.id === item.id)).toMatchObject({
+      from: ITEM_CARD,
+      to: ITEM_CASH,
+    });
+    expect(rows.find((r) => r.id === modifierId)).toMatchObject({
+      from: MOD_CARD,
+      to: MOD_CASH,
+    });
+
+    const run = await convertDualPricingMenuRaw(token, restaurantId, {
+      preview: false,
+      direction: "REVERT",
+    });
+    expect(run.status, msg(run.data)).toBe(200);
+    expect(typeof run.data.revertedAt).toBe("string");
+    let settings = await getRestaurantSettingsRaw(token, restaurantId);
+    expect(settings.data.dualPricingMenuConvertedAt ?? null).toBeNull();
+
+    const { menus } = await getRestaurantMenusApi(restaurantId, {
+      accessToken: token,
+    });
+    const restored = (
+      menus as unknown as {
+        groups?: {
+          items?: { id: string; price: number; cashPrice?: number }[];
+        }[];
+      }[]
+    )
+      .flatMap((m) => m.groups ?? [])
+      .flatMap((g) => g.items ?? [])
+      .find((i) => i.id === item.id);
+    expect(restored?.price).toBe(ITEM_CASH);
+    expect(restored?.cashPrice).toBeUndefined();
+
+    const again = await convertDualPricingMenuRaw(token, restaurantId, {
+      preview: false,
+      direction: "REVERT",
+    });
+    expect(again.status, msg(again.data)).toBe(400);
+
+    // The forward run is available again — and lands on the same card prices.
+    const reconvert = await convertDualPricingMenuRaw(token, restaurantId, {
+      preview: false,
+    });
+    expect(reconvert.status, msg(reconvert.data)).toBe(200);
+    settings = await getRestaurantSettingsRaw(token, restaurantId);
+    expect(typeof settings.data.dualPricingMenuConvertedAt).toBe("string");
+    expect(settings.data.dualPricingMenuConvertedMarkup).toBe(MARKUP);
+    await updateRestaurantSettingsApi(token, restaurantId, {
+      dualPricingEnabled: true,
+    });
   });
 });
