@@ -5596,7 +5596,13 @@ export function getTabletSettingsRaw(
 export function convertDualPricingMenuRaw(
   accessToken: string,
   restaurantId: string,
-  body: { preview: boolean; scope?: "LOCATION" | "MASTER" }
+  body: {
+    preview: boolean;
+    scope?: "LOCATION" | "MASTER";
+    /** CONVERT (default) raises cash → card; REVERT divides back by the
+     *  markup recorded at conversion (refused while dual pricing is on). */
+    direction?: "CONVERT" | "REVERT";
+  }
 ): Promise<RawResponse<Record<string, unknown>>> {
   return apiRequestRaw(
     "POST",
