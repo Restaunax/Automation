@@ -168,5 +168,5 @@ closed: false}` before it even generates candidate slots from the period —
 Dual pricing v2 (per-item cash tier) at the API level, on its OWN throwaway
 tenant — the one-time menu conversion stamps the restaurant, so it can never
 run on the shared seed. Backend restaunax #683 is on QA (first green run
-2026-08-29; TC-492 stays fixme). Figures come from Bella Cucina's printed menu (13.40 ↔ 12.95, 3.11 ↔ 3.00 at
+2026-08-29; all of TC-484..493 live). Figures come from Bella Cucina's printed menu (13.40 ↔ 12.95, 3.11 ↔ 3.00 at
 a 3.5% card markup); see `restaunax/docs/features/DUAL_PRICING.md`.

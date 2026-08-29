@@ -15,7 +15,7 @@
  * owner PIN → staff sign-in → register open (cash orders are drawer-gated).
  *
  * Backend: restaunax #683 (merged 2026-08-29, on QA). First green run against
- * QA: 2026-08-29 (10 passed, TC-492 fixme).
+ * QA: 2026-08-29 (all of TC-484..493 live).
  *
  * Expected figures (7% tax, qty 2, item + add-on):
  *   card: 2 × (13.40 + 3.11) = 33.02 · tax 2.31 · total 35.33
@@ -42,6 +42,7 @@ import {
   setOwnerPosPin,
   tabletStaffSignIn,
   createTabletOrderRaw,
+  modifyTabletOrderRaw,
   cancelTabletOrderRaw,
   getOrderFullRaw,
   settleTabCashRaw,
@@ -527,10 +528,57 @@ test.describe("POS — Dual pricing v2 (per-item cash tier)", () => {
     expect(msg(rest.data)).toMatch(/whole check/i);
   });
 
-  test.fixme("TC-492: editing a cash-priced order re-derives the discount at the restaurant's markup", async () => {
-    // Covered by backend unit tests (modifyTabletOrderCashDiscount.test.ts);
-    // the POS modify wire shape (server-resolved line fields) is exercised
-    // end-to-end once the device-in-store edit flow is on hardware.
+  test("TC-492: editing a cash-priced order re-derives the discount at the restaurant's markup", async () => {
+    await allure.description(
+      "A register order paid whole in cash is created at the cash tier (qty 2). " +
+        "PATCH /modify with qty 3 — the device sends only the new line set, never a " +
+        "discount claim — and the server re-derives the pre-tax discount from the " +
+        "authoritative menu at the restaurant's markup: 3 × (0.45 + 0.11) = 1.68, tax " +
+        "on the new cash base 47.85 → 3.35, total 51.20."
+    );
+    const created = await createTabletOrderRaw(
+      tabletToken,
+      staffSession,
+      cashTierBody()
+    );
+    expect(created.status, msg(created.data)).toBe(201);
+    const orderId = created.data.id!;
+    openedOrderIds.push(orderId);
+
+    const modified = await modifyTabletOrderRaw(
+      tabletToken,
+      staffSession,
+      orderId,
+      {
+        orderItems: [
+          {
+            menuItemId: item.id,
+            menuItemName: item.name,
+            quantity: QTY + 1,
+            price: ITEM_CARD,
+            selectedModifiers: [
+              {
+                modifierId,
+                modifierName,
+                modifierPrice: MOD_CARD,
+                quantity: 1,
+              },
+            ],
+          },
+        ],
+      }
+    );
+    expect(modified.status, msg(modified.data)).toBe(200);
+
+    const read = await getOrderFullRaw(token, orderId);
+    expect(read.data).toMatchObject({
+      subtotal: round2((ITEM_CARD + MOD_CARD) * (QTY + 1)), // 49.53 — card
+      cashDiscount: round2(
+        (ITEM_CARD + MOD_CARD - ITEM_CASH - MOD_CASH) * (QTY + 1)
+      ), // 1.68
+      tax: 3.35, // 7% of the cash base 47.85
+      total: 51.2,
+    });
   });
 
   test("TC-493: the public restaurant details payload never exposes the pricing-program flags", async () => {
