@@ -7,7 +7,7 @@
  * QA restaurant: admin enrolls + sets the markup, owner enables, everything
  * is restored in a finally.
  *
- * pins → restaunax feat/dual-pricing-v2 (not on QA yet); gate DUAL_PRICING_V2=1.
+ * Backend: restaunax #683 (merged 2026-08-29, on QA).
  */
 
 import * as allure from "allure-js-commons";
@@ -21,7 +21,6 @@ const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
-const BACKEND_LANDED = process.env.DUAL_PRICING_V2 === "1";
 
 test.describe("Customer — Dual pricing stays off the online checkout", () => {
   test.skip(
@@ -31,10 +30,6 @@ test.describe("Customer — Dual pricing stays off the online checkout", () => {
       !ADMIN_EMAIL ||
       !ADMIN_PASSWORD,
     "TEMPLATE_WIND_URL, OWNER + ADMIN creds must all be set in .env"
-  );
-  test.skip(
-    !BACKEND_LANDED,
-    "pins → restaunax feat/dual-pricing-v2 — set DUAL_PRICING_V2=1 once it is on QA"
   );
 
   test.beforeEach(async () => {

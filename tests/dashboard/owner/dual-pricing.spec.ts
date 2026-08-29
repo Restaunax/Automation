@@ -1,9 +1,10 @@
 /**
  * dual-pricing.spec.ts — Dashboard side of dual pricing v2 (owner + admin UI).
- * pins → restaunax feat/dual-pricing-v2 (not on QA yet). The API contract is
- * covered in tests/pos/09-dual-pricing.spec.ts (TC-484..493); this file holds
- * the UI cases, fixme'd until the dashboard build is on QA and the selectors
- * (markup field, Convert menu dialog, Order Settings gating) can be pinned.
+ * Backend restaunax #683 is on QA. The API contract is covered in
+ * tests/pos/09-dual-pricing.spec.ts (TC-484..493); this file holds the UI
+ * cases, fixme'd until the dashboard route-prefix fix (restaunax #684) is on
+ * QA and the selectors (markup field, Convert menu dialog, Order Settings
+ * gating) can be pinned.
  */
 
 import { test } from "../../../fixtures/base";

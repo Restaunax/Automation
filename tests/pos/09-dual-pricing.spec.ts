@@ -1,7 +1,6 @@
 /**
  * 09-dual-pricing.spec.ts — Dual pricing v2 (per-item cash tier), API level.
- * Feature: dual pricing (restaunax `feat/dual-pricing-v2`, device-in-store
- * Phase 2). The stored price of every item/modifier is the CARD price; a
+ * Feature: dual pricing (restaunax #683, device-in-store #44). The stored price of every item/modifier is the CARD price; a
  * company-admin card markup derives a cash price per unit (integer-cent
  * half-up, Bella Cucina's printed menu: 13.40 ↔ 12.95, 3.11 ↔ 3.00 at 3.5%),
  * and a ticket paid ENTIRELY in cash is charged the cash prices, taxed on
@@ -15,9 +14,8 @@
  * at CASH prices (12.95 + a 3.00 add-on) → REGISTER device → tablet login →
  * owner PIN → staff sign-in → register open (cash orders are drawer-gated).
  *
- * pins → restaunax feat/dual-pricing-v2 (not on QA yet). Gate: set
- * DUAL_PRICING_V2=1 once the backend PR is merged and deployed; until then
- * the file self-skips so the nightly stays honest.
+ * Backend: restaunax #683 (merged 2026-08-29, on QA). First green run against
+ * QA: 2026-08-29 (10 passed, TC-492 fixme).
  *
  * Expected figures (7% tax, qty 2, item + add-on):
  *   card: 2 × (13.40 + 3.11) = 33.02 · tax 2.31 · total 35.33
@@ -60,7 +58,6 @@ const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
-const BACKEND_LANDED = process.env.DUAL_PRICING_V2 === "1";
 
 const MARKUP = 0.035;
 const ITEM_CASH = 12.95;
@@ -85,10 +82,6 @@ test.describe("POS — Dual pricing v2 (per-item cash tier)", () => {
   test.skip(
     !OWNER_EMAIL || !OWNER_PASSWORD || !ADMIN_EMAIL || !ADMIN_PASSWORD,
     "OWNER + ADMIN creds needed (the file mints its own throwaway tenant)"
-  );
-  test.skip(
-    !BACKEND_LANDED,
-    "pins → restaunax feat/dual-pricing-v2 — set DUAL_PRICING_V2=1 once it is on QA"
   );
 
   const runId = generateRunId();
@@ -169,13 +162,7 @@ test.describe("POS — Dual pricing v2 (per-item cash tier)", () => {
   };
 
   test.beforeAll(async () => {
-    if (
-      !OWNER_EMAIL ||
-      !OWNER_PASSWORD ||
-      !ADMIN_EMAIL ||
-      !ADMIN_PASSWORD ||
-      !BACKEND_LANDED
-    )
+    if (!OWNER_EMAIL || !OWNER_PASSWORD || !ADMIN_EMAIL || !ADMIN_PASSWORD)
       return;
     adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
     const tenant = await createSecondOwner(adminToken, runId);
@@ -224,7 +211,7 @@ test.describe("POS — Dual pricing v2 (per-item cash tier)", () => {
         ] as never,
       }
     );
-    const detail = (await getMenuItemApi(item.id, token)) as unknown as {
+    const detail = (await getMenuItemApi(token, item.id)) as unknown as {
       modifierGroups?: { modifiers: { id: string; name: string }[] }[];
     };
     const mod = detail.modifierGroups?.[0]?.modifiers?.[0];
