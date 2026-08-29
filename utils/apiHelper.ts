@@ -3416,6 +3416,9 @@ export interface TabLegResponse {
   clientSecret?: string | null;
   amount?: number;
   fee?: number;
+  /** settle-cash with applyCashDiscount: the check was re-priced at the
+   *  dual-pricing cash tier and this leg collected exactly `total`. */
+  cashTier?: { cashDiscount: number; total: number };
   message?: string;
   success?: boolean;
 }
@@ -3534,6 +3537,8 @@ export function settleTabCashRaw(
     cashTendered?: number;
     tip?: number;
     idempotencyKey?: string;
+    /** Dual pricing: settle the WHOLE untouched check at the cash tier. */
+    applyCashDiscount?: boolean;
   }
 ): Promise<RawResponse<TabLegResponse>> {
   return apiRequestRaw(
@@ -5569,5 +5574,67 @@ export function validateGiftCardPublicRaw(
     "POST",
     `/api/gift-cards/validate/${code.replace(/[^A-Za-z0-9]/g, "")}`,
     { restaurantId }
+  );
+}
+
+// ── Dual pricing v2 (per-item cash tier) ─────────────────────────────────────
+
+/** GET /api/tablet/settings — the device's settings payload; carries the
+ *  server-resolved `dualPricing { active, cardMarkup, discountPercent,
+ *  notices }` contract beside `settings`. */
+export function getTabletSettingsRaw(
+  tabletToken: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw("GET", "/api/tablet/settings", undefined, tabletToken);
+}
+
+/** POST /api/menu/restaurants/:id/dual-pricing/convert {preview, scope?} —
+ *  the one-time "my stored prices were cash prices → raise them to card
+ *  prices" conversion (409 once stamped). Owner or ADMIN. */
+export function convertDualPricingMenuRaw(
+  accessToken: string,
+  restaurantId: string,
+  body: { preview: boolean; scope?: "LOCATION" | "MASTER" }
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/menu/restaurants/${restaurantId}/dual-pricing/convert`,
+    body,
+    accessToken
+  );
+}
+
+/** GET /api/restaurant/:id/details — PUBLIC storefront landing payload. */
+export function getRestaurantDetailsPublicRaw(
+  restaurantId: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw("GET", `/api/restaurant/${restaurantId}/details`);
+}
+
+/** GET /api/restaurantId/:id/settings — the owner/admin settings row. */
+export function getRestaurantSettingsRaw(
+  accessToken: string,
+  restaurantId: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/restaurantId/${restaurantId}/settings`,
+    undefined,
+    accessToken
+  );
+}
+
+/** PUT /api/restaurantId/:id/settings — RAW (asserts refusals: 400 on the
+ *  dual-pricing invariants). */
+export function updateRestaurantSettingsRaw(
+  accessToken: string,
+  restaurantId: string,
+  patch: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "PUT",
+    `/api/restaurantId/${restaurantId}/settings`,
+    patch,
+    accessToken
   );
 }

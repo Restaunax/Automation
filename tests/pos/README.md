@@ -162,3 +162,12 @@ closed: false}` before it even generates candidate slots from the period —
   OPEN **and CLOSE**, staff sessions, and the drawer-exclusivity lock are now
   covered by the 03 + 08 harnesses; tablet-initiated cancel is covered by
   TC-383 — https://github.com/Restaunax/Automation/issues/15 can close.)
+
+## 09-dual-pricing.spec.ts
+
+Dual pricing v2 (per-item cash tier) at the API level, on its OWN throwaway
+tenant — the one-time menu conversion stamps the restaurant, so it can never
+run on the shared seed. Gated on `DUAL_PRICING_V2=1` (pins → restaunax
+`feat/dual-pricing-v2`) so the nightly stays honest until the backend is on QA.
+Figures come from Bella Cucina's printed menu (13.40 ↔ 12.95, 3.11 ↔ 3.00 at
+a 3.5% card markup); see `restaunax/docs/features/DUAL_PRICING.md`.
