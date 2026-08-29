@@ -59,6 +59,9 @@ const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
+// TC-497 pins the attestation columns (restaunax feat/dual-pricing-followups);
+// gate until that PR is on QA.
+const ATTESTATIONS_LANDED = process.env.DUAL_PRICING_ATTESTATIONS === "1";
 
 const MARKUP = 0.035;
 const ITEM_CASH = 12.95;
@@ -579,6 +582,58 @@ test.describe("POS — Dual pricing v2 (per-item cash tier)", () => {
       tax: 3.35, // 7% of the cash base 47.85
       total: 51.2,
     });
+  });
+
+  test("TC-497: compliance attestations are admin-stamped booleans; owners cannot assert them; raw timestamps are ignored", async () => {
+    test.skip(
+      !ATTESTATIONS_LANDED,
+      "pins → restaunax feat/dual-pricing-followups (attestations) — set DUAL_PRICING_ATTESTATIONS=1 once it is on QA"
+    );
+    await allure.description(
+      "Admin PUT {dualPricingMenuAttested:true} stamps dualPricingMenuAttestedAt; an owner " +
+        "PUT {dualPricingSignageAttested:true} is stripped (stays null); a raw timestamp key " +
+        "is ignored even from the admin; admin PUT {dualPricingMenuAttested:false} clears it."
+    );
+    const stamped = await updateRestaurantSettingsRaw(
+      adminToken,
+      restaurantId,
+      {
+        dualPricingMenuAttested: true,
+      }
+    );
+    expect(stamped.status, msg(stamped.data)).toBe(200);
+    let read = await getRestaurantSettingsRaw(token, restaurantId);
+    expect(typeof read.data.dualPricingMenuAttestedAt).toBe("string");
+    expect(read.data.dualPricingSignageAttestedAt ?? null).toBeNull();
+
+    const ownerClaim = await updateRestaurantSettingsRaw(token, restaurantId, {
+      dualPricingSignageAttested: true,
+    });
+    expect(ownerClaim.status, msg(ownerClaim.data)).toBe(200);
+    read = await getRestaurantSettingsRaw(token, restaurantId);
+    expect(read.data.dualPricingSignageAttestedAt ?? null).toBeNull();
+
+    const rawStamp = await updateRestaurantSettingsRaw(
+      adminToken,
+      restaurantId,
+      {
+        dualPricingSignageAttestedAt: "2026-01-01T00:00:00.000Z",
+      }
+    );
+    expect(rawStamp.status, msg(rawStamp.data)).toBe(200);
+    read = await getRestaurantSettingsRaw(token, restaurantId);
+    expect(read.data.dualPricingSignageAttestedAt ?? null).toBeNull();
+
+    const cleared = await updateRestaurantSettingsRaw(
+      adminToken,
+      restaurantId,
+      {
+        dualPricingMenuAttested: false,
+      }
+    );
+    expect(cleared.status, msg(cleared.data)).toBe(200);
+    read = await getRestaurantSettingsRaw(token, restaurantId);
+    expect(read.data.dualPricingMenuAttestedAt ?? null).toBeNull();
   });
 
   test("TC-493: the public restaurant details payload never exposes the pricing-program flags", async () => {
