@@ -5500,6 +5500,175 @@ export function exportGiftCardBatchCsvRaw(
   );
 }
 
+/**
+ * Gift-card IMPORT — adopting cards a restaurant sold before it joined us.
+ *
+ * Preview and commit are the SAME file uploaded twice, running one planner on
+ * the server, which is what makes "what the admin approved" and "what got
+ * written" the same thing. Both are multipart, so they hand-roll FormData the
+ * way uploadSupplyArtworkRaw does — apiRequestRaw is JSON-only.
+ *
+ * Scope is a query string: restaurantId XOR restaurantGroupId.
+ */
+export interface GiftCardImportPreview {
+  headers: string[];
+  mapping: { codeColumn: string; balanceColumn: string };
+  totalRows: number;
+  willCreate: number;
+  willSkip: number;
+  totalValue: number;
+  problems: Array<{ row: number; code: string; message: string }>;
+  sample: Array<{ row: number; code: string; balance: number }>;
+}
+
+export interface GiftCardImportResult {
+  importId: string;
+  created: number;
+  skipped: number;
+  totalValue: number;
+  problems: Array<{ row: number; code: string; message: string }>;
+}
+
+export interface GiftCardImportRow {
+  id: string;
+  label: string;
+  sourceFilename: string;
+  cardCount: number;
+  totalValue: number;
+  createdAt: string;
+  usedCardCount: number;
+  revertable: boolean;
+}
+
+const giftCardImportScope = (scope: {
+  restaurantId?: string;
+  restaurantGroupId?: string;
+}): string =>
+  scope.restaurantGroupId
+    ? `restaurantGroupId=${scope.restaurantGroupId}`
+    : `restaurantId=${scope.restaurantId}`;
+
+async function postGiftCardImportFile<T>(
+  path: string,
+  adminToken: string,
+  scope: { restaurantId?: string; restaurantGroupId?: string },
+  csv: string,
+  extra: Record<string, string> = {},
+  filename = "gift-cards.csv"
+): Promise<RawResponse<T>> {
+  const form = new FormData();
+  form.append("file", new Blob([csv], { type: "text/csv" }), filename);
+  for (const [k, v] of Object.entries(extra)) form.append(k, v);
+  const res = await fetch(
+    `${BACKEND_URL}${path}?${giftCardImportScope(scope)}`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: form,
+    }
+  );
+  const text = await res.text();
+  let data: unknown = text;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    /* leave as text */
+  }
+  return { status: res.status, ok: res.ok, data: data as never };
+}
+
+/** Dry run. Row problems come back inside a 200 — only an unreadable file 4xxs. */
+export function previewGiftCardImportRaw(
+  adminToken: string,
+  scope: { restaurantId?: string; restaurantGroupId?: string },
+  csv: string,
+  extra?: Record<string, string>
+): Promise<
+  RawResponse<{
+    success: boolean;
+    error?: string;
+    data?: GiftCardImportPreview;
+  }>
+> {
+  return postGiftCardImportFile(
+    "/api/admin/gift-cards/import/preview",
+    adminToken,
+    scope,
+    csv,
+    extra
+  );
+}
+
+export function importGiftCardsRaw(
+  adminToken: string,
+  scope: { restaurantId?: string; restaurantGroupId?: string },
+  csv: string,
+  extra?: Record<string, string>,
+  filename?: string
+): Promise<
+  RawResponse<{
+    success: boolean;
+    message?: string;
+    error?: string;
+    data?: GiftCardImportResult;
+  }>
+> {
+  return postGiftCardImportFile(
+    "/api/admin/gift-cards/import",
+    adminToken,
+    scope,
+    csv,
+    extra,
+    filename
+  );
+}
+
+export function listGiftCardImportsRaw(
+  adminToken: string,
+  scope: { restaurantId?: string; restaurantGroupId?: string }
+): Promise<RawResponse<{ success: boolean; data?: GiftCardImportRow[] }>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/admin/gift-cards/imports?${giftCardImportScope(scope)}`,
+    undefined,
+    adminToken
+  );
+}
+
+/** Refused once any card has been used — that is the point of it. */
+export function revertGiftCardImportRaw(
+  adminToken: string,
+  importId: string,
+  scope: { restaurantId?: string; restaurantGroupId?: string }
+): Promise<
+  RawResponse<{
+    success: boolean;
+    code?: string;
+    error?: string;
+    data?: { deletedCards: number; releasedValue: number };
+  }>
+> {
+  return apiRequestRaw(
+    "POST",
+    `/api/admin/gift-cards/imports/${importId}/revert?${giftCardImportScope(scope)}`,
+    undefined,
+    adminToken
+  );
+}
+
+/** The scope's whole outstanding liability, as the file an owner can take away. */
+export function exportGiftCardsCsvRaw(
+  adminToken: string,
+  scope: { restaurantId?: string; restaurantGroupId?: string }
+): Promise<RawResponse<string>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/admin/gift-cards/export.csv?${giftCardImportScope(scope)}`,
+    undefined,
+    adminToken
+  );
+}
+
 export function freezeGiftCardBatchRaw(
   adminToken: string,
   batchId: string
