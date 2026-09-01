@@ -38,16 +38,13 @@ export const createOwnerOrderSettingsPage = (page: Page) => {
   const markupMissingWarning = () =>
     page.getByText("Contact RestauNax to set your card markup first");
 
-  const markupSummary = (percent: string) =>
-    page.getByText(`Card prices are ${percent}% above cash prices.`);
-
   const convertButton = () =>
-    page.getByRole("button", { name: /Convert menu/ });
+    page.getByRole("button", { name: /Confirm menu prices/ });
 
   const priceListButton = () =>
     page.getByRole("button", { name: "Price list / signage" });
 
-  const convertedCaption = () => page.getByText(/Menu converted on/);
+  const convertedCaption = () => page.getByText(/Menu prices confirmed on/);
 
   const assertDualPricingBlockVisible = () =>
     expect(dualPricingSwitch()).toBeVisible({ timeout: 15_000 });
@@ -59,17 +56,20 @@ export const createOwnerOrderSettingsPage = (page: Page) => {
     await expect(priceListButton()).toBeDisabled();
   };
 
-  const assertToggleOfferedAt = async (percent: string) => {
+  // No `percent` argument: the owner's screen states no rate at all any more.
+  // A 3.5% card markup is a 3.38% discount off the card price, so every figure
+  // shown disagreed with the number the company had set — the platform now
+  // shows amounts and the card/cash labels, nothing else.
+  const assertToggleOffered = async () => {
     await expect(dualPricingSwitch()).toBeEnabled({ timeout: 10_000 });
     await expect(markupMissingWarning()).toHaveCount(0);
-    await expect(markupSummary(percent)).toBeVisible({ timeout: 10_000 });
     await expect(priceListButton()).toBeEnabled();
   };
 
   // ── Convert-menu dialog (PREVIEW ONLY — never confirm on shared QA) ─────
   const conversionDialog = () =>
     page.getByRole("dialog").filter({
-      hasText: "Convert menu to dual pricing",
+      hasText: "Confirm menu prices",
     });
 
   const openConversionPreview = async () => {
@@ -80,12 +80,14 @@ export const createOwnerOrderSettingsPage = (page: Page) => {
   const assertConversionPreviewRendered = async () => {
     const dialog = conversionDialog();
     // The preview table appears once POST …/dual-pricing/convert {preview:true}
-    // resolves; header cells are the CR/CA columns.
+    // resolves. It no longer shows a rewrite (from → to): confirming changes
+    // no price, so the columns are the posted card price and the cash price it
+    // derives — how the menu will READ once dual pricing is on.
     await expect(
-      dialog.getByRole("columnheader", { name: "From (cash)" })
+      dialog.getByRole("columnheader", { name: "Card price" })
     ).toBeVisible({ timeout: 20_000 });
     await expect(
-      dialog.getByRole("columnheader", { name: "To (card)" })
+      dialog.getByRole("columnheader", { name: "Cash price" })
     ).toBeVisible();
     await expect(dialog.locator("tbody tr").first()).toBeVisible();
     // The destructive confirm exists but stays gated behind the acknowledge
@@ -125,7 +127,7 @@ export const createOwnerOrderSettingsPage = (page: Page) => {
     convertedCaption,
     assertDualPricingBlockVisible,
     assertToggleGatedOnMarkup,
-    assertToggleOfferedAt,
+    assertToggleOffered,
     openConversionPreview,
     assertConversionPreviewRendered,
     closeConversionDialog,

@@ -98,14 +98,15 @@ test.describe("Dashboard — Dual pricing v2", () => {
     await allure.label("severity", "critical");
   });
 
-  test("TC-494: the owner's Dual Pricing toggle is disabled until an admin sets the card markup; the Convert menu dialog previews the CR/CA table", async ({
+  test("TC-494: the owner's Dual Pricing toggle is disabled until an admin sets the card markup; the Confirm-menu dialog previews the card/cash table and names no rate", async ({
     ownerPage,
   }) => {
     await allure.description(
       "Admin enrolls the shared restaurant WITHOUT a markup → Order Settings shows the toggle " +
         "disabled with the 'contact RestauNax' warning and both actions disabled. Admin sets " +
-        "3.5% → after reload the toggle is offered, the markup summary reads 3.5%, and " +
-        "'Convert menu…' opens a preview whose table carries From (cash) / To (card) columns " +
+        "3.5% → after reload the toggle is offered (no rate is shown anywhere on the " +
+        "owner's screen), and 'Confirm menu prices…' opens a preview whose table carries " +
+        "Card price / Cash price columns " +
         "and whose confirm stays disabled behind the acknowledge checkbox (never ticked). " +
         "If the shared menu was converted in an earlier run the button is disabled and the " +
         "'Menu converted on' caption is asserted instead. Everything is restored in finally."
@@ -149,13 +150,13 @@ test.describe("Dashboard — Dual pricing v2", () => {
       await allure.step("Owner: reload — toggle is now offered", async () => {
         await mgmt.goto(restaurantId);
         await orderSettings.navigateToOrderSettings();
-        await orderSettings.assertToggleOfferedAt("3.5");
+        await orderSettings.assertToggleOffered();
         await expect(orderSettings.dualPricingSwitch()).not.toBeChecked();
       });
 
       if (orig.dualPricingMenuConvertedAt) {
         await allure.step(
-          "Menu already converted on QA — the action is retired",
+          "Menu prices already confirmed on QA — the action is retired",
           async () => {
             await expect(orderSettings.convertButton()).toBeDisabled();
             await expect(orderSettings.convertedCaption()).toBeVisible();
@@ -163,7 +164,7 @@ test.describe("Dashboard — Dual pricing v2", () => {
         );
       } else {
         await allure.step(
-          "Convert menu… previews the CR/CA table (never confirmed)",
+          "Confirm menu prices… previews the card/cash table (never confirmed)",
           async () => {
             await orderSettings.openConversionPreview();
             await orderSettings.assertConversionPreviewRendered();
@@ -174,9 +175,14 @@ test.describe("Dashboard — Dual pricing v2", () => {
 
       await allure.step("Price list / signage opens read-only", async () => {
         await orderSettings.openPriceList();
+        const priceList = ownerPage.getByRole("dialog");
         await expect(
-          ownerPage.getByRole("dialog").getByText(/3\.5%/).first()
+          priceList.getByText(/Card \/ Cash price list/i).first()
         ).toBeVisible({ timeout: 20_000 });
+        // This dialog generates the menu footer and the ENTRANCE SIGN a
+        // restaurant prints and hangs on the wall. A rate there is a rate a
+        // customer reads, so none of it names one.
+        await expect(priceList.getByText(/3\.5%|3\.4%/)).toHaveCount(0);
         await orderSettings.closePriceList();
       });
     } finally {
@@ -190,7 +196,7 @@ test.describe("Dashboard — Dual pricing v2", () => {
     await allure.description(
       "Restaurant Management → row kebab → Edit → Update Restaurant Info → Basic Information: " +
         "the 'Dual pricing eligible' switch, the #dual-pricing-card-markup field (with the " +
-        "'legal in every US state' note), 'Convert menu…' and 'Price list / signage' render. " +
+        "'legal in every US state' note), 'Confirm menu prices…' and 'Price list / signage' render. " +
         "Read-only — nothing is toggled or saved on the shared restaurant."
     );
     const { restaurantName } = readSharedState();
