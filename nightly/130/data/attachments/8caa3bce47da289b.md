@@ -1,0 +1,249 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: dashboard/owner/20-supply-shop.spec.ts >> Owner — Print Shop (supply shop) >> TC-448: placing the order charges nothing — it lands in 'We're designing it' with the estimate, and the owner is told so by email
+- Location: tests/dashboard/owner/20-supply-shop.spec.ts:294:7
+
+# Error details
+
+```
+TimeoutError: page.waitForResponse: Timeout 15000ms exceeded while waiting for event "response"
+```
+
+```
+TimeoutError: locator.click: Timeout 15000ms exceeded.
+Call log:
+  - waiting for getByRole('button', { name: /^Place (order — est\. |my order)/ })
+
+```
+
+# Page snapshot
+
+```yaml
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - img [ref=e8] [cursor=pointer]
+        - button "Affiliate Partner" [ref=e70] [cursor=pointer]
+      - generic [ref=e71]:
+        - button "Book a Demo" [ref=e72] [cursor=pointer]
+        - button "Account settings" [ref=e74] [cursor=pointer]:
+          - generic [ref=e75]: A
+        - button "Select Language" [ref=e77] [cursor=pointer]:
+          - img [ref=e79]
+          - text: EN
+        - button [ref=e85] [cursor=pointer]:
+          - img [ref=e86]
+  - generic [ref=e91]:
+    - generic [ref=e92]:
+      - heading "Welcome back, Auto" [level=1] [ref=e93]
+      - paragraph [ref=e94]: What would you like to do today?
+    - generic [ref=e95]:
+      - button "My Restaurants View and manage your restaurant stores" [ref=e98] [cursor=pointer]:
+        - generic [ref=e100]:
+          - img [ref=e102]
+          - generic [ref=e104]:
+            - heading "My Restaurants" [level=2] [ref=e105]
+            - paragraph [ref=e106]: View and manage your restaurant stores
+      - button "Affiliate Program Join our affiliate partner program" [ref=e109] [cursor=pointer]:
+        - generic [ref=e111]:
+          - img [ref=e113]
+          - generic [ref=e115]:
+            - heading "Affiliate Program" [level=2] [ref=e116]
+            - paragraph [ref=e117]: Join our affiliate partner program
+    - generic [ref=e119]:
+      - generic [ref=e120]:
+        - heading "Need help getting started?" [level=6] [ref=e121]
+        - paragraph [ref=e122]: Schedule a demo with our team to learn how to maximize your platform
+      - button "Book a Demo" [ref=e123] [cursor=pointer]
+```
+
+# Test source
+
+```ts
+  1   | import { type Page, type Locator, expect } from "@playwright/test";
+  2   | 
+  3   | /**
+  4   |  * Owner — Print Shop tab (`?tab=supply-shop`): the catalog ("Browse"), the
+  5   |  * brief form a product opens into, and "My orders" with its proof dialog.
+  6   |  *
+  7   |  * Money never moves here: the place button reads an ESTIMATE ("Place order —
+  8   |  * est. $A – $B", EN DASH) and the order lands in "We're designing it". The
+  9   |  * brief form has no data-testids; ids on the MUI fields are stable
+  10  |  * (`#supply-message`, `#supply-quantity`) and everything else is by role/name.
+  11  |  */
+  12  | export const createOwnerSupplyShopPage = (page: Page) => {
+  13  |   const drawer = () => page.locator(".MuiDrawer-paper").first();
+  14  | 
+  15  |   const goto = async (restaurantId: string) => {
+  16  |     await page.goto(
+  17  |       `/restaurant/restaurantId/${restaurantId}/restaurantManagement?tab=supply-shop`,
+  18  |       { waitUntil: "domcontentloaded" }
+  19  |     );
+  20  |     await drawer().waitFor({ state: "visible", timeout: 20_000 });
+  21  |     await expect(page.getByRole("tab", { name: "Browse" })).toBeVisible();
+  22  |   };
+  23  | 
+  24  |   const browseTab = () => page.getByRole("tab", { name: "Browse" });
+  25  |   const ordersTab = () => page.getByRole("tab", { name: "My orders" });
+  26  | 
+  27  |   // ── Browse ─────────────────────────────────────────────────────────────────
+  28  |   /** The clickable product card (a MUI CardActionArea) titled `name`. */
+  29  |   const productCard = (name: string) =>
+  30  |     page
+  31  |       .locator(".MuiCardActionArea-root")
+  32  |       .filter({ has: page.getByRole("heading", { name, exact: true }) });
+  33  | 
+  34  |   const openProduct = async (name: string) => {
+  35  |     await browseTab().click();
+  36  |     await productCard(name).first().click();
+  37  |     await expect(
+  38  |       page.getByRole("heading", { name, exact: true })
+  39  |     ).toBeVisible();
+  40  |     await expect(messageInput()).toBeVisible();
+  41  |   };
+  42  | 
+  43  |   // ── Brief form ─────────────────────────────────────────────────────────────
+  44  |   const messageInput = () => page.locator("#supply-message");
+  45  |   const quantitySelect = () => page.locator("#supply-quantity");
+  46  | 
+  47  |   /** Pick a quantity by the START of its option label, e.g. /^100 — /. */
+  48  |   const selectQuantity = async (optionLabel: RegExp) => {
+  49  |     await quantitySelect().click();
+  50  |     await page.getByRole("option", { name: optionLabel }).click();
+  51  |   };
+  52  | 
+  53  |   /** "Subtotal" / "Shipping" / "Estimated total" value cell on the estimate card. */
+  54  |   const estimateValue = (label: "Subtotal" | "Shipping" | "Estimated total") =>
+  55  |     page
+  56  |       .locator("div, p, span")
+  57  |       .filter({ hasText: new RegExp(`^${label}$`) })
+  58  |       .first()
+  59  |       .locator("xpath=following-sibling::*[1]");
+  60  | 
+  61  |   const notChargedNowAlert = () =>
+  62  |     page.getByText("You won't be charged now", { exact: false });
+  63  | 
+  64  |   const paymentRadio = (
+  65  |     label: "Charge the card on file" | "Add it to my next RestauNax invoice"
+  66  |   ) => page.getByRole("radio", { name: label });
+  67  | 
+  68  |   const placeButton = () =>
+  69  |     page.getByRole("button", { name: /^Place (order — est\. |my order)/ });
+  70  | 
+  71  |   /** Click Place order and wait for the commit call to land. */
+  72  |   const placeOrder = async () => {
+  73  |     const commit = page.waitForResponse(
+  74  |       (r) =>
+  75  |         /\/api\/supply-shop\/orders\/[^/]+\/commit$/.test(r.url()) &&
+  76  |         r.request().method() === "POST"
+  77  |     );
+> 78  |     await placeButton().click();
+      |                         ^ TimeoutError: locator.click: Timeout 15000ms exceeded.
+  79  |     const res = await commit;
+  80  |     expect(res.ok(), `commit → ${res.status()}`).toBeTruthy();
+  81  |     await expect(ordersTab()).toHaveAttribute("aria-selected", "true");
+  82  |   };
+  83  | 
+  84  |   // ── My orders ──────────────────────────────────────────────────────────────
+  85  |   const openOrders = async () => {
+  86  |     await ordersTab().click();
+  87  |     await expect(
+  88  |       page.getByRole("columnheader", { name: "Order" })
+  89  |     ).toBeVisible();
+  90  |   };
+  91  | 
+  92  |   const orderRow = (orderNumber: string): Locator =>
+  93  |     page.getByRole("row").filter({ hasText: orderNumber });
+  94  | 
+  95  |   const statusChip = (orderNumber: string) =>
+  96  |     orderRow(orderNumber).locator(".MuiChip-label");
+  97  | 
+  98  |   const reviewProof = async (orderNumber: string) => {
+  99  |     await orderRow(orderNumber)
+  100 |       .getByRole("button", { name: "Review proof" })
+  101 |       .click();
+  102 |     await expect(page.getByRole("dialog")).toBeVisible();
+  103 |     // Buttons enable once the proof GET returns.
+  104 |     await expect(
+  105 |       dialog().getByRole("button", { name: "Looks good" })
+  106 |     ).toBeEnabled();
+  107 |   };
+  108 | 
+  109 |   const dialog = () => page.getByRole("dialog");
+  110 | 
+  111 |   const approveProof = async () => {
+  112 |     await dialog().getByRole("button", { name: "Looks good" }).click();
+  113 |     await expect(dialog()).toBeHidden();
+  114 |   };
+  115 | 
+  116 |   const requestChanges = async (note: string) => {
+  117 |     await dialog().getByRole("button", { name: "I'd like changes" }).click();
+  118 |     await dialog().locator("#supply-revision-note").fill(note);
+  119 |     await dialog()
+  120 |       .getByRole("button", { name: "Send to our designer" })
+  121 |       .click();
+  122 |     await expect(dialog()).toBeHidden();
+  123 |   };
+  124 | 
+  125 |   const payNowLink = (orderNumber: string) =>
+  126 |     orderRow(orderNumber).getByRole("link", {
+  127 |       name: /^Pay \$[\d.,]+ to print$/,
+  128 |     });
+  129 | 
+  130 |   /** The ⋮ menu on a row — print file and cancel live there, not as buttons. */
+  131 |   const openRowMenu = async (orderNumber: string) => {
+  132 |     await orderRow(orderNumber)
+  133 |       .getByRole("button", { name: "More actions" })
+  134 |       .click();
+  135 |     await expect(page.getByRole("menu")).toBeVisible();
+  136 |   };
+  137 | 
+  138 |   const cancelOrder = async (orderNumber: string) => {
+  139 |     await openRowMenu(orderNumber);
+  140 |     await page.getByRole("menuitem", { name: "Cancel", exact: true }).click();
+  141 |     await expect(dialog()).toContainText("Cancel this order?");
+  142 |     // The confirm dialog's affirmative button — the destructive one.
+  143 |     await dialog()
+  144 |       .getByRole("button", { name: /^(Cancel order|Yes|Confirm)/ })
+  145 |       .or(dialog().getByRole("button").last())
+  146 |       .first()
+  147 |       .click();
+  148 |     await expect(dialog()).toBeHidden();
+  149 |   };
+  150 | 
+  151 |   return {
+  152 |     goto,
+  153 |     browseTab,
+  154 |     ordersTab,
+  155 |     productCard,
+  156 |     openProduct,
+  157 |     messageInput,
+  158 |     quantitySelect,
+  159 |     selectQuantity,
+  160 |     estimateValue,
+  161 |     notChargedNowAlert,
+  162 |     paymentRadio,
+  163 |     placeButton,
+  164 |     placeOrder,
+  165 |     openOrders,
+  166 |     orderRow,
+  167 |     statusChip,
+  168 |     reviewProof,
+  169 |     dialog,
+  170 |     approveProof,
+  171 |     requestChanges,
+  172 |     payNowLink,
+  173 |     openRowMenu,
+  174 |     cancelOrder,
+  175 |   };
+  176 | };
+  177 | 
+  178 | export type OwnerSupplyShopPage = ReturnType<typeof createOwnerSupplyShopPage>;
+```
