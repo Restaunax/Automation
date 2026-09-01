@@ -81,7 +81,7 @@ export const createAdminRestaurantsPage = (page: Page) => {
   const cardMarkupInput = () => page.locator("#dual-pricing-card-markup");
 
   const convertMenuButton = () =>
-    page.getByRole("button", { name: /Convert menu/ });
+    page.getByRole("button", { name: /Confirm menu prices/ });
 
   const priceListButton = () =>
     page.getByRole("button", { name: "Price list / signage" });

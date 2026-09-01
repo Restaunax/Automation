@@ -190,7 +190,10 @@ test.describe("POS — Dual pricing v2 (per-item cash tier)", () => {
       token,
       groupId,
       `Chicken Parm Sub ${runId}`,
-      ITEM_CASH,
+      // Seeded at the CARD price: an owner types the price they intend to
+      // POST, and the cash price is derived from it. Confirming the menu
+      // rewrites nothing.
+      ITEM_CARD,
       {
         modifierGroups: [
           {
@@ -201,7 +204,7 @@ test.describe("POS — Dual pricing v2 (per-item cash tier)", () => {
             modifiers: [
               {
                 name: `Add Fries ${runId}`,
-                price: MOD_CASH,
+                price: MOD_CARD,
                 selected: false,
                 allowsDuplicates: false,
                 outOfStock: false,
@@ -357,7 +360,11 @@ test.describe("POS — Dual pricing v2 (per-item cash tier)", () => {
     expect(both.status, msg(both.data)).toBe(400);
   });
 
-  test("TC-486: one-time menu conversion raises the stored (cash) prices to card prices; the menu then carries cashPrice pairs; a second run is 409", async () => {
+  test("TC-486: confirming the menu previews card/cash and writes NO price; the menu carries cashPrice pairs; a second run is 409", async () => {
+    // The stored price IS the card price, as typed. Confirming records that
+    // and stamps it — it does not rewrite the menu. (It used to multiply every
+    // price by the markup, on the assumption the owner had typed cash prices;
+    // that shifted a live restaurant's whole ladder up a rung.)
     const preview = await convertDualPricingMenuRaw(token, restaurantId, {
       preview: true,
     });
@@ -365,21 +372,23 @@ test.describe("POS — Dual pricing v2 (per-item cash tier)", () => {
     const rows = (preview.data.rows ?? []) as {
       kind: string;
       id: string;
-      from: number;
-      to: number;
+      card: number;
+      cash: number;
     }[];
     expect(
       rows.find((r) => r.kind === "ITEM" && r.id === item.id)
     ).toMatchObject({
-      from: ITEM_CASH,
-      to: ITEM_CARD,
+      card: ITEM_CARD,
+      cash: ITEM_CASH,
     });
     expect(
       rows.find((r) => r.kind === "MODIFIER" && r.id === modifierId)
     ).toMatchObject({
-      from: MOD_CASH,
-      to: MOD_CARD,
+      card: MOD_CARD,
+      cash: MOD_CASH,
     });
+    // Not one row describes a rewrite.
+    expect(rows.every((r) => "card" in r)).toBe(true);
 
     const run = await convertDualPricingMenuRaw(token, restaurantId, {
       preview: false,
@@ -403,6 +412,7 @@ test.describe("POS — Dual pricing v2 (per-item cash tier)", () => {
       .flatMap((m) => m.groups ?? [])
       .flatMap((g) => g.items ?? []);
     const converted = items.find((i) => i.id === item.id);
+    // Unchanged by the confirm — and now served with its derived cash price.
     expect(converted?.price).toBe(ITEM_CARD);
     expect(converted?.cashPrice).toBe(ITEM_CASH);
     const mod = converted?.modifierGroups?.[0]?.modifiers?.find(
@@ -417,7 +427,7 @@ test.describe("POS — Dual pricing v2 (per-item cash tier)", () => {
     expect(again.status, msg(again.data)).toBe(409);
   });
 
-  test("TC-487: the tablet settings payload carries the dual-pricing contract (active, markup, percent, four notices)", async () => {
+  test("TC-487: the tablet settings payload carries the dual-pricing contract (active, markup, percent, four rate-free notices)", async () => {
     const res = await getTabletSettingsRaw(tabletToken);
     expect(res.status, msg(res.data)).toBe(200);
     const dualPricing = res.data.dualPricing as {
@@ -433,7 +443,11 @@ test.describe("POS — Dual pricing v2 (per-item cash tier)", () => {
     });
     for (const key of ["menu", "entrance", "check", "receipt"]) {
       expect(typeof dualPricing.notices[key]).toBe("string");
-      expect(dualPricing.notices[key]).toMatch(/3\.4%/);
+      // These four strings are printed VERBATIM on receipts, guest checks,
+      // customer displays and menu-TV footers. None of them names a rate:
+      // a 3.5% card markup is a 3.38% discount off the card price, so any
+      // figure here disagreed with the number the company had set.
+      expect(dualPricing.notices[key]).not.toMatch(/%/);
     }
   });
 
@@ -639,12 +653,12 @@ test.describe("POS — Dual pricing v2 (per-item cash tier)", () => {
 
   // Last on purpose: it flips the owner toggle and the stored prices, and the
   // final state (converted, enabled) matches what the earlier cases expect.
-  test("TC-498: the conversion is reversible — refused while dual pricing is on, then divides every price back by the recorded markup, and can be run again", async () => {
+  test("TC-498: leaving the programme is price-neutral for a menu confirmed at card prices, and is refused while dual pricing is on", async () => {
     await allure.description(
       "REVERT while enabled → 400 (turn it off first). Owner turns dual pricing off → REVERT " +
-        "preview lists 13.40→12.95 / 3.11→3.00, execute restores them (menu serves no cashPrice " +
-        "while off), a second REVERT is 400 not_converted, and CONVERT runs again (12.95→13.40). " +
-        "Dual pricing is re-enabled at the end."
+        "previews NOTHING and writes nothing, because this menu was confirmed at card prices " +
+        "and never raised; it only clears the stamp. A second REVERT is 400 not_converted, and " +
+        "the forward run is available again. Dual pricing is re-enabled at the end."
     );
     const whileOn = await convertDualPricingMenuRaw(token, restaurantId, {
       preview: true,
@@ -656,24 +670,22 @@ test.describe("POS — Dual pricing v2 (per-item cash tier)", () => {
     await updateRestaurantSettingsApi(token, restaurantId, {
       dualPricingEnabled: false,
     });
+
+    // `dualPricingMenuConvertedMarkup` carries three states, and this is the
+    // middle one: 0 = "confirmed at card prices, raised by nothing". (> 0 is a
+    // menu the OLD convert raised, which reverts by dividing; null is a stamp
+    // written before the column existed.) Writing null here instead of 0 would
+    // collapse the middle state into the last and make this revert divide a
+    // menu that was never raised, dropping every price by the markup.
+    const stamped = await getRestaurantSettingsRaw(token, restaurantId);
+    expect(stamped.data.dualPricingMenuConvertedMarkup).toBe(0);
+
     const preview = await convertDualPricingMenuRaw(token, restaurantId, {
       preview: true,
       direction: "REVERT",
     });
     expect(preview.status, msg(preview.data)).toBe(200);
-    const rows = preview.data.rows as {
-      id: string;
-      from: number;
-      to: number;
-    }[];
-    expect(rows.find((r) => r.id === item.id)).toMatchObject({
-      from: ITEM_CARD,
-      to: ITEM_CASH,
-    });
-    expect(rows.find((r) => r.id === modifierId)).toMatchObject({
-      from: MOD_CARD,
-      to: MOD_CASH,
-    });
+    expect(preview.data.rows).toEqual([]);
 
     const run = await convertDualPricingMenuRaw(token, restaurantId, {
       preview: false,
@@ -684,6 +696,8 @@ test.describe("POS — Dual pricing v2 (per-item cash tier)", () => {
     let settings = await getRestaurantSettingsRaw(token, restaurantId);
     expect(settings.data.dualPricingMenuConvertedAt ?? null).toBeNull();
 
+    // The prices never moved — leaving the programme just stops the cash tier
+    // being served. Everyone then pays the posted (card) price.
     const { menus } = await getRestaurantMenusApi(restaurantId, {
       accessToken: token,
     });
@@ -697,7 +711,7 @@ test.describe("POS — Dual pricing v2 (per-item cash tier)", () => {
       .flatMap((m) => m.groups ?? [])
       .flatMap((g) => g.items ?? [])
       .find((i) => i.id === item.id);
-    expect(restored?.price).toBe(ITEM_CASH);
+    expect(restored?.price).toBe(ITEM_CARD);
     expect(restored?.cashPrice).toBeUndefined();
 
     const again = await convertDualPricingMenuRaw(token, restaurantId, {
@@ -706,14 +720,14 @@ test.describe("POS — Dual pricing v2 (per-item cash tier)", () => {
     });
     expect(again.status, msg(again.data)).toBe(400);
 
-    // The forward run is available again — and lands on the same card prices.
-    const reconvert = await convertDualPricingMenuRaw(token, restaurantId, {
+    // The forward run is available again, and is still price-neutral.
+    const reconfirm = await convertDualPricingMenuRaw(token, restaurantId, {
       preview: false,
     });
-    expect(reconvert.status, msg(reconvert.data)).toBe(200);
+    expect(reconfirm.status, msg(reconfirm.data)).toBe(200);
     settings = await getRestaurantSettingsRaw(token, restaurantId);
     expect(typeof settings.data.dualPricingMenuConvertedAt).toBe("string");
-    expect(settings.data.dualPricingMenuConvertedMarkup).toBe(MARKUP);
+    expect(settings.data.dualPricingMenuConvertedMarkup).toBe(0);
     await updateRestaurantSettingsApi(token, restaurantId, {
       dualPricingEnabled: true,
     });
