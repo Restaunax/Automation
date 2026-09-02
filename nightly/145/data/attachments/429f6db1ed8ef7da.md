@@ -1,0 +1,162 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: dashboard/public/sign-up.spec.ts >> Public — Sign up >> TC-93: a visitor can register a new account
+- Location: tests/dashboard/public/sign-up.spec.ts:17:7
+
+# Error details
+
+```
+Error: expect(page).not.toHaveURL(expected) failed
+
+Expected pattern: not /\/sign-up/
+Received string: "https://app.qa.restaunax.com/sign-up"
+Timeout: 15000ms
+
+Call log:
+  - Expect "not toHaveURL" with timeout 15000ms
+    33 × unexpected value "https://app.qa.restaunax.com/sign-up"
+
+```
+
+```yaml
+- banner:
+  - img
+  - button "Affiliate Partner"
+  - button "Book a Demo"
+  - button "Log in"
+  - button "Select Language":
+    - img
+    - text: EN
+  - button
+- heading "Sign up" [level=1]
+- button "Continue with Google"
+- button "Continue with Apple"
+- separator:
+  - paragraph: or
+- text: First name *
+- textbox "First name *":
+  - /placeholder: Jon
+  - text: Auto
+- text: Last name *
+- textbox "Last name *":
+  - /placeholder: Snow
+  - text: Signup
+- text: Email *
+- textbox "Email *":
+  - /placeholder: your@email.com
+  - text: autouser_signup_85d0629b@demomailtrap.co
+- text: Password *
+- textbox "Password *":
+  - /placeholder: ••••••••
+  - text: AutoTest123!@#
+- button "toggle password visibility"
+- text: Confirm Password *
+- textbox "Confirm Password *":
+  - /placeholder: ••••••••
+  - text: AutoTest123!@#
+- button "toggle password visibility"
+- text: "Password strength: Strong"
+- progressbar
+- text: At least 8 characters One lowercase letter One uppercase letter One number One special character
+- button "Sign up"
+- separator
+- paragraph: Already have an account?
+- link "Sign In to Existing Account":
+  - /url: /sign-in
+  - button "Sign In to Existing Account"
+```
+
+# Test source
+
+```ts
+  1  | import { type Page, expect } from "@playwright/test";
+  2  | 
+  3  | const buildLocators = (page: Page) => ({
+  4  |   firstNameInput: page.locator('input[name="firstName"]'),
+  5  |   lastNameInput: page.locator('input[name="lastName"]'),
+  6  |   emailInput: page.locator('input[name="email"]'),
+  7  |   passwordInput: page.locator('input[name="password"]'),
+  8  |   confirmPasswordInput: page.locator('input[name="confirmPassword"]'),
+  9  |   submitButton: page.getByRole("button", { name: "Sign up", exact: true }),
+  10 |   errorAlert: page.locator('[role="alert"]'),
+  11 |   fieldErrors: page.locator(".MuiFormHelperText-root"),
+  12 | });
+  13 | 
+  14 | export interface SignUpData {
+  15 |   firstName: string;
+  16 |   lastName: string;
+  17 |   email: string;
+  18 |   password: string;
+  19 |   confirmPassword: string;
+  20 | }
+  21 | 
+  22 | export const createSignUpPage = (page: Page) => {
+  23 |   const els = buildLocators(page);
+  24 | 
+  25 |   const goto = async (): Promise<void> => {
+  26 |     await page.goto("/sign-up", { waitUntil: "domcontentloaded" });
+  27 |     await els.firstNameInput.waitFor({ state: "visible", timeout: 15_000 });
+  28 |   };
+  29 | 
+  30 |   const fillForm = async (data: SignUpData): Promise<void> => {
+  31 |     await els.firstNameInput.fill(data.firstName);
+  32 |     await els.lastNameInput.fill(data.lastName);
+  33 |     await els.emailInput.fill(data.email);
+  34 |     await els.passwordInput.fill(data.password);
+  35 |     await els.confirmPasswordInput.fill(data.confirmPassword);
+  36 |   };
+  37 | 
+  38 |   const submit = async (): Promise<void> => {
+  39 |     await els.submitButton.click();
+  40 |   };
+  41 | 
+  42 |   // A successful plain (non-invite) sign-up redirects off /sign-up to the
+  43 |   // dashboard home ("Welcome back, <name>" screen), not into a restaurant —
+  44 |   // a fresh account is role USER until it creates a restaurant.
+  45 |   const waitForSuccess = async (): Promise<void> => {
+> 46 |     await expect(page).not.toHaveURL(/\/sign-up/, { timeout: 15_000 });
+     |                            ^ Error: expect(page).not.toHaveURL(expected) failed
+  47 |   };
+  48 | 
+  49 |   const fillAndSubmit = async (data: SignUpData): Promise<void> => {
+  50 |     await goto();
+  51 |     await fillForm(data);
+  52 |     await submit();
+  53 |   };
+  54 | 
+  55 |   // Registration failure (e.g. duplicate email) surfaces as a role="alert"
+  56 |   // banner and keeps the visitor on /sign-up.
+  57 |   const assertRegisterError = async (): Promise<void> => {
+  58 |     await expect(els.errorAlert.first()).toBeVisible({ timeout: 10_000 });
+  59 |     await expect(page).toHaveURL(/\/sign-up/);
+  60 |   };
+  61 | 
+  62 |   // Client-side (yup) validation errors render as MUI FormHelperText under
+  63 |   // the offending field and block the /register request entirely.
+  64 |   const assertFieldError = (message: string) =>
+  65 |     expect(els.fieldErrors.filter({ hasText: message })).toBeVisible({
+  66 |       timeout: 5_000,
+  67 |     });
+  68 | 
+  69 |   return {
+  70 |     goto,
+  71 |     fillForm,
+  72 |     submit,
+  73 |     waitForSuccess,
+  74 |     fillAndSubmit,
+  75 |     assertRegisterError,
+  76 |     assertFieldError,
+  77 |     confirmPasswordInput: els.confirmPasswordInput,
+  78 |     passwordInput: els.passwordInput,
+  79 |   };
+  80 | };
+  81 | 
+  82 | export type SignUpPage = ReturnType<typeof createSignUpPage>;
+  83 | 
+```
