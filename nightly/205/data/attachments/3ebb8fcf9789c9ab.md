@@ -1,0 +1,616 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: dashboard/owner/12-analytics.spec.ts >> Owner — Analytics Tab >> TC-128: the date-range picker opens with quick-select presets
+- Location: tests/dashboard/owner/12-analytics.spec.ts:80:7
+
+# Error details
+
+```
+Error: expect(locator).toBeVisible() failed
+
+Locator: getByRole('button', { name: /\d{1,2},\s*\d{4}\s*-\s*/ })
+Expected: visible
+Timeout: 10000ms
+Error: element(s) not found
+
+Call log:
+  - Expect "toBeVisible" with timeout 10000ms
+  - waiting for getByRole('button', { name: /\d{1,2},\s*\d{4}\s*-\s*/ })
+
+```
+
+```yaml
+- banner:
+  - text: LOCATION Boithok Khana Kitchen - — Brooklyn — Analytics
+  - combobox:
+    - paragraph: Boithok Khana Kitchen - — Brooklyn, New York
+  - button "Account settings": A
+  - button "Select Language":
+    - img
+    - text: EN
+  - button
+- navigation "mailbox folders":
+  - button "Analytics":
+    - paragraph: Analytics
+  - button "Orders":
+    - paragraph: Orders
+  - button "Menu":
+    - paragraph: Menu
+  - button "Customers":
+    - paragraph: Customers
+  - button "Billing":
+    - paragraph: Billing
+  - button "Image Library":
+    - paragraph: Image Library
+  - button "Store Settings":
+    - paragraph: Store Settings
+  - button "Store Operations":
+    - paragraph: Store Operations
+  - button "Job Applications":
+    - paragraph: Job Applications
+  - button "Restaurant Staff":
+    - paragraph: Restaurant Staff
+  - button "Coupons":
+    - paragraph: Coupons
+  - button "Deals":
+    - paragraph: Deals
+  - button "Print Shop":
+    - paragraph: Print Shop
+  - button "Owner Settings":
+    - paragraph: Owner Settings
+- main:
+  - paragraph: "Managing: Boithok Khana Kitchen -"
+  - heading "Restaurant Analytics" [level=1]
+  - heading "Comprehensive insights into your restaurant's performance" [level=6]
+  - button "Last 30 days"
+  - button "Refresh data"
+  - heading "Net Sales More info" [level=6]:
+    - text: Net Sales
+    - button "More info"
+  - text: $18,819.72
+  - paragraph: 96.2% increase
+  - text: Compared to previous period
+  - heading "Total Orders More info" [level=6]:
+    - text: Total Orders
+    - button "More info"
+  - text: 1,418
+  - paragraph: 95.9% increase
+  - text: Compared to previous period
+  - heading "Average Order Value More info" [level=6]:
+    - text: Average Order Value
+    - button "More info"
+  - text: $13.27
+  - paragraph: 0.2% increase
+  - text: Compared to previous period
+  - heading "New Customers More info" [level=6]:
+    - text: New Customers
+    - button "More info"
+  - text: "906"
+  - paragraph: 89.1% increase
+  - text: Compared to previous period
+  - heading "Returning Customers More info" [level=6]:
+    - text: Returning Customers
+    - button "More info"
+  - text: "5"
+  - paragraph: 0.0% no change
+  - text: Compared to previous period
+  - heading "Revenue Trends" [level=6]
+  - group:
+    - button "Revenue" [pressed]
+    - button "Orders"
+  - list:
+    - listitem: Current Period
+    - listitem: Previous Period
+  - img: Aug 15 Aug 18 Aug 21 Aug 24 Aug 27 Aug 30 Sep 2 Sep 5 Sep 8 Sep 11 Sep 14 $0.00 $50… $1.0… $1.5…
+  - heading "Revenue Breakdown" [level=6]
+  - text: Net Sales
+  - heading "$18,819.72" [level=5]
+  - text: Total Discounts
+  - paragraph: $0.00 (0.0%)
+  - text: Restaurant Income
+  - paragraph: Food Revenue
+  - paragraph: $18,819.72
+  - paragraph: Coupon Discounts
+  - paragraph: $0.00
+  - paragraph: = Net Sales
+  - paragraph: $18,819.72
+  - separator
+  - text: Pass-Through & Reductions
+  - paragraph: Taxes Collected
+  - text: Collected for government
+  - paragraph: $1,651.16
+  - paragraph: Tips
+  - text: Distributed to staff
+  - paragraph: $585.88
+  - paragraph: Delivery Fees
+  - text: Delivery provider fees
+  - paragraph: $460.00
+  - paragraph: Deal Savings Given
+  - text: Already reflected in food revenue
+  - paragraph: $165.00
+  - paragraph: Gift Card Used
+  - text: Gift card balance applied
+  - paragraph: $60.00
+  - separator
+  - paragraph: Total Collected
+  - paragraph: $21,449.15
+  - heading "Average Orders by Day of Week" [level=6]
+  - text: Averaged over 5 week
+  - group:
+    - button "Orders" [pressed]
+    - button "Revenue"
+  - list:
+    - listitem: Avg Orders
+  - img: Sunday Tuesday Thursday Saturday 0 20 40 60
+  - heading "Order Channels" [level=6]
+  - img: Web In-Store 0 1,000
+  - paragraph: 🌐 Web
+  - paragraph: "1368"
+  - text: $18,085.78
+  - paragraph: 📱 Mobile App
+  - paragraph: "0"
+  - text: $0.00
+  - paragraph: 🎙️ Voice AI
+  - paragraph: "0"
+  - text: $0.00
+  - paragraph: 🏪 In-Store
+  - paragraph: "50"
+  - text: $733.94
+  - paragraph: 🛵 Uber Eats
+  - paragraph: "0"
+  - text: $0.00
+  - paragraph: 🚗 DoorDash
+  - paragraph: "0"
+  - text: $0.00 Delivery 16% Pickup 84%
+  - heading "Coupon Performance" [level=6]
+  - button "More info"
+  - text: Active Coupons
+  - heading "24" [level=6]
+  - text: Total Redemptions
+  - heading "0" [level=6]
+  - text: Discounts Given
+  - heading "$0.00" [level=6]
+  - text: Revenue Generated
+  - heading "$0.00" [level=6]
+  - tablist:
+    - tab "Top Coupons" [selected]
+    - tab "Trend"
+  - table:
+    - rowgroup:
+      - row "Code Type Used Discount Status":
+        - columnheader "Code"
+        - columnheader "Type"
+        - columnheader "Used"
+        - columnheader "Discount"
+        - columnheader "Status"
+    - rowgroup:
+      - row "VIP-FS4J 20% 0 $0.00 ACTIVE":
+        - cell "VIP-FS4J":
+          - paragraph: VIP-FS4J
+        - cell "20%"
+        - cell "0"
+        - cell "$0.00"
+        - cell "ACTIVE"
+      - row "ANN-CRJKTY4B 5$ 0 $0.00 ACTIVE":
+        - cell "ANN-CRJKTY4B":
+          - paragraph: ANN-CRJKTY4B
+        - cell "5$"
+        - cell "0"
+        - cell "$0.00"
+        - cell "ACTIVE"
+      - row "OFF10 10% 0 $0.00 ACTIVE":
+        - cell "OFF10":
+          - paragraph: OFF10
+        - cell "10%"
+        - cell "0"
+        - cell "$0.00"
+        - cell "ACTIVE"
+      - row "OFF100 100% 0 $0.00 ACTIVE":
+        - cell "OFF100":
+          - paragraph: OFF100
+        - cell "100%"
+        - cell "0"
+        - cell "$0.00"
+        - cell "ACTIVE"
+      - row "WINBACK-ZI6K 15% 0 $0.00 ACTIVE":
+        - cell "WINBACK-ZI6K":
+          - paragraph: WINBACK-ZI6K
+        - cell "15%"
+        - cell "0"
+        - cell "$0.00"
+        - cell "ACTIVE"
+      - row "WELCOME-MD38 10% 0 $0.00 ACTIVE":
+        - cell "WELCOME-MD38":
+          - paragraph: WELCOME-MD38
+        - cell "10%"
+        - cell "0"
+        - cell "$0.00"
+        - cell "ACTIVE"
+      - row "AUTOC32760DD 25% 0 $0.00 ACTIVE":
+        - cell "AUTOC32760DD":
+          - paragraph: AUTOC32760DD
+        - cell "25%"
+        - cell "0"
+        - cell "$0.00"
+        - cell "ACTIVE"
+      - row "AUTO8FB0A3E9 10% 0 $0.00 ACTIVE":
+        - cell "AUTO8FB0A3E9":
+          - paragraph: AUTO8FB0A3E9
+        - cell "10%"
+        - cell "0"
+        - cell "$0.00"
+        - cell "ACTIVE"
+      - row "AUTO1502409E 10% 0 $0.00 ACTIVE":
+        - cell "AUTO1502409E":
+          - paragraph: AUTO1502409E
+        - cell "10%"
+        - cell "0"
+        - cell "$0.00"
+        - cell "ACTIVE"
+      - row "AUTO6CDC4C97 5$ 0 $0.00 ACTIVE":
+        - cell "AUTO6CDC4C97":
+          - paragraph: AUTO6CDC4C97
+        - cell "5$"
+        - cell "0"
+        - cell "$0.00"
+        - cell "ACTIVE"
+  - heading "Deal Performance" [level=6]
+  - button "More info"
+  - text: Active Deals
+  - heading "5" [level=6]
+  - text: Total Orders
+  - heading "0" [level=6]
+  - text: Deal Revenue
+  - heading "$0.00" [level=6]
+  - text: Avg. Savings
+  - heading "0%" [level=6]
+  - heading "Top Performing Deals" [level=6]
+  - table:
+    - rowgroup:
+      - row "Deal Price Savings Usage Status":
+        - columnheader "Deal"
+        - columnheader "Price"
+        - columnheader "Savings"
+        - columnheader "Usage"
+        - columnheader "Status"
+    - rowgroup:
+      - row "Solo Delight Combo $17.58 $20.68 15% off 0 0 ACTIVE":
+        - cell "Solo Delight Combo":
+          - paragraph: Solo Delight Combo
+        - cell "$17.58 $20.68":
+          - paragraph: $17.58
+          - text: $20.68
+        - cell "15% off"
+        - cell "0 0":
+          - progressbar
+          - text: "0"
+        - cell "ACTIVE"
+      - row "Family Feast Special $51.87 $61.02 15% off 0 0 ACTIVE":
+        - cell "Family Feast Special":
+          - paragraph: Family Feast Special
+        - cell "$51.87 $61.02":
+          - paragraph: $51.87
+          - text: $61.02
+        - cell "15% off"
+        - cell "0 0":
+          - progressbar
+          - text: "0"
+        - cell "ACTIVE"
+      - row "Bruschetta Duo Deal $17.58 $20.68 15% off 0 0 ACTIVE":
+        - cell "Bruschetta Duo Deal":
+          - paragraph: Bruschetta Duo Deal
+        - cell "$17.58 $20.68":
+          - paragraph: $17.58
+          - text: $20.68
+        - cell "15% off"
+        - cell "0 0":
+          - progressbar
+          - text: "0"
+        - cell "ACTIVE"
+      - row "Date Night Indulgence $37.25 $45.50 18% off 0 0 ACTIVE":
+        - cell "Date Night Indulgence":
+          - paragraph: Date Night Indulgence
+        - cell "$37.25 $45.50":
+          - paragraph: $37.25
+          - text: $45.50
+        - cell "18% off"
+        - cell "0 0":
+          - progressbar
+          - text: "0"
+        - cell "ACTIVE"
+      - row "Game Day Platter $25.86 $34.12 24% off 0 0 ACTIVE":
+        - cell "Game Day Platter":
+          - paragraph: Game Day Platter
+        - cell "$25.86 $34.12":
+          - paragraph: $25.86
+          - text: $34.12
+        - cell "24% off"
+        - cell "0 0":
+          - progressbar
+          - text: "0"
+        - cell "ACTIVE"
+  - heading "Tip Analysis" [level=6]
+  - text: Total Tips
+  - heading "$585.88" [level=6]
+  - text: 28.7% Avg. Tip %
+  - heading "13.0%" [level=6]
+  - text: Tipping Rate
+  - heading "22%" [level=6]
+  - img: No Tip Under 15% 15-20% Over 20% 0 1,000
+  - text: Avg. Tip per Order
+  - paragraph: $0.41
+  - heading "Refunds & Cancellations" [level=6]
+  - text: Total Refunds
+  - heading "$578.88" [level=6]
+  - text: 140.0% Refund Rate
+  - heading "2.5%" [level=6]
+  - text: Cancellations
+  - heading "125" [level=6]
+  - separator
+  - paragraph: Refund Count
+  - paragraph: "36"
+  - heading "Top Reasons" [level=6]
+  - text: "36"
+  - paragraph: Cancelled by restaurant
+  - text: $578.88
+  - heading "Top Selling Items" [level=6]
+  - group:
+    - button "By Quantity" [pressed]
+    - button "By Revenue"
+  - table:
+    - rowgroup:
+      - row "Item Quantity Revenue Avg. Price":
+        - columnheader "Item"
+        - columnheader "Quantity"
+        - columnheader "Revenue"
+        - columnheader "Avg. Price"
+    - rowgroup:
+      - row "1 Automation Burger 1,324 $17,198.76 $12.99":
+        - cell "1 Automation Burger":
+          - text: "1"
+          - paragraph: Automation Burger
+        - cell "1,324"
+        - cell "$17,198.76"
+        - cell "$12.99"
+      - row "2 Build Your Burger 34 $476.64 $14.02":
+        - cell "2 Build Your Burger":
+          - text: "2"
+          - paragraph: Build Your Burger
+        - cell "34"
+        - cell "$476.64"
+        - cell "$14.02"
+      - row "3 Fish & Chips 11 $175.89 $15.99":
+        - cell "3 Fish & Chips":
+          - text: "3"
+          - paragraph: Fish & Chips
+        - cell "11"
+        - cell "$175.89"
+        - cell "$15.99"
+      - row "4 Loaded Fries 9 $63.15 $7.02":
+        - cell "4 Loaded Fries":
+          - text: "4"
+          - paragraph: Loaded Fries
+        - cell "9"
+        - cell "$63.15"
+        - cell "$7.02"
+      - row "5 Build Your Sundae 8 $63.92 $7.99":
+        - cell "5 Build Your Sundae":
+          - text: "5"
+          - paragraph: Build Your Sundae
+        - cell "8"
+        - cell "$63.92"
+        - cell "$7.99"
+      - row "6 Chicken Wings 8 $119.92 $14.99":
+        - cell "6 Chicken Wings":
+          - text: "6"
+          - paragraph: Chicken Wings
+        - cell "8"
+        - cell "$119.92"
+        - cell "$14.99"
+      - row "7 Triple Decker Club 3 $41.97 $13.99":
+        - cell "7 Triple Decker Club":
+          - text: "7"
+          - paragraph: Triple Decker Club
+        - cell "3"
+        - cell "$41.97"
+        - cell "$13.99"
+      - row "8 Eee 1 $1.00 $1.00":
+        - cell "8 Eee":
+          - text: "8"
+          - paragraph: Eee
+        - cell "1"
+        - cell "$1.00"
+        - cell "$1.00"
+      - row "9 Philly Cheesesteak 1 $12.99 $12.99":
+        - cell "9 Philly Cheesesteak":
+          - text: "9"
+          - paragraph: Philly Cheesesteak
+        - cell "1"
+        - cell "$12.99"
+        - cell "$12.99"
+      - row "10 Loaded Mac & Cheese 1 $10.99 $10.99":
+        - cell "10 Loaded Mac & Cheese":
+          - text: "10"
+          - paragraph: Loaded Mac & Cheese
+        - cell "1"
+        - cell "$10.99"
+        - cell "$10.99"
+  - heading "Average Busiest Hours" [level=6]
+  - button "More info"
+  - text: Averaged over 5 week
+  - combobox "All Days"
+  - text: 1.3 1.0 1.1 0.5 0.6 1.0 1.2 1.0 0.8 0.5 22.2 0.4 0.2 1.9 0.1 1.3 0.8 3.2 2.3 1.6 0.5 1.6 12am 3am 6am 9am 12pm 3pm 6pm 9pm 11pm Not Busy Very Busy
+  - heading "Customer Insights" [level=6]
+  - tablist:
+    - tab "Top Customers" [selected]
+    - tab "Summary"
+  - table:
+    - rowgroup:
+      - row "Customer Orders Total Spent Avg. Order":
+        - columnheader "Customer"
+        - columnheader "Orders"
+        - columnheader "Total Spent"
+        - columnheader "Avg. Order"
+    - rowgroup:
+      - row "a***@restaunax-test.com 215 $2,792.85 $12.99":
+        - cell "a***@restaunax-test.com"
+        - cell "215"
+        - cell "$2,792.85"
+        - cell "$12.99"
+      - row "j***@restaunax-test.com 48 $631.53 $13.16":
+        - cell "j***@restaunax-test.com"
+        - cell "48"
+        - cell "$631.53"
+        - cell "$13.16"
+      - row "n***@gmail.com 7 $159.36 $22.77":
+        - cell "n***@gmail.com"
+        - cell "7"
+        - cell "$159.36"
+        - cell "$22.77"
+      - row "n***@gmail.com 5 $75.95 $15.19":
+        - cell "n***@gmail.com"
+        - cell "5"
+        - cell "$75.95"
+        - cell "$15.19"
+      - row "o***@restaunax-test.com 2 $25.98 $12.99":
+        - cell "o***@restaunax-test.com"
+        - cell "2"
+        - cell "$25.98"
+        - cell "$12.99"
+      - row "o***@restaunax-test.com 2 $25.98 $12.99":
+        - cell "o***@restaunax-test.com"
+        - cell "2"
+        - cell "$25.98"
+        - cell "$12.99"
+      - row "o***@restaunax-test.com 2 $25.98 $12.99":
+        - cell "o***@restaunax-test.com"
+        - cell "2"
+        - cell "$25.98"
+        - cell "$12.99"
+      - row "d***@restaunax-test.com 1 $21.00 $21.00":
+        - cell "d***@restaunax-test.com"
+        - cell "1"
+        - cell "$21.00"
+        - cell "$21.00"
+      - row "d***@restaunax-test.com 1 $21.00 $21.00":
+        - cell "d***@restaunax-test.com"
+        - cell "1"
+        - cell "$21.00"
+        - cell "$21.00"
+      - row "d***@restaunax-test.com 1 $21.00 $21.00":
+        - cell "d***@restaunax-test.com"
+        - cell "1"
+        - cell "$21.00"
+        - cell "$21.00"
+- button "Open chat"
+```
+
+# Test source
+
+```ts
+  1  | import { type Page, expect } from "@playwright/test";
+  2  | 
+  3  | /**
+  4  |  * OwnerAnalyticsPage — the owner "Analytics" tab of the restaurant portal
+  5  |  * (PortalShell menu id "Analytics" → ?tab=Analytics). Renders the
+  6  |  * Restaurant Analytics dashboard: summary cards, a date-range picker, and a
+  7  |  * set of charts, all driven by GET /api/analytics/dashboard/:restaurantId.
+  8  |  *
+  9  |  * Selectors use roles/visible text (no test-ids) to match the QA deployment,
+  10 |  * consistent with OwnerOrdersPage. The page title, card titles, and quick-
+  11 |  * select labels come from the `analytics` i18n namespace.
+  12 |  */
+  13 | export const createOwnerAnalyticsPage = (page: Page) => {
+  14 |   const drawer = () => page.locator(".MuiDrawer-paper").first();
+  15 | 
+  16 |   const navigateToAnalyticsTab = async () => {
+  17 |     await drawer()
+  18 |       .getByRole("button", { name: "Analytics", exact: true })
+  19 |       .click();
+  20 |     await page.waitForURL(/tab=Analytics/, { timeout: 10_000 });
+  21 |     await pageTitle().waitFor({ state: "visible", timeout: 15_000 });
+  22 |   };
+  23 | 
+  24 |   // "Restaurant Analytics" — rendered as <Typography variant="h4" component="h1">
+  25 |   const pageTitle = () =>
+  26 |     page.getByRole("heading", { name: "Restaurant Analytics" });
+  27 | 
+  28 |   const refreshButton = () =>
+  29 |     page.getByRole("button", { name: "Refresh data" });
+  30 | 
+  31 |   // The date-range trigger is an outlined button whose label IS the formatted
+  32 |   // range (e.g. "Jun 7, 2026 - Jul 7, 2026"). Match on that shape rather than a
+  33 |   // fixed string so it survives whatever the current default window is.
+  34 |   const dateRangeButton = () =>
+  35 |     page.getByRole("button", { name: /\d{1,2},\s*\d{4}\s*-\s*/ });
+  36 | 
+  37 |   // ── Assertions ─────────────────────────────────────────────────────────────
+  38 |   const assertLoaded = async () => {
+  39 |     await expect(pageTitle()).toBeVisible({ timeout: 15_000 });
+  40 |     await expect(refreshButton()).toBeVisible({ timeout: 10_000 });
+> 41 |     await expect(dateRangeButton()).toBeVisible({ timeout: 10_000 });
+     |                                     ^ Error: expect(locator).toBeVisible() failed
+  42 |   };
+  43 | 
+  44 |   // The dashboard resolves to one of two deterministic states once the API
+  45 |   // responds: summary cards (has data) OR the "no data for this range" empty
+  46 |   // state. Both prove the tab loaded and the fetch completed without erroring.
+  47 |   // Target the card by its heading — the same text also appears as a chart
+  48 |   // caption ("Order Summary by Status"), so a plain getByText double-matches.
+  49 |   const summaryCard = (title: string) =>
+  50 |     page.getByRole("heading", { name: new RegExp(title) });
+  51 | 
+  52 |   const emptyState = () =>
+  53 |     page.getByText("No analytics data for this date range");
+  54 | 
+  55 |   const assertDashboardResolved = async () => {
+  56 |     await expect(
+  57 |       summaryCard("Total Orders").or(emptyState()).first()
+  58 |     ).toBeVisible({ timeout: 20_000 });
+  59 |   };
+  60 | 
+  61 |   const assertNoError = () =>
+  62 |     expect(
+  63 |       page.getByText("Failed to load dashboard data. Please try again.")
+  64 |     ).toHaveCount(0);
+  65 | 
+  66 |   // ── Date-range picker ──────────────────────────────────────────────────────
+  67 |   const openDateRangePicker = async () => {
+  68 |     await dateRangeButton().click();
+  69 |     await page
+  70 |       .getByText("Quick Select")
+  71 |       .waitFor({ state: "visible", timeout: 10_000 });
+  72 |   };
+  73 | 
+  74 |   const quickSelectOption = (label: string) =>
+  75 |     page.getByRole("button", { name: label, exact: true });
+  76 | 
+  77 |   // Pick a preset (e.g. "Last 7 days") and apply it.
+  78 |   const applyQuickSelect = async (label: string) => {
+  79 |     await quickSelectOption(label).click();
+  80 |     await page.getByRole("button", { name: "Apply", exact: true }).click();
+  81 |   };
+  82 | 
+  83 |   return {
+  84 |     navigateToAnalyticsTab,
+  85 |     pageTitle,
+  86 |     refreshButton,
+  87 |     dateRangeButton,
+  88 |     summaryCard,
+  89 |     emptyState,
+  90 |     assertLoaded,
+  91 |     assertDashboardResolved,
+  92 |     assertNoError,
+  93 |     openDateRangePicker,
+  94 |     quickSelectOption,
+  95 |     applyQuickSelect,
+  96 |   };
+  97 | };
+  98 | 
+```
