@@ -542,6 +542,42 @@ test.describe("POS — Dual pricing v2 (per-item cash tier)", () => {
     expect(msg(rest.data)).toMatch(/whole check/i);
   });
 
+  test("TC-507: a whole check paid with EXACTLY the cash price is accepted; a cent short is refused and leaves the check at card prices", async () => {
+    await allure.description(
+      "Floor report 2026-09-16 (dev T3): the POS showed 'Amount due' at the cash price, the " +
+        "cashier tendered exactly that, and settle-cash refused it — it measured the cash " +
+        "against the CARD amount the device declares, before re-pricing. TC-491 tenders more " +
+        "than the card total, which is why it never caught this."
+    );
+    const short = await openCheck(`Cash short ${runId}`);
+    const refused = await settleTabCashRaw(tabletToken, staffSession, short, {
+      amount: CARD_TOTAL,
+      cashTendered: round2(CASH_TOTAL - 0.01),
+      idempotencyKey: `short-${runId}`,
+      applyCashDiscount: true,
+    });
+    expect(refused.status, msg(refused.data)).toBe(400);
+    expect(msg(refused.data)).toMatch(/less than/i);
+    const untouched = await getOrderFullRaw(token, short);
+    expect(untouched.data).toMatchObject({ total: CARD_TOTAL });
+
+    const exact = await openCheck(`Cash exact ${runId}`);
+    const leg = await settleTabCashRaw(tabletToken, staffSession, exact, {
+      amount: CARD_TOTAL, // the device declares the card remaining
+      cashTendered: CASH_TOTAL,
+      idempotencyKey: `exact-${runId}`,
+      applyCashDiscount: true,
+    });
+    expect(leg.status, msg(leg.data)).toBe(200);
+    expect(leg.data.cashChange).toBe(0);
+    expect(leg.data.closed).toBe(true);
+    const read = await getOrderFullRaw(token, exact);
+    expect(read.data).toMatchObject({
+      cashDiscount: CASH_DISCOUNT,
+      total: CASH_TOTAL,
+    });
+  });
+
   test("TC-492: editing a cash-priced order re-derives the discount at the restaurant's markup", async () => {
     await allure.description(
       "A register order paid whole in cash is created at the cash tier (qty 2). " +
