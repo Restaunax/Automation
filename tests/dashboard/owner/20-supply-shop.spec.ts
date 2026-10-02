@@ -66,6 +66,25 @@ const msg = (body: unknown): string =>
     ? String((body as { message: unknown }).message)
     : JSON.stringify(body);
 
+/**
+ * The emails are Handlebars templates, which HTML-escape every interpolated
+ * value — `'` → `&#x27;`, `=` → `&#x3D;`, `&` → `&amp;` — so "We're on it" and
+ * a CTA's `?tab=supply-shop` never appear literally in the raw HTML. Decode
+ * before asserting on copy or URLs (`&amp;` last, so it can't double-decode).
+ */
+const decodeHtml = (html: string): string =>
+  html
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) =>
+      String.fromCodePoint(parseInt(hex, 16))
+    )
+    .replace(/&#(\d+);/g, (_, dec: string) =>
+      String.fromCodePoint(parseInt(dec, 10))
+    )
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+
 /** Admin-side design step: upload a passing PDF and send it as the proof. */
 const sendProofFor = async (adminToken: string, orderId: string) => {
   const upload = await uploadSupplyArtworkRaw(
@@ -327,8 +346,9 @@ test.describe("Owner — Print Shop (supply shop)", () => {
         subjectPattern: /^We're designing your /,
         timeoutMs: 60_000,
       });
-      expect(mail.html_body).toContain(`Order ${orderA.orderNumber}`);
-      expect(mail.html_body).toContain("We're on it");
+      const html = decodeHtml(mail.html_body);
+      expect(html).toContain(`Order ${orderA.orderNumber}`);
+      expect(html).toContain("We're on it");
     }
   );
 
@@ -351,12 +371,12 @@ test.describe("Owner — Print Shop (supply shop)", () => {
       });
       const href =
         /href="([^"]*restaurantManagement\?tab=supply-shop[^"]*)"/.exec(
-          mail.html_body
+          decodeHtml(mail.html_body)
         )?.[1];
       expect(href, "CTA href pointing at the Print Shop tab").toBeTruthy();
       expect(href).toContain(`/restaurant/restaurantId/${restaurantId}/`);
 
-      await session.page.goto(href!.replace(/&amp;/g, "&"), {
+      await session.page.goto(href!, {
         waitUntil: "domcontentloaded",
       });
       await expect(
@@ -400,8 +420,9 @@ test.describe("Owner — Print Shop (supply shop)", () => {
         subjectPattern: /^We're making those changes$/,
         timeoutMs: 60_000,
       });
-      expect(mail.html_body).toContain("What you asked for");
-      expect(mail.html_body).toContain(note);
+      const html = decodeHtml(mail.html_body);
+      expect(html).toContain("What you asked for");
+      expect(html).toContain(note);
     }
   );
 
@@ -504,9 +525,7 @@ test.describe("Owner — Print Shop (supply shop)", () => {
         subjectPattern: /^One step left to print your /,
         timeoutMs: 60_000,
       });
-      expect(mail.html_body.replace(/&amp;/g, "&")).toContain(
-        hostedPaymentUrl!
-      );
+      expect(decodeHtml(mail.html_body)).toContain(hostedPaymentUrl!);
     }
   );
 

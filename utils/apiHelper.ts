@@ -5496,6 +5496,36 @@ export function getAdminFinanceRaw(
   return apiRequestRaw("GET", "/api/admin/finance", undefined, adminToken);
 }
 
+/**
+ * GET /api/gift-cards/restaurants/:id/summary — the owner's own outstanding
+ * gift-card liability (ACTIVE cards with a balance; chain-wide for a chain
+ * member). Tenant-scoped, so unlike Finance's platform-wide total it cannot be
+ * moved by other runs selling gift cards on shared QA at the same time.
+ */
+export function getOwnerGiftCardSummaryRaw(
+  ownerToken: string,
+  restaurantId: string
+): Promise<
+  RawResponse<{
+    success: boolean;
+    data: {
+      outstandingBalance: number;
+      cardCount: number;
+      importedBalance: number;
+      importedCardCount: number;
+      isChainWide: boolean;
+    };
+  }>
+> {
+  return apiRequestRaw(
+    "GET",
+    `/api/gift-cards/restaurants/${restaurantId}/summary`,
+    undefined,
+    ownerToken,
+    restaurantHeader(restaurantId)
+  );
+}
+
 // ── Gift cards: config + physical batches (admin) ────────────────────────────
 
 export interface GiftCardConfigFull extends GiftCardConfig {
