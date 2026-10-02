@@ -1054,6 +1054,40 @@ export async function ensureTaxRate(
   );
 }
 
+/**
+ * Publish (or unpublish) a restaurant the way the dashboard's Publish page does
+ * — POST /restaurant/restaurantId/:id {payload:{published}} (admin/employee
+ * token, as in the UI). Since restaunax 04d3c8d0e (2026-09-11, "preview
+ * mode") an UNPUBLISHED restaurant refuses every durable public write: orders
+ * ("has not been published yet, so orders cannot be placed") and anything
+ * behind `requirePublishedRestaurant` — public reservations, job applications,
+ * leads ("in preview mode and hasn't been published yet"). Fixture restaurants
+ * that take orders or bookings must be published. Returns the PREVIOUS state
+ * so a caller touching a restaurant it does not own can restore it in finally.
+ */
+export async function setRestaurantPublishedApi(
+  accessToken: string,
+  restaurantId: string,
+  published = true
+): Promise<{ previous: boolean }> {
+  const before = await apiRequest<{ restaurant?: { published?: boolean } }>(
+    "GET",
+    `/restaurant/restaurantId/${restaurantId}`,
+    undefined,
+    accessToken
+  );
+  const previous = before.restaurant?.published === true;
+  if (previous !== published) {
+    await apiRequest<unknown>(
+      "POST",
+      `/restaurant/restaurantId/${restaurantId}`,
+      { payload: { published } },
+      accessToken
+    );
+  }
+  return { previous };
+}
+
 /** POST /api/admin/chains/:gid/restaurants/:rid/unlink → 200 {dissolved} | 400 anchor/established | 404. */
 export function adminUnlinkRestaurantFromChainRaw(
   adminToken: string,

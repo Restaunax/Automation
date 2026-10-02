@@ -80,6 +80,12 @@ const msg = (body: unknown): string =>
     : JSON.stringify(body);
 
 test.describe("POS — Dual pricing v2 (per-item cash tier)", () => {
+  // The cases build on each other (enrol → markup → confirm menu → tender),
+  // and beforeAll mints the tenant. Without serial mode one failure restarts
+  // the worker, beforeAll mints a FRESH tenant with dual pricing off, and every
+  // later case fails with "not currently offering a cash price" — a misleading
+  // cascade (nightly 2026-10-01). Serial: a failure stops the chain honestly.
+  test.describe.configure({ mode: "serial" });
   test.skip(
     !OWNER_EMAIL || !OWNER_PASSWORD || !ADMIN_EMAIL || !ADMIN_PASSWORD,
     "OWNER + ADMIN creds needed (the file mints its own throwaway tenant)"
@@ -539,7 +545,13 @@ test.describe("POS — Dual pricing v2 (per-item cash tier)", () => {
       applyCashDiscount: true,
     });
     expect(rest.status, msg(rest.data)).toBe(400);
-    expect(msg(rest.data)).toMatch(/whole check/i);
+    // Stable code + the figures the device reseeds from (restaunax 04758b300);
+    // the copy now says "paid all at once in cash" rather than "whole check".
+    expect(rest.data).toMatchObject({
+      errorCode: "CASH_PRICE_REQUIRES_WHOLE_CHECK",
+      details: { alreadyPaid: 10, remaining: round2(CARD_TOTAL - 10) },
+    });
+    expect(msg(rest.data)).toMatch(/all at once in cash/i);
   });
 
   test("TC-507: a whole check paid with EXACTLY the cash price is accepted; a cent short is refused and leaves the check at card prices", async () => {
