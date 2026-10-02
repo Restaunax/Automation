@@ -199,10 +199,10 @@ test.describe("Owner — Orders API contract", () => {
     // (or 400) for PICKED_UP → PENDING and delete this twin.
   });
 
-  test("TC-260: CSV export rejects an empty result set and streams a 32-column CSV otherwise", async () => {
+  test("TC-260: CSV export rejects an empty result set and streams a 33-column CSV otherwise", async () => {
     await allure.description(
       "POST /api/order/statistics/export/:id with a search that matches nothing → 400 'No orders found'. " +
-        "With the seed surname → 200 text/csv whose header is the 32 documented columns and whose " +
+        "With the seed surname → 200 text/csv whose header is the 33 documented columns (incl. the dual-pricing 'Cash Discount') and whose " +
         "'Order Number' column (the receipt number) includes our seeded order."
     );
     const empty = await exportOrdersRaw(token, restaurantId, {
@@ -220,9 +220,14 @@ test.describe("Owner — Orders API contract", () => {
     expect(ok.status).toBe(200);
     expect(typeof ok.data).toBe("string");
     const rows = parseCsv(ok.data as string);
-    expect(rows[0]).toHaveLength(32);
+    expect(rows[0]).toHaveLength(33);
     expect(rows[0]?.[0]).toBe("Order Number");
     expect(rows[0]?.[4]).toBe("Status");
+    // Dual-pricing register discount (backend fc628849e, B10) sits right after
+    // "Discount Amount" — every later column shifted one to the right.
+    expect(rows[0]?.[12]).toBe("Discount Amount");
+    expect(rows[0]?.[13]).toBe("Cash Discount");
+    expect(rows[0]?.[32]).toBe("Redemption Value");
     expect(rows.slice(1).map((r) => r[0])).toContain(seeded.receiptNumber);
   });
 

@@ -120,13 +120,52 @@ export const createAdminDemoManagementPage = (page: Page) => {
     await drawer().waitFor({ state: "hidden", timeout: 10_000 });
   };
 
-  // ── Send Follow-up Email — pre-filled subject/body, delivered to Mailpit ───
+  // ── Send Follow-up Email — a copy-to-clipboard composer, NOT a sender ─────
+  // Since the follow-up redesign (restaunax cf531313a / 984573dcc /
+  // 3917f6099) the platform sends nothing: the rep copies the pre-filled
+  // draft and sends it from their own inbox. Copying records nothing; an
+  // explicit "Mark as contacted" (with an editable send time) POSTs
+  // /api/demo-requests/:id/record-followup-outreach, which logs the touch,
+  // stops the SLA clock and promotes NEW → CONTACTED. The dialog is titled
+  // "Follow-up email" (admin.json demoManagement.dialogs.email.title).
+  const followupDialog = (): Locator =>
+    page.getByRole("dialog").filter({
+      has: page.getByRole("heading", { name: "Follow-up email" }),
+    });
   const followupSubjectInput = () => page.locator("#followup-subject");
   const followupBodyInput = () => page.locator("#followup-body");
 
-  const sendFollowupEmail = async () => {
-    const dialog = page.locator('[role="dialog"]');
-    await dialog.getByRole("button", { name: "Send Email" }).click();
+  // Opens the "Did you send it?" prompt (no copy needed — copying would only
+  // open the same prompt), confirms, and resolves with the outreach response.
+  const markFollowupContacted = async () => {
+    const dialog = followupDialog();
+    await dialog
+      .getByRole("button", { name: "Mark as contacted", exact: true })
+      .click();
+    const prompt = dialog
+      .getByRole("alert")
+      .filter({ hasText: "Did you send it?" });
+    await expect(prompt).toBeVisible();
+    await expect(dialog.locator("#followup-sent-at")).toBeVisible();
+    const [response] = await Promise.all([
+      page.waitForResponse(
+        (r) =>
+          r.request().method() === "POST" &&
+          /\/api\/demo-requests\/[^/]+\/record-followup-outreach$/.test(
+            r.url()
+          ),
+        { timeout: 10_000 }
+      ),
+      prompt
+        .getByRole("button", { name: "Mark as contacted", exact: true })
+        .click(),
+    ]);
+    return response;
+  };
+
+  const closeFollowupDialog = async () => {
+    const dialog = followupDialog();
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
     await dialog.waitFor({ state: "hidden", timeout: 10_000 });
   };
 
@@ -188,7 +227,9 @@ export const createAdminDemoManagementPage = (page: Page) => {
     fillNotesAndSave,
     followupSubjectInput,
     followupBodyInput,
-    sendFollowupEmail,
+    followupDialog,
+    markFollowupContacted,
+    closeFollowupDialog,
     assignToUser,
     scheduleDemo,
     confirmDelete,

@@ -116,7 +116,11 @@ export async function getOwnerRestaurants(
  * Toggle a restaurant's "pass processing fee to customer" setting via the
  * settings endpoint (PUT /api/restaurantId/:id/settings). Used by the
  * processing-fee E2E to flip the fee ON/OFF around the customer-facing
- * assertion. Pass an owner (or admin) token for a restaurant they manage.
+ * assertion. Switching it ON needs a company-ADMIN token: since backend
+ * ecd99c9d2 (2026-08-28) the key is stripped from any non-admin payload (we
+ * are the merchant of record, so a surcharge is the company's call), and the
+ * owner's PUT still answers 200 with nothing changed. Turning it OFF works
+ * with either token.
  */
 export async function setPassProcessingFee(
   accessToken: string,
