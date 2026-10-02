@@ -1876,12 +1876,14 @@ export async function getGiftCardConfig(
 }
 
 /**
- * POST /api/gift-cards/purchase — public, no auth. `stripePaymentIntentId` is
- * stored as-is for Stripe-fee bookkeeping only; the backend never verifies it
- * against Stripe, so this can seed a valid, fully-funded gift card WITHOUT
- * driving the real purchase UI/Stripe iframe — the right way to fixture a
- * card for checkout-redemption tests (mirrors createCouponRaw's role for
- * coupons). The dedicated purchase-flow tests still drive the real UI.
+ * POST /api/gift-cards/purchase — public, no auth.
+ *
+ * Since backend 93e5fecb9 (2026-08-18, "mint a card only for a verified,
+ * succeeded PaymentIntent") this REQUIRES a `stripePaymentIntentId` that
+ * Stripe reports as succeeded for exactly `amount`, with gift-card metadata
+ * for this restaurant — otherwise 400 PAYMENT_VALIDATION_FAILED. The suite
+ * holds no Stripe secret, so this can no longer seed a card; use
+ * `seedFundedGiftCard` (admin import) for redemption fixtures.
  */
 export async function purchaseGiftCard(body: {
   restaurantId: string;
@@ -1905,6 +1907,63 @@ export function purchaseGiftCardRaw(
     deliveryMethod: "EMAIL",
     ...body,
   });
+}
+
+/**
+ * A funded, ACTIVE gift card for checkout-redemption fixtures, minted the
+ * legitimate unpaid-by-us way: the admin "Existing gift cards" import
+ * (POST /api/admin/gift-cards/import), which adopts a card whose money the
+ * restaurant already holds. The public purchase endpoint can't do this any
+ * more — it needs a succeeded Stripe PaymentIntent (see purchaseGiftCard).
+ *
+ * The code is unique per call (GiftCard.code is unique platform-wide, and an
+ * import collision would silently skip the row) and `AUTOGC`-prefixed so a
+ * stray card is recognisable. Callers still `recordGiftCardForCleanup(id)` so
+ * globalTeardown freezes it.
+ */
+export async function seedFundedGiftCard(
+  adminToken: string,
+  restaurantId: string,
+  amount: number
+): Promise<ApiGiftCard> {
+  const code = `AUTOGC${Date.now().toString(36)}${Math.random()
+    .toString(36)
+    .slice(2, 8)}`.toUpperCase();
+  const csv = `Card Number,Current Balance\r\n${code},${amount}\r\n`;
+  const form = new FormData();
+  form.append("file", new Blob([csv], { type: "text/csv" }), `${code}.csv`);
+  form.append("label", `Automation seed ${code}`);
+  const res = await fetch(
+    `${BACKEND_URL}/api/admin/gift-cards/import?restaurantId=${restaurantId}`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: form,
+    }
+  );
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(
+      `API POST /api/admin/gift-cards/import → ${res.status}: ${text}`
+    );
+  }
+  const body = JSON.parse(text) as {
+    data?: { created?: number; problems?: unknown[] };
+  };
+  if (body.data?.created !== 1) {
+    throw new Error(
+      `[seedFundedGiftCard] import created ${body.data?.created ?? 0} card(s): ${text}`
+    );
+  }
+  const id = await findGiftCardIdByCode(adminToken, code);
+  const balance = await getGiftCardBalance(code);
+  return {
+    id,
+    code,
+    initialBalance: balance.initialBalance,
+    currentBalance: balance.currentBalance,
+    status: balance.status,
+  };
 }
 
 /** GET /api/gift-cards/balance/:code — public, no auth. Throws on 404 (unknown code). */

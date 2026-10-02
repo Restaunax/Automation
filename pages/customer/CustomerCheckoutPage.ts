@@ -249,7 +249,7 @@ export const createCustomerCheckoutPage = (page: Page) => {
       .getByRole("heading", { name: "Gift Card", exact: true })
       .locator("xpath=ancestor::div[2]");
   const giftCardCodeInput = () =>
-    giftCardBox().getByPlaceholder("XXXX-XXXX-XXXX-XXXX");
+    giftCardBox().getByPlaceholder("Enter your gift card number");
   const applyGiftCardButton = () =>
     giftCardBox().getByRole("button", { name: "Apply", exact: true });
   const removeGiftCardButton = () =>
