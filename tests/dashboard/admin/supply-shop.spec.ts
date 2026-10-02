@@ -80,6 +80,11 @@ const msg = (body: unknown): string =>
     : JSON.stringify(body);
 
 test.describe("Admin — Supply shop", () => {
+  // Cases share orders minted in earlier cases. Without serial mode one
+  // failure restarts the worker, beforeAll re-mints a fresh tenant, and every
+  // later case fails on undefined state — a misleading cascade (nightly
+  // 2026-10-01). Serial: a failure stops the chain honestly.
+  test.describe.configure({ mode: "serial" });
   test.skip(
     !ADMIN_EMAIL || !ADMIN_PASSWORD,
     "ADMIN_EMAIL / ADMIN_PASSWORD not set in .env (the file mints its own throwaway tenant)"
