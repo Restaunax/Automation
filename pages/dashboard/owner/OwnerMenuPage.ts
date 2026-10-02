@@ -346,10 +346,18 @@ export const createOwnerMenuPage = (page: Page) => {
     itemCard(itemName)
       .getByTestId("menu-item-clone")
       .or(itemCard(itemName).locator(".MuiCardActions-root button").nth(2));
+  // testid (MenuItemCard `menu-item-featured`). It was the FIRST CardActions
+  // button until "View Details" took that slot (RestauNax e85a3d3fe), so the
+  // old positional locator now opened the detail panel instead.
   const cardFeaturedButton = (itemName: string) =>
-    itemCard(itemName).locator(".MuiCardActions-root button").first();
+    itemCard(itemName).getByTestId("menu-item-featured");
+  // The status CHIP on the card photo ("Featured" / "No longer available").
+  // Scoped to MUI Chip labels: the featured toggle button now also reads
+  // "Featured" once an item is featured, so plain text matching hits both.
   const cardBadge = (itemName: string, badge: string) =>
-    itemCard(itemName).getByText(badge, { exact: true });
+    itemCard(itemName)
+      .locator(".MuiChip-label")
+      .getByText(badge, { exact: true });
 
   /** "Who is this item for?" (chain owner adding to a shared category). */
   const scopeDialog = () =>

@@ -34,8 +34,10 @@ export const createMenuItemDetailPage = (page: Page) => {
   // Image overlay
   const uploadButton = () =>
     page.getByRole("button", { name: "Upload", exact: true });
+  // exact: the AddItemPicture dialog's thumbnail carries its own "Remove
+  // image" button (removes the staged file), which a substring match hits.
   const removeImageButton = () =>
-    page.getByRole("button", { name: "Remove Image" });
+    page.getByRole("button", { name: "Remove Image", exact: true });
   const aiGenerateButton = () =>
     page.getByRole("button", { name: /^AI Generate/ });
   const enhanceButton = () => page.getByRole("button", { name: /^Enhance/ });
@@ -71,6 +73,11 @@ export const createMenuItemDetailPage = (page: Page) => {
       ),
       dialog.getByRole("button", { name: "Save changes" }).click(),
     ]);
+    // The dialog stays open (spinner, "Save changes" disabled) until the
+    // upload settles, then closes and the page refreshes in place
+    // (AddItemPicture.onUploaded, RestauNax 87557ab70). Wait for that so the
+    // caller acts on the page, not on the still-open dialog.
+    await expect(dialog).toBeHidden({ timeout: 30_000 });
     return res.status();
   };
 
@@ -108,10 +115,10 @@ export const createMenuItemDetailPage = (page: Page) => {
   const permanentDeleteButton = () =>
     page.getByRole("button", { name: "Permanently Delete" });
 
+  // Title "Delete <name>?" + a "What will happen:" consequence list since
+  // RestauNax 7680f8687 (was "Are you sure you want to delete <name>").
   const deleteDialog = (itemName: string) =>
-    page.getByRole("dialog", {
-      name: `Are you sure you want to delete ${itemName}`,
-    });
+    page.getByRole("dialog", { name: `Delete ${itemName}?`, exact: true });
   const blockedDialog = () =>
     page.getByRole("dialog", { name: "Cannot Delete This Item" });
   const inactiveBanner = () =>
@@ -124,6 +131,13 @@ export const createMenuItemDetailPage = (page: Page) => {
     await deleteButton().click();
     const dialog = deleteDialog(itemName);
     await expect(dialog).toBeVisible({ timeout: 10_000 });
+    // The destructive confirm must say what it costs (owner-UX rule).
+    await expect(dialog).toContainText(
+      "The item disappears from your online menu, your POS and any menu TVs."
+    );
+    await expect(dialog).toContainText(
+      "Past orders keep their record of this item."
+    );
     const [res] = await Promise.all([
       page.waitForResponse(
         (r) =>
