@@ -9,37 +9,228 @@
 import * as dotenv from "dotenv";
 import * as fs from "fs";
 import * as path from "path";
-import { apiLogin, deleteTestRestaurant } from "./utils/apiHelper";
-import { STATE_FILE, OWNER_AUTH_FILE, ADMIN_AUTH_FILE, readSharedState } from "./utils/testData";
+import {
+  apiLogin,
+  deleteTestMenuItem,
+  permanentlyDeleteMenuItemApi,
+  deleteTestMenuGroupWithItems,
+  deleteAutomationMenuGroups,
+  deleteAutomationCoupons,
+  deleteAutomationDeals,
+  deleteRecordedUsers,
+  freezeGiftCardApi,
+  BACKEND_URL,
+} from "./utils/apiHelper";
+import { assertSafeTargets } from "./utils/targetGuard";
+import {
+  STATE_FILE,
+  OWNER_AUTH_FILE,
+  ADMIN_AUTH_FILE,
+  EMPLOYEE_AUTH_FILE,
+  USERS_CLEANUP_FILE,
+  GIFT_CARDS_CLEANUP_FILE,
+  FRONTEND_URL,
+  TEMPLATE_WIND_URL,
+  readSharedState,
+  readGiftCardsForCleanup,
+} from "./utils/testData";
 
 dotenv.config({ path: path.resolve(__dirname, ".env") });
 
-const ADMIN_EMAIL    = process.env.ADMIN_EMAIL    ?? "";
+const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
+const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 
 export default async function globalTeardown(): Promise<void> {
+  // SAFETY: same host allowlist as globalSetup. Teardown is the destructive
+  // half (hard-deletes via admin token) — guard it independently so a run that
+  // somehow reached teardown with bad targets still refuses to sweep.
+  assertSafeTargets({ FRONTEND_URL, BACKEND_URL, TEMPLATE_WIND_URL });
+
   console.log("\n[globalTeardown] Starting cleanup…");
 
-  // 1. Delete the seed restaurant via admin API
-  if (ADMIN_EMAIL && ADMIN_PASSWORD && fs.existsSync(STATE_FILE)) {
+  // Admin token (optional): needed for the HARD item delete — the plain item
+  // delete only soft-deletes, and the backend's category delete counts
+  // soft-deleted items, so groups drained via soft delete can never be
+  // removed ("Cannot Delete Category With Items").
+  let adminToken: string | undefined;
+  if (ADMIN_EMAIL && ADMIN_PASSWORD) {
     try {
-      const { restaurantId, restaurantName } = readSharedState();
-
-      if (restaurantId) {
-        const { accessToken } = await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD);
-        await deleteTestRestaurant(accessToken, restaurantId);
-        console.log(`[globalTeardown] Deleted test restaurant: ${restaurantName} (${restaurantId})`);
-      }
+      adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
     } catch (err) {
-      // Log but don't throw — a teardown failure must not mask test results
-      console.warn("[globalTeardown] Failed to delete test restaurant:", err);
+      console.warn("[globalTeardown] Admin login failed:", err);
     }
-  } else {
-    console.warn("[globalTeardown] Skipping restaurant cleanup (missing admin credentials or state file)");
   }
 
-  // 2. Remove all temp files
-  for (const f of [STATE_FILE, OWNER_AUTH_FILE, ADMIN_AUTH_FILE]) {
+  // 1. Delete the seed menu item + group created by globalSetup, plus any
+  //    automation-created categories/coupons — this run's AND leftovers from
+  //    interrupted runs. The restaurant itself is an existing owner
+  //    restaurant — do NOT delete it. Each step has its own try/catch so one
+  //    failure can't skip the rest of the cleanup.
+  if (OWNER_EMAIL && OWNER_PASSWORD && fs.existsSync(STATE_FILE)) {
+    const state = readSharedState();
+    const { menuItemId, menuGroupId, restaurantId, restaurantName } = state;
+    let accessToken = "";
+    try {
+      ({ accessToken } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD));
+    } catch (err) {
+      console.warn("[globalTeardown] Owner login failed:", err);
+    }
+
+    if (accessToken && menuItemId) {
+      try {
+        if (adminToken) {
+          // Hard delete so the seed group can actually be removed afterwards.
+          await permanentlyDeleteMenuItemApi(adminToken, menuItemId);
+        } else {
+          await deleteTestMenuItem(accessToken, menuItemId);
+        }
+        console.log(`[globalTeardown] Deleted seed menu item (${menuItemId})`);
+      } catch (err) {
+        console.warn("[globalTeardown] Failed to delete seed menu item:", err);
+      }
+    }
+
+    if (accessToken && menuGroupId) {
+      try {
+        // Drains remaining items first (hard-deleted when adminToken is
+        // available) so the group delete isn't blocked.
+        await deleteTestMenuGroupWithItems(
+          accessToken,
+          restaurantId,
+          menuGroupId,
+          adminToken
+        );
+        console.log(
+          `[globalTeardown] Deleted seed menu group (${menuGroupId}) from ${restaurantName}`
+        );
+      } catch (err) {
+        console.warn("[globalTeardown] Failed to delete seed menu group:", err);
+      }
+    }
+
+    if (accessToken && restaurantId) {
+      // Sweep categories the menu-management UI tests created (this run's
+      // "Test Starters <id>" / "TC45 Delete <id>" plus any prior leftovers,
+      // including orphaned "Automation Items" seed groups from older runs).
+      try {
+        const groupsDeleted = await deleteAutomationMenuGroups(
+          accessToken,
+          restaurantId,
+          adminToken
+        );
+        if (groupsDeleted) {
+          console.log(
+            `[globalTeardown] Deleted ${groupsDeleted} automation menu group(s)`
+          );
+        }
+      } catch (err) {
+        console.warn("[globalTeardown] Menu group sweep failed:", err);
+      }
+      // Same sweep on the persistent chain-fixture locations (chain-menu specs
+      // seed "Automation Menu <id>" groups there). The chain itself stays.
+      for (const locId of [state.chainLocationAId, state.chainLocationBId]) {
+        if (!locId) continue;
+        try {
+          const n = await deleteAutomationMenuGroups(
+            accessToken,
+            locId,
+            adminToken
+          );
+          if (n)
+            console.log(
+              `[globalTeardown] Deleted ${n} automation menu group(s) from chain location ${locId}`
+            );
+        } catch (err) {
+          console.warn(
+            `[globalTeardown] Chain-location menu sweep failed (${locId}):`,
+            err
+          );
+        }
+      }
+
+      // Sweep AUTO* coupons the coupon tests created (never cleaned before —
+      // they accumulated and risked duplicate-code collisions).
+      try {
+        const couponsDeleted = await deleteAutomationCoupons(
+          accessToken,
+          restaurantId
+        );
+        if (couponsDeleted) {
+          console.log(
+            `[globalTeardown] Deleted ${couponsDeleted} automation coupon(s)`
+          );
+        }
+      } catch (err) {
+        console.warn("[globalTeardown] Coupon sweep failed:", err);
+      }
+
+      // Sweep AUTO* deals the customer deal tests created (mirrors the coupon
+      // sweep — the deal spec deletes its own in afterAll, this catches
+      // interrupted runs).
+      try {
+        const dealsDeleted = await deleteAutomationDeals(
+          accessToken,
+          restaurantId
+        );
+        if (dealsDeleted) {
+          console.log(
+            `[globalTeardown] Deleted ${dealsDeleted} automation deal(s)`
+          );
+        }
+      } catch (err) {
+        console.warn("[globalTeardown] Deal sweep failed:", err);
+      }
+    }
+  } else {
+    console.warn(
+      "[globalTeardown] Skipping menu cleanup (missing owner credentials or state file)"
+    );
+  }
+
+  // 2. Admin-token cleanup: recorded test users. (globalSetup no longer submits
+  //    a demo request — the demo specs self-seed and delete their own.)
+  if (adminToken) {
+    try {
+      await deleteRecordedUsers(adminToken);
+      console.log("[globalTeardown] Cleaned up recorded test users");
+    } catch (err) {
+      console.warn("[globalTeardown] Failed to clean up test users:", err);
+    }
+
+    // Gift cards have no delete endpoint and server-generated codes (no AUTO*
+    // prefix to sweep by), so freeze is the closest thing to cleanup — tests
+    // record every purchased card's id, best-effort freeze each here.
+    const giftCardIds = readGiftCardsForCleanup();
+    if (giftCardIds.length) {
+      let frozen = 0;
+      for (const id of giftCardIds) {
+        try {
+          await freezeGiftCardApi(adminToken, id);
+          frozen++;
+        } catch (err) {
+          console.warn(
+            `[globalTeardown] Failed to freeze test gift card (${id}):`,
+            err
+          );
+        }
+      }
+      console.log(
+        `[globalTeardown] Froze ${frozen}/${giftCardIds.length} test gift card(s)`
+      );
+    }
+  }
+
+  // 3. Remove all temp files
+  for (const f of [
+    STATE_FILE,
+    OWNER_AUTH_FILE,
+    ADMIN_AUTH_FILE,
+    EMPLOYEE_AUTH_FILE,
+    USERS_CLEANUP_FILE,
+    GIFT_CARDS_CLEANUP_FILE,
+  ]) {
     if (fs.existsSync(f)) {
       fs.unlinkSync(f);
       console.log(`[globalTeardown] Removed ${path.basename(f)}`);

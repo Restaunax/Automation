@@ -36,6 +36,10 @@ export const STRIPE_CARDS = {
 export const STRIPE_DEFAULTS = {
   EXPIRY_MONTH: "12",
   EXPIRY_YEAR: "2030",
+  // Stripe's card expiry input is an "MM / YY" mask — feeding it a 4-digit
+  // year gets truncated to the first two digits ("12 / 2030" → "12 / 20",
+  // i.e. the year 2020, an expired card). Always fill with this value.
+  EXPIRY_MM_YY: "12 / 30",
   CVC: "123",
   ZIP: "10001",
 } as const;
