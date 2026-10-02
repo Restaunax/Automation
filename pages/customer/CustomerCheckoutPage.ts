@@ -319,10 +319,19 @@ export const createCustomerCheckoutPage = (page: Page) => {
   // passProcessingFeeToCustomer setting, so it appears/disappears purely from
   // that flag. Text-only hook (the row has no id/testid), same style as the
   // Coupon line assertion above.
-  const processingFeeLabel = () =>
-    page.getByText("Processing Fee", { exact: true });
+  //
+  // Since template-wind c15fb89 (2026-08-28) the label reads
+  // "Processing Fee (credit cards)": surcharging debit/prepaid is barred, the
+  // server drops the fee at charge time for non-credit cards, and the summary
+  // must disclose that BEFORE the card is entered. The visible check pins the
+  // full disclosure; the absence check matches any "Processing Fee…" label so
+  // a future re-wording can't turn it into a check that always passes (the
+  // old exact "Processing Fee" match had silently become one).
+  const processingFeeLabel = () => page.getByText(/^Processing Fee\b/);
   const assertProcessingFeeVisible = () =>
-    expect(processingFeeLabel()).toBeVisible({ timeout: 20_000 });
+    expect(
+      page.getByText("Processing Fee (credit cards)", { exact: true })
+    ).toBeVisible({ timeout: 20_000 });
   const assertNoProcessingFee = () =>
     expect(processingFeeLabel()).toHaveCount(0);
 

@@ -1,4 +1,4 @@
-import { type Page, type Locator, expect } from "@playwright/test";
+import { type Page, type Response, expect } from "@playwright/test";
 
 export interface DemoFormData {
   firstName: string;
@@ -6,33 +6,46 @@ export interface DemoFormData {
   email: string;
   phone: string;
   restaurantName: string;
+  // Still part of the API payload (backend enum + SLA thresholds key off it),
+  // but the public form no longer asks: since restaunax-web 022af42
+  // (2026-09-29) it always submits "phone". Only the raw-API seeders use this.
   preferredContact: "email" | "phone";
   bestTimeToContact?: "morning" | "afternoon" | "evening";
   agreeToTerms: boolean;
 }
+
+// The demo form lives on the marketing site (restaunax-web /get-started) since
+// 2026-08-08. The dashboard's /demo is a permanent client-side redirect there
+// (restaunax-frontend DemoRedirect.tsx) that must never be removed — affiliate
+// links and printed QR codes point at it — so goto() still enters via /demo and
+// asserts the hop.
+const FORM_PATH = /\/get-started(\?|$)/;
 
 const buildLocators = (page: Page) => ({
   firstNameInput: page.locator('input[name="firstName"]'),
   lastNameInput: page.locator('input[name="lastName"]'),
   emailInput: page.locator('input[name="email"]'),
   phoneInput: page.locator('input[name="phone"]'),
+  // A freeSolo Autocomplete (business suggestions) — typing is still the value.
   restaurantNameInput: page.locator('input[name="restaurantName"]'),
   agreeToTermsCheckbox: page.locator('input[name="agreeToTerms"]'),
-  submitButton: page.locator('button[type="submit"]'),
-  successDialog: page.locator("#success-dialog-title"),
-  successDialogCloseButton: page
-    .locator('[role="dialog"]')
-    .getByRole("button")
-    .last(),
-  preferredContactRadio: (value: "email" | "phone"): Locator =>
-    page.locator(`input[name="preferredContact"][value="${value}"]`),
+  submitButton: page.locator("#demo-form").locator('button[type="submit"]'),
+  // The success Dialog has no id/aria-label; its h5 title is the hook
+  // ("Request Submitted!" for the default restaurant plan — content.ts).
+  successDialog: page
+    .getByRole("dialog")
+    .filter({ has: page.getByRole("heading", { name: "Request Submitted!" }) }),
 });
+
+const isDemoRequestPost = (r: { url(): string; method(): string }) =>
+  r.url().includes("/api/demo-requests") && r.method() === "POST";
 
 export const createDemoBookingPage = (page: Page) => {
   const els = buildLocators(page);
 
   const goto = async (): Promise<void> => {
     await page.goto("/demo", { waitUntil: "domcontentloaded" });
+    await expect(page).toHaveURL(FORM_PATH, { timeout: 30_000 });
     await els.firstNameInput.waitFor({ state: "visible", timeout: 15_000 });
   };
 
@@ -42,38 +55,50 @@ export const createDemoBookingPage = (page: Page) => {
     await els.emailInput.fill(data.email);
     await els.phoneInput.fill(data.phone);
     await els.restaurantNameInput.fill(data.restaurantName);
-    await els.preferredContactRadio(data.preferredContact).check();
+    // Close any business-suggestion dropdown so it can't cover the checkbox.
+    await els.restaurantNameInput.press("Escape");
     await els.agreeToTermsCheckbox.scrollIntoViewIfNeeded();
     if (data.agreeToTerms) await els.agreeToTermsCheckbox.check();
   };
 
-  const submit = async (): Promise<void> => {
+  // Resolves with the POST /api/demo-requests response the click fires.
+  const submit = async (): Promise<Response> => {
     await els.submitButton.scrollIntoViewIfNeeded();
-    await els.submitButton.click();
+    const [response] = await Promise.all([
+      page.waitForResponse((r) => isDemoRequestPost(r.request()), {
+        timeout: 30_000,
+      }),
+      els.submitButton.click(),
+    ]);
+    return response;
   };
 
   const waitForSuccess = async (): Promise<void> => {
     await expect(els.successDialog).toBeVisible({ timeout: 15_000 });
   };
 
-  // Neither the missing-terms-checkbox nor invalid-email case renders a
-  // visible inline error — the form just silently declines to submit
-  // (native HTML5 validation blocks it). toBeHidden alone proves nothing
-  // here (it resolves immediately while the dialog is still hidden), so the
-  // authoritative negative signal is that no POST /api/demo-requests fires
-  // within a real observation window after the click.
-  const submitExpectingNoRequest = async (): Promise<void> => {
+  // The form is noValidate with its own validate(): a bad field renders an
+  // inline helper text and focuses the field, and no request is sent. The
+  // authoritative negative signal is still that no POST /api/demo-requests
+  // fires within a real observation window after the click (toBeHidden alone
+  // resolves immediately); `expectedError` additionally pins WHY it refused.
+  const submitExpectingNoRequest = async (
+    expectedError?: string
+  ): Promise<void> => {
     await els.submitButton.scrollIntoViewIfNeeded();
     const requestPromise = page
-      .waitForRequest((r) => r.url().includes("/api/demo-requests"), {
-        timeout: 2_500,
-      })
+      .waitForRequest(isDemoRequestPost, { timeout: 2_500 })
       .catch(() => null);
     await els.submitButton.click();
     const fired = await requestPromise;
     expect(fired, "form must not POST /api/demo-requests").toBeNull();
+    if (expectedError) {
+      await expect(
+        page.getByText(expectedError, { exact: true })
+      ).toBeVisible();
+    }
     await expect(els.successDialog).toBeHidden();
-    await expect(page).toHaveURL(/\/demo$/);
+    await expect(page).toHaveURL(FORM_PATH);
   };
 
   const fillAndSubmit = async (data: DemoFormData): Promise<void> => {

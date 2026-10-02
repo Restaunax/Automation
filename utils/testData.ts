@@ -97,7 +97,10 @@ export function generateDemoFormData(): DemoFormData & { uniqueId: string } {
     firstName: "Auto",
     lastName: "Tester",
     email: `test+${uniqueId}@${EMAIL_DOMAIN}`,
-    phone: "5551234567",
+    // NANP-dialable: the /get-started form rejects numbers no carrier will
+    // connect (restaunax-web e5866f6) — the old 555-123-4567 has a 1xx
+    // exchange and is refused client-side.
+    phone: generateSeedPhone(),
     restaurantName: `AUTO Demo Restaurant ${uniqueId}`,
     preferredContact: "email",
     agreeToTerms: true,
