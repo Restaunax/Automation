@@ -134,6 +134,7 @@ test.describe("Admin — Physical gift card batches", () => {
       "code",
       "code_display",
       "barcode_value",
+      "qr_value",
       "card_last4",
       "batch_id",
       "batch_label",
@@ -144,6 +145,8 @@ test.describe("Admin — Physical gift card batches", () => {
     for (const row of rows) {
       expect(row.code).toMatch(CODE_RE);
       expect(row.barcode_value).toBe(row.code);
+      // Second carrier (QR) for the SAME identity — the raw code, never a URL.
+      expect(row.qr_value).toBe(row.code);
       expect(row.batch_id).toBe(batchId);
       expect(row.scope_type).toBe("restaurant");
       expect(row.scope_name).toBe(restaurantName);
@@ -178,7 +181,8 @@ test.describe("Admin — Physical gift card batches", () => {
     expect(validate.status).toBe(200);
     expect(validate.data.data.valid).toBe(false);
     expect(validate.data.data.reason).toMatch(
-      /not been activated|not activated/i
+      // error:giftCard.notActivatedYet — "This gift card hasn't been activated yet."
+      /hasn['’]t been activated|not (?:been )?activated/i
     );
 
     const unknown = await getGiftCardBalanceRaw("ZZZZYYYYXXXXWWWW");

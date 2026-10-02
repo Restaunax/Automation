@@ -12,7 +12,7 @@ import {
   apiLogin,
   createCouponRaw,
   getRestaurantCoupons,
-  purchaseGiftCard,
+  seedFundedGiftCard,
   adjustGiftCardBalance,
   freezeGiftCardApi,
   createTestMenuGroup,
@@ -511,10 +511,20 @@ test.describe("Customer — Checkout coupon & delivery", () => {
 });
 
 // ── Gift card redemption at checkout — previously zero coverage anywhere in
-// the suite. Seeds fixtures via purchaseGiftCard/adjustGiftCardBalance/
-// freezeGiftCardApi (public purchase + admin endpoints) rather than driving
-// the real purchase UI each time — mirrors createCouponRaw's role for
-// coupons (see 04-gift-cards.spec.ts for the purchase-UI coverage itself).
+// the suite. Seeds fixtures via seedFundedGiftCard/adjustGiftCardBalance/
+// freezeGiftCardApi (admin endpoints) rather than driving the real purchase
+// UI each time — mirrors createCouponRaw's role for coupons (see
+// 04-gift-cards.spec.ts for the purchase-UI coverage itself). The public
+// /api/gift-cards/purchase used to double as the seeder, but since backend
+// 93e5fecb9 it mints only for a verified, succeeded Stripe PaymentIntent, so
+// funded cards now come from the admin "Existing gift cards" import — an
+// ACTIVE card with real balance, redeemable at the importing restaurant.
+/** A funded ACTIVE card at `restaurantId`, recorded for the teardown freeze. */
+const seedGiftCard = async (restaurantId: string, amount: number) => {
+  const { accessToken } = await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD);
+  return seedFundedGiftCard(accessToken, restaurantId, amount);
+};
+
 test.describe("Customer — Checkout gift card", () => {
   test.skip(
     !TEMPLATE_WIND_URL ||
@@ -534,7 +544,7 @@ test.describe("Customer — Checkout gift card", () => {
     page,
   }) => {
     await allure.description(
-      "Applying a freshly purchased, fully-funded gift card at checkout shows the 'Gift card applied' " +
+      "Applying a freshly seeded, fully-funded gift card at checkout shows the 'Gift card applied' " +
         "discount summary in the Gift Card box."
     );
 
@@ -543,7 +553,7 @@ test.describe("Customer — Checkout gift card", () => {
     const checkoutPage = createCustomerCheckoutPage(page);
 
     const giftCard = await allure.step("Seed a gift card", async () => {
-      const card = await purchaseGiftCard({ restaurantId, amount: 10 });
+      const card = await seedGiftCard(restaurantId, 10);
       recordGiftCardForCleanup(card.id);
       await allure.parameter("Gift card code", card.code);
       return card;
@@ -576,7 +586,7 @@ test.describe("Customer — Checkout gift card", () => {
     const { menuItemId, menuItemName, menuItemPrice } = readSharedState();
     const checkoutPage = createCustomerCheckoutPage(page);
 
-    const giftCard = await purchaseGiftCard({ restaurantId, amount: 10 });
+    const giftCard = await seedGiftCard(restaurantId, 10);
     recordGiftCardForCleanup(giftCard.id);
 
     await checkoutPage.seedCart(
@@ -624,7 +634,7 @@ test.describe("Customer — Checkout gift card", () => {
     const giftCard = await allure.step(
       "Seed a gift card and deplete it to $0 balance",
       async () => {
-        const card = await purchaseGiftCard({ restaurantId, amount: 10 });
+        const card = await seedGiftCard(restaurantId, 10);
         recordGiftCardForCleanup(card.id);
         const { accessToken } = await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD);
         await adjustGiftCardBalance(
@@ -659,7 +669,7 @@ test.describe("Customer — Checkout gift card", () => {
     const giftCard = await allure.step(
       "Seed a gift card and freeze it",
       async () => {
-        const card = await purchaseGiftCard({ restaurantId, amount: 10 });
+        const card = await seedGiftCard(restaurantId, 10);
         recordGiftCardForCleanup(card.id);
         const { accessToken } = await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD);
         await freezeGiftCardApi(accessToken, card.id);
@@ -706,7 +716,7 @@ test.describe("Customer — Checkout gift card", () => {
       expect(res.ok, `coupon seed failed: ${JSON.stringify(res.data)}`).toBe(
         true
       );
-      const giftCard = await purchaseGiftCard({ restaurantId, amount: 10 });
+      const giftCard = await seedGiftCard(restaurantId, 10);
       recordGiftCardForCleanup(giftCard.id);
       giftCardCode = giftCard.code;
     });
@@ -754,7 +764,7 @@ test.describe("Customer — Checkout gift card", () => {
     const giftCard = await allure.step(
       "Seed a small-balance gift card (comfortably below any single-item order total)",
       async () => {
-        const card = await purchaseGiftCard({ restaurantId, amount: 5 });
+        const card = await seedGiftCard(restaurantId, 5);
         recordGiftCardForCleanup(card.id);
         return card;
       }

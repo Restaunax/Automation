@@ -100,7 +100,7 @@ export const createCustomerGiftCardPage = (page: Page) => {
   // here (didn't resolve within timeout despite the elements being visible in
   // the page snapshot), so this uses an explicit, source-verified depth
   // instead. Needed because the page can also render a "Link a gift card
-  // code" input with the same "XXXX-XXXX-XXXX-XXXX" placeholder when
+  // code" input with the same "Enter your gift card number" placeholder when
   // authenticated, and because the purchase confirmation step's own "Balance:
   // $X.XX" text would otherwise collide with this section's result text.
   const balanceCheckBox = () =>
@@ -108,7 +108,7 @@ export const createCustomerGiftCardPage = (page: Page) => {
       .getByRole("heading", { name: "Check Gift Card Balance" })
       .locator("xpath=ancestor::div[2]");
   const balanceCheckInput = () =>
-    balanceCheckBox().getByPlaceholder("XXXX-XXXX-XXXX-XXXX");
+    balanceCheckBox().getByPlaceholder("Enter your gift card number");
   const checkBalanceButton = () =>
     balanceCheckBox().getByRole("button", { name: "Check Balance" });
 

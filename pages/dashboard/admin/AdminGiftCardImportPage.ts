@@ -98,7 +98,13 @@ export const createAdminGiftCardImportPage = (page: Page) => {
   };
 
   const closeWizard = async () => {
-    await wizard().getByRole("button", { name: "Close" }).click();
+    // Two buttons are named "Close": BaseDialog's title-bar X (aria-label
+    // buttons.close) and the wizard's last-step "Close" action. Use the action —
+    // it is the step's own way out.
+    await wizard()
+      .locator(".MuiDialogActions-root")
+      .getByRole("button", { name: "Close" })
+      .click();
     await expect(wizard()).toBeHidden();
   };
 
