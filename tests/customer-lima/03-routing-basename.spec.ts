@@ -5,6 +5,7 @@ import { createLimaStorefrontPage } from "../../pages/lima/LimaStorefrontPage";
 import { BACKEND_URL } from "../../utils/apiHelper";
 import {
   LIMA_PINNED_URL,
+  readChainSlug,
   readRestaurantSlug,
   readSharedState,
 } from "../../utils/testData";
@@ -55,17 +56,37 @@ test.describe("Lima — basename routing", () => {
   }) => {
     const state = readSharedState();
     const lima = createLimaStorefrontPage(page);
+    const tenant = (route: string) =>
+      new RegExp(`/${restaurantSlug}/${route}(\\?|$)`);
 
     await lima.gotoMenu(restaurantSlug);
     await lima.assertOnMenu();
+    // The item modal and Add to Cart are in-page state, not routes — they push
+    // no history entry. History is only proven by moves the ROUTER makes, so
+    // navigate in-app: the nav cart control, then a top-nav link.
     await lima.openItemModal(state.menuItemName);
     await lima.clickAddToCart();
 
+    // menu → cart (nav cart control) → menu (top-nav "Menu" link, present for
+    // every tenant, unlike the flag-gated Gift Cards / Careers entries).
+    await lima.cartButton().click();
+    await expect(page).toHaveURL(tenant("cart"));
+
+    await lima.navLink("Menu").click();
+    await expect(page).toHaveURL(tenant("menu"));
+
     await page.goBack({ waitUntil: "domcontentloaded" });
-    expect(page.url()).toContain(`/${restaurantSlug}`);
+    await expect(page).toHaveURL(tenant("cart"));
+
+    await page.goBack({ waitUntil: "domcontentloaded" });
+    await expect(page).toHaveURL(tenant("menu"));
 
     await page.goForward({ waitUntil: "domcontentloaded" });
-    expect(page.url()).toContain(`/${restaurantSlug}`);
+    await expect(page).toHaveURL(tenant("cart"));
+
+    // A reload mid-history is served by the server, not the router.
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page).toHaveURL(tenant("cart"));
   });
 
   test("TC-L23: the tenant root goes straight to the menu", async ({
@@ -109,19 +130,80 @@ test.describe("Lima — basename routing", () => {
   test("TC-L24: the tenant's own title and branding are served", async ({
     page,
   }) => {
-    const state = readSharedState();
-    const lima = createLimaStorefrontPage(page);
-    await lima.gotoMenu(restaurantSlug);
+    await allure.description(
+      "On a shared host the <title> is injected server-side per request from " +
+        "the tenant the PATH resolves to (server.ts renderHtml: " +
+        "presentation.metaTitle, else 'Order from <name>'). The expectation is " +
+        "read from the backend's own resolution of each slug, so the test " +
+        "pins WHICH tenant's head was served — not whatever copy an owner " +
+        "happens to have typed into their SEO title. A second tenant is " +
+        "fetched from the same server to catch a head cached across tenants."
+    );
 
+    const lima = createLimaStorefrontPage(page);
+
+    /** The backend's resolution of a slug, and the title Lima must serve for it. */
+    const resolve = async (slug: string) => {
+      const resp = await page.request.get(
+        `${BACKEND_URL}/api/public/site?slug=${slug}`
+      );
+      expect(resp.status(), `site lookup for ${slug}`).toBe(200);
+      const site = (
+        (await resp.json()) as {
+          data: {
+            restaurantId: string | null;
+            chainId?: string | null;
+            presentation: { name: string; metaTitle: string | null };
+          };
+        }
+      ).data;
+      const expectedTitle =
+        site.presentation.metaTitle || `Order from ${site.presentation.name}`;
+      return { site, expectedTitle };
+    };
+
+    /** The <title> in the server-rendered HTML (crawlers, unfurlers, first paint). */
+    const servedTitle = async (slug: string) => {
+      const html = await (
+        await page.request.get(`${lima.tenantRoot(slug)}/menu`)
+      ).text();
+      return /<title>([\s\S]*?)<\/title>/
+        .exec(html)?.[1]
+        ?.replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&amp;/g, "&");
+    };
+
+    // 1. The slug must still resolve to the seed restaurant — globalSetup
+    //    minted it FOR that restaurant (ensureOrderingSlug). If it resolved
+    //    elsewhere, every title assertion below would pass vacuously.
+    const own = await resolve(restaurantSlug);
+    expect(own.site.restaurantId).toBe(readSharedState().restaurantId);
+    await allure.parameter("expected title", own.expectedTitle);
+
+    // 2. Server-rendered head is exactly this tenant's.
+    expect(await servedTitle(restaurantSlug)).toBe(own.expectedTitle);
+
+    // 3. Cross-tenant: a second tenant on the same origin gets ITS head, and
+    //    asking for it does not bleed into the first tenant's next response.
+    const otherSlug = readChainSlug();
+    if (otherSlug) {
+      const other = await resolve(otherSlug);
+      await allure.parameter("other tenant title", other.expectedTitle);
+      expect(await servedTitle(otherSlug)).toBe(other.expectedTitle);
+      expect(await servedTitle(restaurantSlug)).toBe(own.expectedTitle);
+    }
+
+    // 4. …and the live tab after the app boots.
+    await lima.gotoMenu(restaurantSlug);
     const title = await lima.documentTitle();
     await allure.parameter("title", title);
 
     // index.html ships with the literal title "Order Now"; on a shared host
     // that would be every tenant's tab title.
     expect(title).not.toBe("Order Now");
-    expect(title.toLowerCase()).toContain(
-      state.restaurantName.toLowerCase().slice(0, 8)
-    );
+    expect(title).toBe(own.expectedTitle);
   });
 });
 
