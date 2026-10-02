@@ -255,8 +255,16 @@ test.describe("Owner — Chain menu (per-location overrides, shared vs local)", 
     await tab.goto(locA);
     await tab.assertLoaded();
     await tab.expandCategory(CATEGORY);
+    // Act on what the owner sees: the row must already show A's override, and
+    // the dialog must open in the Overridden state. LocationPricingEditor seeds
+    // its drafts once per item id but diffs against the live item prop on
+    // save, so opening it mid-refresh could drop the reset from the payload
+    // (CI 2026-10-02: basePriceOverride undefined).
+    await expect(tab.differentPriceChip(CATEGORY, shared.name)).toBeVisible();
     await tab.priceOverrideButton(CATEGORY, shared.name).click();
     await dlg.waitFor();
+    await expect(dlg.basePriceInput()).toHaveValue("14.00");
+    await expect(dlg.overriddenChips().first()).toBeVisible();
     await dlg.resetRowButtons().first().click();
     const reset = await dlg.save();
     expect(reset.status).toBe(200);
