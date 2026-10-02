@@ -28,8 +28,8 @@ test.describe("Lima — checkout and payment", () => {
     await allure.label("severity", "blocker");
   });
 
-  /** Menu → item → cart → checkout, with the customer form filled. */
-  const reachCheckout = async (
+  /** Menu → item → cart. Lima's coupon box lives here, not on checkout. */
+  const reachCart = async (
     page: Parameters<typeof createLimaStorefrontPage>[0]
   ) => {
     const state = readSharedState();
@@ -44,14 +44,22 @@ test.describe("Lima — checkout and payment", () => {
     await page.goto(`${lima.tenantRoot(restaurantSlug)}/cart`, {
       waitUntil: "domcontentloaded",
     });
+    await expect(checkout.proceedToCheckoutButton()).toBeVisible({
+      timeout: 20_000,
+    });
+    return { lima, checkout };
+  };
+
+  /** … → checkout, Pickup chosen and the customer form filled. */
+  const reachCheckout = async (
+    page: Parameters<typeof createLimaStorefrontPage>[0]
+  ) => {
+    const { lima, checkout } = await reachCart(page);
     await checkout.goToCheckout();
 
-    await checkout
-      .serviceTypeButton("PICKUP")
-      .click()
-      .catch(() => {
-        // Pickup is usually the default; only click it when offered.
-      });
+    // Fresh context → the service slice defaults to PICKUP; prove it rather
+    // than assume it (a delivery order would need an address to validate).
+    await checkout.assertPickupSelected();
 
     await checkout.fillCustomerInfo({
       firstName: "Auto",
@@ -75,8 +83,9 @@ test.describe("Lima — checkout and payment", () => {
     const { checkout } = await reachCheckout(page);
 
     await allure.step("Pay with a succeeding test card", async () => {
+      await checkout.proceedToPayment();
       await fillStripePaymentElement(page, STRIPE_CARDS.VISA_SUCCESS);
-      await checkout.placeOrderButton().click();
+      await checkout.placeOrder();
     });
 
     await checkout.assertOrderConfirmed();
@@ -89,27 +98,53 @@ test.describe("Lima — checkout and payment", () => {
   }) => {
     const { checkout } = await reachCheckout(page);
 
+    await checkout.proceedToPayment();
     await fillStripePaymentElement(page, STRIPE_CARDS.DECLINED);
-    await checkout.placeOrderButton().click();
+    await checkout.placeOrder();
 
-    await expect(checkout.errorAlert()).toBeVisible({ timeout: 30_000 });
+    // PaymentSection surfaces Stripe's own decline message in an error Alert.
+    await expect(
+      page.getByRole("alert").filter({ hasText: /declined/i })
+    ).toBeVisible({ timeout: 30_000 });
     // Still on checkout: a declined card must not advance the customer.
     await checkout.assertOnCheckout();
     expect(page.url()).not.toContain("order-confirmation");
   });
 
   test("TC-L42: an invalid coupon is rejected", async ({ page }) => {
-    const { checkout } = await reachCheckout(page);
+    // Lima validates coupons on the CART (ShoppingCart → POST
+    // /api/coupons/validate); checkout has no coupon box.
+    const { checkout } = await reachCart(page);
 
-    const before = await checkout.readTotal();
-    await checkout.applyCoupon("DEFINITELY-NOT-A-REAL-CODE");
+    const before = await checkout.readCartTotal();
+    const [resp] = await Promise.all([
+      page.waitForResponse(
+        (r) =>
+          r.url().includes("/api/coupons/validate") &&
+          r.request().method() === "POST"
+      ),
+      checkout.applyCoupon("DEFINITELY-NOT-A-REAL-CODE"),
+    ]);
 
-    await expect(checkout.errorAlert()).toBeVisible({ timeout: 20_000 });
-    const after = await checkout.readTotal();
+    // Unknown code → 404 with success:false; the cart shows the server's own
+    // message (not a client-side guess) under the box.
+    expect(resp.status()).toBe(404);
+    const body = (await resp.json()) as { success: boolean; message: string };
+    expect(body.success).toBe(false);
+    await expect(page.getByText(body.message, { exact: true })).toBeVisible({
+      timeout: 20_000,
+    });
+    // Not applied: the code stays in the box (an applied coupon clears it).
+    await expect(checkout.couponInput()).toHaveValue(
+      "DEFINITELY-NOT-A-REAL-CODE"
+    );
+
+    const after = await checkout.readCartTotal();
     await allure.parameter("total before", String(before));
     await allure.parameter("total after", String(after));
     // A rejected code must not quietly move the total.
-    if (before !== null && after !== null) expect(after).toBe(before);
+    expect(before).not.toBeNull();
+    expect(after).toBe(before);
   });
 
   test("TC-L43: an invalid gift card is rejected", async ({ page }) => {
@@ -123,10 +158,19 @@ test.describe("Lima — checkout and payment", () => {
 
     const before = await checkout.readTotal();
     await input.fill("0000-0000-0000-0000");
-    await page.getByRole("button", { name: /apply/i }).last().click();
+    await page
+      .getByRole("button", { name: /^apply$/i })
+      .last()
+      .click();
 
-    await expect(checkout.errorAlert()).toBeVisible({ timeout: 20_000 });
+    // GiftCardSection marks the field invalid and shows a caption — never a
+    // role=alert — and applies nothing.
+    await expect(input).toHaveAttribute("aria-invalid", "true", {
+      timeout: 20_000,
+    });
+    await expect(checkout.giftCardAppliedBanner()).toHaveCount(0);
     const after = await checkout.readTotal();
-    if (before !== null && after !== null) expect(after).toBe(before);
+    expect(before).not.toBeNull();
+    expect(after).toBe(before);
   });
 });
