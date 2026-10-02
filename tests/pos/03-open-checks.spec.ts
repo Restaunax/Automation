@@ -693,8 +693,9 @@ test.describe("POS — Table Service Open Checks", () => {
   test("TC-383: cancel guard — a check with a settled leg refuses cancel (refund path only); a fresh check cancels and leaves the grid", async () => {
     await allure.description(
       "A tab with ANY SUCCEEDED leg is real collected money: POST " +
-        "/api/tablet/cancel-order → 400 (reversal is a refund, never a " +
-        "cancel). A fresh check with no settled legs cancels cleanly and " +
+        "/api/tablet/cancel-order without the refund flag → 409 " +
+        "CANCEL_REFUND_CONFIRMATION_REQUIRED (the money must be refunded, never " +
+        "silently kept by a plain cancel). A fresh check with no settled legs cancels cleanly and " +
         "disappears from the tables summary (open-check is DERIVED: status " +
         "CANCELLED excludes it)."
     );
@@ -712,7 +713,14 @@ test.describe("POS — Table Service Open Checks", () => {
       settled.id,
       "attempted cancel with settled leg"
     );
-    expect(blocked.status, msg(blocked.data)).toBe(400);
+    // restaunax b974f90e1 ("cancel any paid order in one step"): a plain
+    // cancel (no refundSettledPayments flag — what an old POS build sends) on
+    // a tab with a settled leg is now a 409 asking for the refund to be
+    // confirmed, not a 400. Still refused, still nothing cancelled.
+    expect(blocked.status, msg(blocked.data)).toBe(409);
+    expect(blocked.data).toMatchObject({
+      errorCode: "CANCEL_REFUND_CONFIRMATION_REQUIRED",
+    });
     // Close it out so nothing leaks (also proves the check survived intact).
     const closeLeg = await settleTabCashRaw(
       tabletToken,

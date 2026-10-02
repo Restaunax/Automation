@@ -1599,13 +1599,13 @@ Added by the second tab-by-tab audit (`docs/MENU_TAB_TEST_STRATEGY.md`). Until n
 
 ### Storefront hand-off (`customer/06-menu-handoff.spec.ts`) and admin chains (`admin/chains.spec.ts`)
 
-| TC         | What it checks                                                                                                                                                      |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **TC-320** | Owner 86s an item → Template Wind no longer lists it → restore → back.                                                                                              |
-| **TC-321** | Per-location override: Wind shows $14 at A and $12 at B; the public `/quote` (what checkout charges) returns 14 at A / 12 at B.                                     |
-| **TC-322** | Uncarry at A → absent from Wind A only.                                                                                                                             |
-| **TC-323** | Admin links an existing store (menu kept): its own items interleave at that location only; unlink → back to 2.                                                      |
-| **TC-324** | Unlink refused for a live store ("gone live") and a non-member (404); cancelling the order lets it leave; admin DELETE only archives and never detaches membership. |
+| TC         | What it checks                                                                                                                                                                                                                                                                                                                                                                     |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **TC-320** | Owner 86s an item → Template Wind no longer lists it → restore → back.                                                                                                                                                                                                                                                                                                             |
+| **TC-321** | Per-location override: Wind shows $14 at A and $12 at B; the public `/quote` (what checkout charges) returns 14 at A / 12 at B.                                                                                                                                                                                                                                                    |
+| **TC-322** | Uncarry at A → absent from Wind A only.                                                                                                                                                                                                                                                                                                                                            |
+| **TC-323** | Admin links an existing store (menu kept): its own items interleave at that location only; unlink → back to 2.                                                                                                                                                                                                                                                                     |
+| **TC-324** | Unlink refused for a live store ("gone live") and a non-member (404); cancelling the order lets it leave; admin DELETE only archives and never detaches membership. The store is published just long enough to take its order (unpublished stores refuse orders since restaunax 04d3c8d0e), then unpublished — a published location is itself "established" and could never leave. |
 
 **Real product findings from this batch (2026-08-16):** (1) authenticated IDOR across most `/menu` mutations (TC-283..286 pins); (2) chain "Restore All to Available" doesn't un-86 locations (TC-282 pin); (3) "Reset all to shared" in the per-location pricing dialog doesn't reset saved overrides (TC-317 pin); (4) UX: the caption under the Menu-tab availability switch labels the opposite state (the chip next to the name is correct); (5) `CHANNEL_PRICING_DESIGN.md` says the override routes are unauthenticated — the code mounts them behind `requireAuth` (TC-274 pins the code). The "shown $14, charged $12" chain defect described in that design doc is **fixed on QA** (TC-321 proves the quote uses the override).
 
@@ -2140,7 +2140,7 @@ The real "Create Chain" flow: an admin picks a "founding" restaurant (one that a
 2. It navigates to Chain Management, opens "Create Chain", and searches/selects the founding restaurant in the debounced autocomplete
 3. It submits (chain name left blank, so it defaults to the founding restaurant's name) and confirms the "Chain created" success toast
 4. It confirms the detail panel auto-opens with the chain name heading and the founding restaurant listed as a member
-5. It navigates "Back to chains" and confirms the new chain's row is visible in the grid
+5. It navigates "Back to chains", narrows the grid with its toolbar "Search…" box (QA holds 100+ chains at 25/page — each run's orphan group accumulates), and confirms the new chain's row is visible
 6. Cleanup deletes the throwaway restaurant via the existing admin restaurant-delete endpoint
 
 ### Why it matters
