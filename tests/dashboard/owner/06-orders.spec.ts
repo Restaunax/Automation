@@ -28,9 +28,11 @@ const usd = (n: number) =>
     minimumFractionDigits: 2,
   }).format(n);
 
-// The 32 CSV columns the export endpoint writes, in order
+// The 33 CSV columns the export endpoint writes, in order
 // (orderStatisticsController.ts exportOrders). "Order Number" carries the
-// permanent receiptNumber, not the daily order number.
+// permanent receiptNumber, not the daily order number. "Cash Discount" is the
+// dual-pricing register discount (backend fc628849e, B10) — the one header
+// that goes through req.t, so it reads "Cash Discount" for an English session.
 const EXPORT_CSV_HEADER = [
   "Order Number",
   "Customer Name",
@@ -45,6 +47,7 @@ const EXPORT_CSV_HEADER = [
   "Delivery Fee",
   "Tip Amount",
   "Discount Amount",
+  "Cash Discount",
   "Item Count",
   "Order Items",
   "Order Date",
@@ -1193,7 +1196,7 @@ test.describe("Owner — Orders Tab", () => {
     await allure.description(
       "With the grid narrowed to the seed surname, Export Orders → Current View POSTs " +
         "/api/order/statistics/export/:id with exportType=current + the search term and the browser " +
-        "receives orders_<date>[…].csv. The file has the 32 documented columns and exactly the three " +
+        "receives orders_<date>[…].csv. The file has the 33 documented columns and exactly the three " +
         "named seed rows (by receipt number). Adding the Pending status filter narrows the CSV to order A."
     );
     const ordersPage = await gotoOrders(ownerPage);

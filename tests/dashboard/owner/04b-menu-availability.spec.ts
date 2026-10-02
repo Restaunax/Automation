@@ -103,8 +103,8 @@ test.describe("Owner — Menu tab (availability / featured)", () => {
   }) => {
     await allure.description(
       "From the restaurant portal, the sidebar 'Menu' item renders the 'Menu Availability Management' " +
-        "page: the seeded category accordion shows '6 Available'; 'Manage Menu' navigates to the builder " +
-        "at /restaurant/restaurantId/:id (New Category visible)."
+        "page: the seeded category accordion shows '6 Available'; 'Add or edit items' opens the builder as " +
+        "the portal's ?tab=menu-builder tab (sidebar kept, New Category visible); 'Back to Menu' returns."
     );
     const tab = createMenuAvailabilityPage(ownerPage);
     await ownerPage.goto(
@@ -122,14 +122,26 @@ test.describe("Owner — Menu tab (availability / featured)", () => {
       for (let i = 0; i < 6; i++)
         await tab.assertItemAvailable(CATEGORY, itemName(i));
     });
-    await allure.step("Manage Menu → builder", async () => {
+    // Since RestauNax c0bfd2231 the builder is a sibling tab inside the portal
+    // (the sidebar stays, "Menu" stays lit) instead of the CreateStore wizard
+    // route that dropped the sidebar.
+    await allure.step("Add or edit items → builder tab", async () => {
       await tab.manageMenuButton().click();
       await expect(ownerPage).toHaveURL(
-        new RegExp(`/restaurant/restaurantId/${restaurantId}$`)
+        new RegExp(
+          `/restaurant/restaurantId/${restaurantId}/restaurantManagement\\?tab=menu-builder`
+        )
       );
+      await expect(tab.builderTitle()).toBeVisible({ timeout: 20_000 });
       await expect(
         ownerPage.getByRole("button", { name: "New Category" })
       ).toBeVisible({ timeout: 20_000 });
+      await expect(tab.sidebarMenuTab()).toBeVisible();
+    });
+    await allure.step("Back to Menu returns to the Menu tab", async () => {
+      await tab.backToMenuButton().click();
+      await expect(ownerPage).toHaveURL(/tab=Menu(&|$)/);
+      await expect(tab.heading()).toBeVisible({ timeout: 20_000 });
     });
   });
 
@@ -137,7 +149,8 @@ test.describe("Owner — Menu tab (availability / featured)", () => {
     ownerPage,
   }) => {
     await allure.description(
-      "Switch OFF → ConsequenceDialog 'Mark \"X\" as sold out?' → 'Mark sold out' → PATCH " +
+      "Switch OFF → scope dialog 'Mark \"X\" as sold out?' (Where should this be unavailable? — Everywhere " +
+        "preselected) → 'Mark sold out' → PATCH " +
         "/menu/menu-items/:id/availability {outOfStock:true} → row chip 'Out of Stock', category chips " +
         "'5 Available' / '1 Out of Stock', toast. Switch ON → no dialog, {outOfStock:false}, chips back to 6/0. " +
         "Cancel in the dialog leaves the item available."
@@ -152,8 +165,15 @@ test.describe("Owner — Menu tab (availability / featured)", () => {
       await tab.availabilitySwitch(CATEGORY, name).click();
       const dialog = tab.soldOutDialog(name);
       await expect(dialog).toBeVisible();
+      // Since RestauNax 331f1776d (scoped out-of-stock) the confirm is
+      // UnavailableScopeDialog: it asks WHERE the item is unavailable, with
+      // "Everywhere" preselected for a fresh switch-off.
+      await expect(dialog).toContainText("Where should this be unavailable?");
+      await expect(
+        dialog.getByRole("radio", { name: /^Everywhere/ })
+      ).toBeChecked();
       await expect(dialog).toContainText(
-        "customers can't order it until you mark it available again"
+        "Nobody can order it — website, app, or at the counter."
       );
       await dialog.getByRole("button", { name: "Cancel" }).click();
       await expect(dialog).toBeHidden();
@@ -328,11 +348,10 @@ test.describe("Owner — Menu tab (availability / featured)", () => {
   }) => {
     await allure.description(
       "On a freshly created (menu-less) restaurant assigned to the owner, the Menu tab shows 'No menu data " +
-        "available' with an 'Open menu builder' CTA that lands on the builder route (/restaurant/restaurantId/:id, " +
-        "scope bar 'Editing menu for: <name>'). NOTE: the builder page is CreateStore's data-driven wizard — a " +
-        "restaurant with no business hours shows its Business Hours step before the menu step, so either that " +
-        "or the builder's 'No categories yet' empty state is accepted. Throwaway restaurant is created + " +
-        "assigned via the admin API and deleted afterwards."
+        "available' with an 'Add your first items' CTA that opens the in-portal builder tab (?tab=menu-builder) " +
+        "showing the builder's 'No categories yet' empty state and 'New Category' (since RestauNax c0bfd2231 the " +
+        "CTA no longer routes through CreateStore's wizard, so no Business Hours step can intervene). Throwaway " +
+        "restaurant is created + assigned via the admin API and deleted afterwards."
     );
     test.skip(!adminToken, "ADMIN creds needed to mint a menu-less restaurant");
     const res = await createRestaurantRaw(adminToken, {
@@ -361,17 +380,17 @@ test.describe("Owner — Menu tab (availability / featured)", () => {
       await expect(tab.emptyState()).toBeVisible({ timeout: 20_000 });
       await tab.openMenuBuilderButton().click();
       await expect(ownerPage).toHaveURL(
-        new RegExp(`/restaurant/restaurantId/${emptyId}`)
+        new RegExp(
+          `/restaurant/restaurantId/${emptyId}/restaurantManagement\\?tab=menu-builder`
+        )
       );
+      await expect(tab.builderTitle()).toBeVisible({ timeout: 20_000 });
+      await expect(ownerPage.getByText("No categories yet")).toBeVisible({
+        timeout: 20_000,
+      });
       await expect(
-        ownerPage.getByText(/Editing menu for:/).first()
-      ).toBeVisible({ timeout: 20_000 });
-      await expect(
-        ownerPage
-          .getByText("No categories yet")
-          .or(ownerPage.getByRole("heading", { name: "Business Hours" }))
-          .first()
-      ).toBeVisible({ timeout: 20_000 });
+        ownerPage.getByRole("button", { name: "New Category" })
+      ).toBeVisible();
     } finally {
       await deleteTestRestaurant(adminToken, emptyId!).catch(() => {});
     }

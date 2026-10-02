@@ -47,6 +47,18 @@ export const createLimaStorefrontPage = (page: Page) => {
 
   const openItemModal = (itemName: string) => menuItemCard(itemName).click();
 
+  /**
+   * The nav cart control. Its accessible name carries the live count
+   * ("shopping cart with 1 items"), so match the stable prefix only. Clicking
+   * it is a real in-app (router) navigation to <slug>/cart.
+   */
+  const cartButton = () =>
+    page.getByRole("button", { name: /^shopping cart/i }).first();
+
+  /** A top-nav link (Home / Menu / Gift Cards / Careers) by its visible name. */
+  const navLink = (name: string) =>
+    page.getByRole("banner").getByRole("link", { name, exact: true });
+
   const clickAddToCart = () => addToCartButton().click();
 
   /**
@@ -118,6 +130,8 @@ export const createLimaStorefrontPage = (page: Page) => {
     addToCartButton,
     openItemModal,
     clickAddToCart,
+    cartButton,
+    navLink,
     cartBadgeCount,
     assertOnMenu,
     locationPicker,

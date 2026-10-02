@@ -70,6 +70,7 @@ import {
   createPublicReservationRaw,
   getManagedReservationRaw,
   cancelManagedReservationRaw,
+  setRestaurantPublishedApi,
   type TabletDevice,
   type ApiMenuItem,
 } from "../../utils/apiHelper";
@@ -113,6 +114,9 @@ test.describe("POS — Waitlist & Public Reservation Booking", () => {
   let device: TabletDevice | undefined;
   let tabletToken = "";
   let staffSession = "";
+  /** Publish state before beforeAll published it (restored in afterAll —
+   *  matters only when OWNER2_EMAIL pins a persistent restaurant). */
+  let wasPublished: boolean | null = null;
 
   /** availDate: a future weekday (YYYY-MM-DD) matching the ONE 12:00-14:00
    *  period created in beforeAll. closedDate: the SAME weekday exactly one
@@ -175,6 +179,15 @@ test.describe("POS — Waitlist & Public Reservation Booking", () => {
     restaurantId = tenant.restaurantId;
     ownerEmail = process.env.OWNER2_EMAIL || tenant.email;
     ownerPassword = process.env.OWNER2_PASSWORD || "Automation!Owner2-" + runId;
+
+    // Preview mode (restaunax 04d3c8d0e): an unpublished restaurant refuses
+    // public bookings outright ("in preview mode and hasn't been published
+    // yet"), so a fresh tenant must be published the way the dashboard's
+    // Publish page does it before any public-create case can reach the
+    // reservation rules these tests pin.
+    wasPublished = (
+      await setRestaurantPublishedApi(adminToken, restaurantId, true)
+    ).previous;
 
     await updateRestaurantSettingsApi(token, restaurantId, {
       tableServiceEnabled: true,
@@ -290,6 +303,10 @@ test.describe("POS — Waitlist & Public Reservation Booking", () => {
       await permanentlyDeleteMenuItemApi(adminToken, item.id).catch(() => {});
     if (groupId) await deleteTestMenuGroup(t, groupId).catch(() => {});
     if (device) await deactivateTabletDevice(t, restaurantId, device.id);
+    if (wasPublished === false && process.env.OWNER2_EMAIL)
+      await setRestaurantPublishedApi(adminToken, restaurantId, false).catch(
+        () => {}
+      );
     // Best-effort: a failed archive orphans a harmless throwaway tenant
     // rather than masking the test results above with a teardown failure.
     if (restaurantId && !process.env.OWNER2_EMAIL)

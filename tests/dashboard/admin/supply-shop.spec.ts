@@ -47,6 +47,7 @@ import {
   fulfilSupplyOrderRaw,
   listGiftCardBatchesRaw,
   getAdminFinanceRaw,
+  getOwnerGiftCardSummaryRaw,
   resolveGiftCardVariantId,
   type SupplyOrder,
 } from "../../../utils/apiHelper";
@@ -65,6 +66,7 @@ const CSV_HEADER = [
   "code",
   "code_display",
   "barcode_value",
+  "qr_value", // RestauNax 19be0494c — the same identity as a QR beside the Code-128
   "card_last4",
   "batch_id",
   "batch_label",
@@ -78,6 +80,11 @@ const msg = (body: unknown): string =>
     : JSON.stringify(body);
 
 test.describe("Admin — Supply shop", () => {
+  // Cases share orders minted in earlier cases. Without serial mode one
+  // failure restarts the worker, beforeAll re-mints a fresh tenant, and every
+  // later case fails on undefined state — a misleading cascade (nightly
+  // 2026-10-01). Serial: a failure stops the chain honestly.
+  test.describe.configure({ mode: "serial" });
   test.skip(
     !ADMIN_EMAIL || !ADMIN_PASSWORD,
     "ADMIN_EMAIL / ADMIN_PASSWORD not set in .env (the file mints its own throwaway tenant)"
@@ -95,7 +102,7 @@ test.describe("Admin — Supply shop", () => {
   let orderC: SupplyOrder; // charge path
   let orderE: SupplyOrder; // comp path → minted batch
   const toCancel: string[] = [];
-  let baseline = { compedCost: 0, liability: 0 };
+  let baseline = { compedCost: 0 };
 
   const ownerApi = async () =>
     (await apiLogin(ownerEmail, ownerPassword)).accessToken;
@@ -149,7 +156,6 @@ test.describe("Admin — Supply shop", () => {
     if (finance.ok) {
       baseline = {
         compedCost: finance.data.data.summary.supplyShop.compedCost,
-        liability: finance.data.data.summary.giftCards.liability,
       };
     }
 
@@ -329,12 +335,34 @@ test.describe("Admin — Supply shop", () => {
       );
 
       await expect(admin.paymentLinkNotice()).toBeVisible();
+      // AWAITING_PAYMENT is not a state an admin can place with a vendor from
+      // (FULFILLABLE_STATUSES = PLACED, PROOF_READY, PAID, INVOICED), so the
+      // order leaves the Fulfilment worklist until the owner pays (the webhook
+      // then moves it to PAID and back into the worklist). Meanwhile History's
+      // "Awaiting payment" filter is where the admin finds it, at the FINAL price.
+      await admin.waitForList();
+      await expect(admin.row(orderC.orderNumber)).toHaveCount(0);
+      await admin.openTab("History");
+      await admin.selectHistoryStatus("Awaiting payment");
       await expect(
-        admin.rowChip(orderC.orderNumber, "Awaiting owner payment")
+        admin.rowChip(orderC.orderNumber, "Awaiting payment")
       ).toBeVisible();
+      await expect(admin.row(orderC.orderNumber)).toContainText("$207.00");
+      await expect(admin.row(orderC.orderNumber)).not.toContainText("est.");
       const parked = await adminOrder(orderC.id);
       expect(parked.status).toBe("AWAITING_PAYMENT");
-      expect(parked.awaitingOwnerPayment).toBe(true);
+      // The admin's inputs are parked on the order so the post-payment click
+      // replays them without re-charging. `awaitingOwnerPayment` is derived
+      // by the LIST endpoint only; the single-order GET returns the raw row.
+      expect(parked.pendingFulfilment).toBeTruthy();
+      const listed = await listAdminSupplyOrdersRaw(adminToken, {
+        status: "AWAITING_PAYMENT",
+        restaurantId,
+      });
+      expect(listed.status, JSON.stringify(listed.data)).toBe(200);
+      expect(
+        listed.data.data.find((o) => o.id === orderC.id)?.awaitingOwnerPayment
+      ).toBe(true);
       expect(parked.hostedPaymentUrl).toBeTruthy();
       expect(parked.paidAt).toBeNull();
       expect(parked.priceFinalizedAt).toBeTruthy();
@@ -358,7 +386,9 @@ test.describe("Admin — Supply shop", () => {
     await admin.pickProduct(PRODUCT_NAME);
     await admin.pickQuantity(100);
     await expect(admin.placeEstimate()).toContainText(ESTIMATE);
-    await expect(admin.placeVendorCost()).toContainText("$122.00");
+    // 100 × the tier's $1.10 unit vendor cost. Vendor shipping is not known
+    // until fulfilment (the Fulfil dialog's margin line adds it there).
+    await expect(admin.placeVendorCost()).toContainText("$110.00");
     await admin.placeMessage().fill(`Placed by admin ${runId}`);
     await admin.placeAdminNotes().fill(`SECRET-${runId}`);
     await admin.billingRadio("Charge them when it goes to print").check();
@@ -419,7 +449,10 @@ test.describe("Admin — Supply shop", () => {
       await admin.openTab("Fulfilment");
       await expect(admin.rowChip(orderE.orderNumber, "Comped")).toBeVisible();
       await admin.openFulfil(orderE.orderNumber);
-      await expect(admin.compSwitch()).toHaveAttribute("aria-checked", "true");
+      // Comp was decided when it was placed: the "Comp this order" toggle is
+      // only offered for orders that would otherwise be charged, so a COMP
+      // order shows the outcome, not a switch that could un-comp it.
+      await expect(admin.compSwitch()).toHaveCount(0);
       await expect(admin.willChargeAlert()).toHaveText(
         "Comped — nothing is charged."
       );
@@ -501,6 +534,7 @@ test.describe("Admin — Supply shop", () => {
       const code = row.code ?? "";
       expect(code).toMatch(CODE_RE);
       expect(row.barcode_value).toBe(code);
+      expect(row.qr_value).toBe(code);
       expect(row.code_display).toBe(code.replace(/(.{4})(?=.)/g, "$1-"));
       expect(row.card_last4).toBe(code.slice(-4));
       expect(row.batch_label).toBe(`Print run ${orderE.orderNumber}`);
@@ -572,7 +606,10 @@ test.describe("Admin — Supply shop", () => {
       toCancel.push(invoice.data.data.id);
       expect(invoice.data.data.paymentTerm).toBe("NEXT_INVOICE");
     } else {
-      expect(invoice.status, JSON.stringify(invoice.data)).toBe(400);
+      // Not the caller's mistake but the tenant's state (no credit extended),
+      // so the admin controller answers 409, not 400 (BAD_REQUEST_CODES).
+      expect(invoice.status, JSON.stringify(invoice.data)).toBe(409);
+      expect(invoice.data.code).toBe("TERM_UNAVAILABLE");
     }
   });
 
@@ -604,7 +641,10 @@ test.describe("Admin — Supply shop", () => {
       draft.data.data.id,
       "FREE_TIER"
     );
-    expect(free.status, JSON.stringify(free.data)).toBe(400);
+    // COMP is refused up front as a bad request (400); FREE_TIER reaches the
+    // service, which refuses a $207 run as a state conflict (409).
+    expect(free.status, JSON.stringify(free.data)).toBe(409);
+    expect((free.data as { code?: string }).code).toBe("FREE_TIER_UNAVAILABLE");
     const still = await listSupplyOrdersOwnerRaw(owner, restaurantId);
     expect(
       still.data.data.find((o) => o.id === draft.data.data.id)?.status
@@ -627,11 +667,32 @@ test.describe("Admin — Supply shop", () => {
   });
 
   test("TC-467: unsold stock is not a liability — Finance's gift-card liability is unchanged by a minted batch", async () => {
+    await allure.description(
+      "Measured on THIS tenant, which now holds a minted batch of 100 INACTIVE cards: its outstanding " +
+        "gift-card liability is still $0 across 0 cards. (Finance's platform-wide total used to be compared " +
+        "to a beforeAll baseline, but on shared QA other runs sell gift cards meanwhile and move it.)"
+    );
+    const batches = await listGiftCardBatchesRaw(adminToken, restaurantId);
+    expect(
+      batches.data.data.find(
+        (b) => b.supplyOrder?.orderNumber === orderE.orderNumber
+      )?.counts,
+      "the minted stock this check is about"
+    ).toMatchObject({ inactive: 100, active: 0 });
+
+    const mine = await getOwnerGiftCardSummaryRaw(
+      await ownerApi(),
+      restaurantId
+    );
+    expect(mine.status, JSON.stringify(mine.data)).toBe(200);
+    expect(mine.data.data).toMatchObject({
+      outstandingBalance: 0,
+      cardCount: 0,
+    });
+
     const finance = await getAdminFinanceRaw(adminToken);
     expect(finance.status, JSON.stringify(finance.data)).toBe(200);
-    expect(finance.data.data.summary.giftCards.liability).toBe(
-      baseline.liability
-    );
+    expect(typeof finance.data.data.summary.giftCards.liability).toBe("number");
   });
 
   test("TC-468: the supply-shop admin API is gated by ROLE — an employee gets 403 whatever the sidebar shows", async () => {

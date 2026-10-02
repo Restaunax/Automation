@@ -116,7 +116,11 @@ export async function getOwnerRestaurants(
  * Toggle a restaurant's "pass processing fee to customer" setting via the
  * settings endpoint (PUT /api/restaurantId/:id/settings). Used by the
  * processing-fee E2E to flip the fee ON/OFF around the customer-facing
- * assertion. Pass an owner (or admin) token for a restaurant they manage.
+ * assertion. Switching it ON needs a company-ADMIN token: since backend
+ * ecd99c9d2 (2026-08-28) the key is stripped from any non-admin payload (we
+ * are the merchant of record, so a surcharge is the company's call), and the
+ * owner's PUT still answers 200 with nothing changed. Turning it OFF works
+ * with either token.
  */
 export async function setPassProcessingFee(
   accessToken: string,
@@ -1054,6 +1058,40 @@ export async function ensureTaxRate(
   );
 }
 
+/**
+ * Publish (or unpublish) a restaurant the way the dashboard's Publish page does
+ * — POST /restaurant/restaurantId/:id {payload:{published}} (admin/employee
+ * token, as in the UI). Since restaunax 04d3c8d0e (2026-09-11, "preview
+ * mode") an UNPUBLISHED restaurant refuses every durable public write: orders
+ * ("has not been published yet, so orders cannot be placed") and anything
+ * behind `requirePublishedRestaurant` — public reservations, job applications,
+ * leads ("in preview mode and hasn't been published yet"). Fixture restaurants
+ * that take orders or bookings must be published. Returns the PREVIOUS state
+ * so a caller touching a restaurant it does not own can restore it in finally.
+ */
+export async function setRestaurantPublishedApi(
+  accessToken: string,
+  restaurantId: string,
+  published = true
+): Promise<{ previous: boolean }> {
+  const before = await apiRequest<{ restaurant?: { published?: boolean } }>(
+    "GET",
+    `/restaurant/restaurantId/${restaurantId}`,
+    undefined,
+    accessToken
+  );
+  const previous = before.restaurant?.published === true;
+  if (previous !== published) {
+    await apiRequest<unknown>(
+      "POST",
+      `/restaurant/restaurantId/${restaurantId}`,
+      { payload: { published } },
+      accessToken
+    );
+  }
+  return { previous };
+}
+
 /** POST /api/admin/chains/:gid/restaurants/:rid/unlink → 200 {dissolved} | 400 anchor/established | 404. */
 export function adminUnlinkRestaurantFromChainRaw(
   adminToken: string,
@@ -1876,12 +1914,14 @@ export async function getGiftCardConfig(
 }
 
 /**
- * POST /api/gift-cards/purchase — public, no auth. `stripePaymentIntentId` is
- * stored as-is for Stripe-fee bookkeeping only; the backend never verifies it
- * against Stripe, so this can seed a valid, fully-funded gift card WITHOUT
- * driving the real purchase UI/Stripe iframe — the right way to fixture a
- * card for checkout-redemption tests (mirrors createCouponRaw's role for
- * coupons). The dedicated purchase-flow tests still drive the real UI.
+ * POST /api/gift-cards/purchase — public, no auth.
+ *
+ * Since backend 93e5fecb9 (2026-08-18, "mint a card only for a verified,
+ * succeeded PaymentIntent") this REQUIRES a `stripePaymentIntentId` that
+ * Stripe reports as succeeded for exactly `amount`, with gift-card metadata
+ * for this restaurant — otherwise 400 PAYMENT_VALIDATION_FAILED. The suite
+ * holds no Stripe secret, so this can no longer seed a card; use
+ * `seedFundedGiftCard` (admin import) for redemption fixtures.
  */
 export async function purchaseGiftCard(body: {
   restaurantId: string;
@@ -1905,6 +1945,63 @@ export function purchaseGiftCardRaw(
     deliveryMethod: "EMAIL",
     ...body,
   });
+}
+
+/**
+ * A funded, ACTIVE gift card for checkout-redemption fixtures, minted the
+ * legitimate unpaid-by-us way: the admin "Existing gift cards" import
+ * (POST /api/admin/gift-cards/import), which adopts a card whose money the
+ * restaurant already holds. The public purchase endpoint can't do this any
+ * more — it needs a succeeded Stripe PaymentIntent (see purchaseGiftCard).
+ *
+ * The code is unique per call (GiftCard.code is unique platform-wide, and an
+ * import collision would silently skip the row) and `AUTOGC`-prefixed so a
+ * stray card is recognisable. Callers still `recordGiftCardForCleanup(id)` so
+ * globalTeardown freezes it.
+ */
+export async function seedFundedGiftCard(
+  adminToken: string,
+  restaurantId: string,
+  amount: number
+): Promise<ApiGiftCard> {
+  const code = `AUTOGC${Date.now().toString(36)}${Math.random()
+    .toString(36)
+    .slice(2, 8)}`.toUpperCase();
+  const csv = `Card Number,Current Balance\r\n${code},${amount}\r\n`;
+  const form = new FormData();
+  form.append("file", new Blob([csv], { type: "text/csv" }), `${code}.csv`);
+  form.append("label", `Automation seed ${code}`);
+  const res = await fetch(
+    `${BACKEND_URL}/api/admin/gift-cards/import?restaurantId=${restaurantId}`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: form,
+    }
+  );
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(
+      `API POST /api/admin/gift-cards/import → ${res.status}: ${text}`
+    );
+  }
+  const body = JSON.parse(text) as {
+    data?: { created?: number; problems?: unknown[] };
+  };
+  if (body.data?.created !== 1) {
+    throw new Error(
+      `[seedFundedGiftCard] import created ${body.data?.created ?? 0} card(s): ${text}`
+    );
+  }
+  const id = await findGiftCardIdByCode(adminToken, code);
+  const balance = await getGiftCardBalance(code);
+  return {
+    id,
+    code,
+    initialBalance: balance.initialBalance,
+    currentBalance: balance.currentBalance,
+    status: balance.status,
+  };
 }
 
 /** GET /api/gift-cards/balance/:code — public, no auth. Throws on 404 (unknown code). */
@@ -5401,6 +5498,36 @@ export function getAdminFinanceRaw(
   RawResponse<{ success: boolean; data: { summary: FinanceOverviewSummary } }>
 > {
   return apiRequestRaw("GET", "/api/admin/finance", undefined, adminToken);
+}
+
+/**
+ * GET /api/gift-cards/restaurants/:id/summary — the owner's own outstanding
+ * gift-card liability (ACTIVE cards with a balance; chain-wide for a chain
+ * member). Tenant-scoped, so unlike Finance's platform-wide total it cannot be
+ * moved by other runs selling gift cards on shared QA at the same time.
+ */
+export function getOwnerGiftCardSummaryRaw(
+  ownerToken: string,
+  restaurantId: string
+): Promise<
+  RawResponse<{
+    success: boolean;
+    data: {
+      outstandingBalance: number;
+      cardCount: number;
+      importedBalance: number;
+      importedCardCount: number;
+      isChainWide: boolean;
+    };
+  }>
+> {
+  return apiRequestRaw(
+    "GET",
+    `/api/gift-cards/restaurants/${restaurantId}/summary`,
+    undefined,
+    ownerToken,
+    restaurantHeader(restaurantId)
+  );
 }
 
 // ── Gift cards: config + physical batches (admin) ────────────────────────────

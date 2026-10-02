@@ -78,8 +78,18 @@ export const createAdminChainsPage = (page: Page) => {
   const findRowByName = (name: string) =>
     page.getByRole("row", { name: new RegExp(name) });
 
-  const assertChainRowVisible = (name: string) =>
-    expect(findRowByName(name)).toBeVisible({ timeout: 10_000 });
+  // The grid is client-paginated at 25 rows and sorted by name, and QA holds
+  // 100+ chains (every TC-223 run leaves an orphan "Automation Chain Founder …"
+  // group behind — there is no DELETE chain endpoint), so a new chain is
+  // usually NOT on page 1. Narrow with the grid toolbar's quick-filter
+  // searchbox ("Search…") first, as an admin would.
+  const searchChains = (text: string) =>
+    page.getByRole("searchbox", { name: "Search…" }).fill(text);
+
+  const assertChainRowVisible = async (name: string) => {
+    await searchChains(name);
+    await expect(findRowByName(name)).toBeVisible({ timeout: 10_000 });
+  };
 
   return {
     goto,
@@ -98,6 +108,7 @@ export const createAdminChainsPage = (page: Page) => {
     backToChainsButton,
     backToChains,
     findRowByName,
+    searchChains,
     assertChainRowVisible,
   };
 };

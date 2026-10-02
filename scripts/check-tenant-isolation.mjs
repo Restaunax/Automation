@@ -18,7 +18,9 @@ import { chromium } from "playwright-core";
 const [, , SLUG_A, SLUG_B, BASE = "http://localhost:3000"] = process.argv;
 
 if (!SLUG_A || !SLUG_B) {
-  console.error("usage: node scripts/check-tenant-isolation.mjs <slugA> <slugB> [baseUrl]");
+  console.error(
+    "usage: node scripts/check-tenant-isolation.mjs <slugA> <slugB> [baseUrl]"
+  );
   process.exit(2);
 }
 
@@ -97,7 +99,11 @@ try {
   await addFirstItem(pageB);
   const afterB = await storageKeys(pageB);
   const bCart = cartKeys(afterB, `rx:${keyB}`);
-  check("tenant B's cart is namespaced separately", bCart.length > 0, bCart.join(", "));
+  check(
+    "tenant B's cart is namespaced separately",
+    bCart.length > 0,
+    bCart.join(", ")
+  );
 
   // Reading A's cart back proves B's write did not overwrite it.
   const aStill = await storageKeys(pageA);
@@ -115,9 +121,18 @@ try {
     "rewardAuthToken",
     "rewardCustomerData",
   ];
-  const allKeys = [...aStill.local, ...aStill.session, ...afterB.local, ...afterB.session];
+  const allKeys = [
+    ...aStill.local,
+    ...aStill.session,
+    ...afterB.local,
+    ...afterB.session,
+  ];
   const foundBare = BARE.filter((b) => allKeys.includes(b));
-  check("no un-namespaced storage keys exist", foundBare.length === 0, foundBare.join(", ") || "none");
+  check(
+    "no un-namespaced storage keys exist",
+    foundBare.length === 0,
+    foundBare.join(", ") || "none"
+  );
 
   const stray = allKeys.filter(
     (k) => !k.startsWith("rx:") && k !== "template-lima-theme-mode"
@@ -138,7 +153,8 @@ try {
   const leaked = [];
   pageB.on("request", (req) => {
     const auth = req.headers()["authorization"];
-    if (auth && auth.includes(TOKEN)) leaked.push(`${req.method()} ${req.url()}`);
+    if (auth && auth.includes(TOKEN))
+      leaked.push(`${req.method()} ${req.url()}`);
   });
   await pageB.reload({ waitUntil: "domcontentloaded" });
   await pageB.waitForTimeout(3000);

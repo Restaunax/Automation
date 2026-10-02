@@ -22,6 +22,7 @@ import {
   ensureTaxRate,
   permanentlyDeleteMenuItemApi,
   deleteTestMenuGroup,
+  setRestaurantPublishedApi,
 } from "../../../utils/apiHelper";
 import { generateRunId, readSharedState } from "../../../utils/testData";
 
@@ -292,8 +293,9 @@ test.describe("Admin — Chains", () => {
 
   test("TC-324: unlink is refused for a location that has gone live, and for a non-member", async () => {
     await allure.description(
-      "A store that has real orders can't leave a chain (Domino's rule): link a throwaway store, seed a real-price " +
-        "order on it, POST …/unlink → 400 'This location has gone live…'. Unlinking a restaurant that isn't a " +
+      "A store that has real orders can't leave a chain (Domino's rule): link a throwaway store, publish it just " +
+        "long enough to take a real-price order (unpublished stores refuse orders; published stores are themselves " +
+        "established), unpublish it, POST …/unlink → 400 'This location has gone live…'. Unlinking a restaurant that isn't a " +
         "member → 404. Cancelling the order (CANCELLED is excluded from the live check) makes unlink succeed; the " +
         "store is then archived (admin DELETE only archives — it never detaches membership) and the fixture chain " +
         "is asserted back at 2 locations."
@@ -360,12 +362,22 @@ test.describe("Admin — Chains", () => {
         `Chain Live Item ${runId}`,
         6
       );
+      // Preview mode (restaunax 04d3c8d0e): an unpublished store refuses
+      // orders, so the store is published (as the dashboard's Publish page
+      // does) to take its first order — then unpublished again. A PUBLISHED
+      // chain location is itself "established" (chainController
+      // unlinkRestaurantFromChain: published || real orders || gift cards),
+      // so leaving it published would make the refusal below prove nothing
+      // about orders and the cancel→unlink half impossible. Unpublished, the
+      // order is the ONLY thing that makes the store live.
+      await setRestaurantPublishedApi(admin.accessToken, storeId, true);
       const seeded = await createSeededOrder(
         owner.accessToken,
         storeId,
         { menuItemId: sharedItem.id, name: sharedItem.name, price: 6 },
         { status: "CONFIRMED" }
       );
+      await setRestaurantPublishedApi(admin.accessToken, storeId, false);
       const refused = await adminUnlinkRestaurantFromChainRaw(
         admin.accessToken,
         chainGroupId!,
@@ -392,7 +404,13 @@ test.describe("Admin — Chains", () => {
     } finally {
       if (storeId && !unlinked) {
         // Assertion failed mid-way: still try cancel-all → unlink so the
-        // fixture chain doesn't keep an archived third member.
+        // fixture chain doesn't keep an archived third member. Unpublish
+        // first: a published location can never be unlinked.
+        await setRestaurantPublishedApi(
+          admin.accessToken,
+          storeId,
+          false
+        ).catch(() => {});
         const orders = await listOrders(owner.accessToken, storeId, {}).catch(
           () => ({ orders: [] })
         );

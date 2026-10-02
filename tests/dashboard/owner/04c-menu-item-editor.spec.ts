@@ -371,9 +371,11 @@ test.describe("Owner — Menu builder, item wizard & item detail", () => {
     ownerPage,
   }) => {
     await allure.description(
-      "Builder card body click → …/groupId/:gid/itemId/:iid with the item's name and price rendered and " +
-        "the bottom bar (Preview / Edit / Delete). 'Edit' → …/edit wizard with the name prefilled; browser " +
-        "Back returns to the detail page."
+      "Builder card body click → the item detail PANEL opens in place (RestauNax e85a3d3fe: no navigation, " +
+        "builder stays underneath) with the price, description and the named actions (Preview as a customer " +
+        "sees it / Delete this item). Panel 'Edit Item' → …/edit?from=builder wizard with the name prefilled; " +
+        "browser Back returns to the builder. A named action ('Preview as a customer sees it') opens the full " +
+        "item page with ?action=preview and lands ON the preview (RestauNax 014d7f03b)."
     );
     const item = await createMenuItemFull(
       token,
@@ -390,22 +392,63 @@ test.describe("Owner — Menu builder, item wizard & item detail", () => {
     const wizard = createMenuItemWizardPage(ownerPage);
     await builder.gotoBuilder(restaurantId);
     await builder.activateCategory(CATEGORY);
-    await builder.openItemDetail(item.name);
-    await expect(ownerPage).toHaveURL(
-      new RegExp(`/groupId/${groupId}/itemId/${item.id}$`)
+    const builderUrl = ownerPage.url();
+
+    await allure.step(
+      "Card click opens the detail panel in place",
+      async () => {
+        await builder.openItemPanel(item.name);
+        // No navigation any more — the builder stays underneath.
+        expect(ownerPage.url()).toBe(builderUrl);
+        const panel = builder.itemPanel(item.name);
+        await expect(
+          panel.getByRole("heading", { name: "$4.50", exact: true })
+        ).toBeVisible();
+        await expect(panel.getByText("detail navigation")).toBeVisible();
+        await expect(
+          builder.panelAction(item.name, "Preview as a customer sees it")
+        ).toBeVisible();
+        await expect(
+          builder.panelAction(item.name, "Delete this item")
+        ).toBeVisible();
+      }
     );
-    await expect(detail.title(item.name)).toBeVisible({ timeout: 20_000 });
-    await expect(detail.price("$4.5")).toBeVisible();
-    await expect(detail.previewButton()).toBeVisible();
-    await expect(detail.deleteButton()).toBeVisible();
-    await detail.editButton().click();
-    await expect(ownerPage).toHaveURL(/\/edit$/);
-    await wizard.waitForStep0();
-    await expect(wizard.nameInput()).toHaveValue(item.name, {
-      timeout: 15_000,
+
+    await allure.step("Edit Item opens the prefilled edit wizard", async () => {
+      await builder.panelAction(item.name, "Edit Item").click();
+      await expect(ownerPage).toHaveURL(
+        new RegExp(
+          `/groupId/${groupId}/itemId/${item.id}/edit\\?from=builder&cat=${groupId}`
+        )
+      );
+      await wizard.waitForStep0();
+      await expect(wizard.nameInput()).toHaveValue(item.name, {
+        timeout: 15_000,
+      });
+      await ownerPage.goBack();
+      await expect(builder.itemCard(item.name)).toBeVisible({
+        timeout: 20_000,
+      });
     });
-    await ownerPage.goBack();
-    await expect(detail.title(item.name)).toBeVisible({ timeout: 20_000 });
+
+    await allure.step(
+      "A named panel action opens the full item page on that action",
+      async () => {
+        await builder.activateCategory(CATEGORY);
+        await builder.openItemPanel(item.name);
+        await builder
+          .panelAction(item.name, "Preview as a customer sees it")
+          .click();
+        await expect(ownerPage).toHaveURL(
+          new RegExp(
+            `/groupId/${groupId}/itemId/${item.id}\\?from=builder&cat=${groupId}&action=preview`
+          )
+        );
+        await expect(detail.previewDialog(item.name)).toBeVisible({
+          timeout: 20_000,
+        });
+      }
+    );
   });
 
   test("TC-305: the card star toggles featured and the Menu tab's Featured accordion reflects it", async ({

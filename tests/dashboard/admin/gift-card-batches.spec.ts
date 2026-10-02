@@ -47,6 +47,11 @@ const msg = (body: unknown): string =>
     : JSON.stringify(body);
 
 test.describe("Admin — Physical gift card batches", () => {
+  // Cases share state (batchId/codes, importId) minted in earlier cases. Without
+  // serial mode one failure restarts the worker, beforeAll re-mints a fresh
+  // tenant, and every later case fails on missing state — a misleading cascade
+  // (nightly 2026-10-01). Serial: a failure stops the chain honestly.
+  test.describe.configure({ mode: "serial" });
   test.skip(
     !ADMIN_EMAIL || !ADMIN_PASSWORD,
     "ADMIN_EMAIL / ADMIN_PASSWORD not set in .env (the file mints its own throwaway tenant)"
@@ -134,6 +139,7 @@ test.describe("Admin — Physical gift card batches", () => {
       "code",
       "code_display",
       "barcode_value",
+      "qr_value",
       "card_last4",
       "batch_id",
       "batch_label",
@@ -144,6 +150,8 @@ test.describe("Admin — Physical gift card batches", () => {
     for (const row of rows) {
       expect(row.code).toMatch(CODE_RE);
       expect(row.barcode_value).toBe(row.code);
+      // Second carrier (QR) for the SAME identity — the raw code, never a URL.
+      expect(row.qr_value).toBe(row.code);
       expect(row.batch_id).toBe(batchId);
       expect(row.scope_type).toBe("restaurant");
       expect(row.scope_name).toBe(restaurantName);
@@ -178,7 +186,8 @@ test.describe("Admin — Physical gift card batches", () => {
     expect(validate.status).toBe(200);
     expect(validate.data.data.valid).toBe(false);
     expect(validate.data.data.reason).toMatch(
-      /not been activated|not activated/i
+      // error:giftCard.notActivatedYet — "This gift card hasn't been activated yet."
+      /hasn['’]t been activated|not (?:been )?activated/i
     );
 
     const unknown = await getGiftCardBalanceRaw("ZZZZYYYYXXXXWWWW");

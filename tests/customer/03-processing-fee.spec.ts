@@ -7,14 +7,21 @@ import { apiLogin, setPassProcessingFee } from "../../utils/apiHelper";
 const TEMPLATE_WIND_URL = process.env.TEMPLATE_WIND_URL ?? "";
 const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 
 test.describe("Customer — Processing fee pass-through", () => {
-  // Same gate as the rest of tests/customer: needs a real wind deployment and
-  // owner creds (to flip the restaurant's setting server-side). Self-skips on a
-  // local run where these aren't set.
+  // Same gate as the rest of tests/customer: needs a real wind deployment.
+  // The pass-through is a company-ADMIN switch since backend ecd99c9d2
+  // (2026-08-28) — we are the merchant of record, so the surcharge is ours —
+  // so flipping it needs admin creds; the owner token pins that it can't.
   test.skip(
-    !TEMPLATE_WIND_URL || !OWNER_EMAIL || !OWNER_PASSWORD,
-    "TEMPLATE_WIND_URL, OWNER_EMAIL, and OWNER_PASSWORD must all be set in .env"
+    !TEMPLATE_WIND_URL ||
+      !OWNER_EMAIL ||
+      !OWNER_PASSWORD ||
+      !ADMIN_EMAIL ||
+      !ADMIN_PASSWORD,
+    "TEMPLATE_WIND_URL, OWNER_EMAIL/PASSWORD, and ADMIN_EMAIL/PASSWORD must all be set in .env"
   );
 
   test.beforeEach(async () => {
@@ -26,24 +33,35 @@ test.describe("Customer — Processing fee pass-through", () => {
     page,
   }) => {
     await allure.description(
-      "The owner turns ON pass-processing-fee for the restaurant (server-side). " +
-        "The template-wind checkout order summary then shows a server-authoritative " +
-        "'Processing Fee' line and the quoted Total rises above the fee-OFF baseline. " +
-        "Proves the flag → /quote → customer display round-trip end-to-end. The fee is " +
-        "always restored to OFF in a finally (shared QA restaurant)."
+      "A company admin turns ON pass-processing-fee for the restaurant (server-side; an " +
+        "owner's attempt to switch it on is ignored — checked first). The template-wind " +
+        "checkout order summary then shows a server-authoritative 'Processing Fee (credit " +
+        "cards)' line and the quoted Total rises above the fee-OFF baseline. Proves the " +
+        "flag → /quote → customer display round-trip end-to-end. The fee is always " +
+        "restored to OFF in a finally (shared QA restaurant)."
     );
 
     const restaurantId = readRestaurantId();
     const { menuItemId, menuItemName, menuItemPrice } = readSharedState();
     const checkoutPage = createCustomerCheckoutPage(page);
 
-    // Owner token — used only to flip the restaurant's setting via the API.
-    const { accessToken } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD);
+    // Tokens are used only to flip the restaurant's setting via the API.
+    const { accessToken: adminToken } = await apiLogin(
+      ADMIN_EMAIL,
+      ADMIN_PASSWORD
+    );
+    const { accessToken: ownerToken } = await apiLogin(
+      OWNER_EMAIL,
+      OWNER_PASSWORD
+    );
     await allure.parameter("restaurantId", restaurantId);
 
     try {
-      // ── Baseline: fee OFF ────────────────────────────────────────────────
-      await setPassProcessingFee(accessToken, restaurantId, false);
+      // ── Baseline: fee OFF — and an owner can't switch it on ──────────────
+      await setPassProcessingFee(adminToken, restaurantId, false);
+      // Silently stripped server-side (200, nothing changed): the baseline
+      // below must still show no fee line.
+      await setPassProcessingFee(ownerToken, restaurantId, true);
       await checkoutPage.seedCart(
         restaurantId,
         menuItemId,
@@ -64,11 +82,11 @@ test.describe("Customer — Processing fee pass-through", () => {
         }
       );
 
-      // ── Owner turns the fee ON ───────────────────────────────────────────
+      // ── Company admin turns the fee ON ───────────────────────────────────
       await allure.step(
-        "Owner enables pass-processing-fee for the restaurant",
+        "Company admin enables pass-processing-fee for the restaurant",
         async () => {
-          await setPassProcessingFee(accessToken, restaurantId, true);
+          await setPassProcessingFee(adminToken, restaurantId, true);
         }
       );
 
@@ -91,7 +109,7 @@ test.describe("Customer — Processing fee pass-through", () => {
     } finally {
       // Always restore the restaurant to fee-OFF, even if an assertion failed —
       // this is a shared QA restaurant and the fee changes real order totals.
-      await setPassProcessingFee(accessToken, restaurantId, false).catch(
+      await setPassProcessingFee(adminToken, restaurantId, false).catch(
         () => {}
       );
     }

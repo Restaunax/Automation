@@ -7,13 +7,9 @@ import {
   submitDemoRequestRaw,
   deleteDemoRequestByEmail,
 } from "../../../../utils/apiHelper";
-import { waitForEmail } from "../../../../utils/emailHelper";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
-// Gate on the URL only: a missing password should surface as a loud 401 from
-// Mailpit, not as a silently skipped assertion.
-const mailpitReady = !!process.env.MAILPIT_BASE_URL;
 
 const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -27,8 +23,9 @@ const futureScheduleDate = (daysFromNow = 7): string => {
   return `${mm}${dd}${d.getFullYear()}`;
 };
 
-// @demo @email: beforeAll seeds a demo request (emails the requester) and TC-08
-// sends a follow-up email — both land in QA's Mailpit inbox. The tags are
+// @demo @email: beforeAll seeds a demo request, which emails the requester into
+// QA's Mailpit inbox. (TC-08's follow-up no longer sends mail — reps copy the
+// draft and send it from their own inbox.) The tags are
 // selectors for targeted runs (`npm run test:demo` / `test:email`), not an
 // exclusion: these run in the default suite and the nightly.
 test.describe(
@@ -161,36 +158,52 @@ test.describe(
       });
     });
 
-    test("TC-08: admin can send a follow-up email", async ({ adminPage }) => {
+    test("TC-08: admin can record a follow-up as contacted", async ({
+      adminPage,
+    }) => {
       await allure.description(
-        "Sending the pre-filled follow-up email flips demo status NEW -> CONTACTED and delivers a " +
-          "real email through the Mailpit sandbox (verified via waitForEmail, gated on MAILPIT_BASE_URL)."
+        "Follow-ups are copy-to-clipboard now — the rep sends from their own inbox and the " +
+          "platform sends no prospect email (restaunax cf531313a / 984573dcc; " +
+          "docs/features/DEMO_LEAD_PIPELINE.md → Manual follow-up). 'Send Follow-up Email' opens " +
+          "the 'Follow-up email' composer pre-filled for this lead; the explicit 'Mark as contacted' " +
+          "records the outbound touch (POST record-followup-outreach) and flips status NEW -> CONTACTED."
       );
 
       const email = demoEmail;
       const demoPage = createAdminDemoManagementPage(adminPage);
 
       try {
-        await allure.step("Open Send Follow-up Email and send it", async () => {
-          await demoPage.openActionMenu(email);
-          await demoPage.clickMenuAction("Send Follow-up Email");
-          await demoPage.assertDialogOpen("Send Follow-up Email");
-          await demoPage.sendFollowupEmail();
-        });
+        await allure.step(
+          "Open Send Follow-up Email — a composer pre-filled for this lead",
+          async () => {
+            await demoPage.openActionMenu(email);
+            await demoPage.clickMenuAction("Send Follow-up Email");
+            const dialog = demoPage.followupDialog();
+            await expect(dialog).toBeVisible({ timeout: 10_000 });
+            await expect(dialog).toContainText(
+              `${demoFirstName} ${demoLastName} <${email}>`
+            );
+            await expect(demoPage.followupSubjectInput()).not.toHaveValue("");
+            await expect(demoPage.followupBodyInput()).not.toHaveValue("");
+            // Opening the composer records nothing.
+            await expect(demoPage.statusChip(email)).toContainText("New");
+          }
+        );
+
+        await allure.step(
+          "Mark as contacted — the touch is recorded",
+          async () => {
+            const response = await demoPage.markFollowupContacted();
+            expect(response.status()).toBe(200);
+            await demoPage.closeFollowupDialog();
+          }
+        );
 
         await allure.step("Verify status flips to Contacted", async () => {
           await expect(demoPage.statusChip(email)).toContainText("Contacted", {
             timeout: 10_000,
           });
         });
-
-        if (mailpitReady) {
-          await allure.step("Verify the email actually arrived", async () => {
-            const msg = await waitForEmail(email, { timeoutMs: 20_000 });
-            expect(msg.subject).toBeTruthy();
-            await allure.parameter("Email subject", msg.subject);
-          });
-        }
       } finally {
         // Reset to "New" so later tests in this file start from a known state —
         // in a finally so a mid-test failure can't leave the row wrong.

@@ -63,13 +63,13 @@ A restaurant owner who visits the Restaunax website and fills out the "Book a De
 
 ### How it works, step by step
 
-1. The test opens the Restaunax demo booking page
+1. The test opens the dashboard's `/demo` link and confirms it forwards to the marketing site's `/get-started` form (the form moved there on 2026-08-08; `/demo` must keep redirecting forever because affiliate links and printed QR codes point at it)
 2. It fills in the form with a test contact's details:
-   - First name, last name, email address, phone number
-   - Restaurant name and preferred way to be contacted
+   - First name, last name, email address, a dialable US phone number
+   - Restaurant name (the form no longer asks for a contact preference — every lead is called)
 3. It checks the box agreeing to the terms
-4. It clicks the Submit button
-5. It checks that a success message appears on screen
+4. It clicks the Submit button and confirms the request was accepted by the server
+5. It checks that a success message appears on screen, then deletes the test lead
 
 ### Why it matters
 
@@ -223,18 +223,18 @@ Notes are how admins track what's been discussed with a prospect across multiple
 
 ## TC-08 — Admin Can Send a Follow-up Email
 
-**Status:** ✅ Passing
+**Status:** ❌ Failing — app bug (see note below)
 
 ### What it checks
 
-Clicking "Send Follow-up Email" opens a pre-filled email (subject and body already written from a template) that the admin can send — and sending it actually delivers an email and updates the request's status.
+Clicking "Send Follow-up Email" opens the "Follow-up email" composer pre-filled for this lead (subject and body). The platform no longer sends it — the rep copies it and sends from their own inbox — so the test records the follow-up with "Mark as contacted", which must log the touch and update the request's status.
 
 ### How it works, step by step
 
 1. The test opens the Actions menu and clicks "Send Follow-up Email"
-2. It clicks "Send Email" on the pre-filled dialog
-3. It confirms the request's status badge changes from "New" to "Contacted"
-4. If email testing is configured (Mailpit), it also confirms a real email actually arrived in the test inbox
+2. It confirms the composer is addressed to this lead and pre-filled, and that opening it changed nothing
+3. It clicks "Mark as contacted", confirms the send time, and checks the server accepted it
+4. It confirms the request's status badge changes from "New" to "Contacted"
 5. It resets the status back to "New" so it doesn't affect other tests that expect a fresh request
 
 ### Why it matters
@@ -242,6 +242,8 @@ Clicking "Send Follow-up Email" opens a pre-filled email (subject and body alrea
 This is the core outreach action in the sales process. If sending silently failed, prospects would never hear back and the admin would have no way of knowing — the status change is what previously made this dialog untested beyond "does it open."
 
 > Previously this test only confirmed the dialog opened, without ever clicking Send.
+
+> **Known app bug (2026-10-02):** the composer's default send time is the minute it was OPENED (truncated, and only Copy refreshes it — "Mark as contacted" does not), while the server refuses a send time earlier than the lead's `createdAt`. A rep who opens the composer in the minute the lead arrived gets 400 "The send time cannot be earlier than when the request arrived." with the default, however long they wait. This test opens it seconds after seeding its lead, so it reproduces that every run.
 
 ---
 
@@ -364,7 +366,8 @@ An admin can navigate to the Restaurants tab in the admin dashboard and see a li
 
 1. The test navigates to the Admin Dashboard → Restaurants tab
 2. It confirms the "Restaurants" heading is visible
-3. It finds the seed test restaurant by name in the table and confirms its row is visible
+3. It confirms the table renders rows
+4. The list is server-paginated and newest-first (QA holds 100+ restaurants), so it searches for the seed restaurant by name — as an admin would — and confirms its row is visible
 
 ### Why it matters
 
@@ -845,7 +848,7 @@ These were added by the first tab-by-tab coverage audit (`docs/ORDERS_TAB_TEST_S
 | **TC-245** | Full **delivery** lifecycle incl. Out for Delivery → Delivered.                                                                                                                                                                                                                                                                                | Delivery has a longer path than pickup.                                                                                               |
 | **TC-246** | Cancelling an **unpaid** order: dialog "Cancel Order — Receipt #…", no "will be refunded" copy, confirm button reads "Cancel Order" (not "Cancel & Refund"); PUT cancel → `{success:true, action:"CANCELLED"}`; success alert; the sheet auto-closes; re-opened it shows Cancelled with no Cancel / Mark-as buttons and no progress stepper.   | The common non-Stripe cancel path — TC-225 only covered the paid one.                                                                 |
 | **TC-247** | "Keep Order" closes the dialog with **zero** cancel requests and the order untouched.                                                                                                                                                                                                                                                          | Backing out must be side-effect free.                                                                                                 |
-| **TC-248** | Export → Current View downloads `orders_<date>[…].csv`; the POST carries `exportType:"current"` + the search; the CSV has the 32 documented columns and exactly the three named seed rows; adding the Pending filter narrows the CSV to A.                                                                                                     | First real export test (TC-135 only checked the button existed).                                                                      |
+| **TC-248** | Export → Current View downloads `orders_<date>[…].csv`; the POST carries `exportType:"current"` + the search; the CSV has the 33 documented columns and exactly the three named seed rows; adding the Pending filter narrows the CSV to A.                                                                                                     | First real export test (TC-135 only checked the button existed).                                                                      |
 | **TC-249** | Export is disabled while the view has 0 rows and re-enabled when rows are back.                                                                                                                                                                                                                                                                | Exporting nothing is a backend 400; the UI must not offer it.                                                                         |
 | **TC-250** | Header stat cards: (API, timezone-proof) seeding two pickup orders raises Total Orders and Pickup count by ≥2 and Net Sales by ≥2× price in a yesterday→tomorrow window; (UI) the four cards render exactly what the stats endpoint returned, Update Stats re-fires it, and the "Today" preset re-fires it with browser-local start=end=today. | First coverage of the header numbers. Assert deltas, never absolutes — seeded orders are permanent QA residue.                        |
 | **TC-251** | A custom range far in the past → stats return 0 → "No orders in this date range" with a "Change date range" CTA that re-opens the picker.                                                                                                                                                                                                      | Empty state must invite recovery.                                                                                                     |
@@ -887,7 +890,7 @@ No browser. An owner JWT calls the order-management endpoints directly, assertin
 | **TC-257** | Refunding an unpaid order → `400 "Only completed payments can be refunded"` (no Stripe call).                                                                                                                             |
 | **TC-258** | INITIALIZED (pre-payment placeholder) orders are hidden from the owner list by default; passing `status=INITIALIZED` explicitly **does** return them — pinned as current behaviour pending a product decision.            |
 | **TC-259** | **Pinned:** backwards moves (Picked Up → Pending) are accepted today (200) and reset `completedAt` to null. **TC-259b** (`fixme`) documents the expected 409 once a state machine lands.                                  |
-| **TC-260** | Export with no matching rows → `400 "No orders found"`; a matching export streams a 32-column CSV containing our seeded receipt.                                                                                          |
+| **TC-260** | Export with no matching rows → `400 "No orders found"`; a matching export streams a 33-column CSV (incl. dual-pricing `Cash Discount`) containing our seeded receipt.                                                     |
 | **TC-261** | `sortBy=total&sortDirection=asc` is non-decreasing; `limit=2` caps the page and `totalPages = ceil(totalCount / 2)`.                                                                                                      |
 
 Auth / tenant-isolation pins (TC-226..230) were deferred on 2026-08-15 pending the backend fix and are now implemented — see the next section.
@@ -1169,7 +1172,7 @@ An owner can navigate to the Analytics section and see the Restaurant Analytics 
 
 1. The test opens the restaurant management portal
 2. It clicks "Analytics" in the sidebar (PortalShell menu id `Analytics` → `?tab=Analytics`)
-3. It confirms the dashboard header loaded — the "Restaurant Analytics" title, the Refresh control, and the date-range selector are all visible
+3. It confirms the dashboard header loaded — the "Restaurant Analytics" title, the Refresh control, and the date-range selector are all visible; the selector names the default window ("Last 30 days" — since RestauNax 5ca965101 it shows the preset name instead of the literal dates)
 
 ### Why it matters
 
@@ -1231,7 +1234,7 @@ Selecting the "Last 7 days" preset and applying it re-fetches the dashboard for 
 
 1. Navigate to the Analytics tab
 2. Open the picker, apply "Last 7 days", and wait for the `GET /api/analytics/dashboard/*` response — assert it returns OK
-3. Confirm the dashboard resolves again (cards or empty state) with no load error
+3. Confirm the dashboard resolves again (cards or empty state) with no load error, and the date-range trigger now reads "Last 7 days"
 
 ### Why it matters
 
@@ -1553,32 +1556,32 @@ Added by the second tab-by-tab audit (`docs/MENU_TAB_TEST_STRATEGY.md`). Until n
 
 ### Menu tab (`04b-menu-availability.spec.ts`)
 
-| TC         | What it checks                                                                                                                                          |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **TC-288** | Sidebar Menu → "Menu Availability Management"; seeded category "6 Available"; Manage Menu → builder.                                                    |
-| **TC-289** | Switch OFF → ConsequenceDialog "Mark "X" as sold out?" → PATCH `{outOfStock:true}` → chips 5/1 + toast; ON → no dialog; Cancel keeps it available.      |
-| **TC-290** | "Restore All to Available" appears only with out-of-stock items; its dialog names the count; restores the whole category.                               |
-| **TC-291** | Star → Featured accordion `n/5`; un-star; the 6th is refused with the cap error while the counter stays 5/5.                                            |
-| **TC-292** | Refresh re-fetches and reflects a change made via API behind the page.                                                                                  |
-| **TC-293** | A menu-less restaurant shows "No menu data available" → "Open menu builder" (which, for a hours-less restaurant, is CreateStore's Business Hours step). |
+| TC         | What it checks                                                                                                                                                                                                  |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **TC-288** | Sidebar Menu → "Menu Availability Management"; seeded category "6 Available"; "Add or edit items" (was "Manage Menu") → builder as the portal's `?tab=menu-builder` tab (sidebar kept); "Back to Menu" returns. |
+| **TC-289** | Switch OFF → scope dialog "Mark "X" as sold out?" ("Where should this be unavailable?", Everywhere preselected) → PATCH `{outOfStock:true}` → chips 5/1 + toast; ON → no dialog; Cancel keeps it available.     |
+| **TC-290** | "Restore All to Available" appears only with out-of-stock items; its dialog names the count; restores the whole category.                                                                                       |
+| **TC-291** | Star → Featured accordion `n/5`; un-star; the 6th is refused with the cap error while the counter stays 5/5.                                                                                                    |
+| **TC-292** | Refresh re-fetches and reflects a change made via API behind the page.                                                                                                                                          |
+| **TC-293** | A menu-less restaurant shows "No menu data available" → "Add your first items" → the in-portal builder tab with "No categories yet" + New Category.                                                             |
 
 ### Builder, wizard, item detail (`04c-menu-item-editor.spec.ts`)
 
-| TC               | What it checks                                                                                                                                          |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **TC-294**       | New Category presets; duplicate name → "already exists in category".                                                                                    |
-| **TC-295**       | Wizard step-0 rules: min 2 chars, price > 0 (QA build says "Price must be positive"), ≤ $9,999.99, description ≤ 500.                                   |
-| **TC-296**       | Wizard saves an item with a Sets-Final-Price size group, a paid extra (Allow Multiples) and a free group; API stores the modes; detail page lists them. |
-| **TC-297**       | Wizard image step uploads a PNG through the hidden file input; item carries `imageUrls`.                                                                |
-| **TC-298**       | "Start from a Template" (lazy per cuisine → Pizza) prefills name/price.                                                                                 |
-| **TC-299**       | Clone Item → wizard prefilled "<name> (Copy)" → second independent item.                                                                                |
-| **TC-300**       | Card click → item detail page; Edit → edit wizard; Back returns.                                                                                        |
-| **TC-301**       | Detail Upload (dialog → Save changes) / Remove Image (confirm) round-trip.                                                                              |
-| **TC-302**       | Detail Delete → soft delete: builder card badged "No longer available", merged-menu read hides it, detail shows the inactive banner.                    |
-| **TC-303**       | Delete blocked by an active deal → "Cannot Delete This Item" dialog listing the deal.                                                                   |
-| **TC-304**       | Reorder modifiers — keyboard drag in the dnd-kit sheet persists the order.                                                                              |
-| **TC-305**       | Card star toggles featured; Menu tab's Featured accordion reflects it.                                                                                  |
-| **TC-306 / 307** | Presence smokes: Clone Menu dialog; AI Menu Import / Bulk AI Images / Paste Menu Item dialogs open and close (nothing generated).                       |
+| TC               | What it checks                                                                                                                                                                                                                   |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **TC-294**       | New Category presets; duplicate name → "already exists in category".                                                                                                                                                             |
+| **TC-295**       | Wizard step-0 rules: min 2 chars, price > 0 (QA build says "Price must be positive"), ≤ $9,999.99, description ≤ 500.                                                                                                            |
+| **TC-296**       | Wizard saves an item with a Sets-Final-Price size group, a paid extra (Allow Multiples) and a free group; API stores the modes; detail page lists them.                                                                          |
+| **TC-297**       | Wizard image step uploads a PNG through the hidden file input; item carries `imageUrls`.                                                                                                                                         |
+| **TC-298**       | "Start from a Template" (lazy per cuisine → Pizza) prefills name/price.                                                                                                                                                          |
+| **TC-299**       | Clone Item → wizard prefilled "<name> (Copy)" → second independent item.                                                                                                                                                         |
+| **TC-300**       | Card click ("View Details") → item detail PANEL in place (no navigation); panel Edit Item → edit wizard (`?from=builder`), Back returns to the builder; "Preview as a customer sees it" → full item page with `?action=preview`. |
+| **TC-301**       | Detail Upload (dialog → Save changes) / Remove Image (confirm) round-trip.                                                                                                                                                       |
+| **TC-302**       | Detail Delete → soft delete: builder card badged "No longer available", merged-menu read hides it, detail shows the inactive banner.                                                                                             |
+| **TC-303**       | Delete blocked by an active deal → "Cannot Delete This Item" dialog listing the deal.                                                                                                                                            |
+| **TC-304**       | Reorder modifiers — keyboard drag in the dnd-kit sheet persists the order.                                                                                                                                                       |
+| **TC-305**       | Card star toggles featured; Menu tab's Featured accordion reflects it.                                                                                                                                                           |
+| **TC-306 / 307** | Presence smokes: Clone Menu dialog; AI Menu Import / Bulk AI Images / Paste Menu Item dialogs open and close (nothing generated).                                                                                                |
 
 ### Chain menu (`17-chain-menu.spec.ts`)
 
@@ -1595,17 +1598,17 @@ Added by the second tab-by-tab audit (`docs/MENU_TAB_TEST_STRATEGY.md`). Until n
 | **TC-316**    | Featuring a shared item is chain-wide; a local item stays local.                                                                                                                                                                                              |
 | **TC-317** 🔴 | pin — "Reset all to shared" should reset SAVED overrides to the shared prices (today it only discards unsaved edits — `LocationPricingEditor.resetAll` seeds from the override).                                                                              |
 | **TC-318**    | $ dialog per-modifier override (Large 18) + base; "%" quick-adjust previews relative to the SHARED prices; row resets clear all.                                                                                                                              |
-| **TC-319**    | "Manage shared menu" from the chain shell opens the chain-aware LOCATION builder (there is no separate chain builder).                                                                                                                                        |
+| **TC-319**    | "Manage shared menu" from the chain shell opens the same chain-aware builder as the chain shell's `?tab=menu-builder` tab (anchored on a member; no chain-keyed builder): shared chip, "Who is this category for?" scope, Back to Menu.                       |
 
 ### Storefront hand-off (`customer/06-menu-handoff.spec.ts`) and admin chains (`admin/chains.spec.ts`)
 
-| TC         | What it checks                                                                                                                                                      |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **TC-320** | Owner 86s an item → Template Wind no longer lists it → restore → back.                                                                                              |
-| **TC-321** | Per-location override: Wind shows $14 at A and $12 at B; the public `/quote` (what checkout charges) returns 14 at A / 12 at B.                                     |
-| **TC-322** | Uncarry at A → absent from Wind A only.                                                                                                                             |
-| **TC-323** | Admin links an existing store (menu kept): its own items interleave at that location only; unlink → back to 2.                                                      |
-| **TC-324** | Unlink refused for a live store ("gone live") and a non-member (404); cancelling the order lets it leave; admin DELETE only archives and never detaches membership. |
+| TC         | What it checks                                                                                                                                                                                                                                                                                                                                                                     |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **TC-320** | Owner 86s an item → Template Wind no longer lists it → restore → back.                                                                                                                                                                                                                                                                                                             |
+| **TC-321** | Per-location override: Wind shows $14 at A and $12 at B; the public `/quote` (what checkout charges) returns 14 at A / 12 at B.                                                                                                                                                                                                                                                    |
+| **TC-322** | Uncarry at A → absent from Wind A only.                                                                                                                                                                                                                                                                                                                                            |
+| **TC-323** | Admin links an existing store (menu kept): its own items interleave at that location only; unlink → back to 2.                                                                                                                                                                                                                                                                     |
+| **TC-324** | Unlink refused for a live store ("gone live") and a non-member (404); cancelling the order lets it leave; admin DELETE only archives and never detaches membership. The store is published just long enough to take its order (unpublished stores refuse orders since restaunax 04d3c8d0e), then unpublished — a published location is itself "established" and could never leave. |
 
 **Real product findings from this batch (2026-08-16):** (1) authenticated IDOR across most `/menu` mutations (TC-283..286 pins); (2) chain "Restore All to Available" doesn't un-86 locations (TC-282 pin); (3) "Reset all to shared" in the per-location pricing dialog doesn't reset saved overrides (TC-317 pin); (4) UX: the caption under the Menu-tab availability switch labels the opposite state (the chip next to the name is correct); (5) `CHANNEL_PRICING_DESIGN.md` says the override routes are unauthenticated — the code mounts them behind `requireAuth` (TC-274 pins the code). The "shown $14, charged $12" chain defect described in that design doc is **fixed on QA** (TC-321 proves the quote uses the override).
 
@@ -1806,7 +1809,7 @@ Gift cards are real revenue with real Stripe charges. An amount-validation regre
 
 ### What they check
 
-The checkout-side "Gift Card" box (`RewardSection`), seeded via the public purchase endpoint and admin freeze/adjust endpoints rather than the purchase UI (faster, and mirrors how `createCouponRaw` seeds coupons for checkout tests): TC-171 (valid card applied shows the discount), TC-172 (Remove clears it), TC-173 (invalid code rejected), TC-174 (a card manually depleted to $0 via admin adjust is rejected), TC-175 (an admin-frozen card is rejected), TC-176 (a coupon and a gift card both apply to the same order simultaneously — currently-supported behavior, not a test of the separate `canCombineWithCoupons` config flag, which isn't enforced by either side today), TC-178 (a card that only partially covers the total still routes the remainder through Stripe).
+The checkout-side "Gift Card" box (`RewardSection`), seeded via the admin gift-card import (`seedFundedGiftCard` — an ACTIVE, funded card at the seed restaurant) and admin freeze/adjust endpoints rather than the purchase UI (faster, and mirrors how `createCouponRaw` seeds coupons for checkout tests; the public purchase endpoint can no longer seed since it requires a verified, succeeded Stripe PaymentIntent — backend 93e5fecb9): TC-171 (valid card applied shows the discount), TC-172 (Remove clears it), TC-173 (invalid code rejected), TC-174 (a card manually depleted to $0 via admin adjust is rejected), TC-175 (an admin-frozen card is rejected), TC-176 (a coupon and a gift card both apply to the same order simultaneously — currently-supported behavior, not a test of the separate `canCombineWithCoupons` config flag, which isn't enforced by either side today), TC-178 (a card that only partially covers the total still routes the remainder through Stripe).
 
 ### Why it matters
 
@@ -2140,7 +2143,7 @@ The real "Create Chain" flow: an admin picks a "founding" restaurant (one that a
 2. It navigates to Chain Management, opens "Create Chain", and searches/selects the founding restaurant in the debounced autocomplete
 3. It submits (chain name left blank, so it defaults to the founding restaurant's name) and confirms the "Chain created" success toast
 4. It confirms the detail panel auto-opens with the chain name heading and the founding restaurant listed as a member
-5. It navigates "Back to chains" and confirms the new chain's row is visible in the grid
+5. It navigates "Back to chains", narrows the grid with its toolbar "Search…" box (QA holds 100+ chains at 25/page — each run's orphan group accumulates), and confirms the new chain's row is visible
 6. Cleanup deletes the throwaway restaurant via the existing admin restaurant-delete endpoint
 
 ### Why it matters
@@ -2212,7 +2215,7 @@ This step is unavoidable for every single new restaurant, and its default-value 
 | TC-05           | Admin opens actions menu                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Admin                    | ✅ Passing                                                                                                                                |
 | TC-06           | Admin changes demo status                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Admin                    | ✅ Passing                                                                                                                                |
 | TC-07           | Admin edits and saves notes on a demo request                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Admin                    | ✅ Passing                                                                                                                                |
-| TC-08           | Admin sends a follow-up email (status flips, email delivered)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Admin                    | ✅ Passing                                                                                                                                |
+| TC-08           | Admin records a follow-up as contacted (status flips)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Admin                    | ❌ App bug                                                                                                                                |
 | TC-09           | Delete confirmation + cancel works                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Admin                    | ✅ Passing                                                                                                                                |
 | TC-98           | Admin permanently deletes a demo request                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Admin                    | ✅ Passing                                                                                                                                |
 | TC-10           | Admin assigns a demo request to a team member                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Admin                    | ✅ Passing                                                                                                                                |
@@ -2379,7 +2382,7 @@ This step is unavoidable for every single new restaurant, and its default-value 
 | TC-253          | Customer's real Stripe order reaches the owner (same receipt/items/total/contact) and is worked to Picked Up                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Owner                    | ✅ Passing                                                                                                                                |
 | TC-254          | After Cancel & Refund: customer-side read is REFUNDED, second refund rejected, refund email received                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Owner                    | ✅ Passing (email step needs `MAILPIT_BASE_URL`)                                                                                          |
 | TC-226 → TC-230 | Orders API auth & tenant isolation: /api/order/now deleted (404, was an anonymous PII dump), cross-tenant statistics reads/export 403 + unknown-order 404-first, mutating paths 403, all routes 401 without a token (pins for RestauNax #621; receipt route pinned as an everyone-500 backend bug, TC-227b + 227c fixme)                                                                                                                                                                                                                                                                                                         | API-Level (Owner)        | ✅ Passing (TC-227c ⏭️ fixme)                                                                                                             |
-| TC-255 → TC-261 | Orders API contract: invalid status 400, cancel-twice 400, refund-unpaid 400, INITIALIZED hidden by default, backwards move pinned (259b fixme), export 0-rows 400 + 32-col CSV, sort/paging                                                                                                                                                                                                                                                                                                                                                                                                                                     | API-Level (Owner)        | ✅ Passing (TC-259b ⏭️ fixme)                                                                                                             |
+| TC-255 → TC-261 | Orders API contract: invalid status 400, cancel-twice 400, refund-unpaid 400, INITIALIZED hidden by default, backwards move pinned (259b fixme), export 0-rows 400 + 33-col CSV, sort/paging                                                                                                                                                                                                                                                                                                                                                                                                                                     | API-Level (Owner)        | ✅ Passing (TC-259b ⏭️ fixme)                                                                                                             |
 | TC-262          | Search by customer phone number finds the order (regression guard for the int4-overflow 500 fixed in RestauNax #589)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Owner                    | ✅ Passing                                                                                                                                |
 | TC-263 → TC-324 | Menu deep coverage: API contract, Menu tab, wizard/detail, chain menu, storefront hand-off, admin chain link/unlink (`api-menu`, `04b`, `04c`, `17-chain-menu`, `customer/06-menu-handoff`, `admin/chains`)                                                                                                                                                                                                                                                                                                                                                                                                                      | Owner / Admin / Customer | ✅ Passing (pins flipped 2026-08-17 after RestauNax #602)                                                                                 |
 | TC-325 → TC-350 | Deals API contract: create math + qty-1 split, validation, list projections, patch, status, hard delete, public /active + /validate windows, cap, PUT validation, /quote charge + upcharge + rejections, coupon ⊥ deal, stats, bulk, AI questions, chain scope, 401s, IDOR TC-347..350 (`api-deals.spec.ts`)                                                                                                                                                                                                                                                                                                                     | Owner (throwaway tenant) | ✅ Passing (§1 fixes #618/#619 verified 2026-08-19; pins flipped)                                                                         |

@@ -1,4 +1,9 @@
-import { type Page, type Locator, expect } from "@playwright/test";
+import {
+  type Page,
+  type Locator,
+  type Request,
+  expect,
+} from "@playwright/test";
 
 /**
  * Admin — Cards & Codes → Supply Shop (`/admin?tab=cards&section=supply-shop`).
@@ -9,27 +14,64 @@ import { type Page, type Locator, expect } from "@playwright/test";
  * table is cross-tenant on shared QA, so every row lookup is by order number.
  */
 export const createAdminSupplyShopPage = (page: Page) => {
+  // SupplyShopAdmin's `load()` has no stale-response guard: switching tab while
+  // an earlier list call (the initial design queue, or the refresh a dialog's
+  // Done/onDone fires) is still in flight lets that LATE response overwrite the
+  // new tab's rows — the Fulfilment tab then reads "Nothing waiting in this
+  // state" for an order that is sitting in it. A user clicking fast hits the
+  // same race; the POM sidesteps it by never switching tab mid-fetch.
+  const isListCall = (url: string) =>
+    /\/api\/admin\/supply-shop\/orders\?/.test(url);
+  const inFlight = new Set<Request>();
+  page.on("request", (r) => {
+    if (isListCall(r.url())) inFlight.add(r);
+  });
+  page.on("requestfinished", (r) => inFlight.delete(r));
+  page.on("requestfailed", (r) => inFlight.delete(r));
+  const listCallsSettled = () =>
+    expect.poll(() => inFlight.size, { timeout: 15_000 }).toBe(0);
+
   const goto = async () => {
+    const initial = page.waitForResponse((r) => isListCall(r.url()));
     await page.goto("/admin?tab=cards&section=supply-shop", {
       waitUntil: "domcontentloaded",
     });
     await expect(page.getByRole("tab", { name: "Design queue" })).toBeVisible({
       timeout: 15_000,
     });
+    await initial;
+  };
+
+  const TAB_QUERY: Record<"Design queue" | "Fulfilment" | "History", RegExp> = {
+    "Design queue": /[?&]queue=design(&|$)/,
+    Fulfilment: /[?&]queue=fulfilment(&|$)/,
+    History: /[?&]status=/,
   };
 
   const openTab = async (name: "Design queue" | "Fulfilment" | "History") => {
-    await page.getByRole("tab", { name }).click();
-    await expect(page.getByRole("tab", { name })).toHaveAttribute(
-      "aria-selected",
-      "true"
-    );
+    const tab = page.getByRole("tab", { name });
+    await listCallsSettled();
+    if ((await tab.getAttribute("aria-selected")) !== "true") {
+      const loaded = page.waitForResponse(
+        (r) => isListCall(r.url()) && TAB_QUERY[name].test(r.url())
+      );
+      await tab.click();
+      await loaded;
+      await listCallsSettled();
+    }
+    await expect(tab).toHaveAttribute("aria-selected", "true");
   };
 
   /** History tab status filter (MUI Select) — options carry the owner-facing labels. */
   const selectHistoryStatus = async (optionLabel: string) => {
+    await listCallsSettled();
     await page.locator('[role="combobox"]').first().click();
+    const loaded = page.waitForResponse(
+      (r) => isListCall(r.url()) && /[?&]status=/.test(r.url())
+    );
     await page.getByRole("option", { name: optionLabel, exact: true }).click();
+    await loaded;
+    await listCallsSettled();
   };
 
   const row = (orderNumber: string): Locator =>
@@ -90,9 +132,13 @@ export const createAdminSupplyShopPage = (page: Page) => {
     await expect(dialog()).toContainText("Place an order for a restaurant");
   };
 
-  /** Debounced server-search Autocomplete — needs real keystrokes. */
+  /**
+   * Debounced server-search Autocomplete — needs real keystrokes. MUI's
+   * Autocomplete replaces the TextField's `id="place-restaurant"` with its own
+   * generated input id, so the input is found by role + its placeholder name.
+   */
   const pickRestaurant = async (name: string) => {
-    const input = dialog().locator("#place-restaurant");
+    const input = dialog().getByRole("combobox", { name: "Search by name" });
     await input.click();
     await input.pressSequentially(name, { delay: 100 });
     await page.getByRole("option", { name }).first().click();
@@ -171,7 +217,10 @@ export const createAdminSupplyShopPage = (page: Page) => {
     );
   const alreadySettledAlert = () => dialog().getByText(/^Already settled: \$/);
   const routeSelect = () => dialog().locator("#fulfil-route");
-  const vendorInput = () => dialog().locator("#fulfil-vendor");
+  // freeSolo Autocomplete: its generated input id wins over `id="fulfil-vendor"`
+  // (so the FormLabel's htmlFor points at nothing) — found by role + placeholder.
+  const vendorInput = () =>
+    dialog().getByRole("combobox", { name: "Who is producing this?" });
   const unitCost = () => dialog().locator("#fulfil-unit");
   const shippingCost = () => dialog().locator("#fulfil-shipping");
   const vendorRef = () => dialog().locator("#fulfil-ref");
@@ -244,6 +293,8 @@ export const createAdminSupplyShopPage = (page: Page) => {
   return {
     goto,
     openTab,
+    /** Resolves once no queue/history list call is in flight (e.g. the refresh after a dialog's Done). */
+    waitForList: listCallsSettled,
     selectHistoryStatus,
     row,
     rowChip,
