@@ -793,7 +793,7 @@ The order-detail sheet's status control is a single forward-only "Mark as {next 
 
 ### Why it matters
 
-TC-90 explicitly scoped the order-detail dialog to read-only assertions, leaving status change entirely uncovered. Also surfaced (not new — re-confirms an already-documented finding) that `PUT /api/order/orderId/:id/status` still has no auth/permission middleware live on QA; see `TEST_COVERAGE.md`'s Known Technical Debt (`TC-100`/`TC-179`).
+TC-90 explicitly scoped the order-detail dialog to read-only assertions, leaving status change entirely uncovered. It also surfaced (not new — re-confirms an already-documented finding) that `PUT /api/order/orderId/:id/status` had no auth/permission middleware live on QA at the time; that gap is now resolved — see `TEST_COVERAGE.md`'s Known Technical Debt (`TC-100`/`TC-179`).
 
 ---
 
@@ -1882,6 +1882,25 @@ This was the single biggest business-risk gap: nothing verified that a placed or
 
 ---
 
+## TC-179 — Current-Orders + Status Reject an Unauthenticated Caller
+
+**Status:** ✅ Passing; run with `--project=pos`
+
+### What it checks
+
+`GET /api/order/restaurants/:id/orders/current` and `PUT /api/order/orderId/:id/status` both reject a caller with no access token.
+
+### How it works, step by step
+
+1. Call the current-orders feed with no `Authorization` header; assert `401`.
+2. Call the status-update route with no `Authorization` header (against a dummy order id); assert `401`.
+
+### Why it matters
+
+Both routes previously accepted any caller — an anonymous request could read every order's customer PII off the live feed or tamper with order status. Kept as `test.fixme` ([#17](https://github.com/Restaunax/Automation/issues/17)) until the backend's `requireTabletOrPermission` fix was confirmed live on QA (2026-09-22); see `TEST_COVERAGE.md`'s Known Technical Debt.
+
+---
+
 ## TC-46 — Owner Can Navigate to the Stripe Setup Page
 
 **Status:** ✅ Passing
@@ -2240,6 +2259,7 @@ This step is unavoidable for every single new restaurant, and its default-value 
 | TC-125          | Customer applies a coupon at checkout (valid + bogus)                                                                                                                                                                                                                                                                                                                                                                                                                      | Customer                 | ✅ Passing                                                                                                                                |
 | TC-126          | Selecting Delivery drives the address → quote round-trip                                                                                                                                                                                                                                                                                                                                                                                                                   | Customer                 | ✅ Passing / graceful skip                                                                                                                |
 | TC-100          | Restaurant receives + processes an order (POS lifecycle)                                                                                                                                                                                                                                                                                                                                                                                                                   | POS                      | ✅ Passing (`--project=pos`)                                                                                                              |
+| TC-179          | Current-orders + status reject an unauthenticated caller                                                                                                                                                                                                                                                                                                                                                                                                                   | POS                      | ✅ Passing (`--project=pos`)                                                                                                              |
 | TC-27           | Owner reaches the publish page                                                                                                                                                                                                                                                                                                                                                                                                                                             | Owner                    | ⏭️ Skipped                                                                                                                                |
 | TC-28           | Publish checklist items are visible                                                                                                                                                                                                                                                                                                                                                                                                                                        | Owner                    | ⏭️ Skipped                                                                                                                                |
 | TC-29           | Owner views the Orders tab                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Owner                    | ✅ Passing                                                                                                                                |
