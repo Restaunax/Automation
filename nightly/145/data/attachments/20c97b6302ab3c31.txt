@@ -1,2 +1,0 @@
-[apiHelper] transient failure on POST /login — retry 1/2 in 1000ms
-[apiHelper] transient failure on POST /login — retry 2/2 in 3000ms
