@@ -314,13 +314,34 @@ export const createOwnerMenuPage = (page: Page) => {
       .filter({ hasText: itemName })
       .or(page.locator(".MuiCard-root").filter({ hasText: itemName }))
       .first();
-  const openItemDetail = async (itemName: string) => {
+  // ── Item detail PANEL (MenuItemDetailSheet over the builder) ───────────
+  // Since RestauNax e85a3d3fe (2026-09-14) clicking a card no longer navigates
+  // to the full item page — it opens a side panel in place (a MUI Drawer,
+  // role=dialog, header = item name) with the photo tools, price, modifiers,
+  // "More you can do" (named actions that open the full page with ?action=)
+  // and an "Edit Item" footer button that opens the edit wizard.
+  const itemPanel = (itemName: string) =>
+    page.getByRole("dialog").filter({ hasText: itemName });
+  const openItemPanel = async (itemName: string) => {
     const card = itemCard(itemName);
     await card.waitFor({ state: "visible", timeout: 15_000 });
-    // Click the card body (the name), not an action button.
-    await card.getByText(itemName, { exact: true }).first().click();
-    await page.waitForURL(/\/itemId\/[^/]+$/, { timeout: 15_000 });
+    // "View Details" and the card body (photo/price button) share one handler
+    // (MenuItemCard.handleItemClick). The labelled button is used because the
+    // photo button sits right under the sticky category strip while the
+    // builder's smooth scroll-to-category settles, which made body clicks land
+    // nowhere.
+    await card.getByRole("button", { name: "View Details" }).click();
+    await expect(itemPanel(itemName)).toBeVisible({ timeout: 15_000 });
   };
+  const panelAction = (
+    itemName: string,
+    action:
+      | "Preview as a customer sees it"
+      | "Send a photo from your phone"
+      | "Reorder options"
+      | "Delete this item"
+      | "Edit Item"
+  ) => itemPanel(itemName).getByRole("button", { name: action, exact: true });
   const cloneItemButton = (itemName: string) =>
     itemCard(itemName)
       .getByTestId("menu-item-clone")
@@ -375,7 +396,9 @@ export const createOwnerMenuPage = (page: Page) => {
     categorySection,
     categoryChip,
     itemCard,
-    openItemDetail,
+    itemPanel,
+    openItemPanel,
+    panelAction,
     cloneItemButton,
     cardFeaturedButton,
     cardBadge,

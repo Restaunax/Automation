@@ -26,6 +26,9 @@ export const createAdminRestaurantsPage = (page: Page) => {
   const findRowByName = (name: string) =>
     page.locator("tbody tr").filter({ hasText: name });
 
+  /** Any data row — proves the (paginated) list rendered at all. */
+  const anyRow = () => page.locator("tbody tr").first();
+
   const assertRestaurantRowVisible = async (name: string) => {
     await expect(findRowByName(name)).toBeVisible({ timeout: 10_000 });
   };
@@ -100,6 +103,7 @@ export const createAdminRestaurantsPage = (page: Page) => {
     assertPageLoaded,
     assertTableColumnVisible,
     findRowByName,
+    anyRow,
     assertRestaurantRowVisible,
     openRowActionMenu,
     openUpdateRestaurantInfo,

@@ -364,7 +364,8 @@ An admin can navigate to the Restaurants tab in the admin dashboard and see a li
 
 1. The test navigates to the Admin Dashboard → Restaurants tab
 2. It confirms the "Restaurants" heading is visible
-3. It finds the seed test restaurant by name in the table and confirms its row is visible
+3. It confirms the table renders rows
+4. The list is server-paginated and newest-first (QA holds 100+ restaurants), so it searches for the seed restaurant by name — as an admin would — and confirms its row is visible
 
 ### Why it matters
 
@@ -1169,7 +1170,7 @@ An owner can navigate to the Analytics section and see the Restaurant Analytics 
 
 1. The test opens the restaurant management portal
 2. It clicks "Analytics" in the sidebar (PortalShell menu id `Analytics` → `?tab=Analytics`)
-3. It confirms the dashboard header loaded — the "Restaurant Analytics" title, the Refresh control, and the date-range selector are all visible
+3. It confirms the dashboard header loaded — the "Restaurant Analytics" title, the Refresh control, and the date-range selector are all visible; the selector names the default window ("Last 30 days" — since RestauNax 5ca965101 it shows the preset name instead of the literal dates)
 
 ### Why it matters
 
@@ -1231,7 +1232,7 @@ Selecting the "Last 7 days" preset and applying it re-fetches the dashboard for 
 
 1. Navigate to the Analytics tab
 2. Open the picker, apply "Last 7 days", and wait for the `GET /api/analytics/dashboard/*` response — assert it returns OK
-3. Confirm the dashboard resolves again (cards or empty state) with no load error
+3. Confirm the dashboard resolves again (cards or empty state) with no load error, and the date-range trigger now reads "Last 7 days"
 
 ### Why it matters
 
@@ -1553,32 +1554,32 @@ Added by the second tab-by-tab audit (`docs/MENU_TAB_TEST_STRATEGY.md`). Until n
 
 ### Menu tab (`04b-menu-availability.spec.ts`)
 
-| TC         | What it checks                                                                                                                                          |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **TC-288** | Sidebar Menu → "Menu Availability Management"; seeded category "6 Available"; Manage Menu → builder.                                                    |
-| **TC-289** | Switch OFF → ConsequenceDialog "Mark "X" as sold out?" → PATCH `{outOfStock:true}` → chips 5/1 + toast; ON → no dialog; Cancel keeps it available.      |
-| **TC-290** | "Restore All to Available" appears only with out-of-stock items; its dialog names the count; restores the whole category.                               |
-| **TC-291** | Star → Featured accordion `n/5`; un-star; the 6th is refused with the cap error while the counter stays 5/5.                                            |
-| **TC-292** | Refresh re-fetches and reflects a change made via API behind the page.                                                                                  |
-| **TC-293** | A menu-less restaurant shows "No menu data available" → "Open menu builder" (which, for a hours-less restaurant, is CreateStore's Business Hours step). |
+| TC         | What it checks                                                                                                                                                                                                  |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **TC-288** | Sidebar Menu → "Menu Availability Management"; seeded category "6 Available"; "Add or edit items" (was "Manage Menu") → builder as the portal's `?tab=menu-builder` tab (sidebar kept); "Back to Menu" returns. |
+| **TC-289** | Switch OFF → scope dialog "Mark "X" as sold out?" ("Where should this be unavailable?", Everywhere preselected) → PATCH `{outOfStock:true}` → chips 5/1 + toast; ON → no dialog; Cancel keeps it available.     |
+| **TC-290** | "Restore All to Available" appears only with out-of-stock items; its dialog names the count; restores the whole category.                                                                                       |
+| **TC-291** | Star → Featured accordion `n/5`; un-star; the 6th is refused with the cap error while the counter stays 5/5.                                                                                                    |
+| **TC-292** | Refresh re-fetches and reflects a change made via API behind the page.                                                                                                                                          |
+| **TC-293** | A menu-less restaurant shows "No menu data available" → "Add your first items" → the in-portal builder tab with "No categories yet" + New Category.                                                             |
 
 ### Builder, wizard, item detail (`04c-menu-item-editor.spec.ts`)
 
-| TC               | What it checks                                                                                                                                          |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **TC-294**       | New Category presets; duplicate name → "already exists in category".                                                                                    |
-| **TC-295**       | Wizard step-0 rules: min 2 chars, price > 0 (QA build says "Price must be positive"), ≤ $9,999.99, description ≤ 500.                                   |
-| **TC-296**       | Wizard saves an item with a Sets-Final-Price size group, a paid extra (Allow Multiples) and a free group; API stores the modes; detail page lists them. |
-| **TC-297**       | Wizard image step uploads a PNG through the hidden file input; item carries `imageUrls`.                                                                |
-| **TC-298**       | "Start from a Template" (lazy per cuisine → Pizza) prefills name/price.                                                                                 |
-| **TC-299**       | Clone Item → wizard prefilled "<name> (Copy)" → second independent item.                                                                                |
-| **TC-300**       | Card click → item detail page; Edit → edit wizard; Back returns.                                                                                        |
-| **TC-301**       | Detail Upload (dialog → Save changes) / Remove Image (confirm) round-trip.                                                                              |
-| **TC-302**       | Detail Delete → soft delete: builder card badged "No longer available", merged-menu read hides it, detail shows the inactive banner.                    |
-| **TC-303**       | Delete blocked by an active deal → "Cannot Delete This Item" dialog listing the deal.                                                                   |
-| **TC-304**       | Reorder modifiers — keyboard drag in the dnd-kit sheet persists the order.                                                                              |
-| **TC-305**       | Card star toggles featured; Menu tab's Featured accordion reflects it.                                                                                  |
-| **TC-306 / 307** | Presence smokes: Clone Menu dialog; AI Menu Import / Bulk AI Images / Paste Menu Item dialogs open and close (nothing generated).                       |
+| TC               | What it checks                                                                                                                                                                                                                   |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **TC-294**       | New Category presets; duplicate name → "already exists in category".                                                                                                                                                             |
+| **TC-295**       | Wizard step-0 rules: min 2 chars, price > 0 (QA build says "Price must be positive"), ≤ $9,999.99, description ≤ 500.                                                                                                            |
+| **TC-296**       | Wizard saves an item with a Sets-Final-Price size group, a paid extra (Allow Multiples) and a free group; API stores the modes; detail page lists them.                                                                          |
+| **TC-297**       | Wizard image step uploads a PNG through the hidden file input; item carries `imageUrls`.                                                                                                                                         |
+| **TC-298**       | "Start from a Template" (lazy per cuisine → Pizza) prefills name/price.                                                                                                                                                          |
+| **TC-299**       | Clone Item → wizard prefilled "<name> (Copy)" → second independent item.                                                                                                                                                         |
+| **TC-300**       | Card click ("View Details") → item detail PANEL in place (no navigation); panel Edit Item → edit wizard (`?from=builder`), Back returns to the builder; "Preview as a customer sees it" → full item page with `?action=preview`. |
+| **TC-301**       | Detail Upload (dialog → Save changes) / Remove Image (confirm) round-trip.                                                                                                                                                       |
+| **TC-302**       | Detail Delete → soft delete: builder card badged "No longer available", merged-menu read hides it, detail shows the inactive banner.                                                                                             |
+| **TC-303**       | Delete blocked by an active deal → "Cannot Delete This Item" dialog listing the deal.                                                                                                                                            |
+| **TC-304**       | Reorder modifiers — keyboard drag in the dnd-kit sheet persists the order.                                                                                                                                                       |
+| **TC-305**       | Card star toggles featured; Menu tab's Featured accordion reflects it.                                                                                                                                                           |
+| **TC-306 / 307** | Presence smokes: Clone Menu dialog; AI Menu Import / Bulk AI Images / Paste Menu Item dialogs open and close (nothing generated).                                                                                                |
 
 ### Chain menu (`17-chain-menu.spec.ts`)
 
@@ -1595,7 +1596,7 @@ Added by the second tab-by-tab audit (`docs/MENU_TAB_TEST_STRATEGY.md`). Until n
 | **TC-316**    | Featuring a shared item is chain-wide; a local item stays local.                                                                                                                                                                                              |
 | **TC-317** 🔴 | pin — "Reset all to shared" should reset SAVED overrides to the shared prices (today it only discards unsaved edits — `LocationPricingEditor.resetAll` seeds from the override).                                                                              |
 | **TC-318**    | $ dialog per-modifier override (Large 18) + base; "%" quick-adjust previews relative to the SHARED prices; row resets clear all.                                                                                                                              |
-| **TC-319**    | "Manage shared menu" from the chain shell opens the chain-aware LOCATION builder (there is no separate chain builder).                                                                                                                                        |
+| **TC-319**    | "Manage shared menu" from the chain shell opens the same chain-aware builder as the chain shell's `?tab=menu-builder` tab (anchored on a member; no chain-keyed builder): shared chip, "Who is this category for?" scope, Back to Menu.                       |
 
 ### Storefront hand-off (`customer/06-menu-handoff.spec.ts`) and admin chains (`admin/chains.spec.ts`)
 

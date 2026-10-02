@@ -67,16 +67,24 @@ export const createOwnerDealsPage = (page: Page) => {
     const dealsEntry = mgmtPage
       .drawer()
       .getByRole("button", { name: "Deals", exact: true });
-    // Desktop = hover flyout (Popper), mobile = click accordion; do both.
-    await dealsEntry.hover();
-    await dealsEntry.click();
     const manageDealsBtn = page.getByRole("button", {
       name: "Manage Deals",
       exact: true,
     });
-    await manageDealsBtn.waitFor({ state: "visible", timeout: 5_000 });
-    await manageDealsBtn.click();
-    await page.waitForURL(/tab=deals/, { timeout: 10_000 });
+    // Desktop = hover flyout (Popper + Grow), mobile = click accordion; do
+    // both. The flyout is transient (SidebarFlyoutSection closes it 80ms after
+    // the pointer leaves, or on click-away): on the 2026-10-01 nightly (CI, 2
+    // loaded workers) it closed while Grow was still animating, so the "Manage
+    // Deals" item was "not stable" then "detached from the DOM" and the click
+    // had nothing left to retry against for 15s, on both attempts. Not
+    // reproducible locally at any viewport height. Re-open and re-click as one
+    // unit until the navigation happens.
+    await expect(async () => {
+      await dealsEntry.hover();
+      await dealsEntry.click();
+      await manageDealsBtn.click({ timeout: 3_000 });
+      await page.waitForURL(/tab=deals/, { timeout: 3_000 });
+    }).toPass({ timeout: 20_000 });
     await page
       .getByRole("heading", { name: "Manage Deals" })
       .waitFor({ state: "visible", timeout: 15_000 });

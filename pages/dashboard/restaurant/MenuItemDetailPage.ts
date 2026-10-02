@@ -95,6 +95,10 @@ export const createMenuItemDetailPage = (page: Page) => {
   // Bottom bar
   const previewButton = () =>
     page.getByRole("button", { name: "Preview", exact: true });
+  /** The customer-view preview (ItemDetailPreview) — an unnamed MUI Dialog
+   *  showing the item; opened by "Preview" or on arrival with ?action=preview. */
+  const previewDialog = (itemName: string) =>
+    page.getByRole("dialog").filter({ hasText: itemName });
   const editButton = () =>
     page.getByRole("button", { name: "Edit", exact: true });
   const reorderButton = () =>
@@ -187,6 +191,7 @@ export const createMenuItemDetailPage = (page: Page) => {
     uploadImage,
     removeImage,
     previewButton,
+    previewDialog,
     editButton,
     reorderButton,
     deleteButton,
