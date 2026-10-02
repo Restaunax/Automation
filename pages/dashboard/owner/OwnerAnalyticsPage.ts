@@ -28,11 +28,28 @@ export const createOwnerAnalyticsPage = (page: Page) => {
   const refreshButton = () =>
     page.getByRole("button", { name: "Refresh data" });
 
-  // The date-range trigger is an outlined button whose label IS the formatted
-  // range (e.g. "Jun 7, 2026 - Jul 7, 2026"). Match on that shape rather than a
-  // fixed string so it survives whatever the current default window is.
+  // The date-range trigger is an outlined button. Since RestauNax 5ca965101
+  // (dateRangePresets.describeDateRange) its label is the quick-select PRESET
+  // NAME whenever the range is one ("Last 30 days" — the default window), and
+  // the literal dates ("Jun 7, 2026 - Jul 7, 2026") only for a custom range.
+  // Match either shape; tests assert the exact preset where it is known.
+  const DATE_RANGE_PRESET_LABELS = [
+    "Today",
+    "Yesterday",
+    "Last 7 days",
+    "Last 30 days",
+    "Last 90 days",
+    "This month",
+    "Last month",
+    "This year",
+    "Last year",
+  ];
   const dateRangeButton = () =>
-    page.getByRole("button", { name: /\d{1,2},\s*\d{4}\s*-\s*/ });
+    page.getByRole("button", {
+      name: new RegExp(
+        `^(${DATE_RANGE_PRESET_LABELS.join("|")})$|\\d{1,2},\\s*\\d{4}\\s*-\\s*`
+      ),
+    });
 
   // ── Assertions ─────────────────────────────────────────────────────────────
   const assertLoaded = async () => {

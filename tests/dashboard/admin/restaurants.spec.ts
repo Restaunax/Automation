@@ -1,5 +1,5 @@
 import * as allure from "allure-js-commons";
-import { test } from "../../../fixtures/base";
+import { test, expect } from "../../../fixtures/base";
 import { createAdminRestaurantsPage } from "../../../pages/dashboard/admin/AdminRestaurantsPage";
 import { readSharedState } from "../../../utils/testData";
 
@@ -21,7 +21,7 @@ test.describe("Admin — Restaurant Management", () => {
     adminPage,
   }) => {
     await allure.description(
-      "The admin Restaurants tab loads a table with at least the seed restaurant visible."
+      "The admin Restaurants tab loads a table of restaurants, and searching finds the seed restaurant's row."
     );
 
     const { restaurantName } = readSharedState();
@@ -36,9 +36,17 @@ test.describe("Admin — Restaurant Management", () => {
       await allure.parameter("URL", adminPage.url());
     });
 
+    await allure.step("Verify the table lists restaurants", async () => {
+      await expect(restaurantsPage.anyRow()).toBeVisible({ timeout: 15_000 });
+    });
+
+    // The list is server-paginated and sorted newest-first (QA holds 100+
+    // restaurants, plus automation's per-run ones), so the long-lived seed
+    // restaurant is not on page 1 — find it the way an admin does: search.
     await allure.step(
-      `Verify seed restaurant "${restaurantName}" row is visible`,
+      `Search finds seed restaurant "${restaurantName}"`,
       async () => {
+        await restaurantsPage.searchInput().fill(restaurantName.trim());
         await restaurantsPage.assertRestaurantRowVisible(restaurantName);
         await allure.parameter("restaurantName", restaurantName);
       }

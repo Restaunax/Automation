@@ -43,6 +43,9 @@ test.describe("Owner — Analytics Tab", () => {
 
     await allure.step("Verify the dashboard header loaded", async () => {
       await analyticsPage.assertLoaded();
+      // The default window is the last 30 days, and the trigger names the
+      // preset rather than spelling out the dates (RestauNax 5ca965101).
+      await expect(analyticsPage.dateRangeButton()).toHaveText("Last 30 days");
       await allure.parameter("URL", ownerPage.url());
     });
   });
@@ -151,6 +154,8 @@ test.describe("Owner — Analytics Tab", () => {
       async () => {
         await analyticsPage.assertDashboardResolved();
         await analyticsPage.assertNoError();
+        // The trigger now names the applied window.
+        await expect(analyticsPage.dateRangeButton()).toHaveText("Last 7 days");
       }
     );
   });

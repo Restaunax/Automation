@@ -687,32 +687,46 @@ test.describe("Owner — Chain menu (per-location overrides, shared vs local)", 
     ).toBe(15);
   });
 
-  test("TC-319: 'Manage shared menu' from the chain shell opens a chain-aware LOCATION builder (no separate chain builder)", async ({
+  test("TC-319: 'Manage shared menu' from the chain shell opens the chain-aware builder as a chain-shell tab (same builder, not a separate chain builder)", async ({
     ownerPage,
   }) => {
     await allure.description(
-      "By design (MenuManagementPage.handleManageMenu) there is no chain-scoped builder route: 'Manage shared " +
-        "menu (all locations)' lands on the builder of the location in focus (/restaurant/restaurantId/<member>), " +
-        "whose scope bar reads 'Editing menu for: <member> … this location only' with 'Switch to all 2 locations', " +
-        "shared categories carry the 'Shared · all 2 locations' chip, and 'New Category' offers the 'Who is this " +
-        "category for?' scope radio — the shared menu is managed from here via those scope choices."
+      "Since RestauNax c0bfd2231 (2026-09-13, 'host the menu builder inside the portal shell') the builder is a " +
+        "sibling tab of every shell: 'Manage shared menu (all locations)' on the chain shell's Menu tab opens " +
+        "/chain/:groupId/restaurantManagement?tab=menu-builder — the chain nav stays, 'Back to Menu' returns. It " +
+        "is still the ONE builder (MenuBuilderTab → MenuGroupDisplay, anchored on a member location; there is no " +
+        "chain-keyed builder): shared categories carry the 'Shared · all 2 locations' chip and 'New Category' " +
+        "offers the chain owner the 'Who is this category for?' scope radio — the shared menu is managed via " +
+        "those scope choices."
     );
     const tab = createMenuAvailabilityPage(ownerPage);
     const builder = createOwnerMenuPage(ownerPage);
     await tab.gotoChain(chainGroupId);
     await tab.assertLoaded();
+    await expect(tab.manageMenuButton()).toHaveText(/Manage shared menu/);
     await tab.manageMenuButton().click();
     await expect(ownerPage).toHaveURL(
-      new RegExp(`/restaurant/restaurantId/(${locA}|${locB})$`),
+      new RegExp(
+        `/chain/${chainGroupId}/restaurantManagement\\?tab=menu-builder`
+      ),
       { timeout: 20_000 }
     );
-    await expect(builder.scopeBarEditingFor()).toBeVisible({ timeout: 20_000 });
-    await expect(builder.scopeBarSwitchToShared()).toBeVisible();
+    await expect(tab.builderTitle()).toBeVisible({ timeout: 20_000 });
+    await expect(
+      ownerPage.getByRole("navigation", { name: "chain navigation" })
+    ).toBeVisible();
+    await builder.activateCategory(CATEGORY);
     await expect(builder.categoryChip(CATEGORY, "shared")).toBeVisible();
     await builder.openCategoryDialog();
     await expect(
       builder.categoryDialog().getByText("Who is this category for?")
     ).toBeVisible();
     await ownerPage.keyboard.press("Escape");
+    await expect(builder.categoryDialog()).toBeHidden();
+    await tab.backToMenuButton().click();
+    await expect(ownerPage).toHaveURL(
+      new RegExp(`/chain/${chainGroupId}/restaurantManagement\\?tab=Menu`)
+    );
+    await expect(tab.chainSharedBanner()).toBeVisible({ timeout: 20_000 });
   });
 });

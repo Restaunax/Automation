@@ -96,7 +96,9 @@ test.describe("Owner — Menu Management", () => {
       });
     });
 
-    test("TC-21: owner can add a menu item to a category", async () => {
+    test("TC-21: owner can add a menu item to a category", async ({
+      ownerPage,
+    }) => {
       await allure.description(
         "Owner clicks 'Add [Category] Item', completes the 4-step wizard, and verifies the item appears on the menu page."
       );
@@ -130,8 +132,17 @@ test.describe("Owner — Menu Management", () => {
       await allure.step(
         "Verify the item actually appears on the menu page",
         async () => {
-          // Not just the toast: activate the category tab and confirm the
-          // created item card really renders (i.e. the create persisted).
+          // Not just the toast: reopen the builder, activate the category tab
+          // and confirm the created item card really renders (i.e. the create
+          // persisted). Since RestauNax 87557ab70/55a705af9 saving no longer
+          // returns to the CreateStore builder — the add-item route carries no
+          // ?from= origin, so the wizard lands on the portal's ?tab=Menu — hence
+          // the explicit trip back to the builder.
+          await expect(ownerPage).toHaveURL(
+            /\/restaurantManagement\?tab=(Menu|menu-builder)/,
+            { timeout: 15_000 }
+          );
+          await menuPage.navigateToMenuTab();
           await menuPage.activateCategory(TEST_CATEGORY_NAME);
           await menuPage.assertItemVisible(TEST_CATEGORY_NAME, TEST_ITEM_NAME);
         }
