@@ -15,7 +15,7 @@ export const createCustomerGiftCardPage = (page: Page) => {
       { waitUntil: "domcontentloaded" }
     );
     await page
-      .getByRole("heading", { name: "Choose an Amount" })
+      .getByRole("heading", { name: "Choose an amount" })
       .waitFor({ state: "visible", timeout: 15_000 });
   };
 
@@ -33,26 +33,30 @@ export const createCustomerGiftCardPage = (page: Page) => {
     denominationButton(amount).click();
   const fillCustomAmount = (amount: string) => customAmountInput().fill(amount);
 
+  // Recipient toggle cards: the accessible name is title + subtitle
+  // ("Send as a gift Emailed to someone else"), so match the title prefix.
   const sendAsGiftButton = () =>
-    page.getByRole("button", { name: "Send as Gift", exact: true });
+    page.getByRole("button", { name: /^send as a gift/i });
   const forMyselfButton = () =>
-    page.getByRole("button", { name: "For Myself", exact: true });
+    page.getByRole("button", { name: /^for me\b/i });
   const selectSendAsGift = () => sendAsGiftButton().click();
 
   const recipientEmailInput = () =>
     page.getByPlaceholder("recipient@example.com");
   const recipientNameInput = () => page.getByPlaceholder("Their name");
   const personalMessageInput = () =>
-    page.getByPlaceholder("Add a personal message...");
+    page.getByPlaceholder("Add a personal message");
 
   const amountErrorText = () =>
     page.getByText(/Please select or enter an amount\.|Amount must be between/);
 
+  // Label carries the amount once one is chosen ("Continue with $25.00"),
+  // plain "Continue" before that.
   const continueButton = () =>
-    page.getByRole("button", { name: "Continue", exact: true });
+    page.getByRole("button", { name: /^continue( with \$[\d,.]+)?$/i });
 
-  // Fills the "Send as Gift" fields the guest path needs — no auth required,
-  // unlike "For Myself" which triggers a sign-in modal (see page.tsx:364-369).
+  // Fills the "Send as a gift" fields the guest path needs — no auth required,
+  // unlike "For me", which needs a signed-in account.
   const fillGiftRecipient = async (email: string, name?: string) => {
     await selectSendAsGift();
     await recipientEmailInput().fill(email);
@@ -61,7 +65,7 @@ export const createCustomerGiftCardPage = (page: Page) => {
 
   // ── Step 2: Payment ──────────────────────────────────────────────────────
   const paymentHeading = () =>
-    page.getByRole("heading", { name: "Complete Payment" });
+    page.getByRole("heading", { name: "Payment", exact: true });
   const assertPaymentSectionVisible = () =>
     expect(paymentHeading()).toBeVisible({ timeout: 20_000 });
 
@@ -79,7 +83,7 @@ export const createCustomerGiftCardPage = (page: Page) => {
 
   // ── Step 3: Confirmation ─────────────────────────────────────────────────
   const giftSentHeading = () =>
-    page.getByRole("heading", { name: "Gift Card Sent!" });
+    page.getByRole("heading", { name: /^gift card (sent|scheduled)$/i });
   const assertPurchaseConfirmed = () =>
     expect(giftSentHeading()).toBeVisible({ timeout: 20_000 });
 
@@ -105,12 +109,12 @@ export const createCustomerGiftCardPage = (page: Page) => {
   // $X.XX" text would otherwise collide with this section's result text.
   const balanceCheckBox = () =>
     page
-      .getByRole("heading", { name: "Check Gift Card Balance" })
+      .getByRole("heading", { name: "Check a balance" })
       .locator("xpath=ancestor::div[2]");
   const balanceCheckInput = () =>
-    balanceCheckBox().getByPlaceholder("Enter your gift card number");
+    balanceCheckBox().getByLabel("Gift card code");
   const checkBalanceButton = () =>
-    balanceCheckBox().getByRole("button", { name: "Check Balance" });
+    balanceCheckBox().getByRole("button", { name: "Check", exact: true });
 
   // Submits via Enter (the input has its own onKeyDown handler for this)
   // rather than clicking the button: the button re-renders/detaches right

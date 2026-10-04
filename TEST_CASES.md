@@ -1793,7 +1793,7 @@ Gift cards had **zero test coverage anywhere** before this pass — no POM, no A
 ### How it works, step by step
 
 1. Fetch the restaurant's live gift-card config (`GET /api/gift-cards/config/restaurant/:id`) to compute realistic amounts instead of hardcoding assumed min/max defaults.
-2. Pick a preset or type a custom amount, choose "Send as Gift" (guest-accessible — unlike "For Myself", which requires login), fill a recipient email, continue to payment, and fill a Stripe test card via the shared `fillStripePaymentElement` helper (extended to also fill an optional billing ZIP field this purchase flow's Payment Element configuration requires but checkout's doesn't).
+2. Pick a preset or type a custom amount, choose "Send as a gift" (guest-accessible — unlike "For me", which requires login), fill a recipient email, continue to payment, and fill a Stripe test card via the shared `fillStripePaymentElement` helper (extended to also fill an optional billing ZIP field this purchase flow's Payment Element configuration requires but checkout's doesn't).
 3. Read the formatted code off the confirmation screen; look up its DB id via the admin gift-card list (search on the sanitized, dash-stripped code — the admin API masks codes in list results but searches the raw column) and record it in a cleanup file.
 4. `globalTeardown` best-effort **freezes** every recorded test gift card at the end of the run — there's no delete endpoint for gift cards (only freeze), unlike coupons.
 
