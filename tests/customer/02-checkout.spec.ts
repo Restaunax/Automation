@@ -12,14 +12,18 @@ import {
   apiLogin,
   createCouponRaw,
   getRestaurantCoupons,
-  purchaseGiftCard,
+  seedFundedGiftCard,
   adjustGiftCardBalance,
   freezeGiftCardApi,
   createTestMenuGroup,
   createMenuItemRaw,
   deleteTestMenuGroupWithItems,
+  createGiftCardBatchRaw,
+  exportGiftCardBatchCsvRaw,
+  freezeGiftCardBatchRaw,
   type ApiMenuItem,
 } from "../../utils/apiHelper";
+import { csvToObjects } from "../../utils/csvHelper";
 import { STRIPE_CARDS } from "../../utils/stripeCards";
 
 const TEMPLATE_WIND_URL = process.env.TEMPLATE_WIND_URL ?? "";
@@ -507,10 +511,20 @@ test.describe("Customer — Checkout coupon & delivery", () => {
 });
 
 // ── Gift card redemption at checkout — previously zero coverage anywhere in
-// the suite. Seeds fixtures via purchaseGiftCard/adjustGiftCardBalance/
-// freezeGiftCardApi (public purchase + admin endpoints) rather than driving
-// the real purchase UI each time — mirrors createCouponRaw's role for
-// coupons (see 04-gift-cards.spec.ts for the purchase-UI coverage itself).
+// the suite. Seeds fixtures via seedFundedGiftCard/adjustGiftCardBalance/
+// freezeGiftCardApi (admin endpoints) rather than driving the real purchase
+// UI each time — mirrors createCouponRaw's role for coupons (see
+// 04-gift-cards.spec.ts for the purchase-UI coverage itself). The public
+// /api/gift-cards/purchase used to double as the seeder, but since backend
+// 93e5fecb9 it mints only for a verified, succeeded Stripe PaymentIntent, so
+// funded cards now come from the admin "Existing gift cards" import — an
+// ACTIVE card with real balance, redeemable at the importing restaurant.
+/** A funded ACTIVE card at `restaurantId`, recorded for the teardown freeze. */
+const seedGiftCard = async (restaurantId: string, amount: number) => {
+  const { accessToken } = await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD);
+  return seedFundedGiftCard(accessToken, restaurantId, amount);
+};
+
 test.describe("Customer — Checkout gift card", () => {
   test.skip(
     !TEMPLATE_WIND_URL ||
@@ -530,7 +544,7 @@ test.describe("Customer — Checkout gift card", () => {
     page,
   }) => {
     await allure.description(
-      "Applying a freshly purchased, fully-funded gift card at checkout shows the 'Gift card applied' " +
+      "Applying a freshly seeded, fully-funded gift card at checkout shows the 'Gift card applied' " +
         "discount summary in the Gift Card box."
     );
 
@@ -539,7 +553,7 @@ test.describe("Customer — Checkout gift card", () => {
     const checkoutPage = createCustomerCheckoutPage(page);
 
     const giftCard = await allure.step("Seed a gift card", async () => {
-      const card = await purchaseGiftCard({ restaurantId, amount: 10 });
+      const card = await seedGiftCard(restaurantId, 10);
       recordGiftCardForCleanup(card.id);
       await allure.parameter("Gift card code", card.code);
       return card;
@@ -572,7 +586,7 @@ test.describe("Customer — Checkout gift card", () => {
     const { menuItemId, menuItemName, menuItemPrice } = readSharedState();
     const checkoutPage = createCustomerCheckoutPage(page);
 
-    const giftCard = await purchaseGiftCard({ restaurantId, amount: 10 });
+    const giftCard = await seedGiftCard(restaurantId, 10);
     recordGiftCardForCleanup(giftCard.id);
 
     await checkoutPage.seedCart(
@@ -620,7 +634,7 @@ test.describe("Customer — Checkout gift card", () => {
     const giftCard = await allure.step(
       "Seed a gift card and deplete it to $0 balance",
       async () => {
-        const card = await purchaseGiftCard({ restaurantId, amount: 10 });
+        const card = await seedGiftCard(restaurantId, 10);
         recordGiftCardForCleanup(card.id);
         const { accessToken } = await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD);
         await adjustGiftCardBalance(
@@ -655,7 +669,7 @@ test.describe("Customer — Checkout gift card", () => {
     const giftCard = await allure.step(
       "Seed a gift card and freeze it",
       async () => {
-        const card = await purchaseGiftCard({ restaurantId, amount: 10 });
+        const card = await seedGiftCard(restaurantId, 10);
         recordGiftCardForCleanup(card.id);
         const { accessToken } = await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD);
         await freezeGiftCardApi(accessToken, card.id);
@@ -702,7 +716,7 @@ test.describe("Customer — Checkout gift card", () => {
       expect(res.ok, `coupon seed failed: ${JSON.stringify(res.data)}`).toBe(
         true
       );
-      const giftCard = await purchaseGiftCard({ restaurantId, amount: 10 });
+      const giftCard = await seedGiftCard(restaurantId, 10);
       recordGiftCardForCleanup(giftCard.id);
       giftCardCode = giftCard.code;
     });
@@ -750,7 +764,7 @@ test.describe("Customer — Checkout gift card", () => {
     const giftCard = await allure.step(
       "Seed a small-balance gift card (comfortably below any single-item order total)",
       async () => {
-        const card = await purchaseGiftCard({ restaurantId, amount: 5 });
+        const card = await seedGiftCard(restaurantId, 5);
         recordGiftCardForCleanup(card.id);
         return card;
       }
@@ -784,5 +798,77 @@ test.describe("Customer — Checkout gift card", () => {
     await expect(
       page.getByRole("heading", { name: "Order Confirmed!" })
     ).toBeVisible({ timeout: 20_000 });
+  });
+});
+
+// ── Physical gift card STOCK at checkout. A pre-printed card is a code with no
+// money on it until a register loads it; presenting one at checkout must be
+// refused like any other unusable card. Seeds the stock through the admin
+// batch endpoints (there is no purchase — that is the point) and reads the
+// code back from the printer export.
+test.describe("Customer — Checkout physical gift card stock", () => {
+  test.skip(
+    !TEMPLATE_WIND_URL || !ADMIN_EMAIL || !ADMIN_PASSWORD,
+    "TEMPLATE_WIND_URL and ADMIN_EMAIL/PASSWORD must be set in .env"
+  );
+
+  test.beforeEach(async () => {
+    await allure.label("feature", "Customer Ordering");
+    await allure.label("severity", "critical");
+  });
+
+  test("TC-477: an unloaded (INACTIVE) physical card is refused at checkout", async ({
+    page,
+  }) => {
+    await allure.description(
+      "A card minted for the printer but never loaded at a register has status INACTIVE and a zero " +
+        "balance. Applying its code at checkout shows the rejection and applies nothing — the opposite of " +
+        "TC-171's funded card."
+    );
+
+    const restaurantId = readRestaurantId();
+    const { menuItemId, menuItemName, menuItemPrice } = readSharedState();
+    const checkoutPage = createCustomerCheckoutPage(page);
+    const runId = generateRunId();
+    const adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD))
+      .accessToken;
+
+    const { batchId, code } = await allure.step(
+      "Mint one card of stock and read its code",
+      async () => {
+        const batch = await createGiftCardBatchRaw(adminToken, {
+          restaurantId,
+          quantity: 1,
+          label: `Auto stock ${runId}`,
+        });
+        expect(batch.status, JSON.stringify(batch.data)).toBe(201);
+        const csv = await exportGiftCardBatchCsvRaw(
+          adminToken,
+          batch.data.data!.id
+        );
+        expect(csv.status, String(csv.data).slice(0, 200)).toBe(200);
+        const { rows } = csvToObjects(csv.data);
+        const first = rows[0];
+        expect(first, "one exported row").toBeTruthy();
+        await allure.parameter("Gift card code", first?.code_display ?? "");
+        return { batchId: batch.data.data!.id, code: first?.code ?? "" };
+      }
+    );
+
+    try {
+      await checkoutPage.seedCart(
+        restaurantId,
+        menuItemId,
+        menuItemName,
+        menuItemPrice
+      );
+      await checkoutPage.applyGiftCard(code);
+      await checkoutPage.assertGiftCardRejected();
+    } finally {
+      // Stock that never sold is frozen so the code can never be loaded later.
+      await freezeGiftCardBatchRaw(adminToken, batchId).catch(() => {
+        /* cleanup is best-effort; the tenant is the shared seed restaurant */
+      });
+    }
   });
 });

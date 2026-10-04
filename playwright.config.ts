@@ -14,6 +14,11 @@ const DASHBOARD_URL =
 // — that host is the QA marketing site (see utils/targetGuard.ts).
 const CUSTOMER_URL =
   process.env.TEMPLATE_WIND_URL ?? "https://wind.restaunax.com";
+// Template Lima's shared embedded-ordering host. Unlike the two above, ONE
+// origin serves every tenant here — addressed by the first path segment — which
+// is why tests/customer-lima carries a dedicated isolation suite.
+const LIMA_URL =
+  process.env.LIMA_ORDERING_URL ?? "https://order.qa.restaunax.com";
 
 // Tests that send real mail are tagged @email (@demo = demo subset). They used
 // to be excluded from every run to protect a metered Mailtrap sandbox; QA now
@@ -99,6 +104,15 @@ export default defineConfig({
       name: "customer",
       testDir: "./tests/customer",
       use: { ...devices["Desktop Chrome"], baseURL: CUSTOMER_URL },
+    },
+    {
+      // Template Lima — embedded ordering. Separate project (not a variant of
+      // "customer") because it is a different app on a different host with a
+      // different addressing scheme; sharing a project would mean one baseURL
+      // for two storefronts.
+      name: "customer-lima",
+      testDir: "./tests/customer-lima",
+      use: { ...devices["Desktop Chrome"], baseURL: LIMA_URL },
     },
     {
       // Device In Store / POS — API-level order lifecycle (no browser UI; the

@@ -26,6 +26,7 @@ import {
   createTestMenuGroup,
   createTestMenuItem,
   ensureAutomationChain,
+  ensureOrderingSlug,
   BACKEND_URL,
 } from "./utils/apiHelper";
 import { readProcessStartedAt } from "./utils/deployGuard";
@@ -198,6 +199,9 @@ export default async function globalSetup(): Promise<void> {
   let menuItemName = "";
   let menuItemPrice = 0;
   let chain: Awaited<ReturnType<typeof ensureAutomationChain>> = null;
+  // Hoisted: the slug endpoints are ADMIN/EMPLOYEE-guarded and are seeded below,
+  // outside the owner block where the chain fixture obtains this token.
+  let adminAccessToken: string | undefined;
 
   if (OWNER_EMAIL && OWNER_PASSWORD) {
     const { accessToken, userId: ownerUserId } = await apiLogin(
@@ -255,11 +259,15 @@ export default async function globalSetup(): Promise<void> {
     // GET on a normal run; the admin-driven build happens once per QA env.
     // Never torn down — chain membership can't be cleanly undone via API.
     try {
-      const adminToken =
+      adminAccessToken =
         ADMIN_EMAIL && ADMIN_PASSWORD
           ? (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken
           : undefined;
-      chain = await ensureAutomationChain(accessToken, ownerUserId, adminToken);
+      chain = await ensureAutomationChain(
+        accessToken,
+        ownerUserId,
+        adminAccessToken
+      );
       if (chain) {
         console.log(
           `[globalSetup] Chain fixture: ${chain.name} (${chain.groupId}) — ` +
@@ -310,6 +318,40 @@ export default async function globalSetup(): Promise<void> {
         ),
   ]);
 
+  // 3b. Ordering slugs for the embedded-ordering storefront. Idempotent, and
+  //     tolerant of a backend that predates the endpoint (returns "" → specs
+  //     skip rather than failing the run).
+  const restaurantSlug =
+    adminAccessToken && restaurantId
+      ? await ensureOrderingSlug(
+          adminAccessToken,
+          "restaurant",
+          restaurantId,
+          "automation-restaurant"
+        )
+      : "";
+  const chainSlug =
+    adminAccessToken && chain?.groupId
+      ? await ensureOrderingSlug(
+          adminAccessToken,
+          "chain",
+          chain.groupId,
+          "automation-chain"
+        )
+      : "";
+  const chainLocationASlug =
+    adminAccessToken && chain?.locationA.id
+      ? await ensureOrderingSlug(
+          adminAccessToken,
+          "restaurant",
+          chain.locationA.id,
+          "automation-chain-location-a"
+        )
+      : "";
+  console.log(
+    `[globalSetup] ordering slugs: restaurant=${restaurantSlug || "(none)"} chain=${chainSlug || "(none)"}`
+  );
+
   // 4. Persist all shared data for specs
   writeSharedState({
     restaurantId,
@@ -324,6 +366,9 @@ export default async function globalSetup(): Promise<void> {
     chainLocationAName: chain?.locationA.name ?? "",
     chainLocationBId: chain?.locationB.id ?? "",
     chainLocationBName: chain?.locationB.name ?? "",
+    restaurantSlug,
+    chainSlug,
+    chainLocationASlug,
   });
 
   console.log(`[globalSetup] shared-state.tmp.json written.\n`);

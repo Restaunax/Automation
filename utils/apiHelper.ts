@@ -116,7 +116,11 @@ export async function getOwnerRestaurants(
  * Toggle a restaurant's "pass processing fee to customer" setting via the
  * settings endpoint (PUT /api/restaurantId/:id/settings). Used by the
  * processing-fee E2E to flip the fee ON/OFF around the customer-facing
- * assertion. Pass an owner (or admin) token for a restaurant they manage.
+ * assertion. Switching it ON needs a company-ADMIN token: since backend
+ * ecd99c9d2 (2026-08-28) the key is stripped from any non-admin payload (we
+ * are the merchant of record, so a surcharge is the company's call), and the
+ * owner's PUT still answers 200 with nothing changed. Turning it OFF works
+ * with either token.
  */
 export async function setPassProcessingFee(
   accessToken: string,
@@ -1054,6 +1058,40 @@ export async function ensureTaxRate(
   );
 }
 
+/**
+ * Publish (or unpublish) a restaurant the way the dashboard's Publish page does
+ * — POST /restaurant/restaurantId/:id {payload:{published}} (admin/employee
+ * token, as in the UI). Since restaunax 04d3c8d0e (2026-09-11, "preview
+ * mode") an UNPUBLISHED restaurant refuses every durable public write: orders
+ * ("has not been published yet, so orders cannot be placed") and anything
+ * behind `requirePublishedRestaurant` — public reservations, job applications,
+ * leads ("in preview mode and hasn't been published yet"). Fixture restaurants
+ * that take orders or bookings must be published. Returns the PREVIOUS state
+ * so a caller touching a restaurant it does not own can restore it in finally.
+ */
+export async function setRestaurantPublishedApi(
+  accessToken: string,
+  restaurantId: string,
+  published = true
+): Promise<{ previous: boolean }> {
+  const before = await apiRequest<{ restaurant?: { published?: boolean } }>(
+    "GET",
+    `/restaurant/restaurantId/${restaurantId}`,
+    undefined,
+    accessToken
+  );
+  const previous = before.restaurant?.published === true;
+  if (previous !== published) {
+    await apiRequest<unknown>(
+      "POST",
+      `/restaurant/restaurantId/${restaurantId}`,
+      { payload: { published } },
+      accessToken
+    );
+  }
+  return { previous };
+}
+
 /** POST /api/admin/chains/:gid/restaurants/:rid/unlink → 200 {dissolved} | 400 anchor/established | 404. */
 export function adminUnlinkRestaurantFromChainRaw(
   adminToken: string,
@@ -1876,12 +1914,14 @@ export async function getGiftCardConfig(
 }
 
 /**
- * POST /api/gift-cards/purchase — public, no auth. `stripePaymentIntentId` is
- * stored as-is for Stripe-fee bookkeeping only; the backend never verifies it
- * against Stripe, so this can seed a valid, fully-funded gift card WITHOUT
- * driving the real purchase UI/Stripe iframe — the right way to fixture a
- * card for checkout-redemption tests (mirrors createCouponRaw's role for
- * coupons). The dedicated purchase-flow tests still drive the real UI.
+ * POST /api/gift-cards/purchase — public, no auth.
+ *
+ * Since backend 93e5fecb9 (2026-08-18, "mint a card only for a verified,
+ * succeeded PaymentIntent") this REQUIRES a `stripePaymentIntentId` that
+ * Stripe reports as succeeded for exactly `amount`, with gift-card metadata
+ * for this restaurant — otherwise 400 PAYMENT_VALIDATION_FAILED. The suite
+ * holds no Stripe secret, so this can no longer seed a card; use
+ * `seedFundedGiftCard` (admin import) for redemption fixtures.
  */
 export async function purchaseGiftCard(body: {
   restaurantId: string;
@@ -1905,6 +1945,63 @@ export function purchaseGiftCardRaw(
     deliveryMethod: "EMAIL",
     ...body,
   });
+}
+
+/**
+ * A funded, ACTIVE gift card for checkout-redemption fixtures, minted the
+ * legitimate unpaid-by-us way: the admin "Existing gift cards" import
+ * (POST /api/admin/gift-cards/import), which adopts a card whose money the
+ * restaurant already holds. The public purchase endpoint can't do this any
+ * more — it needs a succeeded Stripe PaymentIntent (see purchaseGiftCard).
+ *
+ * The code is unique per call (GiftCard.code is unique platform-wide, and an
+ * import collision would silently skip the row) and `AUTOGC`-prefixed so a
+ * stray card is recognisable. Callers still `recordGiftCardForCleanup(id)` so
+ * globalTeardown freezes it.
+ */
+export async function seedFundedGiftCard(
+  adminToken: string,
+  restaurantId: string,
+  amount: number
+): Promise<ApiGiftCard> {
+  const code = `AUTOGC${Date.now().toString(36)}${Math.random()
+    .toString(36)
+    .slice(2, 8)}`.toUpperCase();
+  const csv = `Card Number,Current Balance\r\n${code},${amount}\r\n`;
+  const form = new FormData();
+  form.append("file", new Blob([csv], { type: "text/csv" }), `${code}.csv`);
+  form.append("label", `Automation seed ${code}`);
+  const res = await fetch(
+    `${BACKEND_URL}/api/admin/gift-cards/import?restaurantId=${restaurantId}`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: form,
+    }
+  );
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(
+      `API POST /api/admin/gift-cards/import → ${res.status}: ${text}`
+    );
+  }
+  const body = JSON.parse(text) as {
+    data?: { created?: number; problems?: unknown[] };
+  };
+  if (body.data?.created !== 1) {
+    throw new Error(
+      `[seedFundedGiftCard] import created ${body.data?.created ?? 0} card(s): ${text}`
+    );
+  }
+  const id = await findGiftCardIdByCode(adminToken, code);
+  const balance = await getGiftCardBalance(code);
+  return {
+    id,
+    code,
+    initialBalance: balance.initialBalance,
+    currentBalance: balance.currentBalance,
+    status: balance.status,
+  };
 }
 
 /** GET /api/gift-cards/balance/:code — public, no auth. Throws on 404 (unknown code). */
@@ -2716,6 +2813,27 @@ export async function tabletLogin(name: string, code: string): Promise<string> {
 }
 
 /**
+ * PATCH /api/tablet/restaurant/:rid/device/:deviceId/mode {mode} — owner/admin
+ * device-mode change (REGISTER | KITCHEN_DISPLAY | SERVER | KIOSK). An OWNER
+ * token may only set SERVER/KITCHEN_DISPLAY (403 DEVICE_MODE_NOT_ALLOWED_FOR_ROLE
+ * otherwise) — REGISTER/KIOSK need ADMIN. Raw: task-3 uses this to flip a
+ * SECOND device to KITCHEN_DISPLAY for the DEVICE_NOT_REGISTER negative test.
+ */
+export function updateDeviceModeOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  deviceId: string,
+  mode: "REGISTER" | "KITCHEN_DISPLAY" | "SERVER" | "KIOSK"
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "PATCH",
+    `/api/tablet/restaurant/${restaurantId}/device/${deviceId}/mode`,
+    { mode },
+    ownerToken
+  );
+}
+
+/**
  * PATCH .../device/:deviceId/toggle — deactivate a device. There is no delete
  * endpoint; deactivation is the cleanup path. Best-effort; never throws.
  */
@@ -2737,6 +2855,493 @@ export async function deactivateTabletDevice(
       err
     );
   }
+}
+
+// ── Owner table & reservation management ─────────────────────────────────────
+//
+// Feature: table-management-reservations-eager-teacup. Owner JWT auth; paths
+// have NO /api prefix (same mount style as setOwnerPosPin / getDailyReportKpis
+// above: /restaurant/:rid/...). All Raw — specs assert status codes/bodies.
+
+/** Every owner/register endpoint's success body wraps its payload in
+ *  {success, data, message} (confirmed live, task-2/task-3) — error bodies
+ *  stay flat ({success:false, message, errorCode}), same as every other
+ *  RawResponse in this suite. Callers read the real payload via
+ *  `res.data.data` (or the specs' own `unwrap()`). */
+export interface OwnerEnvelope<T> {
+  success?: boolean;
+  data?: T;
+  message?: string;
+  errorCode?: string;
+}
+
+/** GET /restaurant/:rid/tables — floor-plan data feed: tables, sections, and
+ *  saved combinations. */
+export function listTablesOwnerRaw(
+  ownerToken: string,
+  restaurantId: string
+): Promise<
+  RawResponse<
+    OwnerEnvelope<{
+      tables?: Record<string, unknown>[];
+      sections?: Record<string, unknown>[];
+      combinations?: Record<string, unknown>[];
+    }>
+  >
+> {
+  return apiRequestRaw(
+    "GET",
+    `/restaurant/${restaurantId}/tables`,
+    undefined,
+    ownerToken
+  );
+}
+
+/** POST /restaurant/:rid/tables {name, sectionId?, capacity?, minCapacity?,
+ *  shape?, isBookable?, isActive?} — create a table. */
+export function createTableOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/restaurant/${restaurantId}/tables`,
+    body,
+    ownerToken
+  );
+}
+
+/** PATCH /restaurant/:rid/tables/layout {tables:[{id,posX,posY,width,height,
+ *  rotation,shape,sectionId}]} — bulk floor-plan save. NOTE: the server
+ *  registers this literal path BEFORE /:tableId, so "layout" is never matched
+ *  as a table id. */
+export function saveTableLayoutOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  tables: Record<string, unknown>[]
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "PATCH",
+    `/restaurant/${restaurantId}/tables/layout`,
+    { tables },
+    ownerToken
+  );
+}
+
+/** PATCH /restaurant/:rid/tables/:tableId — partial table update. */
+export function updateTableOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  tableId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "PATCH",
+    `/restaurant/${restaurantId}/tables/${tableId}`,
+    body,
+    ownerToken
+  );
+}
+
+/** DELETE /restaurant/:rid/tables/:tableId — data.deleted:true = hard
+ *  delete, false = soft-deactivated (table has order/reservation history). */
+export function deleteTableOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  tableId: string
+): Promise<RawResponse<{ deleted?: boolean; message?: string }>> {
+  return apiRequestRaw(
+    "DELETE",
+    `/restaurant/${restaurantId}/tables/${tableId}`,
+    undefined,
+    ownerToken
+  );
+}
+
+/** POST /restaurant/:rid/tables/:tableId/merge {targetTableId} — merge a
+ *  table into targetTableId. */
+export function mergeTableOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  tableId: string,
+  targetTableId: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/restaurant/${restaurantId}/tables/${tableId}/merge`,
+    { targetTableId },
+    ownerToken
+  );
+}
+
+// ── Table sections ───────────────────────────────────────────────────────────
+
+/** GET /restaurant/:rid/table-sections */
+export function listTableSectionsOwnerRaw(
+  ownerToken: string,
+  restaurantId: string
+): Promise<RawResponse<OwnerEnvelope<Record<string, unknown>[]>>> {
+  return apiRequestRaw(
+    "GET",
+    `/restaurant/${restaurantId}/table-sections`,
+    undefined,
+    ownerToken
+  );
+}
+
+/** POST /restaurant/:rid/table-sections {name, sortOrder?, color?} */
+export function createTableSectionOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/restaurant/${restaurantId}/table-sections`,
+    body,
+    ownerToken
+  );
+}
+
+/** PATCH /restaurant/:rid/table-sections/:sectionId */
+export function updateTableSectionOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  sectionId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "PATCH",
+    `/restaurant/${restaurantId}/table-sections/${sectionId}`,
+    body,
+    ownerToken
+  );
+}
+
+/** DELETE /restaurant/:rid/table-sections/:sectionId */
+export function deleteTableSectionOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  sectionId: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "DELETE",
+    `/restaurant/${restaurantId}/table-sections/${sectionId}`,
+    undefined,
+    ownerToken
+  );
+}
+
+// ── Table combinations ───────────────────────────────────────────────────────
+
+/** GET /restaurant/:rid/table-combinations */
+export function listTableCombinationsOwnerRaw(
+  ownerToken: string,
+  restaurantId: string
+): Promise<RawResponse<OwnerEnvelope<Record<string, unknown>[]>>> {
+  return apiRequestRaw(
+    "GET",
+    `/restaurant/${restaurantId}/table-combinations`,
+    undefined,
+    ownerToken
+  );
+}
+
+/** POST /restaurant/:rid/table-combinations {name, capacity, tableIds} */
+export function createTableCombinationOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/restaurant/${restaurantId}/table-combinations`,
+    body,
+    ownerToken
+  );
+}
+
+/** PATCH /restaurant/:rid/table-combinations/:combinationId */
+export function updateTableCombinationOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  combinationId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "PATCH",
+    `/restaurant/${restaurantId}/table-combinations/${combinationId}`,
+    body,
+    ownerToken
+  );
+}
+
+/** DELETE /restaurant/:rid/table-combinations/:combinationId */
+export function deleteTableCombinationOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  combinationId: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "DELETE",
+    `/restaurant/${restaurantId}/table-combinations/${combinationId}`,
+    undefined,
+    ownerToken
+  );
+}
+
+// ── Reservation settings ─────────────────────────────────────────────────────
+
+/** Restaurant-level reservation config (RestaurantSettings-adjacent fields). */
+export interface ReservationSettings {
+  onlineBookingEnabled?: boolean;
+  graceMinutes?: number;
+  waitlistNotifyTimeoutMinutes?: number;
+  reservedSoonLeadMinutes?: number;
+  dirtyDecayMinutes?: number;
+  defaultDurationMinutes?: number;
+  minNoticeMinutes?: number;
+  advanceBookingDays?: number;
+  maxOpenReservationsPerPhone?: number;
+  reminderLeadMinutes?: number;
+  [key: string]: unknown;
+}
+
+/** GET /restaurant/:rid/reservation-settings */
+export function getReservationSettingsOwnerRaw(
+  ownerToken: string,
+  restaurantId: string
+): Promise<RawResponse<ReservationSettings>> {
+  return apiRequestRaw(
+    "GET",
+    `/restaurant/${restaurantId}/reservation-settings`,
+    undefined,
+    ownerToken
+  );
+}
+
+/** PUT /restaurant/:rid/reservation-settings — partial merge body. */
+export function putReservationSettingsOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  patch: Partial<ReservationSettings>
+): Promise<RawResponse<ReservationSettings>> {
+  return apiRequestRaw(
+    "PUT",
+    `/restaurant/${restaurantId}/reservation-settings`,
+    patch,
+    ownerToken
+  );
+}
+
+// ── Reservation service periods ──────────────────────────────────────────────
+
+/** GET /restaurant/:rid/reservation-service-periods */
+export function listReservationServicePeriodsOwnerRaw(
+  ownerToken: string,
+  restaurantId: string
+): Promise<RawResponse<OwnerEnvelope<Record<string, unknown>[]>>> {
+  return apiRequestRaw(
+    "GET",
+    `/restaurant/${restaurantId}/reservation-service-periods`,
+    undefined,
+    ownerToken
+  );
+}
+
+/** POST /restaurant/:rid/reservation-service-periods {name, dayOfWeek,
+ *  startTime, endTime, slotIntervalMinutes, maxCoversPerSlot?,
+ *  maxPartiesPerSlot?, minPartySize?, maxPartySize?, isActive?} */
+export function createReservationServicePeriodOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/restaurant/${restaurantId}/reservation-service-periods`,
+    body,
+    ownerToken
+  );
+}
+
+/** PATCH /restaurant/:rid/reservation-service-periods/:periodId */
+export function updateReservationServicePeriodOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  periodId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "PATCH",
+    `/restaurant/${restaurantId}/reservation-service-periods/${periodId}`,
+    body,
+    ownerToken
+  );
+}
+
+/** DELETE /restaurant/:rid/reservation-service-periods/:periodId */
+export function deleteReservationServicePeriodOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  periodId: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "DELETE",
+    `/restaurant/${restaurantId}/reservation-service-periods/${periodId}`,
+    undefined,
+    ownerToken
+  );
+}
+
+// ── Reservation turn times ───────────────────────────────────────────────────
+
+/** GET /restaurant/:rid/reservation-turn-times */
+export function listReservationTurnTimesOwnerRaw(
+  ownerToken: string,
+  restaurantId: string
+): Promise<RawResponse<OwnerEnvelope<Record<string, unknown>[]>>> {
+  return apiRequestRaw(
+    "GET",
+    `/restaurant/${restaurantId}/reservation-turn-times`,
+    undefined,
+    ownerToken
+  );
+}
+
+/** POST /restaurant/:rid/reservation-turn-times */
+export function createReservationTurnTimeOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/restaurant/${restaurantId}/reservation-turn-times`,
+    body,
+    ownerToken
+  );
+}
+
+/** PATCH /restaurant/:rid/reservation-turn-times/:turnTimeId */
+export function updateReservationTurnTimeOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  turnTimeId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "PATCH",
+    `/restaurant/${restaurantId}/reservation-turn-times/${turnTimeId}`,
+    body,
+    ownerToken
+  );
+}
+
+/** DELETE /restaurant/:rid/reservation-turn-times/:turnTimeId */
+export function deleteReservationTurnTimeOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  turnTimeId: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "DELETE",
+    `/restaurant/${restaurantId}/reservation-turn-times/${turnTimeId}`,
+    undefined,
+    ownerToken
+  );
+}
+
+// ── Reservation date overrides ───────────────────────────────────────────────
+
+/** GET /restaurant/:rid/reservation-date-overrides */
+export function listReservationDateOverridesOwnerRaw(
+  ownerToken: string,
+  restaurantId: string
+): Promise<RawResponse<OwnerEnvelope<Record<string, unknown>[]>>> {
+  return apiRequestRaw(
+    "GET",
+    `/restaurant/${restaurantId}/reservation-date-overrides`,
+    undefined,
+    ownerToken
+  );
+}
+
+/** POST /restaurant/:rid/reservation-date-overrides */
+export function createReservationDateOverrideOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/restaurant/${restaurantId}/reservation-date-overrides`,
+    body,
+    ownerToken
+  );
+}
+
+/** DELETE /restaurant/:rid/reservation-date-overrides/:overrideId */
+export function deleteReservationDateOverrideOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  overrideId: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "DELETE",
+    `/restaurant/${restaurantId}/reservation-date-overrides/${overrideId}`,
+    undefined,
+    ownerToken
+  );
+}
+
+// ── Reservations (dashboard/owner-created + list) ────────────────────────────
+
+/** GET /restaurant/:rid/reservations?date=&status=&kind= — date is required
+ *  by the backend; status/kind are optional filters. */
+export function listReservationsOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  params: { date: string; status?: string; kind?: string }
+): Promise<RawResponse<{ reservations?: Record<string, unknown>[] }>> {
+  return apiRequestRaw(
+    "GET",
+    `/restaurant/${restaurantId}/reservations${toQuery(params)}`,
+    undefined,
+    ownerToken
+  );
+}
+
+/** POST /restaurant/:rid/reservations {kind?, partySize, scheduledAt,
+ *  guestName, guestPhone, guestEmail?, guestNotes?, internalNotes?,
+ *  clientRequestId?} */
+export function createReservationOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/restaurant/${restaurantId}/reservations`,
+    body,
+    ownerToken
+  );
+}
+
+/** PATCH /restaurant/:rid/reservations/:reservationId */
+export function patchReservationOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  reservationId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "PATCH",
+    `/restaurant/${restaurantId}/reservations/${reservationId}`,
+    body,
+    ownerToken
+  );
 }
 
 // ── Table service (open checks) — the POS tab/* endpoint family ─────────────
@@ -2766,6 +3371,45 @@ export async function updateRestaurantSettingsApi(
 }
 
 /**
+ * POST /api/admin/addons/restaurants/:restaurantId/overrides {feature,
+ * enabled, reason?} — admin force-enable/disable of one feature for one
+ * restaurant, independent of its plan. 201 on create. First entitlement
+ * override helper in this repo.
+ */
+export function setFeatureOverrideAdminRaw(
+  adminToken: string,
+  restaurantId: string,
+  feature: string,
+  enabled: boolean,
+  reason?: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/admin/addons/restaurants/${restaurantId}/overrides`,
+    { feature, enabled, ...(reason !== undefined ? { reason } : {}) },
+    adminToken
+  );
+}
+
+/**
+ * DELETE /api/admin/addons/restaurants/:restaurantId/overrides/:feature —
+ * remove the override, reverting the restaurant to its plan-derived
+ * entitlement for that feature.
+ */
+export function deleteFeatureOverrideAdminRaw(
+  adminToken: string,
+  restaurantId: string,
+  feature: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "DELETE",
+    `/api/admin/addons/restaurants/${restaurantId}/overrides/${feature}`,
+    undefined,
+    adminToken
+  );
+}
+
+/**
  * POST /restaurant/:rid/staff/my-pin — set the owner's own POS PIN. Creates
  * (or reuses) their MANAGER membership and returns its staffMemberId, which is
  * what /api/tablet/staff/sign-in needs. PIN: 4–8 digits, not all-identical,
@@ -2785,6 +3429,24 @@ export async function setOwnerPosPin(
   const id = data.data?.staffMemberId;
   if (!id) throw new Error("setOwnerPosPin: response missing staffMemberId");
   return id;
+}
+
+/** POST /api/tablet/staff/sign-in — RAW sibling of tabletStaffSignIn below,
+ *  for specs that need to assert a refusal (e.g. STAFF_TERMINAL_LOCKED while
+ *  the register is open and assigned to someone else). */
+export function tabletStaffSignInRaw(
+  tabletToken: string,
+  staffMemberId: string,
+  pin: string
+): Promise<
+  RawResponse<{ data?: { staffSessionToken?: string }; message?: string }>
+> {
+  return apiRequestRaw(
+    "POST",
+    "/api/tablet/staff/sign-in",
+    { staffMemberId, pin },
+    tabletToken
+  );
 }
 
 /** POST /api/tablet/staff/sign-in {staffMemberId, pin} → staff session JWT
@@ -2866,6 +3528,9 @@ export interface TabLegResponse {
   clientSecret?: string | null;
   amount?: number;
   fee?: number;
+  /** settle-cash with applyCashDiscount: the check was re-priced at the
+   *  dual-pricing cash tier and this leg collected exactly `total`. */
+  cashTier?: { cashDiscount: number; total: number };
   message?: string;
   success?: boolean;
 }
@@ -2984,6 +3649,8 @@ export function settleTabCashRaw(
     cashTendered?: number;
     tip?: number;
     idempotencyKey?: string;
+    /** Dual pricing: settle the WHOLE untouched check at the cash tier. */
+    applyCashDiscount?: boolean;
   }
 ): Promise<RawResponse<TabLegResponse>> {
   return apiRequestRaw(
@@ -3065,12 +3732,333 @@ export function cancelTabletOrderRaw(
 }
 
 /** GET /api/order/:orderId with an owner token — full order, loosely typed for
- *  the tab assertions (orderType, paymentStatus, table fields, tip, total). */
+ *  the tab assertions (orderType, paymentStatus, table fields, tip, total).
+ *  NOTE (task-3): this controller's own Prisma `include` does NOT select
+ *  `payments` — use `getOrderStatisticsDetailRaw` below when a test needs to
+ *  see the OrderPayment rows themselves (e.g. proving an idempotent replay
+ *  left exactly one). */
 export function getOrderFullRaw(
   accessToken: string,
   orderId: string
 ): Promise<RawResponse<Record<string, unknown>>> {
   return apiRequestRaw("GET", `/api/order/${orderId}`, undefined, accessToken);
+}
+
+/** GET /api/order/statistics/:orderId with an owner token — the owner
+ *  detail-dialog endpoint. Unlike getOrderFullRaw's route, THIS one's
+ *  Prisma `include` selects `payments` (every OrderPayment row: status,
+ *  paymentMethod, amount, ...), which is what a POS idempotency/split-tender
+ *  test needs to count settled legs directly rather than trusting only the
+ *  settle-cash response. Flat response (no {success,data} envelope), same
+ *  as getOrderFullRaw. */
+export function getOrderStatisticsDetailRaw(
+  accessToken: string,
+  orderId: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/order/statistics/${orderId}`,
+    undefined,
+    accessToken
+  );
+}
+
+// ── Table management & reservations — tablet host stand ──────────────────────
+//
+// Feature: table-management-reservations-eager-teacup. Device token only for
+// /floor; device + staff (X-Staff-Session) for everything else here that
+// touches host-stand state, table CRUD, or reservation lifecycle.
+
+/** GET /api/tablet/floor — device token ONLY, no staff session required. */
+export function getFloorRaw(
+  tabletToken?: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw("GET", "/api/tablet/floor", undefined, tabletToken);
+}
+
+/** GET /api/tablet/host[?date=] — host-stand feed: reservations, waitlist,
+ *  and table states for the given date (defaults server-side when omitted). */
+export function getHostRaw(
+  tabletToken: string,
+  staffSession: string,
+  date?: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/tablet/host${toQuery({ date })}`,
+    undefined,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** POST /api/tablet/tables {name, sectionId?, capacity?, minCapacity?,
+ *  isActive?} — create a table from the tablet host screen. */
+export function createTableTabletRaw(
+  tabletToken: string,
+  staffSession: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    "/api/tablet/tables",
+    body,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** PATCH /api/tablet/tables/:tableId */
+export function updateTableTabletRaw(
+  tabletToken: string,
+  staffSession: string,
+  tableId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "PATCH",
+    `/api/tablet/tables/${tableId}`,
+    body,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** POST /api/tablet/tables/:tableId/state {state: "DIRTY"|"BLOCKED"|"CLEAR"}. */
+export function setTableStateTabletRaw(
+  tabletToken: string,
+  staffSession: string,
+  tableId: string,
+  state: "DIRTY" | "BLOCKED" | "CLEAR"
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/tablet/tables/${tableId}/state`,
+    { state },
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** POST /api/tablet/reservations {kind?, partySize, guestName, guestPhone,
+ *  scheduledAt?, quotedWaitMinutes?, guestNotes?, clientRequestId?} — create
+ *  a reservation or waitlist entry from the host stand. */
+export function createReservationTabletRaw(
+  tabletToken: string,
+  staffSession: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    "/api/tablet/reservations",
+    body,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** POST /api/tablet/reservations/:id/notify */
+export function notifyReservationTabletRaw(
+  tabletToken: string,
+  staffSession: string,
+  reservationId: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/tablet/reservations/${reservationId}/notify`,
+    undefined,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** POST /api/tablet/reservations/:id/status {action: "confirm"|"arrive"|
+ *  "partially_seat"|"no_show"|"cancel"|"complete"} — lifecycle transition. */
+export function reservationStatusTabletRaw(
+  tabletToken: string,
+  staffSession: string,
+  reservationId: string,
+  action:
+    | "confirm"
+    | "arrive"
+    | "partially_seat"
+    | "no_show"
+    | "cancel"
+    | "complete"
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/tablet/reservations/${reservationId}/status`,
+    { action },
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** POST /api/tablet/reservations/:id/seat {tableIds, guestCount?,
+ *  clientRequestId?} — seat a reservation; response carries
+ *  {reservation, prefill} (prefill feeds the create-order screen). */
+export function seatReservationTabletRaw(
+  tabletToken: string,
+  staffSession: string,
+  reservationId: string,
+  body: { tableIds: string[]; guestCount?: number; clientRequestId?: string }
+): Promise<
+  RawResponse<{
+    reservation?: Record<string, unknown>;
+    prefill?: Record<string, unknown>;
+    message?: string;
+  }>
+> {
+  return apiRequestRaw(
+    "POST",
+    `/api/tablet/reservations/${reservationId}/seat`,
+    body,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+// ── Public reservations (no auth) ────────────────────────────────────────────
+
+/** GET /api/public/restaurants/:rid/reservation-availability?date=&partySize=
+ *  — the storefront/booking-widget availability check. */
+export function getPublicAvailabilityRaw(
+  restaurantId: string,
+  date: string,
+  partySize: number
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/public/restaurants/${restaurantId}/reservation-availability${toQuery({
+      date,
+      partySize,
+    })}`,
+    undefined
+  );
+}
+
+/** POST /api/public/restaurants/:rid/reservations {guestName, guestPhone,
+ *  partySize, scheduledAt, guestEmail?, guestNotes?, clientRequestId?} —
+ *  guest self-service booking. */
+export function createPublicReservationRaw(
+  restaurantId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/public/restaurants/${restaurantId}/reservations`,
+    body
+  );
+}
+
+/** GET /api/public/reservations/manage/:manageToken — guest self-manage view
+ *  (the link sent by the confirmation SMS/email). */
+export function getManagedReservationRaw(
+  manageToken: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/public/reservations/manage/${manageToken}`,
+    undefined
+  );
+}
+
+/** DELETE /api/public/reservations/manage/:manageToken — guest self-cancel. */
+export function cancelManagedReservationRaw(
+  manageToken: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "DELETE",
+    `/api/public/reservations/manage/${manageToken}`,
+    undefined
+  );
+}
+
+// ── Register (device + staff) ────────────────────────────────────────────────
+//
+// Envelope shape confirmed live, task-3 — same `OwnerEnvelope<T>` declared
+// above for the owner table/reservation wrappers.
+
+/** GET /api/tablet/register/status */
+export function getRegisterStatusPosRaw(
+  tabletToken: string,
+  staffSession: string
+): Promise<RawResponse<OwnerEnvelope<Record<string, unknown>>>> {
+  return apiRequestRaw(
+    "GET",
+    "/api/tablet/register/status",
+    undefined,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** POST /api/tablet/register/open {openingFloat, managerPin?, note?} — RAW
+ *  sibling of openRegisterSessionPos above, for specs that need to assert
+ *  400s (e.g. a session already open, or a non-REGISTER-mode device). */
+export function openRegisterSessionPosRaw(
+  tabletToken: string,
+  staffSession: string,
+  body: { openingFloat: number; managerPin?: string; note?: string }
+): Promise<RawResponse<OwnerEnvelope<{ sessionId?: string }>>> {
+  return apiRequestRaw(
+    "POST",
+    "/api/tablet/register/open",
+    body,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** POST /api/tablet/register/close {countedCash, dropAmount?, managerPin?,
+ *  note?} — blind-count reconciliation. data: {sessionId, expectedCash,
+ *  countedCash, overShort}. */
+export function closeRegisterSessionPosRaw(
+  tabletToken: string,
+  staffSession: string,
+  body: {
+    countedCash: number;
+    dropAmount?: number;
+    managerPin?: string;
+    note?: string;
+  }
+): Promise<
+  RawResponse<
+    OwnerEnvelope<{
+      sessionId?: string;
+      expectedCash?: number;
+      countedCash?: number;
+      overShort?: number;
+    }>
+  >
+> {
+  return apiRequestRaw(
+    "POST",
+    "/api/tablet/register/close",
+    body,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+// ── Staff manage (device + staff, needs MANAGE_STAFF / MANAGER session) ─────
+
+/** POST /api/tablet/staff/manage {firstName, lastName, pin, staffRole,
+ *  capabilityGrants?, capabilityRevokes?} — mint a PIN-only staff member.
+ *  201; used to create a STAFF-role member for negative capability tests. */
+export function createPinStaffTabletRaw(
+  tabletToken: string,
+  staffSession: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    "/api/tablet/staff/manage",
+    body,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
 }
 
 // ── Admin user management ────────────────────────────────────────────────────
@@ -3898,4 +4886,1075 @@ export async function getAutomationStatsApi(
     adminToken
   );
   return data.stats;
+}
+
+/**
+ * Ensure a restaurant (or chain) has an ordering path slug, and return it.
+ *
+ * The embedded-ordering storefront resolves its tenant from the first path
+ * segment, so the Lima specs need a known slug. Seeding it here rather than
+ * assuming someone configured QA by hand keeps the suite self-contained — the
+ * PUT is idempotent, so a slug that already exists is returned unchanged.
+ *
+ * Returns "" when the backend has no slug endpoint yet (an older deployment),
+ * so the specs skip rather than fail the whole run.
+ */
+export async function ensureOrderingSlug(
+  adminAccessToken: string,
+  scope: "restaurant" | "chain",
+  id: string,
+  desired: string
+): Promise<string> {
+  const base =
+    scope === "chain"
+      ? `/api/admin/chains/${id}/slug`
+      : `/api/admin/restaurants/${id}/slug`;
+  try {
+    const current = await apiRequest<{ data?: { slug?: string | null } }>(
+      "GET",
+      base,
+      undefined,
+      adminAccessToken
+    );
+    const existing = current?.data?.slug;
+    if (existing) return existing;
+
+    const saved = await apiRequest<{ data?: { slug?: string | null } }>(
+      "PUT",
+      base,
+      { slug: desired },
+      adminAccessToken
+    );
+    return saved?.data?.slug ?? "";
+  } catch {
+    return "";
+  }
+}
+
+// ── Supply shop (owner) ──────────────────────────────────────────────────────
+//
+// Every owner supply-shop call carries the restaurant in the `X-Restaurant-Id`
+// header — never the path (`ownerController.restaurantIdFrom`). Money is never
+// moved at placement: `commit` snapshots the estimate and lands the order in
+// IN_DESIGN (every catalog product needs artwork); the admin's fulfil is the
+// one call that charges. Shapes mirror restaunax-frontend/src/types/supplyShop.ts.
+
+export type SupplyOrderStatus =
+  | "DRAFT"
+  | "PLACED"
+  | "AWAITING_PAYMENT"
+  | "PAID"
+  | "INVOICED"
+  | "IN_DESIGN"
+  | "PROOF_READY"
+  | "CHANGES_REQUESTED"
+  | "IN_PRODUCTION"
+  | "SHIPPED"
+  | "DELIVERED"
+  | "FULFILLED_DIGITAL"
+  | "CANCELLED"
+  | "REFUNDED"
+  | "PARTIALLY_REFUNDED";
+
+export type SupplyPaymentTerm =
+  | "IMMEDIATE"
+  | "NEXT_INVOICE"
+  | "FREE_TIER"
+  | "COMP";
+
+export interface SupplyQuote {
+  variantId: string;
+  productId: string;
+  quantity: number;
+  unitPrice: number;
+  subtotal: number;
+  shippingAmount: number;
+  taxAmount: number;
+  total: number;
+  leadDays: number;
+  freeTier: {
+    applies: boolean;
+    alreadyUsed: boolean;
+    productEligible: boolean;
+  };
+  estimate: {
+    spreadPct: number;
+    unitPriceLow: number;
+    unitPriceHigh: number;
+    subtotalLow: number;
+    subtotalHigh: number;
+    shippingLow: number;
+    shippingHigh: number;
+    totalLow: number;
+    totalHigh: number;
+  };
+  credit: { eligible: boolean; reason: string | null; remainingCredit: number };
+}
+
+export interface SupplyOrder {
+  id: string;
+  orderNumber: string;
+  status: SupplyOrderStatus;
+  paymentTerm: SupplyPaymentTerm | null;
+  quantity: number;
+  total: number;
+  estimatedTotalLow: number | null;
+  estimatedTotalHigh: number | null;
+  priceFinalizedAt: string | null;
+  paidAt: string | null;
+  billedAt: string | null;
+  placedAt: string | null;
+  compedAt: string | null;
+  freeTierApplied: boolean;
+  hostedPaymentUrl: string | null;
+  giftCardBatchId: string | null;
+  designId: string | null;
+  designVersionId: string | null;
+  design?: { id: string; name: string } | null;
+  [key: string]: unknown;
+}
+
+export interface SupplyCatalogProduct {
+  id: string;
+  slug: string;
+  name: string;
+  requiresDesign: boolean;
+  estimateSpreadPct: number;
+  leadDays: number;
+  variants: Array<{
+    id: string;
+    slug: string;
+    name: string;
+    priceTiers: Array<{
+      minQuantity: number;
+      unitPrice: number;
+      unitVendorCost?: number;
+      shippingFlatRate: number;
+    }>;
+  }>;
+  [key: string]: unknown;
+}
+
+const restaurantHeader = (restaurantId: string) => ({
+  "X-Restaurant-Id": restaurantId,
+});
+
+export function getSupplyCatalogOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  q?: string
+): Promise<RawResponse<{ success: boolean; data: SupplyCatalogProduct[] }>> {
+  const query = q ? `?q=${encodeURIComponent(q)}` : "";
+  return apiRequestRaw(
+    "GET",
+    `/api/supply-shop/catalog${query}`,
+    undefined,
+    ownerToken,
+    restaurantHeader(restaurantId)
+  );
+}
+
+export function quoteSupplyOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: { variantId: string; quantity: number }
+): Promise<RawResponse<{ success: boolean; data: SupplyQuote }>> {
+  return apiRequestRaw(
+    "POST",
+    "/api/supply-shop/quote",
+    body,
+    ownerToken,
+    restaurantHeader(restaurantId)
+  );
+}
+
+export function createSupplyDesignOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: {
+    variantId: string;
+    name: string;
+    templateSlug?: string;
+    brief?: { purpose?: string; message?: string; notes?: string };
+  }
+): Promise<RawResponse<{ success: boolean; data: { id: string } }>> {
+  return apiRequestRaw(
+    "POST",
+    "/api/supply-shop/designs",
+    body,
+    ownerToken,
+    restaurantHeader(restaurantId)
+  );
+}
+
+export function createSupplyOrderOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: { variantId: string; quantity: number; designId?: string }
+): Promise<RawResponse<{ success: boolean; data: SupplyOrder }>> {
+  return apiRequestRaw(
+    "POST",
+    "/api/supply-shop/orders",
+    body,
+    ownerToken,
+    restaurantHeader(restaurantId)
+  );
+}
+
+export function commitSupplyOrderOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  orderId: string,
+  paymentTerm: string
+): Promise<RawResponse<{ success: boolean; data: { order: SupplyOrder } }>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/supply-shop/orders/${orderId}/commit`,
+    { paymentTerm },
+    ownerToken,
+    restaurantHeader(restaurantId)
+  );
+}
+
+export function listSupplyOrdersOwnerRaw(
+  ownerToken: string,
+  restaurantId: string
+): Promise<RawResponse<{ success: boolean; data: SupplyOrder[] }>> {
+  return apiRequestRaw(
+    "GET",
+    "/api/supply-shop/orders",
+    undefined,
+    ownerToken,
+    restaurantHeader(restaurantId)
+  );
+}
+
+export function getSupplyProofOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  orderId: string
+): Promise<
+  RawResponse<{
+    success: boolean;
+    data: { versionId: string; version: number; proofUrls: string[] };
+  }>
+> {
+  return apiRequestRaw(
+    "GET",
+    `/api/supply-shop/orders/${orderId}/proof`,
+    undefined,
+    ownerToken,
+    restaurantHeader(restaurantId)
+  );
+}
+
+export function approveSupplyProofOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  orderId: string,
+  versionId: string
+): Promise<
+  RawResponse<{ success: boolean; code?: string; data?: SupplyOrder }>
+> {
+  return apiRequestRaw(
+    "POST",
+    `/api/supply-shop/orders/${orderId}/approve-proof`,
+    { versionId },
+    ownerToken,
+    restaurantHeader(restaurantId)
+  );
+}
+
+export function requestSupplyRevisionsOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  orderId: string,
+  note: string
+): Promise<RawResponse<{ success: boolean; data?: SupplyOrder }>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/supply-shop/orders/${orderId}/request-revisions`,
+    { note },
+    ownerToken,
+    restaurantHeader(restaurantId)
+  );
+}
+
+export function cancelSupplyOrderOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  orderId: string
+): Promise<RawResponse<{ success: boolean; data?: SupplyOrder }>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/supply-shop/orders/${orderId}/cancel`,
+    { reason: "automation cleanup" },
+    ownerToken,
+    restaurantHeader(restaurantId)
+  );
+}
+
+/**
+ * Composite: design → order → commit (IMMEDIATE). The order comes back in
+ * IN_DESIGN — every catalog product requires artwork. Throws on any refusal
+ * so a broken setup fails loudly instead of as a mystery later.
+ */
+export async function placeSupplyOrderViaApi(
+  ownerToken: string,
+  restaurantId: string,
+  opts: {
+    variantId: string;
+    quantity: number;
+    message: string;
+    paymentTerm?: string;
+  }
+): Promise<SupplyOrder> {
+  const design = await createSupplyDesignOwnerRaw(ownerToken, restaurantId, {
+    variantId: opts.variantId,
+    name: `Automation design ${opts.message}`,
+    brief: { message: opts.message },
+  });
+  if (!design.ok) {
+    throw new Error(
+      `[supply-shop] design create failed: ${JSON.stringify(design.data)}`
+    );
+  }
+  const order = await createSupplyOrderOwnerRaw(ownerToken, restaurantId, {
+    variantId: opts.variantId,
+    quantity: opts.quantity,
+    designId: design.data.data.id,
+  });
+  if (!order.ok) {
+    throw new Error(
+      `[supply-shop] order create failed: ${JSON.stringify(order.data)}`
+    );
+  }
+  const committed = await commitSupplyOrderOwnerRaw(
+    ownerToken,
+    restaurantId,
+    order.data.data.id,
+    opts.paymentTerm ?? "IMMEDIATE"
+  );
+  if (!committed.ok) {
+    throw new Error(
+      `[supply-shop] commit failed: ${JSON.stringify(committed.data)}`
+    );
+  }
+  return committed.data.data.order;
+}
+
+// ── Supply shop (admin) ──────────────────────────────────────────────────────
+//
+// Role-gated (`requireRole(["ADMIN"])`), not permission-gated — the HQ_CARDS_*
+// permissions only decide what the sidebar shows.
+
+export function getAdminSupplyCatalogRaw(
+  adminToken: string
+): Promise<RawResponse<{ success: boolean; data: SupplyCatalogProduct[] }>> {
+  return apiRequestRaw(
+    "GET",
+    "/api/admin/supply-shop/catalog",
+    undefined,
+    adminToken
+  );
+}
+
+export const SUPPLY_GIFT_CARD_PRODUCT_SLUG = "physical-gift-card";
+export const SUPPLY_GIFT_CARD_VARIANT_SLUG = "cr80-plastic";
+
+/** The `physical-gift-card` variant id on this environment (the catalog is seeded, ids are not). */
+export async function resolveGiftCardVariantId(
+  adminToken: string
+): Promise<string> {
+  const res = await getAdminSupplyCatalogRaw(adminToken);
+  if (!res.ok) {
+    throw new Error(
+      `[supply-shop] admin catalog failed: ${JSON.stringify(res.data)}`
+    );
+  }
+  const product = res.data.data.find(
+    (p) => p.slug === SUPPLY_GIFT_CARD_PRODUCT_SLUG
+  );
+  const variant = product?.variants.find(
+    (v) => v.slug === SUPPLY_GIFT_CARD_VARIANT_SLUG
+  );
+  if (!variant) {
+    throw new Error(
+      `[supply-shop] ${SUPPLY_GIFT_CARD_PRODUCT_SLUG}/${SUPPLY_GIFT_CARD_VARIANT_SLUG} is not in the catalog — has the seed run on this environment?`
+    );
+  }
+  return variant.id;
+}
+
+export interface AdminSupplyOrder extends SupplyOrder {
+  settled: boolean;
+  awaitingOwnerPayment: boolean;
+  margin: number;
+  restaurant: { id: string; name: string };
+  adminNotes?: string | null;
+  pendingFulfilment?: unknown;
+}
+
+export function listAdminSupplyOrdersRaw(
+  adminToken: string,
+  params: {
+    queue?: "design" | "fulfilment";
+    status?: string;
+    restaurantId?: string;
+  } = {}
+): Promise<RawResponse<{ success: boolean; data: AdminSupplyOrder[] }>> {
+  const search = new URLSearchParams();
+  if (params.queue) search.set("queue", params.queue);
+  if (params.status) search.set("status", params.status);
+  if (params.restaurantId) search.set("restaurantId", params.restaurantId);
+  const qs = search.toString();
+  return apiRequestRaw(
+    "GET",
+    `/api/admin/supply-shop/orders${qs ? `?${qs}` : ""}`,
+    undefined,
+    adminToken
+  );
+}
+
+export function getAdminSupplyOrderRaw(
+  adminToken: string,
+  orderId: string
+): Promise<RawResponse<{ success: boolean; data: AdminSupplyOrder }>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/admin/supply-shop/orders/${orderId}`,
+    undefined,
+    adminToken
+  );
+}
+
+export function createSupplyOrderOnBehalfRaw(
+  adminToken: string,
+  body: {
+    restaurantId: string;
+    variantId: string;
+    quantity: number;
+    brief?: { purpose?: string; message?: string; notes?: string };
+    adminNotes?: string;
+    billing: "CHARGE" | "COMP";
+    compReason?: string;
+    paymentTerm?: "IMMEDIATE" | "NEXT_INVOICE";
+  }
+): Promise<
+  RawResponse<{ success: boolean; code?: string; data: AdminSupplyOrder }>
+> {
+  return apiRequestRaw(
+    "POST",
+    "/api/admin/supply-shop/orders",
+    body,
+    adminToken
+  );
+}
+
+export interface SupplyPreflightReport {
+  worstVerdict: "OK" | "WARN" | "BLOCK";
+  sendable: boolean;
+  checks: Array<{
+    key: string;
+    verdict: "OK" | "WARN" | "BLOCK";
+    detail?: unknown;
+  }>;
+}
+
+/** Multipart PDF upload — field name `file`, same shape as uploadMenuItemImageRaw. */
+export async function uploadSupplyArtworkRaw(
+  adminToken: string,
+  orderId: string,
+  pdf: Buffer,
+  filename = "artwork.pdf"
+): Promise<
+  RawResponse<{
+    success: boolean;
+    data?: {
+      versionId: string;
+      version: number;
+      preflight: SupplyPreflightReport;
+    };
+  }>
+> {
+  const form = new FormData();
+  form.append(
+    "file",
+    new Blob([new Uint8Array(pdf)], { type: "application/pdf" }),
+    filename
+  );
+  const res = await fetch(
+    `${BACKEND_URL}/api/admin/supply-shop/orders/${orderId}/artwork`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: form,
+    }
+  );
+  const text = await res.text();
+  let data: unknown = text;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    /* leave as text */
+  }
+  return { status: res.status, ok: res.ok, data: data as never };
+}
+
+export function sendSupplyProofRaw(
+  adminToken: string,
+  orderId: string,
+  versionId: string
+): Promise<RawResponse<{ success: boolean; code?: string }>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/admin/supply-shop/orders/${orderId}/send-proof`,
+    { versionId },
+    adminToken
+  );
+}
+
+export interface SupplyFulfilmentDraft {
+  route: string;
+  deepLink: string | null;
+  orderNumber: string;
+  settled: boolean;
+  paymentTerm: SupplyPaymentTerm | null;
+  quantity: number;
+  finalPrice: { unitPrice: number; shippingAmount: number } | null;
+  estimate: { totalLow: number | null; totalHigh: number | null };
+  draft: Record<string, unknown>;
+  suppliers: Array<{ name: string; isPreferred: boolean; blindShips: boolean }>;
+}
+
+export function getSupplyFulfilmentDraftRaw(
+  adminToken: string,
+  orderId: string,
+  route = "PRINT_ORDER"
+): Promise<RawResponse<{ success: boolean; data: SupplyFulfilmentDraft }>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/admin/supply-shop/orders/${orderId}/fulfilment-draft?route=${route}`,
+    undefined,
+    adminToken
+  );
+}
+
+export interface SupplyFulfilBody {
+  route?: string;
+  vendor?: string;
+  unitCost?: number;
+  shippingCost?: number;
+  taxCost?: number;
+  vendorOrderRef?: string;
+  notes?: string;
+  finalUnitPrice?: number;
+  finalShippingAmount?: number;
+  comp?: boolean;
+  compReason?: string;
+}
+
+export interface SupplyFulfilOutcome {
+  settled: boolean;
+  hostedPaymentUrl: string | null;
+  route: string;
+  recordId: string | null;
+  cost: number;
+  giftCardBatchId?: string | null;
+}
+
+export function fulfilSupplyOrderRaw(
+  adminToken: string,
+  orderId: string,
+  body: SupplyFulfilBody
+): Promise<
+  RawResponse<{ success: boolean; code?: string; data?: SupplyFulfilOutcome }>
+> {
+  return apiRequestRaw(
+    "POST",
+    `/api/admin/supply-shop/orders/${orderId}/fulfil`,
+    body,
+    adminToken
+  );
+}
+
+/** text/csv — the body comes back as the raw CSV string. */
+export function getSupplyGiftCardExportRaw(
+  adminToken: string,
+  orderId: string
+): Promise<RawResponse<string>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/admin/supply-shop/orders/${orderId}/gift-card-export`,
+    undefined,
+    adminToken
+  );
+}
+
+export interface FinanceOverviewSummary {
+  supplyShop: {
+    revenue: number;
+    cost: number;
+    margin: number;
+    freeTierCost: number;
+    compedCost: number;
+    refunds: number;
+  };
+  giftCards: {
+    liability: number;
+    cashReceivable: number;
+    platformHeld: number;
+  };
+}
+
+export function getAdminFinanceRaw(
+  adminToken: string
+): Promise<
+  RawResponse<{ success: boolean; data: { summary: FinanceOverviewSummary } }>
+> {
+  return apiRequestRaw("GET", "/api/admin/finance", undefined, adminToken);
+}
+
+/**
+ * GET /api/gift-cards/restaurants/:id/summary — the owner's own outstanding
+ * gift-card liability (ACTIVE cards with a balance; chain-wide for a chain
+ * member). Tenant-scoped, so unlike Finance's platform-wide total it cannot be
+ * moved by other runs selling gift cards on shared QA at the same time.
+ */
+export function getOwnerGiftCardSummaryRaw(
+  ownerToken: string,
+  restaurantId: string
+): Promise<
+  RawResponse<{
+    success: boolean;
+    data: {
+      outstandingBalance: number;
+      cardCount: number;
+      importedBalance: number;
+      importedCardCount: number;
+      isChainWide: boolean;
+    };
+  }>
+> {
+  return apiRequestRaw(
+    "GET",
+    `/api/gift-cards/restaurants/${restaurantId}/summary`,
+    undefined,
+    ownerToken,
+    restaurantHeader(restaurantId)
+  );
+}
+
+// ── Gift cards: config + physical batches (admin) ────────────────────────────
+
+export interface GiftCardConfigFull extends GiftCardConfig {
+  allowPhysicalActivation?: boolean;
+  allowCashFunding?: boolean;
+  maxCashFloatPerLocation?: number;
+}
+
+export function getGiftCardConfigAdminRaw(
+  adminToken: string,
+  restaurantId: string
+): Promise<RawResponse<{ success: boolean; data: GiftCardConfigFull }>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/admin/gift-cards/config?restaurantId=${restaurantId}`,
+    undefined,
+    adminToken
+  );
+}
+
+/** Upsert — only the keys present change. `isEnabled: true` is what makes the shop show the card product. */
+export function putGiftCardConfigAdminRaw(
+  adminToken: string,
+  restaurantId: string,
+  body: Partial<GiftCardConfigFull>
+): Promise<RawResponse<{ success: boolean; data: GiftCardConfigFull }>> {
+  return apiRequestRaw(
+    "PUT",
+    `/api/admin/gift-cards/config?restaurantId=${restaurantId}`,
+    body,
+    adminToken
+  );
+}
+
+export interface GiftCardBatchRow {
+  id: string;
+  label: string;
+  quantity: number;
+  status: "DRAFT" | "EXPORTED" | "FROZEN";
+  restaurantId: string | null;
+  restaurantGroupId: string | null;
+  exportedAt: string | null;
+  exportCount: number;
+  supplyOrder: { id: string; orderNumber: string } | null;
+  counts: {
+    inactive: number;
+    active: number;
+    depleted: number;
+    frozen: number;
+  };
+}
+
+export function createGiftCardBatchRaw(
+  adminToken: string,
+  body: {
+    restaurantId?: string;
+    restaurantGroupId?: string;
+    quantity: number;
+    label: string;
+    vendorRef?: string;
+    note?: string;
+  }
+): Promise<
+  RawResponse<{ success: boolean; code?: string; data?: GiftCardBatchRow }>
+> {
+  return apiRequestRaw(
+    "POST",
+    "/api/admin/gift-cards/batches",
+    body,
+    adminToken
+  );
+}
+
+export function listGiftCardBatchesRaw(
+  adminToken: string,
+  restaurantId: string
+): Promise<RawResponse<{ success: boolean; data: GiftCardBatchRow[] }>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/admin/gift-cards/batches?restaurantId=${restaurantId}`,
+    undefined,
+    adminToken
+  );
+}
+
+export function exportGiftCardBatchCsvRaw(
+  adminToken: string,
+  batchId: string
+): Promise<RawResponse<string>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/admin/gift-cards/batches/${batchId}/export.csv`,
+    undefined,
+    adminToken
+  );
+}
+
+/**
+ * Gift-card IMPORT — adopting cards a restaurant sold before it joined us.
+ *
+ * Preview and commit are the SAME file uploaded twice, running one planner on
+ * the server, which is what makes "what the admin approved" and "what got
+ * written" the same thing. Both are multipart, so they hand-roll FormData the
+ * way uploadSupplyArtworkRaw does — apiRequestRaw is JSON-only.
+ *
+ * Scope is a query string: restaurantId XOR restaurantGroupId.
+ */
+export interface GiftCardImportPreview {
+  headers: string[];
+  mapping: { codeColumn: string; balanceColumn: string };
+  totalRows: number;
+  willCreate: number;
+  willSkip: number;
+  totalValue: number;
+  problems: Array<{ row: number; code: string; message: string }>;
+  sample: Array<{ row: number; code: string; balance: number }>;
+}
+
+export interface GiftCardImportResult {
+  importId: string;
+  created: number;
+  skipped: number;
+  totalValue: number;
+  problems: Array<{ row: number; code: string; message: string }>;
+}
+
+export interface GiftCardImportRow {
+  id: string;
+  label: string;
+  sourceFilename: string;
+  cardCount: number;
+  totalValue: number;
+  createdAt: string;
+  usedCardCount: number;
+  revertable: boolean;
+}
+
+const giftCardImportScope = (scope: {
+  restaurantId?: string;
+  restaurantGroupId?: string;
+}): string =>
+  scope.restaurantGroupId
+    ? `restaurantGroupId=${scope.restaurantGroupId}`
+    : `restaurantId=${scope.restaurantId}`;
+
+async function postGiftCardImportFile<T>(
+  path: string,
+  adminToken: string,
+  scope: { restaurantId?: string; restaurantGroupId?: string },
+  csv: string,
+  extra: Record<string, string> = {},
+  filename = "gift-cards.csv"
+): Promise<RawResponse<T>> {
+  const form = new FormData();
+  form.append("file", new Blob([csv], { type: "text/csv" }), filename);
+  for (const [k, v] of Object.entries(extra)) form.append(k, v);
+  const res = await fetch(
+    `${BACKEND_URL}${path}?${giftCardImportScope(scope)}`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: form,
+    }
+  );
+  const text = await res.text();
+  let data: unknown = text;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    /* leave as text */
+  }
+  return { status: res.status, ok: res.ok, data: data as never };
+}
+
+/** Dry run. Row problems come back inside a 200 — only an unreadable file 4xxs. */
+export function previewGiftCardImportRaw(
+  adminToken: string,
+  scope: { restaurantId?: string; restaurantGroupId?: string },
+  csv: string,
+  extra?: Record<string, string>
+): Promise<
+  RawResponse<{
+    success: boolean;
+    error?: string;
+    data?: GiftCardImportPreview;
+  }>
+> {
+  return postGiftCardImportFile(
+    "/api/admin/gift-cards/import/preview",
+    adminToken,
+    scope,
+    csv,
+    extra
+  );
+}
+
+export function importGiftCardsRaw(
+  adminToken: string,
+  scope: { restaurantId?: string; restaurantGroupId?: string },
+  csv: string,
+  extra?: Record<string, string>,
+  filename?: string
+): Promise<
+  RawResponse<{
+    success: boolean;
+    message?: string;
+    error?: string;
+    data?: GiftCardImportResult;
+  }>
+> {
+  return postGiftCardImportFile(
+    "/api/admin/gift-cards/import",
+    adminToken,
+    scope,
+    csv,
+    extra,
+    filename
+  );
+}
+
+export function listGiftCardImportsRaw(
+  adminToken: string,
+  scope: { restaurantId?: string; restaurantGroupId?: string }
+): Promise<RawResponse<{ success: boolean; data?: GiftCardImportRow[] }>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/admin/gift-cards/imports?${giftCardImportScope(scope)}`,
+    undefined,
+    adminToken
+  );
+}
+
+/** Refused once any card has been used — that is the point of it. */
+export function revertGiftCardImportRaw(
+  adminToken: string,
+  importId: string,
+  scope: { restaurantId?: string; restaurantGroupId?: string }
+): Promise<
+  RawResponse<{
+    success: boolean;
+    code?: string;
+    error?: string;
+    data?: { deletedCards: number; releasedValue: number };
+  }>
+> {
+  return apiRequestRaw(
+    "POST",
+    `/api/admin/gift-cards/imports/${importId}/revert?${giftCardImportScope(scope)}`,
+    undefined,
+    adminToken
+  );
+}
+
+/** The scope's whole outstanding liability, as the file an owner can take away. */
+export function exportGiftCardsCsvRaw(
+  adminToken: string,
+  scope: { restaurantId?: string; restaurantGroupId?: string }
+): Promise<RawResponse<string>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/admin/gift-cards/export.csv?${giftCardImportScope(scope)}`,
+    undefined,
+    adminToken
+  );
+}
+
+export function freezeGiftCardBatchRaw(
+  adminToken: string,
+  batchId: string
+): Promise<RawResponse<{ success: boolean; data?: { frozen: number } }>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/admin/gift-cards/batches/${batchId}/freeze`,
+    undefined,
+    adminToken
+  );
+}
+
+export function listGiftCardsAdminRaw(
+  adminToken: string,
+  params: { restaurantId: string; batchId?: string; status?: string }
+): Promise<
+  RawResponse<{
+    success: boolean;
+    data: {
+      giftCards: Array<{ id: string; code: string; status: string }>;
+      total: number;
+    };
+  }>
+> {
+  const search = new URLSearchParams({
+    restaurantId: params.restaurantId,
+    limit: "100",
+  });
+  if (params.batchId) search.set("batchId", params.batchId);
+  if (params.status) search.set("status", params.status);
+  return apiRequestRaw(
+    "GET",
+    `/api/admin/gift-cards?${search.toString()}`,
+    undefined,
+    adminToken
+  );
+}
+
+export function unfreezeGiftCardRaw(
+  adminToken: string,
+  giftCardId: string
+): Promise<RawResponse<{ success: boolean; data?: { status: string } }>> {
+  return apiRequestRaw(
+    "PATCH",
+    `/api/admin/gift-cards/${giftCardId}/unfreeze`,
+    undefined,
+    adminToken
+  );
+}
+
+export function adjustGiftCardBalanceRaw(
+  adminToken: string,
+  giftCardId: string,
+  amount: number,
+  reason: string
+): Promise<RawResponse<{ success: boolean; code?: string }>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/admin/gift-cards/${giftCardId}/adjust`,
+    { amount, reason },
+    adminToken
+  );
+}
+
+export function validateGiftCardPublicRaw(
+  code: string,
+  restaurantId: string
+): Promise<
+  RawResponse<{ success: boolean; data: { valid: boolean; reason?: string } }>
+> {
+  return apiRequestRaw(
+    "POST",
+    `/api/gift-cards/validate/${code.replace(/[^A-Za-z0-9]/g, "")}`,
+    { restaurantId }
+  );
+}
+
+// ── Dual pricing v2 (per-item cash tier) ─────────────────────────────────────
+
+/** GET /api/tablet/settings — the device's settings payload; carries the
+ *  server-resolved `dualPricing { active, cardMarkup, discountPercent,
+ *  notices }` contract beside `settings`. */
+export function getTabletSettingsRaw(
+  tabletToken: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw("GET", "/api/tablet/settings", undefined, tabletToken);
+}
+
+/** POST /menu/restaurants/:id/dual-pricing/convert {preview, scope?} —
+ *  the one-time "my stored prices were cash prices → raise them to card
+ *  prices" conversion (409 once stamped). Owner or ADMIN. The menu router
+ *  is mounted at a bare `/menu` (no `/api` prefix — see the other /menu
+ *  helpers above). */
+export function convertDualPricingMenuRaw(
+  accessToken: string,
+  restaurantId: string,
+  body: {
+    preview: boolean;
+    scope?: "LOCATION" | "MASTER";
+    /** CONVERT (default) raises cash → card; REVERT divides back by the
+     *  markup recorded at conversion (refused while dual pricing is on). */
+    direction?: "CONVERT" | "REVERT";
+  }
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/menu/restaurants/${restaurantId}/dual-pricing/convert`,
+    body,
+    accessToken
+  );
+}
+
+/** GET /restaurant/:id/details — PUBLIC storefront landing payload. The
+ *  restaurant router is mounted at a bare `/restaurant` (no `/api` prefix). */
+export function getRestaurantDetailsPublicRaw(
+  restaurantId: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw("GET", `/restaurant/${restaurantId}/details`);
+}
+
+/** GET /api/restaurantId/:id/settings — the owner/admin settings row. */
+export function getRestaurantSettingsRaw(
+  accessToken: string,
+  restaurantId: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/restaurantId/${restaurantId}/settings`,
+    undefined,
+    accessToken
+  );
+}
+
+/** PUT /api/restaurantId/:id/settings — RAW (asserts refusals: 400 on the
+ *  dual-pricing invariants). */
+export function updateRestaurantSettingsRaw(
+  accessToken: string,
+  restaurantId: string,
+  patch: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "PUT",
+    `/api/restaurantId/${restaurantId}/settings`,
+    patch,
+    accessToken
+  );
 }

@@ -14,8 +14,11 @@ import { type Page, type Locator, expect } from "@playwright/test";
  * What the tab is (and isn't): a toggle surface — per-item availability
  * (86), featured, "Restore All to Available" per category, and for chain
  * members the per-location price / carry controls. Category + item CRUD live
- * in the BUILDER at /restaurant/restaurantId/:id (OwnerMenuPage) which the
- * "Manage Menu" button opens. See docs/MENU_TAB_TEST_STRATEGY.md §3.1.
+ * in the BUILDER (MenuGroupDisplay), which the "Add or edit items" button opens
+ * as the shell's ?tab=menu-builder tab (since RestauNax c0bfd2231; the same
+ * builder is still mounted by the CreateStore wizard at
+ * /restaurant/restaurantId/:id — OwnerMenuPage). See
+ * docs/MENU_TAB_TEST_STRATEGY.md §3.1.
  *
  * Selectors (verified on QA 2026-08-16): the icon buttons expose their MUI
  * Tooltip title as the accessible name ("Edit this menu item", "Add to
@@ -49,14 +52,33 @@ export const createMenuAvailabilityPage = (page: Page) => {
 
   const heading = () =>
     page.getByRole("heading", { name: "Menu Availability Management" });
-  // Standalone: name "Manage Menu". Chain member / chain shell: the tooltip
-  // becomes the accessible name ("Open the builder for <A> only — …" /
-  // "Manage the shared chain menu — …") while the visible text stays
-  // "Manage Menu" / "Manage shared menu (all locations)".
+  // Standalone: name "Add or edit items" (was "Manage Menu" until RestauNax
+  // c0bfd2231, 2026-09-13 — renamed because the sidebar item is already called
+  // "Menu"). Chain member / chain shell: the tooltip becomes the accessible
+  // name ("Open the builder for <A> only — …" / "Manage the shared chain menu
+  // — …") while the visible text stays "Add or edit items" / "Manage shared
+  // menu (all locations)". Clicking it opens the builder as a sibling TAB
+  // (?tab=menu-builder) inside the portal / chain shell — see builderTab below.
   const manageMenuButton = () =>
     page.getByRole("button", {
-      name: /^Manage (Menu|shared menu)|^Open the builder for .* only|^Manage the shared chain menu/,
+      name: /^Add or edit items$|^Open the builder for .* only|^Manage the shared chain menu/,
     });
+
+  // ── The in-shell builder tab (?tab=menu-builder, MenuBuilderTab) ────────
+  // Same MenuGroupDisplay as the CreateStore wizard host (OwnerMenuPage), but
+  // inside the shell: sidebar kept, "Back to Menu" bar, h1 "Add or edit menu
+  // items".
+  const builderTitle = () =>
+    page.getByRole("heading", { name: "Add or edit menu items" });
+  const backToMenuButton = () =>
+    page.getByRole("button", { name: "Back to Menu", exact: true });
+  /** Restaurant portal builder tab: /restaurant/restaurantId/:id/restaurantManagement?tab=menu-builder */
+  const gotoBuilderTab = async (restaurantId: string): Promise<void> => {
+    await page.goto(
+      `/restaurant/restaurantId/${restaurantId}/restaurantManagement?tab=menu-builder`,
+      { waitUntil: "domcontentloaded" }
+    );
+  };
   const refreshButton = () =>
     page.getByRole("button", { name: /^Refresh(ing…|ing\.\.\.)?$/ });
   const sidebarMenuTab = () =>
@@ -329,7 +351,8 @@ export const createMenuAvailabilityPage = (page: Page) => {
 
   const emptyState = () => page.getByText("No menu data available");
   const openMenuBuilderButton = () =>
-    page.getByRole("button", { name: "Open menu builder" });
+    // Empty-state CTA — "Open menu builder" until RestauNax c0bfd2231.
+    page.getByRole("button", { name: "Add your first items" });
 
   const chainLocationBanner = () =>
     page.getByText(/You're editing .*Shared items come from the chain menu/);
@@ -372,6 +395,9 @@ export const createMenuAvailabilityPage = (page: Page) => {
     gotoChain,
     heading,
     manageMenuButton,
+    builderTitle,
+    backToMenuButton,
+    gotoBuilderTab,
     refreshButton,
     sidebarMenuTab,
     assertLoaded,
