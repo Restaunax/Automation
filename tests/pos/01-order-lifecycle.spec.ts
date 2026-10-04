@@ -23,7 +23,9 @@ import {
   deactivateTabletDevice,
   createSeededOrder,
   getCurrentOrders,
+  getCurrentOrdersRaw,
   updateOrderStatus,
+  updateOrderStatusRaw,
   type TabletDevice,
 } from "../../utils/apiHelper";
 import { readSharedState, generateRunId } from "../../utils/testData";
@@ -137,13 +139,19 @@ test.describe("POS — Order Lifecycle", () => {
   });
 
   // Regression guard for the 2026-07-06 backend auth fix (requireTabletOr
-  // Permission on order status + current-orders). Kept as fixme until the fix
-  // is deployed to QA — asserting a 401 now would fail against the still-open
-  // endpoints. Flip to a real test once the backend PR lands on QA.
+  // Permission on order status + current-orders). Confirmed live on QA
+  // 2026-09-22 — both routes now 401 with no token.
   // Tracking: https://github.com/Restaunax/Automation/issues/17
   // (Was misnumbered TC-101, which belongs to admin user-invite in users.spec.ts.)
-  test.fixme("TC-179: current-orders + status reject an unauthenticated caller", async () => {
-    // const noAuth = await getCurrentOrdersRaw(restaurantId); // no token
-    // expect(noAuth.status).toBe(401);
+  test("TC-179: current-orders + status reject an unauthenticated caller", async () => {
+    const noAuthCurrent = await getCurrentOrdersRaw(restaurantId);
+    expect(noAuthCurrent.status).toBe(401);
+
+    const noAuthStatus = await updateOrderStatusRaw(
+      "",
+      "00000000-0000-0000-0000-000000000000",
+      "CONFIRMED"
+    );
+    expect(noAuthStatus.status).toBe(401);
   });
 });

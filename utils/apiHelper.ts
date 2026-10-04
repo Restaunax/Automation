@@ -2253,6 +2253,21 @@ export async function updateOrderStatus(
   );
 }
 
+/**
+ * No-auth variant of getCurrentOrders — for TC-179's unauthenticated-access
+ * check. Confirmed live on QA 2026-09-22: 401 NO_ACCESS_TOKEN with no
+ * token — the requireTabletOrPermission fix has landed. See
+ * TEST_COVERAGE.md Known Technical Debt.
+ */
+export function getCurrentOrdersRaw(
+  restaurantId: string
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "GET",
+    `/api/order/restaurants/${restaurantId}/orders/current`
+  );
+}
+
 export interface SeedDeliveryAddress {
   street: string;
   unit?: string;
