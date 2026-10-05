@@ -314,6 +314,8 @@ export const createOwnerDealsPage = (page: Page) => {
       .getByRole("button", { name: "Deals", exact: true, disabled: true });
 
   /** DealsDashboard live-status chip (deal scheduling, Plan 2). */
+  /** Every live-status chip on the page (presence = #898 dashboard deployed). */
+  const liveStatusChips = () => page.getByTestId("deal-live-status");
   const rowLiveStatus = (dealName: string) =>
     row(dealName).getByTestId("deal-live-status");
   /** Chain shell caption ("Times are in each location's local time."). */
@@ -355,6 +357,7 @@ export const createOwnerDealsPage = (page: Page) => {
     statusFilter,
     selectStatusFilter,
     rowLiveStatus,
+    liveStatusChips,
     chainScheduleCaption,
     hasLiveStatusFilter,
     sortBy,

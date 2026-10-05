@@ -259,25 +259,30 @@ test.describe("Lima — deals", () => {
       { validTimeStart: w!.start, validTimeEnd: w!.end }
     );
     dealIds.push(later.id);
-    const listed = (await getActiveDealsPublic(restaurantId)).data.deals?.find(
-      (d) => d.id === later.id
-    );
-    expect(listed?.availableNow).toBe(false);
-    const lima = createLimaStorefrontPage(page);
-    const deals = createLimaDealPage(page);
-    await lima.gotoMenu(restaurantSlug);
-    await expect(deals.dealCard(later.name)).toBeVisible({ timeout: 30_000 });
-    requireScheduling(
-      "lima",
-      (await deals.cardScheduleSummary(later.name).count()) > 0
-    );
-    // Lima sends no Accept-Language of its own: assert the times, not the words.
-    const label = await deals.cardAvailabilityLabel(later.name).innerText();
-    expect(mentionsClock(label, w!.start), label).toBe(true);
-    const summary = await deals.cardScheduleSummary(later.name).innerText();
-    expect(
-      mentionsClock(summary, w!.start) && mentionsClock(summary, w!.end),
-      summary
-    ).toBe(true);
+    try {
+      const listed = (
+        await getActiveDealsPublic(restaurantId)
+      ).data.deals?.find((d) => d.id === later.id);
+      expect(listed?.availableNow).toBe(false);
+      const lima = createLimaStorefrontPage(page);
+      const deals = createLimaDealPage(page);
+      await lima.gotoMenu(restaurantSlug);
+      await expect(deals.dealCard(later.name)).toBeVisible({ timeout: 30_000 });
+      requireScheduling(
+        "lima",
+        (await deals.cardScheduleSummary(later.name).count()) > 0
+      );
+      // Lima sends no Accept-Language of its own: assert the times, not the words.
+      const label = await deals.cardAvailabilityLabel(later.name).innerText();
+      expect(mentionsClock(label, w!.start), label).toBe(true);
+      const summary = await deals.cardScheduleSummary(later.name).innerText();
+      expect(
+        mentionsClock(summary, w!.start) && mentionsClock(summary, w!.end),
+        summary
+      ).toBe(true);
+    } finally {
+      // Free the shared seed restaurant's cap slot right away, not in afterAll.
+      await deleteDealApi(t, later.id).catch(() => {}); // best effort; AUTO sweep backstops
+    }
   });
 });

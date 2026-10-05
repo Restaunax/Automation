@@ -175,7 +175,7 @@ Automation/
 │   │   │   ├── 10-subscription.spec.ts       # ✅ real — Subscription/Billing page (permission-gated, not role-gated)
 │   │   │   ├── 11-deals.spec.ts              # ✅ real — Manage Deals table (rows/search/filter/sort/expand/toggle/delete/cap banners), Create/Edit form, Deal Analytics, AI smoke (TC-86/87, TC-351..364 (TC-353 rewritten), TC-528..532, TC-540/541 deal scheduling; TC-358 pin)
 │   │   │   ├── 18-chain-deals.spec.ts        # ✅ real — chain shell deals: Chain chip/rollup/View Analytics, member managed-at-chain-level, fan-out create (TC-365/366, TC-523, TC-533/534)
-│   │   │   ├── api-deals.spec.ts             # ✅ real — deals API contract on a per-run throwaway tenant: create math, qty-1 split, windows, /validate, /quote charge+upcharge, stats, bulk, chain, authz (TC-325..350, TC-508..522 + TC-539 deal scheduling; 8 🔴 pins)
+│   │   │   ├── api-deals.spec.ts             # ✅ real — deals API contract on a per-run throwaway tenant: create math, qty-1 split, windows, /validate, /quote charge+upcharge, stats, bulk, chain, authz (TC-325..350, TC-508..522 + TC-539, TC-542 deal scheduling; 8 🔴 pins)
 │   │   │   ├── 20-supply-shop.spec.ts        # ✅ real — Print Shop (owner): product offered gift-cards-on-or-off, estimate range + place with NO charge, designStarted email + CTA, proof changes/approve (409 on stale), admin finalise → Awaiting payment + Pay link, cancel, on-behalf order (TC-446..455)
 │   │   │   ├── api-supply-shop.spec.ts       # ✅ real — owner supply-shop API contract: tier math + 25% spread, X-Restaurant-Id tenancy, search finds the gift card gift-cards-on-or-off, order list strips internals, proof/cancel refusals (TC-478..483)
 │   │   │   ├── 16-marketing-automations.spec.ts  # ✅ real — Automated Marketing tab: master + per-program opt-out, API-verified + self-restoring (needs OWNER creds)
@@ -438,6 +438,22 @@ one worker — serial CRUD chains and `beforeAll` seeding keep working. The
 counts were tuned empirically: 4 local workers pushed combined Chromium + QA
 load past action budgets (pure slowness, no data races); 3 is the sweet spot,
 paired with a 90s per-test budget.
+
+**Seed-restaurant deal budget per file.** Only ten deals may be ACTIVE on a
+restaurant, and the shared seed restaurant already carries about five real
+ones. Files that put AUTO deals on it must therefore stay small and give slots
+back immediately (try/finally in the test, never "in afterAll"):
+
+| File                                          | Steady ACTIVE footprint                             | Temporary peak                                                   |
+| --------------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------- |
+| `dashboard/owner/11-deals`                    | 2 (plain, pricey/cheap parked as needed)            | +1 per test; TC-359 deliberately tops up to 10 and frees at once |
+| `customer/08-deals-handoff`                   | 2 (combo, pizza deal)                               | +1 (TC-535..538, each deleted in finally)                        |
+| `customer-lima/13-deals`                      | 1                                                   | +1 (TC-L63, deleted in finally)                                  |
+| `api-deals`, `18-chain-deals`, `pos/10-deals` | 0 on the seed restaurant (throwaway tenant / chain) | n/a                                                              |
+
+UI submits that create an ACTIVE deal call `waitForFreeDealSlot`, and API seeds
+use `createDealApiCapSafe` (150 s wait, longer than TC-359's hold). A new file
+touching deals on the seed restaurant must add its row here.
 
 **The contract every spec file must honor** (this is what makes parallelism
 safe against one shared QA environment):

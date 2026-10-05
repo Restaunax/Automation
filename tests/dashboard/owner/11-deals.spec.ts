@@ -56,6 +56,7 @@ import {
   deleteTestMenuGroup,
   createDealApi,
   createDealApiCapSafe,
+  waitForFreeDealSlot,
   getDealApi,
   getDealRaw,
   setDealStatusRaw,
@@ -625,6 +626,10 @@ test.describe("Owner — Deals", () => {
       // Free the shared restaurant's slots right away, not in afterAll — the
       // storefront file re-activates its own deals concurrently.
       for (const id of capIds) await deleteDealApi(token, id).catch(() => {});
+      // Since #898 an ended deal can't be switched back on (400 DEAL_ENDED) and
+      // no longer counts toward the cap, so this restore is a harmless no-op
+      // there; it still matters on a pre-#898 backend, where the date-expired
+      // deal held a slot. Either way a refusal is safe to ignore.
       await setDealStatusRaw(token, seeded.expired!.id, "ACTIVE").catch(
         () => {}
       );
@@ -705,26 +710,33 @@ test.describe("Owner — Deals", () => {
     await form.addItem(itemB.name);
     await form.setItemQty(itemA.name, 2);
     await form.priceInput().fill("21");
+    // The form can't retry on the 10-active cap, so wait for a free slot first.
+    await waitForFreeDealSlot(token, restaurantId);
     const { status, body } = await form.submitAndWait("create");
-    expect(status, JSON.stringify(body)).toBe(201);
     const dealId = (body as { deal?: { id?: string } }).deal?.id ?? "";
     if (dealId) extraDealIds.push(dealId);
-    await expect(form.createdSnackbar()).toBeVisible({ timeout: 5_000 });
-    // 1.5 s later the form navigates back to the table.
-    await dealsPage.assertManageDealsLoaded();
-    await dealsPage.search(name);
-    const row = dealsPage.row(name);
-    await expect(row).toBeVisible({ timeout: 15_000 });
-    await expect(row).toContainText("3 items");
-    await expect(row).toContainText("$21.00");
-    await expect(row).toContainText("$26.50");
-    await expect(row).toContainText("21% off");
-    const api = await getDealApi(token, dealId);
-    expect(api.items).toHaveLength(3);
-    expect(api.items!.every((i) => i.quantity === 1)).toBe(true);
-    expect(api.originalPrice).toBe(26.5);
-    expect(api.savingsAmount).toBe(5.5);
-    expect(api.description).toBe("created through the UI");
+    try {
+      expect(status, JSON.stringify(body)).toBe(201);
+      await expect(form.createdSnackbar()).toBeVisible({ timeout: 5_000 });
+      // 1.5 s later the form navigates back to the table.
+      await dealsPage.assertManageDealsLoaded();
+      await dealsPage.search(name);
+      const row = dealsPage.row(name);
+      await expect(row).toBeVisible({ timeout: 15_000 });
+      await expect(row).toContainText("3 items");
+      await expect(row).toContainText("$21.00");
+      await expect(row).toContainText("$26.50");
+      await expect(row).toContainText("21% off");
+      const api = await getDealApi(token, dealId);
+      expect(api.items).toHaveLength(3);
+      expect(api.items!.every((i) => i.quantity === 1)).toBe(true);
+      expect(api.originalPrice).toBe(26.5);
+      expect(api.savingsAmount).toBe(5.5);
+      expect(api.description).toBe("created through the UI");
+    } finally {
+      // Free the shared restaurant's slot now, not in afterAll.
+      if (dealId) await deleteDealApi(token, dealId).catch(() => {}); // best effort; AUTO sweep backstops
+    }
   });
 
   test("TC-362: Edit pre-fills the form; renaming, repricing, removing and adding a slot round-trips through PUT and the table", async ({
@@ -738,42 +750,47 @@ test.describe("Owner — Deals", () => {
       two()
     );
     extraDealIds.push(original.id);
-    const dealsPage = createOwnerDealsPage(ownerPage);
-    const form = createDealFormPage(ownerPage);
-    await dealsPage.gotoManageDeals(restaurantId);
-    await dealsPage.search(original.name);
-    await dealsPage.openRowMenu(original.name);
-    await dealsPage.editMenuItem().click();
-    await form.assertEditMode();
-    await expect(form.nameInput()).toHaveValue(original.name);
-    await expect(form.priceInput()).toHaveValue("12");
-    await expect(form.itemCard(itemA.name)).toBeVisible();
-    await expect(form.itemCard(itemB.name)).toBeVisible();
-    await expect(form.submitButton()).toHaveText("Update Deal");
+    try {
+      const dealsPage = createOwnerDealsPage(ownerPage);
+      const form = createDealFormPage(ownerPage);
+      await dealsPage.gotoManageDeals(restaurantId);
+      await dealsPage.search(original.name);
+      await dealsPage.openRowMenu(original.name);
+      await dealsPage.editMenuItem().click();
+      await form.assertEditMode();
+      await expect(form.nameInput()).toHaveValue(original.name);
+      await expect(form.priceInput()).toHaveValue("12");
+      await expect(form.itemCard(itemA.name)).toBeVisible();
+      await expect(form.itemCard(itemB.name)).toBeVisible();
+      await expect(form.submitButton()).toHaveText("Update Deal");
 
-    const renamed = `AUTO Form Edited ${runId}`;
-    await form.nameInput().fill(renamed);
-    await form.removeItem(itemB.name);
-    await expect(form.itemCard(itemB.name)).toHaveCount(0);
-    await form.addItem(itemC.name);
-    await form.priceInput().fill("11");
-    await expect(form.originalPriceText()).toContainText("$14.00");
-    const { status, body } = await form.submitAndWait("update");
-    expect(status, JSON.stringify(body)).toBe(200);
-    await expect(form.updatedSnackbar()).toBeVisible({ timeout: 5_000 });
-    await dealsPage.assertManageDealsLoaded();
-    await dealsPage.search(renamed);
-    const row = dealsPage.row(renamed);
-    await expect(row).toBeVisible({ timeout: 15_000 });
-    await expect(row).toContainText("$11.00");
-    await expect(row).toContainText("$14.00");
-    await expect(row).toContainText("21% off");
-    const api = await getDealApi(token, original.id);
-    expect(api.name).toBe(renamed);
-    expect(api.dealPrice).toBe(11);
-    expect(api.items!.map((i) => i.menuItemId).sort()).toEqual(
-      [itemA.id, itemC.id].sort()
-    );
+      const renamed = `AUTO Form Edited ${runId}`;
+      await form.nameInput().fill(renamed);
+      await form.removeItem(itemB.name);
+      await expect(form.itemCard(itemB.name)).toHaveCount(0);
+      await form.addItem(itemC.name);
+      await form.priceInput().fill("11");
+      await expect(form.originalPriceText()).toContainText("$14.00");
+      const { status, body } = await form.submitAndWait("update");
+      expect(status, JSON.stringify(body)).toBe(200);
+      await expect(form.updatedSnackbar()).toBeVisible({ timeout: 5_000 });
+      await dealsPage.assertManageDealsLoaded();
+      await dealsPage.search(renamed);
+      const row = dealsPage.row(renamed);
+      await expect(row).toBeVisible({ timeout: 15_000 });
+      await expect(row).toContainText("$11.00");
+      await expect(row).toContainText("$14.00");
+      await expect(row).toContainText("21% off");
+      const api = await getDealApi(token, original.id);
+      expect(api.name).toBe(renamed);
+      expect(api.dealPrice).toBe(11);
+      expect(api.items!.map((i) => i.menuItemId).sort()).toEqual(
+        [itemA.id, itemC.id].sort()
+      );
+    } finally {
+      // Free the shared restaurant's slot now, not in afterAll.
+      await deleteDealApi(token, original.id).catch(() => {}); // best effort; AUTO sweep backstops
+    }
   });
 
   // ── Analytics + AI smoke ──────────────────────────────────────────────────
@@ -897,11 +914,16 @@ test.describe("Owner — Deals", () => {
     const createAndPark = async (
       form: ReturnType<typeof createDealFormPage>
     ) => {
+      // The form can't retry on the 10-active cap: wait for a free slot first.
+      await waitForFreeDealSlot(token, restaurantId);
       const { status, body, requestBody } = await form.submitAndWait("create");
-      expect(status, JSON.stringify(body)).toBe(201);
       const id = (body as { deal?: { id?: string } }).deal?.id ?? "";
-      extraDealIds.push(id);
-      await setDealStatusRaw(token, id, "INACTIVE");
+      if (id) {
+        extraDealIds.push(id);
+        // Park immediately so a failed assertion below can't hold the slot.
+        await setDealStatusRaw(token, id, "INACTIVE");
+      }
+      expect(status, JSON.stringify(body)).toBe(201);
       return { id, requestBody };
     };
 
@@ -1245,7 +1267,7 @@ test.describe("Owner — Deals", () => {
         await dealsPage.gotoManageDeals(restaurantId);
         requireScheduling(
           "dashboard",
-          (await ownerPage.getByTestId("deal-live-status").count()) > 0
+          (await dealsPage.liveStatusChips().count()) > 0
         );
         await dealsPage.setRowsPerPage(25);
         const chip = async (name: string, expected: string | RegExp) => {
@@ -1369,6 +1391,9 @@ test.describe("Owner — Deals", () => {
 
       await dealsPage.gotoTab(restaurantId, "ai-deals");
       await expect(ai.heading()).toBeVisible({ timeout: 15_000 });
+      // Dashboard gate right after the backend gate: before #898 the meal-type
+      // radios are disabled, so "Lunch enabled" is the presence signal.
+      requireScheduling("dashboard", await ai.radio("Lunch").isEnabled());
       for (const label of [
         "Breakfast",
         "Lunch",
@@ -1382,10 +1407,6 @@ test.describe("Owner — Deals", () => {
       await ai.radio("Lunch").check();
       await ai.generateButton().click();
       await expect(ai.card(suggestion.name)).toBeVisible({ timeout: 30_000 });
-      requireScheduling(
-        "dashboard",
-        (await ai.cardSchedule(suggestion.name).count()) > 0
-      );
       const shown = normalizeSpaces(
         await ai.cardSchedule(suggestion.name).innerText()
       );

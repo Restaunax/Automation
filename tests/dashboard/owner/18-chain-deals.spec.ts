@@ -290,22 +290,28 @@ test.describe("Owner — Chain deals", () => {
   //
   // Location B gets one closed weekday — the restaurant-local day THREE days
   // out, so no order today/tomorrow at B is affected — restored to its exact
-  // original rows in afterAll. Location A (24h) never warns.
+  // original rows in a finally inside each test that needs it. Location A (24h) never warns.
   test.describe("schedule", () => {
     let tzA = "";
     let closedDay: DayName = "SUNDAY";
-    let originalB: BusinessHoursRow[] = [];
-    let hoursChanged = false;
-
     test.beforeAll(async () => {
       if (!chainGroupId) return;
       tzA = await getRestaurantTimeZonePublic(locA);
       if (!tzA) return;
-      const t = await freshToken();
       closedDay = dayNameOfKey(
         localDateKey((await getRestaurantTimeZonePublic(locB)) || tzA, 3)
       );
-      originalB = (await getBusinessHoursRaw(t, locB)).data.businessHours ?? [];
+    });
+
+    /**
+     * Run `body` with location B closed on `closedDay`; B's exact original
+     * rows are restored in finally, so only the tests that need the change
+     * hold it, and only for their own duration.
+     */
+    const withClosedDayAtB = async (body: () => Promise<void>) => {
+      const t = await freshToken();
+      const originalB =
+        (await getBusinessHoursRaw(t, locB)).data.businessHours ?? [];
       const base: BusinessHoursRow[] = originalB.length
         ? originalB
         : DAY_NAMES.map((day) => ({
@@ -330,13 +336,12 @@ test.describe("Owner — Chain deals", () => {
             : r
         )
       );
-      hoursChanged = true;
-    });
-
-    test.afterAll(async () => {
-      if (hoursChanged)
+      try {
+        await body();
+      } finally {
         await setBusinessHoursApi(await freshToken(), locB, originalB);
-    });
+      }
+    };
 
     test.beforeEach(() => {
       skipWithoutChain();
@@ -376,60 +381,64 @@ test.describe("Owner — Chain deals", () => {
     });
 
     test("TC-534: chain schedule-check returns one warning per location that is closed on a chosen day — named by location — and none for days every location is open", async () => {
-      const state = readSharedState();
-      const res = await getChainDealScheduleCheckRaw(token, chainGroupId, {
-        validDays: [closedDay],
+      await withClosedDayAtB(async () => {
+        const state = readSharedState();
+        const res = await getChainDealScheduleCheckRaw(token, chainGroupId, {
+          validDays: [closedDay],
+        });
+        expect(res.status, JSON.stringify(res.data)).toBe(200);
+        const data = res.data.data!;
+        expect(data.timeZone).toBe(tzA);
+        expect(data.warnings).toHaveLength(1);
+        expect(data.warnings[0]).toMatchObject({
+          restaurantId: locB,
+          restaurantName: state.chainLocationBName,
+        });
+        expect(data.warnings[0]!.message).toContain(shortDayEn(closedDay));
+        const otherDay = DAY_NAMES.find((d) => d !== closedDay)!;
+        const quiet = await getChainDealScheduleCheckRaw(token, chainGroupId, {
+          validDays: [otherDay],
+          validTimeStart: "20:00",
+          validTimeEnd: "23:00",
+        });
+        expect(quiet.data.data?.warnings).toEqual([]);
       });
-      expect(res.status, JSON.stringify(res.data)).toBe(200);
-      const data = res.data.data!;
-      expect(data.timeZone).toBe(tzA);
-      expect(data.warnings).toHaveLength(1);
-      expect(data.warnings[0]).toMatchObject({
-        restaurantId: locB,
-        restaurantName: state.chainLocationBName,
-      });
-      expect(data.warnings[0]!.message).toContain(shortDayEn(closedDay));
-      const otherDay = DAY_NAMES.find((d) => d !== closedDay)!;
-      const quiet = await getChainDealScheduleCheckRaw(token, chainGroupId, {
-        validDays: [otherDay],
-        validTimeStart: "20:00",
-        validTimeEnd: "23:00",
-      });
-      expect(quiet.data.data?.warnings).toEqual([]);
     });
 
     test("TC-533: in the chain shell the deal form's summary says '(in each location's local time)', choosing the closed day warns for that location by name only, and the table caption explains the status timezone", async ({
       ownerPage,
     }) => {
-      const state = readSharedState();
-      const dealsPage = createOwnerDealsPage(ownerPage);
-      const form = createDealFormPage(ownerPage);
-      await dealsPage.gotoChainTab(chainGroupId, "create-deal");
-      await form.assertCreateMode();
-      requireScheduling("dashboard", await form.hasScheduleSection());
-      // The zone part only appears once a time or date is set — Lunch sets times.
-      await form.pickScheduleChip("lunch");
-      await expect(form.summaryLine()).toContainText(
-        "(in each location's local time)"
-      );
-      const [checkRes] = await Promise.all([
-        form.waitForScheduleCheck((url) =>
-          url.includes(`validDays=${closedDay}`)
-        ),
-        form.toggleDay(closedDay),
-      ]);
-      expect(checkRes.status()).toBe(200);
-      await expect(form.hoursWarning()).toBeVisible();
-      // Chain warnings read "<location>: <message>".
-      await expect(form.hoursWarning()).toContainText(
-        `${state.chainLocationBName ?? ""}:`
-      );
-      await expect(form.hoursWarning()).not.toContainText(
-        state.chainLocationAName ?? ""
-      );
-      await form.cancelButton().click();
-      await dealsPage.gotoChainManageDeals(chainGroupId);
-      await expect(dealsPage.chainScheduleCaption()).toBeVisible();
+      await withClosedDayAtB(async () => {
+        const state = readSharedState();
+        const dealsPage = createOwnerDealsPage(ownerPage);
+        const form = createDealFormPage(ownerPage);
+        await dealsPage.gotoChainTab(chainGroupId, "create-deal");
+        await form.assertCreateMode();
+        requireScheduling("dashboard", await form.hasScheduleSection());
+        // The zone part only appears once a time or date is set — Lunch sets times.
+        await form.pickScheduleChip("lunch");
+        await expect(form.summaryLine()).toContainText(
+          "(in each location's local time)"
+        );
+        const [checkRes] = await Promise.all([
+          form.waitForScheduleCheck((url) =>
+            url.includes(`validDays=${closedDay}`)
+          ),
+          form.toggleDay(closedDay),
+        ]);
+        expect(checkRes.status()).toBe(200);
+        await expect(form.hoursWarning()).toBeVisible();
+        // Chain warnings read "<location>: <message>".
+        await expect(form.hoursWarning()).toContainText(
+          `${state.chainLocationBName ?? ""}:`
+        );
+        await expect(form.hoursWarning()).not.toContainText(
+          state.chainLocationAName ?? ""
+        );
+        await form.cancelButton().click();
+        await dealsPage.gotoChainManageDeals(chainGroupId);
+        await expect(dealsPage.chainScheduleCaption()).toBeVisible();
+      });
     });
   });
 });

@@ -1608,6 +1608,42 @@ export async function createDealApi(
  * the restaurant at 10 active deals, retry until a slot frees. Use on the
  * SHARED seed restaurant; the throwaway-tenant specs don't need it.
  */
+/**
+ * How long a seed-restaurant deal create waits for a cap slot. The longest
+ * hold is 11-deals TC-359, which tops the shared restaurant up to 10 ACTIVE
+ * deals and keeps them through several page loads, toggles and a retry loop
+ * (up to about a minute on QA). The old 45 s was shorter than that, so a
+ * concurrent file timed out waiting. 150 s clears it; a genuine leak still
+ * fails, just later.
+ */
+export const CAP_WAIT_MS = 150_000;
+
+/**
+ * Wait until the restaurant has a free ACTIVE-deal slot (GET /active-count),
+ * polling like createDealApiCapSafe does. Call before a UI submit that creates
+ * an ACTIVE deal on the shared seed restaurant: the form can't retry for us.
+ * It narrows the race, it can't close it (another worker may take the slot
+ * between this check and the click) — callers keep their own footprint small.
+ */
+export async function waitForFreeDealSlot(
+  accessToken: string,
+  restaurantId: string,
+  timeoutMs = CAP_WAIT_MS
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const res = await getActiveDealsCountRaw(accessToken, restaurantId);
+    const used = res.data?.activeDealsCount ?? 0;
+    const max = res.data?.maxActiveDeals ?? 10;
+    if (res.ok && used < max) return;
+    if (Date.now() > deadline)
+      throw new Error(
+        `[apiHelper] no free deal slot after ${timeoutMs} ms: ${res.status} ${JSON.stringify(res.data)}`
+      );
+    await new Promise((r) => setTimeout(r, 3_000));
+  }
+}
+
 export async function createDealApiCapSafe(
   accessToken: string,
   restaurantId: string,
@@ -1615,7 +1651,7 @@ export async function createDealApiCapSafe(
   dealPrice: number,
   items: { id: string; name: string; price: number; quantity?: number }[],
   extra: Partial<DealBody> = {},
-  timeoutMs = 45_000
+  timeoutMs = CAP_WAIT_MS
 ): Promise<ApiDeal> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
@@ -1881,6 +1917,12 @@ export async function getRestaurantTimeZonePublic(
   restaurantId: string
 ): Promise<string> {
   const res = await getActiveDealsPublic(restaurantId);
+  // A transport failure or 5xx is NOT "not deployed" — fail loudly so a QA
+  // outage can't hide as a wall of gated skips.
+  if (res.status >= 500 || res.status === 0)
+    throw new Error(
+      `[apiHelper] cannot read the restaurant timezone: GET /active answered ${res.status} ${JSON.stringify(res.data)}`
+    );
   return res.ok && typeof res.data?.timeZone === "string"
     ? res.data.timeZone
     : "";

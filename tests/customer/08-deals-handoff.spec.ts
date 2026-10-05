@@ -619,29 +619,34 @@ test.describe("Deals → Storefront hand-off", () => {
       "No hour-long window left in the seed restaurant's business hours today"
     );
     const { deal } = await windowDeal("Later", w!);
-    const listed = (await getActiveDealsPublic(restaurantId)).data.deals?.find(
-      (d) => d.id === deal.id
-    );
-    expect(listed?.availableNow).toBe(false);
-    requireScheduling("wind", await windShipsScheduleUi(page, deal.name));
-    const deals = createCustomerDealPage(page);
-    // Wind sends no Accept-Language of its own: assert the times, not the words.
-    const label = await deals.cardAvailabilityLabel(deal.name).innerText();
-    expect(mentionsClock(label, w!.start), label).toBe(true);
-    const summary = await deals.cardScheduleSummary(deal.name).innerText();
-    expect(
-      mentionsClock(summary, w!.start) && mentionsClock(summary, w!.end),
-      summary
-    ).toBe(true);
-    await deals.viewDeal(deal.name);
-    await expect(deals.builderHeading(deal.name)).toBeVisible({
-      timeout: 20_000,
-    });
-    await expect(deals.builderAvailabilityLabel()).toBeVisible();
-    const slots = deals.slotCardHooks();
-    await expect(slots).toHaveCount(2);
-    for (const slot of await slots.all())
-      await expect(slot).toHaveAttribute("aria-disabled", "true");
+    try {
+      const listed = (
+        await getActiveDealsPublic(restaurantId)
+      ).data.deals?.find((d) => d.id === deal.id);
+      expect(listed?.availableNow).toBe(false);
+      requireScheduling("wind", await windShipsScheduleUi(page, deal.name));
+      const deals = createCustomerDealPage(page);
+      // Wind sends no Accept-Language of its own: assert the times, not the words.
+      const label = await deals.cardAvailabilityLabel(deal.name).innerText();
+      expect(mentionsClock(label, w!.start), label).toBe(true);
+      const summary = await deals.cardScheduleSummary(deal.name).innerText();
+      expect(
+        mentionsClock(summary, w!.start) && mentionsClock(summary, w!.end),
+        summary
+      ).toBe(true);
+      await deals.viewDeal(deal.name);
+      await expect(deals.builderHeading(deal.name)).toBeVisible({
+        timeout: 20_000,
+      });
+      await expect(deals.builderAvailabilityLabel()).toBeVisible();
+      const slots = deals.slotCardHooks();
+      await expect(slots).toHaveCount(2);
+      for (const slot of await slots.all())
+        await expect(slot).toHaveAttribute("aria-disabled", "true");
+    } finally {
+      // Free the shared seed restaurant's cap slot right away, not in afterAll.
+      await deleteDealApi(await freshToken(), deal.id).catch(() => {}); // best effort; AUTO sweep backstops
+    }
   });
 
   test("TC-536: choosing a scheduled pickup inside the deal's window unlocks it — the quote with scheduledFor prices the deal", async ({
@@ -658,44 +663,51 @@ test.describe("Deals → Storefront hand-off", () => {
       "No hour-long window left in the seed restaurant's business hours today"
     );
     const { deal, cart } = await windowDeal("Unlock", w!);
-    requireScheduling("wind", await windShipsScheduleUi(page, deal.name));
-    const checkout = createCustomerCheckoutPage(page);
-    const deals = createCustomerDealPage(page);
-    await checkout.seedCartWithDeal(restaurantId, cart);
-    await expect(deals.partOfDealLabels()).toHaveCount(2);
-    await expect(deals.completeDealsToContinueButton()).toHaveCount(0);
+    try {
+      requireScheduling("wind", await windShipsScheduleUi(page, deal.name));
+      const checkout = createCustomerCheckoutPage(page);
+      const deals = createCustomerDealPage(page);
+      await checkout.seedCartWithDeal(restaurantId, cart);
+      await expect(deals.partOfDealLabels()).toHaveCount(2);
+      await expect(deals.completeDealsToContinueButton()).toHaveCount(0);
 
-    if (await checkout.asapOption().isEnabled()) {
-      await checkout.asapOption().check();
-      await expect(checkout.dealTimeError()).toBeVisible({ timeout: 20_000 });
-      await expect(checkout.changeTimeButton()).toBeVisible();
+      if (await checkout.asapOption().isEnabled()) {
+        await checkout.asapOption().check();
+        await expect(checkout.dealTimeError()).toBeVisible({ timeout: 20_000 });
+        await expect(checkout.changeTimeButton()).toBeVisible();
+      }
+      const quoted = page.waitForResponse(
+        (r) =>
+          checkout.isQuote(r) &&
+          Boolean(
+            (r.request().postDataJSON() as { scheduledFor?: string })
+              .scheduledFor
+          ),
+        { timeout: 30_000 }
+      );
+      const slot = await checkout.chooseScheduledSlot((iso) =>
+        isInsideWindow(tz, iso, w!)
+      );
+      test.skip(
+        !slot,
+        "The storefront offers no slot inside the window today (prep time / lead time)"
+      );
+      const quote = await quoted;
+      expect(
+        (quote.request().postDataJSON() as { scheduledFor?: string })
+          .scheduledFor
+      ).toBe(slot);
+      expect(quote.status()).toBe(200);
+      const body = (await quote.json()) as {
+        quote?: { deals?: { dealId: string }[] };
+      };
+      expect(body.quote?.deals?.[0]?.dealId).toBe(deal.id);
+      await expect(checkout.dealTimeError()).toBeHidden();
+      await expect(checkout.proceedToPaymentButton()).toBeVisible();
+    } finally {
+      // Free the shared seed restaurant's cap slot right away, not in afterAll.
+      await deleteDealApi(await freshToken(), deal.id).catch(() => {}); // best effort; AUTO sweep backstops
     }
-    const quoted = page.waitForResponse(
-      (r) =>
-        checkout.isQuote(r) &&
-        Boolean(
-          (r.request().postDataJSON() as { scheduledFor?: string }).scheduledFor
-        ),
-      { timeout: 30_000 }
-    );
-    const slot = await checkout.chooseScheduledSlot((iso) =>
-      isInsideWindow(tz, iso, w!)
-    );
-    test.skip(
-      !slot,
-      "The storefront offers no slot inside the window today (prep time / lead time)"
-    );
-    const quote = await quoted;
-    expect(
-      (quote.request().postDataJSON() as { scheduledFor?: string }).scheduledFor
-    ).toBe(slot);
-    expect(quote.status()).toBe(200);
-    const body = (await quote.json()) as {
-      quote?: { deals?: { dealId: string }[] };
-    };
-    expect(body.quote?.deals?.[0]?.dealId).toBe(deal.id);
-    await expect(checkout.dealTimeError()).toBeHidden();
-    await expect(checkout.proceedToPaymentButton()).toBeVisible();
   });
 
   test("TC-537: a scheduled pickup outside the deal's window shows the server's DEAL_NOT_AVAILABLE_AT_TIME message naming the deal, with Remove deal / Change time — Remove deal drops it and checkout continues", async ({
@@ -709,35 +721,46 @@ test.describe("Deals → Storefront hand-off", () => {
       "Too close to the restaurant's midnight for a same-day live window"
     );
     const { deal, cart } = await windowDeal("Now", w!);
-    requireScheduling("wind", await windShipsScheduleUi(page, deal.name));
-    const checkout = createCustomerCheckoutPage(page);
-    const deals = createCustomerDealPage(page);
-    await checkout.seedCartWithDeal(restaurantId, cart, [
-      { menuItemId: pizza.id, name: pizza.name, price: 12 },
-    ]);
-    const refused = page.waitForResponse(
-      (r) => checkout.isQuote(r) && r.status() === 400,
-      { timeout: 30_000 }
-    );
-    const outside = (iso: string) => {
-      const m = localParts(tz, new Date(iso)).minuteOfDay;
-      return m < w!.startMinute || m >= w!.endMinute;
-    };
-    const slot = await checkout.chooseScheduledSlot(outside);
-    test.skip(!slot, "The storefront offers no slot outside the deal's window");
-    const res = await refused;
-    const err = (await res.json()) as { errorCode?: string; message?: string };
-    expect(err.errorCode).toBe("DEAL_NOT_AVAILABLE_AT_TIME");
-    await expect(checkout.dealTimeError()).toBeVisible();
-    await expect(checkout.dealTimeError()).toContainText(deal.name);
-    expect(
-      normalizeSpaces(await checkout.dealTimeError().innerText())
-    ).toContain(normalizeSpaces(err.message ?? ""));
-    await expect(checkout.changeTimeButton()).toBeVisible();
-    await checkout.removeDealButton().click();
-    await expect(deals.dealSummaryRow(deal.name)).toHaveCount(0);
-    await expect(checkout.dealTimeError()).toBeHidden();
-    await expect(checkout.proceedToPaymentButton()).toBeVisible();
+    try {
+      requireScheduling("wind", await windShipsScheduleUi(page, deal.name));
+      const checkout = createCustomerCheckoutPage(page);
+      const deals = createCustomerDealPage(page);
+      await checkout.seedCartWithDeal(restaurantId, cart, [
+        { menuItemId: pizza.id, name: pizza.name, price: 12 },
+      ]);
+      const refused = page.waitForResponse(
+        (r) => checkout.isQuote(r) && r.status() === 400,
+        { timeout: 30_000 }
+      );
+      const outside = (iso: string) => {
+        const m = localParts(tz, new Date(iso)).minuteOfDay;
+        return m < w!.startMinute || m >= w!.endMinute;
+      };
+      const slot = await checkout.chooseScheduledSlot(outside);
+      test.skip(
+        !slot,
+        "The storefront offers no slot outside the deal's window"
+      );
+      const res = await refused;
+      const err = (await res.json()) as {
+        errorCode?: string;
+        message?: string;
+      };
+      expect(err.errorCode).toBe("DEAL_NOT_AVAILABLE_AT_TIME");
+      await expect(checkout.dealTimeError()).toBeVisible();
+      await expect(checkout.dealTimeError()).toContainText(deal.name);
+      expect(
+        normalizeSpaces(await checkout.dealTimeError().innerText())
+      ).toContain(normalizeSpaces(err.message ?? ""));
+      await expect(checkout.changeTimeButton()).toBeVisible();
+      await checkout.removeDealButton().click();
+      await expect(deals.dealSummaryRow(deal.name)).toHaveCount(0);
+      await expect(checkout.dealTimeError()).toBeHidden();
+      await expect(checkout.proceedToPaymentButton()).toBeVisible();
+    } finally {
+      // Free the shared seed restaurant's cap slot right away, not in afterAll.
+      await deleteDealApi(await freshToken(), deal.id).catch(() => {}); // best effort; AUTO sweep backstops
+    }
   });
 
   test("TC-538: the Deals grid block shows each deal's real price, struck original, item names and schedule text — exactly what the page's own /active returned", async ({
@@ -777,74 +800,82 @@ test.describe("Deals → Storefront hand-off", () => {
       { validDays: DAY_NAMES.filter((d) => d !== farDay) }
     );
     dealIds.push(grid.id);
-    const title = `Automation Deals Grid ${runId}`;
-    const catering = (originalPages?.catering ?? {}) as Record<string, unknown>;
-    const put = await putBrandingAdminRaw(adminToken, restaurantId, {
-      restaurantPages: {
-        ...(originalPages ?? {}),
-        catering: {
-          ...catering,
-          blocks: [{ type: "deals_grid", data: { title } }],
-        },
-      },
-    });
-    expect(put.status, JSON.stringify(put.data)).toBe(200);
     try {
-      const deals = createCustomerDealPage(page);
-      const [activeRes] = await Promise.all([
-        page.waitForResponse(
-          (r) =>
-            new RegExp(`/api/deals/restaurant/${restaurantId}/active`).test(
-              r.url()
-            ) && r.request().method() === "GET",
-          { timeout: 30_000 }
-        ),
-        deals.gotoCateringPage(restaurantId),
-      ]);
-      const shown = (
-        ((await activeRes.json()) as { deals?: ApiDeal[] }).deals ?? []
-      ).slice(0, 3);
-      expect(
-        shown.length,
-        "our own ACTIVE deal guarantees at least one card"
-      ).toBeGreaterThan(0);
-      await expect(deals.dealsGridHeading(title)).toBeVisible({
-        timeout: 30_000,
+      const title = `Automation Deals Grid ${runId}`;
+      const catering = (originalPages?.catering ?? {}) as Record<
+        string,
+        unknown
+      >;
+      const put = await putBrandingAdminRaw(adminToken, restaurantId, {
+        restaurantPages: {
+          ...(originalPages ?? {}),
+          catering: {
+            ...catering,
+            blocks: [{ type: "deals_grid", data: { title } }],
+          },
+        },
       });
-      const first = deals.dealsGridCard(title, shown[0]!.name);
-      await expect(first).toBeVisible();
-      requireScheduling(
-        "wind",
-        (await first.innerText()).includes(
-          `$${shown[0]!.dealPrice!.toFixed(2)}`
-        )
-      );
-      for (const d of shown) {
-        const card = deals.dealsGridCard(title, d.name);
-        await expect(card).toBeVisible();
-        await expect(card).toContainText(`$${d.dealPrice!.toFixed(2)}`);
-        if ((d.originalPrice ?? 0) > (d.dealPrice ?? 0))
-          await expect(card).toContainText(`$${d.originalPrice!.toFixed(2)}`);
-        for (const item of d.items ?? [])
-          await expect(card).toContainText(`1x ${item.itemName}`);
-        const expected =
-          d.availableNow === false ? d.availabilityLabel : d.scheduleSummary;
-        if (expected)
-          expect(normalizeSpaces(await card.innerText())).toContain(
-            normalizeSpaces(expected)
-          );
-      }
-      if (!shown.some((d) => d.id === grid.id))
-        test.info().annotations.push({
-          type: "note",
-          description:
-            "our scheduled deal was not among the first 3 the block renders; schedule text checked on the cards it did render",
+      expect(put.status, JSON.stringify(put.data)).toBe(200);
+      try {
+        const deals = createCustomerDealPage(page);
+        const [activeRes] = await Promise.all([
+          page.waitForResponse(
+            (r) =>
+              new RegExp(`/api/deals/restaurant/${restaurantId}/active`).test(
+                r.url()
+              ) && r.request().method() === "GET",
+            { timeout: 30_000 }
+          ),
+          deals.gotoCateringPage(restaurantId),
+        ]);
+        const shown = (
+          ((await activeRes.json()) as { deals?: ApiDeal[] }).deals ?? []
+        ).slice(0, 3);
+        expect(
+          shown.length,
+          "our own ACTIVE deal guarantees at least one card"
+        ).toBeGreaterThan(0);
+        await expect(deals.dealsGridHeading(title)).toBeVisible({
+          timeout: 30_000,
         });
+        const first = deals.dealsGridCard(title, shown[0]!.name);
+        await expect(first).toBeVisible();
+        requireScheduling(
+          "wind",
+          (await first.innerText()).includes(
+            `$${shown[0]!.dealPrice!.toFixed(2)}`
+          )
+        );
+        for (const d of shown) {
+          const card = deals.dealsGridCard(title, d.name);
+          await expect(card).toBeVisible();
+          await expect(card).toContainText(`$${d.dealPrice!.toFixed(2)}`);
+          if ((d.originalPrice ?? 0) > (d.dealPrice ?? 0))
+            await expect(card).toContainText(`$${d.originalPrice!.toFixed(2)}`);
+          for (const item of d.items ?? [])
+            await expect(card).toContainText(`1x ${item.itemName}`);
+          const expected =
+            d.availableNow === false ? d.availabilityLabel : d.scheduleSummary;
+          if (expected)
+            expect(normalizeSpaces(await card.innerText())).toContain(
+              normalizeSpaces(expected)
+            );
+        }
+        if (!shown.some((d) => d.id === grid.id))
+          test.info().annotations.push({
+            type: "note",
+            description:
+              "our scheduled deal was not among the first 3 the block renders; schedule text checked on the cards it did render",
+          });
+      } finally {
+        // Restore exactly; an originally-null column is restored as {} (the backend ignores null; wind reads both the same).
+        await putBrandingAdminRaw(adminToken, restaurantId, {
+          restaurantPages: originalPages ?? {},
+        });
+      }
     } finally {
-      // Restore exactly; an originally-null column is restored as {} (the backend ignores null; wind reads both the same).
-      await putBrandingAdminRaw(adminToken, restaurantId, {
-        restaurantPages: originalPages ?? {},
-      });
+      // Free the shared seed restaurant's cap slot right away, not in afterAll.
+      await deleteDealApi(await freshToken(), grid.id).catch(() => {}); // best effort; AUTO sweep backstops
     }
   });
 });

@@ -648,26 +648,26 @@ test.describe("Owner — Deals API contract", () => {
     expect(vd.status).toBe(200);
     expect(vd.data.isValid).toBe(false);
 
-    await allure.step(
-      "restaurant-local fields (deal scheduling, Plan 1)",
-      async () => {
-        requireScheduling("backend", Boolean(tz));
-        expect(res.data.timeZone).toBe(tz);
-        expect(shown).toMatchObject({
-          availableNow: true,
-          scheduleSummary: null,
-          availabilityLabel: null,
-          startDate: null,
-          endDate: null,
-        });
-      }
-    );
-
     const none = await getActiveDealsPublic(
       "00000000-0000-4000-8000-000000000000"
     );
     expect(none.status).toBe(200);
     expect(none.data.deals).toEqual([]);
+  });
+
+  test("TC-542: public /active carries the restaurant's timeZone and null schedule text for an unrestricted deal (deal scheduling, Plan 1)", async () => {
+    requireScheduling("backend", Boolean(tz));
+    const plain = await seedDeal("PlainTz", 12, twoItems());
+    const res = await getActiveDealsPublic(restaurantId);
+    expect(res.status).toBe(200);
+    expect(res.data.timeZone).toBe(tz);
+    expect(res.data.deals!.find((d) => d.id === plain.id)).toMatchObject({
+      availableNow: true,
+      scheduleSummary: null,
+      availabilityLabel: null,
+      startDate: null,
+      endDate: null,
+    });
   });
 
   test("TC-332: 86'ing a required slot item hides the deal from /active; restoring brings it back", async () => {
