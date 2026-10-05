@@ -20,10 +20,19 @@ import {
   createDealApiCapSafe,
   deleteDealApi,
   getDealApi,
+  getActiveDealsPublic,
+  getRestaurantTimeZonePublic,
+  getBusinessHoursRaw,
   type ApiDeal,
   type ApiMenuItem,
 } from "../../utils/apiHelper";
 import { requireScheduling } from "../../utils/dealScheduleGate";
+import {
+  laterTodayWindow,
+  localDateKey,
+  mentionsClock,
+  openSpanOn,
+} from "../../utils/dealSchedule";
 
 /**
  * Ordering parity — deals on the embedded Lima storefront.
@@ -220,5 +229,55 @@ test.describe("Lima — deals", () => {
         expect(sent.sort()).toEqual(slots.map((s) => s.id).sort());
       }
     );
+  });
+
+  test("TC-L63: a deal that starts later today is listed on Lima with its schedule and 'Available from <time>'", async ({
+    page,
+  }) => {
+    const t = await freshToken();
+    const tz = await getRestaurantTimeZonePublic(restaurantId);
+    requireScheduling("backend", Boolean(tz));
+    const hours =
+      (await getBusinessHoursRaw(t, restaurantId)).data.businessHours ?? [];
+    const span = openSpanOn(hours, localDateKey(tz));
+    const w = span
+      ? laterTodayWindow(tz, { notBefore: span.open, notAfter: span.close })
+      : null;
+    test.skip(
+      !w,
+      "No hour-long window left in the seed restaurant's business hours today"
+    );
+    const later = await createDealApiCapSafe(
+      t,
+      restaurantId,
+      `AUTO Lima Later ${runId}`,
+      11,
+      [
+        { id: wrap.id, name: wrap.name, price: 9 },
+        { id: soup.id, name: soup.name, price: 5 },
+      ],
+      { validTimeStart: w!.start, validTimeEnd: w!.end }
+    );
+    dealIds.push(later.id);
+    const listed = (await getActiveDealsPublic(restaurantId)).data.deals?.find(
+      (d) => d.id === later.id
+    );
+    expect(listed?.availableNow).toBe(false);
+    const lima = createLimaStorefrontPage(page);
+    const deals = createLimaDealPage(page);
+    await lima.gotoMenu(restaurantSlug);
+    await expect(deals.dealCard(later.name)).toBeVisible({ timeout: 30_000 });
+    requireScheduling(
+      "lima",
+      (await deals.cardScheduleSummary(later.name).count()) > 0
+    );
+    // Lima sends no Accept-Language of its own: assert the times, not the words.
+    const label = await deals.cardAvailabilityLabel(later.name).innerText();
+    expect(mentionsClock(label, w!.start), label).toBe(true);
+    const summary = await deals.cardScheduleSummary(later.name).innerText();
+    expect(
+      mentionsClock(summary, w!.start) && mentionsClock(summary, w!.end),
+      summary
+    ).toBe(true);
   });
 });
