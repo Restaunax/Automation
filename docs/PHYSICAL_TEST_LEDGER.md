@@ -233,6 +233,29 @@ then delete this entry (or mark it done with the date) rather than letting it go
   it; then load one at a register by cash, redeem it at checkout, and void one load the same day.
   Card-vs-barcode mismatches or a non-scanning symbol block the batch, not the release.
 
+## 12. Deal schedules on the native apps
+
+- **What**: device-in-store, two different behaviours for a deal that isn't available right now:
+  - **POS (register)** — still SHOWS it (it lists with `includeUnavailable=1`); tapping it opens an
+    Alert with the deal's hours (`scheduleSummary` / "Available from …") instead of adding it.
+  - **Kiosk** — HIDES it; the deal only appears once it is available.
+
+  Both show `scheduleSummary` instead of "Limited availability" on the deals they list, refetch the
+  list every 5 minutes and on screen focus (so a 3–5 PM deal becomes usable at 3:00 without a
+  restart), and send `orderDeals[].items[].dealItemId` on ring-up. Restaunax-Owner's deal form uses
+  the native date/time pickers and shows the same summary + business-hours warning as the dashboard.
+
+- **Why it's physical**: all are React Native screens — no DOM for Playwright. The API contract
+  behind them is automated (TC-508..527, TC-539). The POS specs POST a hand-built body to
+  `/api/tablet/create-order`, so they cannot prove what the device itself sends (`dealItemId`).
+- **Procedure**: create a deal for a window starting 5 minutes from now in the restaurant's
+  timezone. On a **register**: it is listed; tapping it shows an Alert with its hours and adds
+  nothing; wait past the start, it adds and rings up without restarting the app. On a **kiosk**: the
+  deal is absent; wait past the start, it appears without a restart. For one ring-up, confirm the
+  create-order request in the device's debug network log carries `items[].dealItemId` for every deal
+  item (or that device-in-store's payload unit test covers it in the release build). In the owner
+  app, set Lunch + Mon–Fri and save; confirm the dashboard shows the same schedule.
+
 ## Known findings awaiting product fixes
 
 Not physical tests — these are real bugs discovered while building this arc's automation, recorded

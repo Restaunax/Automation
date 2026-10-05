@@ -173,9 +173,9 @@ Automation/
 │   │   │   ├── 08-payment-settings.spec.ts   # ✅ real (route mocks Stripe status/create for pre-connection + failure states)
 │   │   │   ├── 09-uber-settings.spec.ts      # ✅ real — Uber Eats delivery settings (owner-reachable, unlike publish/tax/loyalty)
 │   │   │   ├── 10-subscription.spec.ts       # ✅ real — Subscription/Billing page (permission-gated, not role-gated)
-│   │   │   ├── 11-deals.spec.ts              # ✅ real — Manage Deals table (rows/search/filter/sort/expand/toggle/delete/cap banners), Create/Edit form, Deal Analytics, AI smoke (TC-86/87, TC-351..364; TC-358 pin)
-│   │   │   ├── 18-chain-deals.spec.ts        # ✅ real — chain shell deals: Chain chip/rollup/View Analytics, member managed-at-chain-level, fan-out create (TC-365/366)
-│   │   │   ├── api-deals.spec.ts             # ✅ real — deals API contract on a per-run throwaway tenant: create math, qty-1 split, windows, /validate, /quote charge+upcharge, stats, bulk, chain, authz (TC-325..350; 8 🔴 pins)
+│   │   │   ├── 11-deals.spec.ts              # ✅ real — Manage Deals table (rows/search/filter/sort/expand/toggle/delete/cap banners), Create/Edit form, Deal Analytics, AI smoke (TC-86/87, TC-351..364 (TC-353 rewritten), TC-528..532, TC-540/541 deal scheduling; TC-358 pin)
+│   │   │   ├── 18-chain-deals.spec.ts        # ✅ real — chain shell deals: Chain chip/rollup/View Analytics, member managed-at-chain-level, fan-out create (TC-365/366, TC-523, TC-533/534)
+│   │   │   ├── api-deals.spec.ts             # ✅ real — deals API contract on a per-run throwaway tenant: create math, qty-1 split, windows, /validate, /quote charge+upcharge, stats, bulk, chain, authz (TC-325..350, TC-508..522 + TC-539 deal scheduling; 8 🔴 pins)
 │   │   │   ├── 20-supply-shop.spec.ts        # ✅ real — Print Shop (owner): product offered gift-cards-on-or-off, estimate range + place with NO charge, designStarted email + CTA, proof changes/approve (409 on stale), admin finalise → Awaiting payment + Pay link, cancel, on-behalf order (TC-446..455)
 │   │   │   ├── api-supply-shop.spec.ts       # ✅ real — owner supply-shop API contract: tier math + 25% spread, X-Restaurant-Id tenancy, search finds the gift card gift-cards-on-or-off, order list strips internals, proof/cancel refusals (TC-478..483)
 │   │   │   ├── 16-marketing-automations.spec.ts  # ✅ real — Automated Marketing tab: master + per-program opt-out, API-verified + self-restoring (needs OWNER creds)
@@ -190,13 +190,15 @@ Automation/
 │   │       ├── restaurant-management-access.spec.ts  # ✅ real — owner/employee/admin reach shared screens
 │   │       ├── role-restrictions.spec.ts             # ✅ real — OWNER denied publish/tax/loyalty
 │   │       └── unauthenticated-access.spec.ts        # ✅ real — zero-session visitor redirected to /sign-in from protected routes
-│   └── customer/                             # PROJECT: customer (baseURL = TEMPLATE_WIND_URL)
-│       ├── 01-menu-browsing.spec.ts          # ✅ real (POM: CustomerMenuPage)
-│       ├── 02-checkout.spec.ts               # ✅ real (POM: CustomerCheckoutPage)
-│       ├── 03-order-placement.spec.ts        # ✅ real — full Stripe checkout → Order Confirmed, incl. DECLINED-card negative
-│       ├── 06-deals.spec.ts                  # ✅ real — deal builder, incomplete deal blocks checkout, coupon ⊥ deal client guard (TC-195..197)
-│       ├── 06-menu-handoff.spec.ts           # ✅ real — owner menu action → storefront (TC-320..322)
-│       └── 08-deals-handoff.spec.ts          # ✅ real — owner deal → storefront: Today's Deals ↔ toggle, multi-slot builder + checkout + page /quote, upcharge, 86'd slot, PAID Stripe order → orderDeals/timesUsed (TC-367..371)
+│   ├── customer/                             # PROJECT: customer (baseURL = TEMPLATE_WIND_URL)
+│   │   ├── 01-menu-browsing.spec.ts          # ✅ real (POM: CustomerMenuPage)
+│   │   ├── 02-checkout.spec.ts               # ✅ real (POM: CustomerCheckoutPage)
+│   │   ├── 03-order-placement.spec.ts        # ✅ real — full Stripe checkout → Order Confirmed, incl. DECLINED-card negative
+│   │   ├── 06-deals.spec.ts                  # ✅ real — deal builder, incomplete deal blocks checkout, coupon ⊥ deal client guard (TC-195..197)
+│   │   ├── 06-menu-handoff.spec.ts           # ✅ real — owner menu action → storefront (TC-320..322)
+│   │   └── 08-deals-handoff.spec.ts          # ✅ real — owner deal → storefront: Today's Deals ↔ toggle, multi-slot builder + checkout + page /quote, upcharge, 86'd slot, PAID Stripe order → orderDeals/timesUsed (TC-367..371, TC-535..538)
+│   └── customer-lima/                        # PROJECT: customer-lima (embedded template-lima storefront)
+│       └── 13-deals.spec.ts                  # ✅ real — Lima deals render/build/checkout payload + later-today (TC-L60..L63)
 ├── pages/                                    # Page Object Models (factory functions)
 │   ├── dashboard/
 │   │   ├── auth/{SignInPage,SignUpPage}.ts   # ✅ real
@@ -235,7 +237,7 @@ real-price order, bumped past INITIALIZED), `createTabletDevice` / `tabletLogin`
 via the full POS auth chain (tablet JWT + `X-Staff-Session` + register
 session) — helpers: `setOwnerPosPin`, `tabletStaffSignIn`,
 `openRegisterSessionPos`, `createTabletOrderRaw`, the `settleTab*Raw` /
-`*TerminalIntentRaw` / `transferTabTableRaw` family. See `tests/pos/README.md`.
+`*TerminalIntentRaw` / `transferTabTableRaw` family. See `tests/pos/README.md`. `10-deals.spec.ts` (TC-524..527) covers deals at the POS — the `?channel=in_person` list and ring-up on an open check, with channel and schedule refusals.
 `tests/auth/` is an empty stub folder with no files yet.
 
 **Design principle:** the tree mirrors **app → role → feature** (how users
