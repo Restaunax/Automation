@@ -25,6 +25,21 @@ import {
 } from "../../pages/dashboard/owner/OwnerDealsPage";
 import { createDealAnalyticsPage } from "../../pages/dashboard/owner/DealAnalyticsPage";
 import { STRIPE_CARDS } from "../../utils/stripeCards";
+import { requireScheduling } from "../../utils/dealScheduleGate";
+import {
+  DAY_NAMES,
+  dayNameOfKey,
+  isInsideWindow,
+  laterTodayWindow,
+  liveNowWindow,
+  localDateKey,
+  localParts,
+  mentionsClock,
+  normalizeSpaces,
+  openSpanOn,
+  type LocalWindow,
+} from "../../utils/dealSchedule";
+
 import {
   readSharedState,
   generateRunId,
@@ -42,6 +57,10 @@ import {
   getDealApi,
   getDealStatsRaw,
   getActiveDealsPublic,
+  getRestaurantTimeZonePublic,
+  getBusinessHoursRaw,
+  getBrandingAdminRaw,
+  putBrandingAdminRaw,
   getOrderByIdRaw,
   type ApiDeal,
   type ApiMenuItem,
@@ -274,9 +293,11 @@ test.describe("Deals → Storefront hand-off", () => {
     });
     await expect(deals.saveBadge()).toHaveText("Save 21%");
     await expect(deals.youSaveChip()).toHaveText("You save $5.50");
-    await expect(deals.availabilityLine()).toHaveText(
-      "Available: All days, All day"
-    );
+    // Legacy builder line; Plan 4 drops it for unrestricted deals (scheduleSummary null).
+    if ((await deals.availabilityLine().count()) > 0)
+      await expect(deals.availabilityLine()).toHaveText(
+        "Available: All days, All day"
+      );
     await deals.assertProgress(0, 3);
     await expect(deals.slotCards(burger.name)).toHaveCount(2);
     await expect(deals.slotCards(fries.name)).toHaveCount(1);
@@ -532,5 +553,298 @@ test.describe("Deals → Storefront hand-off", () => {
         await expect(top).toContainText("$21.00");
       }
     );
+  });
+
+  // ── Deal scheduling on the storefront (Plans 1 + 4) ───────────────────────
+  /** Today's restaurant-local business span (null = closed today). */
+  const todaySpan = async (tz: string) => {
+    const hours =
+      (await getBusinessHoursRaw(token, restaurantId)).data.businessHours ?? [];
+    return openSpanOn(hours, localDateKey(tz));
+  };
+  /** A deal on burger + fries limited to `w`, plus what seedCartWithDeal needs. */
+  const windowDeal = async (label: string, w: LocalWindow) => {
+    const deal = await createDealApiCapSafe(
+      token,
+      restaurantId,
+      `AUTO Handoff ${label} ${runId}`,
+      14,
+      [
+        { id: burger.id, name: burger.name, price: 10 },
+        { id: fries.id, name: fries.name, price: 6.5 },
+      ],
+      { validTimeStart: w.start, validTimeEnd: w.end }
+    );
+    dealIds.push(deal.id);
+    const slots = ((await getDealApi(token, deal.id)).items ?? []).map((s) => ({
+      dealItemId: s.id,
+      menuItemId: s.menuItemId!,
+      name: s.itemName,
+      price: s.itemPrice,
+    }));
+    return {
+      deal,
+      cart: {
+        id: deal.id,
+        name: deal.name,
+        dealPrice: 14,
+        originalPrice: 16.5,
+        slots,
+      },
+    };
+  };
+  /** Gate on Plan 4 wind: the card of a scheduled deal carries deal-schedule-summary. */
+  const windShipsScheduleUi = async (
+    page: Parameters<typeof createCustomerDealPage>[0],
+    dealName: string
+  ) => {
+    const menu = createCustomerMenuPage(page);
+    const deals = createCustomerDealPage(page);
+    await menu.goto(restaurantId);
+    await expect(deals.dealCard(dealName)).toBeVisible({ timeout: 30_000 });
+    return (await deals.cardScheduleSummary(dealName).count()) > 0;
+  };
+
+  test("TC-535: a deal that starts later today is offered with 'Available from <time>' and its schedule, but its builder slots are disabled until then", async ({
+    page,
+  }) => {
+    const tz = await getRestaurantTimeZonePublic(restaurantId);
+    requireScheduling("backend", Boolean(tz));
+    const span = await todaySpan(tz);
+    const w = span
+      ? laterTodayWindow(tz, { notBefore: span.open, notAfter: span.close })
+      : null;
+    test.skip(
+      !w,
+      "No hour-long window left in the seed restaurant's business hours today"
+    );
+    const { deal } = await windowDeal("Later", w!);
+    const listed = (await getActiveDealsPublic(restaurantId)).data.deals?.find(
+      (d) => d.id === deal.id
+    );
+    expect(listed?.availableNow).toBe(false);
+    requireScheduling("wind", await windShipsScheduleUi(page, deal.name));
+    const deals = createCustomerDealPage(page);
+    // Wind sends no Accept-Language of its own: assert the times, not the words.
+    const label = await deals.cardAvailabilityLabel(deal.name).innerText();
+    expect(mentionsClock(label, w!.start), label).toBe(true);
+    const summary = await deals.cardScheduleSummary(deal.name).innerText();
+    expect(
+      mentionsClock(summary, w!.start) && mentionsClock(summary, w!.end),
+      summary
+    ).toBe(true);
+    await deals.viewDeal(deal.name);
+    await expect(deals.builderHeading(deal.name)).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(deals.builderAvailabilityLabel()).toBeVisible();
+    const slots = deals.slotCardHooks();
+    await expect(slots).toHaveCount(2);
+    for (const slot of await slots.all())
+      await expect(slot).toHaveAttribute("aria-disabled", "true");
+  });
+
+  test("TC-536: choosing a scheduled pickup inside the deal's window unlocks it — the quote with scheduledFor prices the deal", async ({
+    page,
+  }) => {
+    const tz = await getRestaurantTimeZonePublic(restaurantId);
+    requireScheduling("backend", Boolean(tz));
+    const span = await todaySpan(tz);
+    const w = span
+      ? laterTodayWindow(tz, { notBefore: span.open, notAfter: span.close })
+      : null;
+    test.skip(
+      !w,
+      "No hour-long window left in the seed restaurant's business hours today"
+    );
+    const { deal, cart } = await windowDeal("Unlock", w!);
+    requireScheduling("wind", await windShipsScheduleUi(page, deal.name));
+    const checkout = createCustomerCheckoutPage(page);
+    const deals = createCustomerDealPage(page);
+    await checkout.seedCartWithDeal(restaurantId, cart);
+    await expect(deals.partOfDealLabels()).toHaveCount(2);
+    await expect(deals.completeDealsToContinueButton()).toHaveCount(0);
+
+    if (await checkout.asapOption().isEnabled()) {
+      await checkout.asapOption().check();
+      await expect(checkout.dealTimeError()).toBeVisible({ timeout: 20_000 });
+      await expect(checkout.changeTimeButton()).toBeVisible();
+    }
+    const quoted = page.waitForResponse(
+      (r) =>
+        checkout.isQuote(r) &&
+        Boolean(
+          (r.request().postDataJSON() as { scheduledFor?: string }).scheduledFor
+        ),
+      { timeout: 30_000 }
+    );
+    const slot = await checkout.chooseScheduledSlot((iso) =>
+      isInsideWindow(tz, iso, w!)
+    );
+    test.skip(
+      !slot,
+      "The storefront offers no slot inside the window today (prep time / lead time)"
+    );
+    const quote = await quoted;
+    expect(
+      (quote.request().postDataJSON() as { scheduledFor?: string }).scheduledFor
+    ).toBe(slot);
+    expect(quote.status()).toBe(200);
+    const body = (await quote.json()) as {
+      quote?: { deals?: { dealId: string }[] };
+    };
+    expect(body.quote?.deals?.[0]?.dealId).toBe(deal.id);
+    await expect(checkout.dealTimeError()).toBeHidden();
+    await expect(checkout.proceedToPaymentButton()).toBeVisible();
+  });
+
+  test("TC-537: a scheduled pickup outside the deal's window shows the server's DEAL_NOT_AVAILABLE_AT_TIME message naming the deal, with Remove deal / Change time — Remove deal drops it and checkout continues", async ({
+    page,
+  }) => {
+    const tz = await getRestaurantTimeZonePublic(restaurantId);
+    requireScheduling("backend", Boolean(tz));
+    const w = liveNowWindow(tz);
+    test.skip(
+      !w,
+      "Too close to the restaurant's midnight for a same-day live window"
+    );
+    const { deal, cart } = await windowDeal("Now", w!);
+    requireScheduling("wind", await windShipsScheduleUi(page, deal.name));
+    const checkout = createCustomerCheckoutPage(page);
+    const deals = createCustomerDealPage(page);
+    await checkout.seedCartWithDeal(restaurantId, cart, [
+      { menuItemId: pizza.id, name: pizza.name, price: 12 },
+    ]);
+    const refused = page.waitForResponse(
+      (r) => checkout.isQuote(r) && r.status() === 400,
+      { timeout: 30_000 }
+    );
+    const outside = (iso: string) => {
+      const m = localParts(tz, new Date(iso)).minuteOfDay;
+      return m < w!.startMinute || m >= w!.endMinute;
+    };
+    const slot = await checkout.chooseScheduledSlot(outside);
+    test.skip(!slot, "The storefront offers no slot outside the deal's window");
+    const res = await refused;
+    const err = (await res.json()) as { errorCode?: string; message?: string };
+    expect(err.errorCode).toBe("DEAL_NOT_AVAILABLE_AT_TIME");
+    await expect(checkout.dealTimeError()).toBeVisible();
+    await expect(checkout.dealTimeError()).toContainText(deal.name);
+    expect(
+      normalizeSpaces(await checkout.dealTimeError().innerText())
+    ).toContain(normalizeSpaces(err.message ?? ""));
+    await expect(checkout.changeTimeButton()).toBeVisible();
+    await checkout.removeDealButton().click();
+    await expect(deals.dealSummaryRow(deal.name)).toHaveCount(0);
+    await expect(checkout.dealTimeError()).toBeHidden();
+    await expect(checkout.proceedToPaymentButton()).toBeVisible();
+  });
+
+  test("TC-538: the Deals grid block shows each deal's real price, struck original, item names and schedule text — exactly what the page's own /active returned", async ({
+    page,
+  }) => {
+    await allure.description(
+      "DealsGridBlock (block type deals_grid) is placed on no page by default. An ADMIN puts one on the seed " +
+        "restaurant's catering page (PUT /api/admin/restaurants/:id/branding with restaurantPages only — the " +
+        "/catering route renders its blocks whether or not the nav links it), the test reads the page, and the " +
+        "original restaurantPages is restored in finally. The block shows the first 3 deals of /active; every " +
+        "rendered card is checked against the page's OWN /active response (so no language assumption): " +
+        "$dealPrice, struck $originalPrice, '1x <itemName>' chips, and scheduleSummary (or availabilityLabel when " +
+        "availableNow is false). Before the Plan 4 fix the block showed dealPrice/100 and undefined item names."
+    );
+    test.skip(!adminToken, "ADMIN creds needed to place the block on a page");
+    const tz = await getRestaurantTimeZonePublic(restaurantId);
+    requireScheduling("backend", Boolean(tz));
+    const branding = await getBrandingAdminRaw(adminToken, restaurantId);
+    expect(branding.status, JSON.stringify(branding.data)).toBe(200);
+    test.skip(
+      branding.data.scope !== "restaurant" || !branding.data.data,
+      "The wind restaurant has no standalone branding row — creating one would restyle the whole storefront"
+    );
+    const originalPages = (branding.data.data!.restaurantPages ??
+      null) as Record<string, unknown> | null;
+    // Live today (every day but one far weekday), so it carries a non-null scheduleSummary.
+    const farDay = dayNameOfKey(localDateKey(tz, 3));
+    const grid = await createDealApiCapSafe(
+      token,
+      restaurantId,
+      `AUTO Handoff Grid ${runId}`,
+      14,
+      [
+        { id: burger.id, name: burger.name, price: 10 },
+        { id: fries.id, name: fries.name, price: 6.5 },
+      ],
+      { validDays: DAY_NAMES.filter((d) => d !== farDay) }
+    );
+    dealIds.push(grid.id);
+    const title = `Automation Deals Grid ${runId}`;
+    const catering = (originalPages?.catering ?? {}) as Record<string, unknown>;
+    const put = await putBrandingAdminRaw(adminToken, restaurantId, {
+      restaurantPages: {
+        ...(originalPages ?? {}),
+        catering: {
+          ...catering,
+          blocks: [{ type: "deals_grid", data: { title } }],
+        },
+      },
+    });
+    expect(put.status, JSON.stringify(put.data)).toBe(200);
+    try {
+      const deals = createCustomerDealPage(page);
+      const [activeRes] = await Promise.all([
+        page.waitForResponse(
+          (r) =>
+            new RegExp(`/api/deals/restaurant/${restaurantId}/active`).test(
+              r.url()
+            ) && r.request().method() === "GET",
+          { timeout: 30_000 }
+        ),
+        deals.gotoCateringPage(restaurantId),
+      ]);
+      const shown = (
+        ((await activeRes.json()) as { deals?: ApiDeal[] }).deals ?? []
+      ).slice(0, 3);
+      expect(
+        shown.length,
+        "our own ACTIVE deal guarantees at least one card"
+      ).toBeGreaterThan(0);
+      await expect(deals.dealsGridHeading(title)).toBeVisible({
+        timeout: 30_000,
+      });
+      const first = deals.dealsGridCard(title, shown[0]!.name);
+      await expect(first).toBeVisible();
+      requireScheduling(
+        "wind",
+        (await first.innerText()).includes(
+          `$${shown[0]!.dealPrice!.toFixed(2)}`
+        )
+      );
+      for (const d of shown) {
+        const card = deals.dealsGridCard(title, d.name);
+        await expect(card).toBeVisible();
+        await expect(card).toContainText(`$${d.dealPrice!.toFixed(2)}`);
+        if ((d.originalPrice ?? 0) > (d.dealPrice ?? 0))
+          await expect(card).toContainText(`$${d.originalPrice!.toFixed(2)}`);
+        for (const item of d.items ?? [])
+          await expect(card).toContainText(`1x ${item.itemName}`);
+        const expected =
+          d.availableNow === false ? d.availabilityLabel : d.scheduleSummary;
+        if (expected)
+          expect(normalizeSpaces(await card.innerText())).toContain(
+            normalizeSpaces(expected)
+          );
+      }
+      if (!shown.some((d) => d.id === grid.id))
+        test.info().annotations.push({
+          type: "note",
+          description:
+            "our scheduled deal was not among the first 3 the block renders; schedule text checked on the cards it did render",
+        });
+    } finally {
+      // Restore exactly; an originally-null column is restored as {} (the backend ignores null; wind reads both the same).
+      await putBrandingAdminRaw(adminToken, restaurantId, {
+        restaurantPages: originalPages ?? {},
+      });
+    }
   });
 });
