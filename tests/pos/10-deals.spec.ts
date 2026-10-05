@@ -19,6 +19,12 @@
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../fixtures/base";
 import { generateRunId } from "../../utils/testData";
+import { requireScheduling } from "../../utils/dealScheduleGate";
+import {
+  dayNameOfKey,
+  liveNowWindow,
+  localDateKey,
+} from "../../utils/dealSchedule";
 import {
   apiLogin,
   createSecondOwner,
@@ -28,6 +34,7 @@ import {
   permanentlyDeleteMenuItemApi,
   deleteTestMenuGroup,
   createDealApi,
+  getRestaurantTimeZonePublic,
   deleteDealApi,
   getActiveDealsPublic,
   createTabletDevice,
@@ -298,5 +305,57 @@ test.describe("POS — Deals", () => {
     expect(msg(res.data)).toBe(
       "This deal is not available for this type of order"
     );
+  });
+
+  test("TC-527: a deal outside its schedule is refused at the POS with DEAL_NOT_AVAILABLE_AT_TIME, judged on the restaurant's clock (a deal live in the restaurant's current window rings up)", async () => {
+    const tz = await getRestaurantTimeZonePublic(restaurantId);
+    requireScheduling("backend", Boolean(tz));
+    const offDay = dayNameOfKey(localDateKey(tz, 3));
+    const notToday = await createDealApi(
+      token,
+      restaurantId,
+      `AUTO POS OffDay ${runId}`,
+      14,
+      bundle(),
+      {
+        validDays: [offDay],
+      }
+    );
+    dealIds.push(notToday.id);
+    const refused = await ring(`Deals ${runId} 3`, notToday);
+    expect(refused.status, msg(refused.data)).toBe(400);
+    expect((refused.data as { errorCode?: string }).errorCode).toBe(
+      "DEAL_NOT_AVAILABLE_AT_TIME"
+    );
+    // The POS floor returns the code only — no details (DEAL_SCHEDULING.md → Quote and order).
+    expect((refused.data as { details?: unknown }).details).toBeUndefined();
+    expect(msg(refused.data)).toBe(
+      "One of the deals on this ticket isn't available right now. Remove it to continue."
+    );
+
+    const now = liveNowWindow(tz);
+    if (!now) {
+      test.info().annotations.push({
+        type: "note",
+        description:
+          "positive window control skipped — too close to the restaurant's midnight",
+      });
+      return;
+    }
+    const liveWindow = await createDealApi(
+      token,
+      restaurantId,
+      `AUTO POS LiveWindow ${runId}`,
+      14,
+      bundle(),
+      {
+        validDays: [dayNameOfKey(now.dateKey)],
+        validTimeStart: now.start,
+        validTimeEnd: now.end,
+      }
+    );
+    dealIds.push(liveWindow.id);
+    const ok = await ring(`Deals ${runId} 4`, liveWindow);
+    expect(ok.status, msg(ok.data)).toBe(201);
   });
 });
