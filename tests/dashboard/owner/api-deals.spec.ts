@@ -1250,6 +1250,167 @@ test.describe("Owner — Deals API contract", () => {
         200
       );
     });
+
+    const SCHEDULE_ERRORS = {
+      dateOrder: "The end date must be on or after the start date.",
+      sameStartEnd: "The start and end time can't be the same.",
+      invalidDays: "Choose valid days of the week.",
+      invalidDate: "Enter dates as YYYY-MM-DD.",
+      invalidOption:
+        "Choose an option from the list for audience, meal type and occasion.",
+    } as const;
+
+    test("TC-519: create and PUT reject bad schedules with plain messages and normalize good ones (all seven days → [], ISO date → its date, overnight + options kept)", async () => {
+      const k5 = localDateKey(tz, 5);
+      const k10 = localDateKey(tz, 10);
+      const cases: [string, Record<string, unknown>, string][] = [
+        [
+          "end before start",
+          { startDate: k10, endDate: k5 },
+          SCHEDULE_ERRORS.dateOrder,
+        ],
+        [
+          "start equals end",
+          { validTimeStart: "15:00", validTimeEnd: "15:00" },
+          SCHEDULE_ERRORS.sameStartEnd,
+        ],
+        [
+          "unknown weekday",
+          { validDays: ["FUNDAY"] },
+          SCHEDULE_ERRORS.invalidDays,
+        ],
+        ["US date", { startDate: "10/10/2026" }, SCHEDULE_ERRORS.invalidDate],
+        [
+          "impossible date",
+          { endDate: "2026-02-30" },
+          SCHEDULE_ERRORS.invalidDate,
+        ],
+        ["meal type", { mealType: "Brunch" }, SCHEDULE_ERRORS.invalidOption],
+        ["audience", { targetAudience: "Kids" }, SCHEDULE_ERRORS.invalidOption],
+        ["occasion", { occasion: "Birthday" }, SCHEDULE_ERRORS.invalidOption],
+      ];
+      for (const [label, extra, message] of cases) {
+        const res = await createDealRaw(token, restaurantId, {
+          name: `AUTO Invalid ${runId}`,
+          dealPrice: 9,
+          items: twoBody(),
+          ...extra,
+        });
+        if (res.data?.deal?.id) track(res.data.deal.id);
+        expect(res.status, `${label}: ${JSON.stringify(res.data)}`).toBe(400);
+        expect(msg(res.data), label).toBe(message);
+      }
+
+      const deal = await seedDeal("Patchable", 9, twoItems());
+      const badPut = await updateDealRaw(token, deal.id, {
+        startDate: k10,
+        endDate: k5,
+      });
+      expect(badPut.status).toBe(400);
+      expect(msg(badPut.data)).toBe(SCHEDULE_ERRORS.dateOrder);
+      const badOption = await updateDealRaw(token, deal.id, {
+        mealType: "Brunch",
+      });
+      expect(badOption.status).toBe(400);
+      expect(msg(badOption.data)).toBe(SCHEDULE_ERRORS.invalidOption);
+
+      const k3 = localDateKey(tz, 3);
+      const good = await createDealRaw(token, restaurantId, {
+        name: `AUTO Normalized ${runId}`,
+        dealPrice: 9,
+        items: twoBody(),
+        validDays: [
+          "SUNDAY",
+          "MONDAY",
+          "TUESDAY",
+          "WEDNESDAY",
+          "THURSDAY",
+          "FRIDAY",
+          "SATURDAY",
+        ],
+        validTimeStart: "22:00",
+        validTimeEnd: "02:00",
+        startDate: `${k3}T04:00:00.000Z`,
+        endDate: k10,
+        targetAudience: "Couples",
+        mealType: "Late Night",
+        occasion: "Weekend",
+      });
+      expect(good.status, JSON.stringify(good.data)).toBe(201);
+      track(good.data.deal!.id);
+      const row = (await getRestaurantDeals(token, restaurantId)).find(
+        (d) => d.id === good.data.deal!.id
+      )!;
+      expect(row).toMatchObject({
+        validDays: [],
+        validTimeStart: "22:00",
+        validTimeEnd: "02:00",
+        startDate: k3,
+        endDate: k10,
+        targetAudience: "Couples",
+        mealType: "Late Night",
+        occasion: "Weekend",
+      });
+    });
+
+    test("TC-520: bulk create (the AI generator's path) runs the same validation before writing anything, and keeps schedule + occasion on a valid deal", async () => {
+      const before = (await getRestaurantDeals(token, restaurantId)).length;
+      const bad = await bulkCreateDealsRaw(token, restaurantId, [
+        { name: `AUTO BulkOk ${runId}`, dealPrice: 9, items: twoBody() },
+        {
+          name: `AUTO BulkBad ${runId}`,
+          dealPrice: 9,
+          items: twoBody(),
+          mealType: "Brunch",
+        },
+      ]);
+      for (const d of bad.data.deals ?? []) track(d.id);
+      expect(bad.status, JSON.stringify(bad.data)).toBe(400);
+      expect(msg(bad.data)).toBe(SCHEDULE_ERRORS.invalidOption);
+      expect(
+        (await getRestaurantDeals(token, restaurantId)).length,
+        "nothing was written"
+      ).toBe(before);
+
+      const reversed = await bulkCreateDealsRaw(token, restaurantId, [
+        {
+          name: `AUTO BulkDates ${runId}`,
+          dealPrice: 9,
+          items: twoBody(),
+          startDate: localDateKey(tz, 10),
+          endDate: localDateKey(tz, 5),
+        },
+      ]);
+      for (const d of reversed.data.deals ?? []) track(d.id);
+      expect(reversed.status).toBe(400);
+      expect(msg(reversed.data)).toBe(SCHEDULE_ERRORS.dateOrder);
+
+      const good = await bulkCreateDealsRaw(token, restaurantId, [
+        {
+          name: `AUTO BulkSched ${runId}`,
+          dealPrice: 9,
+          items: twoBody(),
+          validDays: ["SATURDAY", "SUNDAY"],
+          validTimeStart: "11:00",
+          validTimeEnd: "14:00",
+          targetAudience: "Family",
+          mealType: "Lunch",
+          occasion: "Weekend",
+        },
+      ]);
+      expect(good.status, JSON.stringify(good.data)).toBe(201);
+      for (const d of good.data.deals ?? []) track(d.id);
+      const row = (await getRestaurantDeals(token, restaurantId)).find(
+        (d) => d.name === `AUTO BulkSched ${runId}`
+      )!;
+      expect([...(row.validDays ?? [])].sort()).toEqual(["SATURDAY", "SUNDAY"]);
+      expect(row).toMatchObject({
+        validTimeStart: "11:00",
+        validTimeEnd: "14:00",
+        mealType: "Lunch",
+        occasion: "Weekend",
+      });
+    });
   });
 
   // ── The 10-active cap (RestauNax #618: also enforced on create + PUT) ────────
