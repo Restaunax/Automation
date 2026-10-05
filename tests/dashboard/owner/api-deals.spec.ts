@@ -71,6 +71,9 @@ import {
   getActiveDealsPublic,
   getRestaurantTimeZonePublic,
   getMealPeriodsPublic,
+  getDealScheduleCheckRaw,
+  getBusinessHoursRaw,
+  setBusinessHoursApi,
   placeOrderRaw,
   setRestaurantPublishedApi,
   updateRestaurantSettingsApi,
@@ -85,6 +88,7 @@ import {
   deleteTestRestaurant,
   ensureTaxRate,
   type ApiDeal,
+  type BusinessHoursRow,
   type ApiMenuItem,
 } from "../../../utils/apiHelper";
 
@@ -1409,6 +1413,133 @@ test.describe("Owner — Deals API contract", () => {
         validTimeEnd: "14:00",
         mealType: "Lunch",
         occasion: "Weekend",
+      });
+    });
+
+    /** Mon–Sat 11:00–21:00, Friday until 02:00 (overnight), Sunday closed. */
+    const WEEK_HOURS: BusinessHoursRow[] = [
+      ...(
+        ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "SATURDAY"] as const
+      ).map((day) => ({
+        day,
+        openingTime: "11:00:00",
+        closingTime: "21:00:00",
+        isClosed: false,
+        is24Hours: false,
+      })),
+      {
+        day: "FRIDAY",
+        openingTime: "11:00:00",
+        closingTime: "02:00:00",
+        isClosed: false,
+        is24Hours: false,
+      },
+      {
+        day: "SUNDAY",
+        openingTime: null,
+        closingTime: null,
+        isClosed: true,
+        is24Hours: false,
+      },
+    ];
+
+    /** Run `body` with WEEK_HOURS set on the tenant; restore the rows it had (normally none). */
+    const withWeekHours = async (body: () => Promise<void>) => {
+      const original =
+        (await getBusinessHoursRaw(token, restaurantId)).data.businessHours ??
+        [];
+      await setBusinessHoursApi(token, restaurantId, WEEK_HOURS);
+      try {
+        await body();
+      } finally {
+        await setBusinessHoursApi(await freshToken(), restaurantId, original);
+      }
+    };
+    const check = async (q: Parameters<typeof getDealScheduleCheckRaw>[2]) => {
+      const res = await getDealScheduleCheckRaw(token, restaurantId, q);
+      expect(res.status, JSON.stringify(res.data)).toBe(200);
+      return res.data.data!;
+    };
+
+    test("TC-521: schedule-check warns about closed days and windows that START outside business hours, names the restaurant, and is quiet when no hours are set; bad days → 400", async () => {
+      await allure.description(
+        "GET /api/deals/restaurant/:id/schedule-check (warning-only; the owner may still save). Throwaway " +
+          "tenant: no hours → no warnings; with Mon–Sat 11–21 / Sun closed: Sun+Mon → one 'closed on Sun' warning, " +
+          "Mon 09:00–12:00 → one warning naming Mon, Any time → the Sunday warning. Hours restored in finally."
+      );
+      const original =
+        (await getBusinessHoursRaw(token, restaurantId)).data.businessHours ??
+        [];
+      if (original.length === 0) {
+        const none = await check({
+          validDays: ["SUNDAY"],
+          validTimeStart: "05:00",
+          validTimeEnd: "06:00",
+        });
+        expect(none.timeZone).toBe(tz);
+        expect(none.timeZoneLabel.length).toBeGreaterThan(0);
+        expect(none.warnings).toEqual([]);
+      }
+      await withWeekHours(async () => {
+        const closed = await check({ validDays: ["SUNDAY", "MONDAY"] });
+        expect(closed.warnings).toHaveLength(1);
+        expect(closed.warnings[0]!.restaurantId).toBe(restaurantId);
+        expect(closed.warnings[0]!.restaurantName.length).toBeGreaterThan(0);
+        expect(closed.warnings[0]!.message).toMatch(/closed/i);
+        expect(closed.warnings[0]!.message).toContain("Sun");
+
+        const early = await check({
+          validDays: ["MONDAY"],
+          validTimeStart: "09:00",
+          validTimeEnd: "12:00",
+        });
+        expect(early.warnings).toHaveLength(1);
+        expect(early.warnings[0]!.message).toContain("Mon");
+
+        const anyTime = await check({});
+        expect(anyTime.warnings.map((w) => w.message).join(" ")).toContain(
+          "Sun"
+        );
+
+        const bad = await getDealScheduleCheckRaw(token, restaurantId, {
+          validDays: ["FUNDAY"],
+        });
+        expect(bad.status).toBe(400);
+        expect(msg(bad.data)).toBe("Choose valid days of the week.");
+      });
+    });
+
+    test("TC-522: schedule-check does NOT warn when a window starts inside business hours — even when it runs past closing, or is an overnight window inside an overnight day", async () => {
+      await withWeekHours(async () => {
+        expect(
+          (
+            await check({
+              validDays: ["MONDAY"],
+              validTimeStart: "20:00",
+              validTimeEnd: "23:00",
+            })
+          ).warnings,
+          "runs past the 21:00 close but starts while open"
+        ).toEqual([]);
+        expect(
+          (
+            await check({
+              validDays: ["FRIDAY"],
+              validTimeStart: "22:00",
+              validTimeEnd: "01:00",
+            })
+          ).warnings,
+          "overnight inside Friday's 11:00–02:00"
+        ).toEqual([]);
+        expect(
+          (
+            await check({
+              validDays: ["MONDAY", "TUESDAY"],
+              validTimeStart: "12:00",
+              validTimeEnd: "14:00",
+            })
+          ).warnings
+        ).toEqual([]);
       });
     });
   });
