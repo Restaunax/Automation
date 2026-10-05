@@ -2,6 +2,18 @@ import { type Page, type Locator, expect } from "@playwright/test";
 import { createOwnerRestaurantManagementPage } from "./OwnerRestaurantManagementPage";
 
 /**
+ * Status text in the row's status cell. Before restaunax #898: the
+ * DealStatusBadge ("Active"/"Inactive"/"Expired"); since: the live-status chip
+ * ("Live now"/"Off"/"Ended", or the server's availabilityLabel when upcoming).
+ * Specs assert with these until the dashboard gate is enforced (Task 16 Step 9).
+ */
+export const DEAL_STATUS_TEXT = {
+  active: /^(Active|Live now)$/,
+  inactive: /^(Inactive|Off)$/,
+  expired: /^(Expired|Ended)$/,
+} as const;
+
+/**
  * Owner → Restaurant Management → Deals.
  *
  * Four deep-linkable tabs (PortalShell `?tab=`): `deals` (Manage Deals table,
@@ -167,12 +179,15 @@ export const createOwnerDealsPage = (page: Page) => {
     row(dealName).getByRole("button").first();
   const rowMenuButton = (dealName: string) =>
     row(dealName).getByRole("button").last();
-  /** Status badge text — the DealStatusBadge chip ("Active" / "Inactive" / "Expired"). */
   const rowStatusText = (dealName: string) =>
     row(dealName)
-      .getByRole("cell")
-      .filter({ has: page.getByRole("switch") })
-      .locator(".MuiChip-label")
+      .getByTestId("deal-live-status")
+      .or(
+        row(dealName)
+          .getByRole("cell")
+          .filter({ has: page.getByRole("switch") })
+          .locator(".MuiChip-label")
+      )
       .first();
   /** Tooltip title of the switch wrapper (Deactivate / Activate / Cannot toggle expired deals). */
   const rowSwitchTooltip = (dealName: string) =>

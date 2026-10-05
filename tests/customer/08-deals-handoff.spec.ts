@@ -19,7 +19,10 @@ import { createCustomerDealPage } from "../../pages/customer/CustomerDealPage";
 import { createCustomerItemModal } from "../../pages/customer/CustomerItemModal";
 import { createCustomerCheckoutPage } from "../../pages/customer/CustomerCheckoutPage";
 import { createCustomerOrderConfirmationPage } from "../../pages/customer/CustomerOrderConfirmationPage";
-import { createOwnerDealsPage } from "../../pages/dashboard/owner/OwnerDealsPage";
+import {
+  createOwnerDealsPage,
+  DEAL_STATUS_TEXT,
+} from "../../pages/dashboard/owner/OwnerDealsPage";
 import { createDealAnalyticsPage } from "../../pages/dashboard/owner/DealAnalyticsPage";
 import { STRIPE_CARDS } from "../../utils/stripeCards";
 import {
@@ -221,7 +224,7 @@ test.describe("Deals → Storefront hand-off", () => {
         const off = await dashboard.toggleStatus(combo.name);
         expect(off.status).toBe(200);
         await expect(dashboard.rowStatusText(combo.name)).toHaveText(
-          "Inactive"
+          DEAL_STATUS_TEXT.inactive
         );
         await menu.goto(restaurantId);
         await menu.assertPageLoaded();
