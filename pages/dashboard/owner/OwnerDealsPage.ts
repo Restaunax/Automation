@@ -28,7 +28,7 @@ export const DEAL_STATUS_TEXT = {
  * 11:00 - 14:00 Active Deactivate 0 times $0.00"); the first button in a row
  * expands it, the last opens the Edit/Delete menu; the status Switch is the
  * row's `role=switch` wrapped in a Tooltip whose title is "Deactivate" /
- * "Activate" / "Cannot toggle expired deals"; #deal-search, #status-filter
+ * "Activate" / "This deal has ended. Change its last day to turn it back on."; #deal-search, #status-filter
  * (MUI select → role=combobox), the shared Confirm dialog
  * (`role=dialog` "Delete this deal?"), snackbars as `role=alert` text.
  * See docs/DEALS_TAB_TEST_STRATEGY.md §2 "Selectors that exist today".
@@ -144,7 +144,7 @@ export const createOwnerDealsPage = (page: Page) => {
   };
   const statusFilter = () => page.locator("#status-filter");
   const selectStatusFilter = async (
-    label: "All Statuses" | "Active" | "Inactive" | "Expired"
+    label: "All Statuses" | "Live now" | "Coming up" | "Off" | "Ended"
   ) => {
     await statusFilter().click();
     await page.getByRole("option", { name: label, exact: true }).click();
@@ -313,6 +313,30 @@ export const createOwnerDealsPage = (page: Page) => {
       .drawer()
       .getByRole("button", { name: "Deals", exact: true, disabled: true });
 
+  /** DealsDashboard live-status chip (deal scheduling, Plan 2). */
+  const rowLiveStatus = (dealName: string) =>
+    row(dealName).getByTestId("deal-live-status");
+  /** Chain shell caption ("Times are in each location's local time."). */
+  const chainScheduleCaption = () =>
+    page.getByText(/each location's local time/i).first();
+  /** True once #898's live-status filter is deployed (has "Coming up"); closes the menu again. */
+  const hasLiveStatusFilter = async (): Promise<boolean> => {
+    await statusFilter().click();
+    const present = await page
+      .getByRole("option", { name: "All Statuses", exact: true })
+      .waitFor({ state: "visible", timeout: 5_000 })
+      .then(
+        async () =>
+          (await page
+            .getByRole("option", { name: "Coming up", exact: true })
+            .count()) > 0
+      )
+      // No menu within 5 s = the filter didn't open; report "not deployed" and let the gate decide.
+      .catch(() => false);
+    await page.keyboard.press("Escape");
+    return present;
+  };
+
   return {
     gotoTab,
     gotoChainTab,
@@ -330,6 +354,9 @@ export const createOwnerDealsPage = (page: Page) => {
     search,
     statusFilter,
     selectStatusFilter,
+    rowLiveStatus,
+    chainScheduleCaption,
+    hasLiveStatusFilter,
     sortBy,
     row,
     dataRows,

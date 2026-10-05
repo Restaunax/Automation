@@ -25,6 +25,7 @@ import {
   createOwnerDealsPage,
   DEAL_STATUS_TEXT,
 } from "../../../pages/dashboard/owner/OwnerDealsPage";
+import { createAiDealsGeneratorPage } from "../../../pages/dashboard/owner/AiDealsGeneratorPage";
 import { createDealFormPage } from "../../../pages/dashboard/owner/DealFormPage";
 import { createDealAnalyticsPage } from "../../../pages/dashboard/owner/DealAnalyticsPage";
 import { readSharedState, generateRunId } from "../../../utils/testData";
@@ -39,9 +40,12 @@ import {
   WEEKDAYS,
   formatClockEn,
   formatDateKeyEn,
+  formatInstantClockEn,
+  laterTodayWindow,
   localDateKey,
   minutesOf,
   normalizeSpaces,
+  openSpanOn,
 } from "../../../utils/dealSchedule";
 
 import {
@@ -341,35 +345,68 @@ test.describe("Owner — Deals", () => {
     await expect(dealsPage.row(N.plain)).toBeVisible();
   });
 
-  test("TC-353: the Status filter narrows to Active / Inactive / Expired; an expired row has a disabled switch with 'Cannot toggle expired deals'", async ({
+  test("TC-353: the Status filter narrows to Live now / Coming up / Off / Ended; an ended row's switch is disabled with 'This deal has ended…'", async ({
     ownerPage,
   }) => {
+    await allure.description(
+      "Rewritten for deal scheduling (restaunax #898): the options are live statuses — Live now, Coming up " +
+        "(LATER_TODAY + SCHEDULED), Off, Ended. The old Active / Inactive / Expired options and the 'Cannot toggle " +
+        "expired deals' tooltip are gone. A temporary deal starting three local days out covers Coming up."
+    );
     const dealsPage = createOwnerDealsPage(ownerPage);
     await dealsPage.gotoManageDeals(restaurantId);
-    await dealsPage.search(`AUTO Table`);
-    await dealsPage.selectStatusFilter("Inactive");
-    await expect(dealsPage.row(N.inactive)).toBeVisible();
-    await expect(dealsPage.row(N.restricted)).toBeVisible();
-    await expect(dealsPage.row(N.plain)).toHaveCount(0);
-    await expect(dealsPage.row(N.expired)).toHaveCount(0);
-    await dealsPage.selectStatusFilter("Expired");
-    await expect(dealsPage.row(N.expired)).toBeVisible();
-    await expect(dealsPage.row(N.plain)).toHaveCount(0);
-    await expect(dealsPage.rowSwitch(N.expired)).toBeDisabled();
-    await expect(dealsPage.rowSwitchTooltip(N.expired)).toHaveAttribute(
-      "aria-label",
-      "Cannot toggle expired deals"
+    requireScheduling("dashboard", await dealsPage.hasLiveStatusFilter());
+    const tz = await getRestaurantTimeZonePublic(restaurantId);
+    requireScheduling("backend", Boolean(tz));
+    const upcoming = await createDealApiCapSafe(
+      token,
+      restaurantId,
+      `AUTO Table Upcoming ${runId}`,
+      12,
+      two(),
+      {
+        startDate: localDateKey(tz, 3),
+      }
     );
-    await dealsPage.selectStatusFilter("Active");
-    await expect(dealsPage.row(N.plain)).toBeVisible();
-    await expect(dealsPage.row(N.inactive)).toHaveCount(0);
-    await expect(dealsPage.row(N.expired)).toHaveCount(0);
-    await expect(dealsPage.rowSwitchTooltip(N.plain)).toHaveAttribute(
-      "aria-label",
-      "Deactivate"
-    );
-    await dealsPage.selectStatusFilter("All Statuses");
-    await expect(dealsPage.row(N.inactive)).toBeVisible();
+    try {
+      await dealsPage.gotoManageDeals(restaurantId);
+      await dealsPage.search("AUTO Table");
+      await dealsPage.selectStatusFilter("Off");
+      await expect(dealsPage.row(N.inactive)).toBeVisible();
+      await expect(dealsPage.row(N.restricted)).toBeVisible();
+      await expect(dealsPage.row(N.plain)).toHaveCount(0);
+      await expect(dealsPage.row(N.expired)).toHaveCount(0);
+      await expect(dealsPage.row(upcoming.name)).toHaveCount(0);
+
+      await dealsPage.selectStatusFilter("Ended");
+      await expect(dealsPage.row(N.expired)).toBeVisible();
+      await expect(dealsPage.row(N.plain)).toHaveCount(0);
+      await expect(dealsPage.rowSwitch(N.expired)).toBeDisabled();
+      await expect(dealsPage.rowSwitchTooltip(N.expired)).toHaveAttribute(
+        "aria-label",
+        "This deal has ended. Change its last day to turn it back on."
+      );
+
+      await dealsPage.selectStatusFilter("Coming up");
+      await expect(dealsPage.row(upcoming.name)).toBeVisible();
+      await expect(dealsPage.row(N.plain)).toHaveCount(0);
+
+      await dealsPage.selectStatusFilter("Live now");
+      await expect(dealsPage.row(N.plain)).toBeVisible();
+      await expect(dealsPage.row(N.inactive)).toHaveCount(0);
+      await expect(dealsPage.row(N.expired)).toHaveCount(0);
+      await expect(dealsPage.row(upcoming.name)).toHaveCount(0);
+      await expect(dealsPage.rowSwitchTooltip(N.plain)).toHaveAttribute(
+        "aria-label",
+        "Deactivate"
+      );
+
+      await dealsPage.selectStatusFilter("All Statuses");
+      await expect(dealsPage.row(N.inactive)).toBeVisible();
+    } finally {
+      // Best-effort — the AUTO sweep in globalTeardown backstops a leftover.
+      await deleteDealApi(await freshToken(), upcoming.id).catch(() => {});
+    }
   });
 
   test("TC-354: sorting by Price and Savings orders the seeded rows by the server numbers", async ({
@@ -1159,6 +1196,229 @@ test.describe("Owner — Deals", () => {
         endDate: last,
       });
       expect(row.validTimeEnd ?? null).toBeNull();
+    });
+
+    test("TC-531: Manage Deals shows each deal's live status chip and schedule text; an ended deal's switch is disabled with an 'ended' tooltip", async ({
+      ownerPage,
+    }) => {
+      requireScheduling("backend", Boolean(tz));
+      const dealsPage = createOwnerDealsPage(ownerPage);
+      const hours =
+        (await getBusinessHoursRaw(token, restaurantId)).data.businessHours ??
+        [];
+      const span = openSpanOn(hours, localDateKey(tz));
+      const window = span
+        ? laterTodayWindow(tz, { notBefore: span.open, notAfter: span.close })
+        : null;
+      const startKey = localDateKey(tz, 3);
+      const temp: string[] = [];
+      try {
+        const scheduled = await createDealApiCapSafe(
+          token,
+          restaurantId,
+          `AUTO Chips Scheduled ${runId}`,
+          12,
+          two(),
+          {
+            startDate: startKey,
+          }
+        );
+        temp.push(scheduled.id);
+        const later = window
+          ? await createDealApiCapSafe(
+              token,
+              restaurantId,
+              `AUTO Chips Later ${runId}`,
+              12,
+              two(),
+              {
+                validTimeStart: window.start,
+                validTimeEnd: window.end,
+              }
+            )
+          : null;
+        if (later) temp.push(later.id);
+        const list =
+          (await getRestaurantDealsRaw(token, restaurantId)).data.deals ?? [];
+        const fromList = (id: string) => list.find((d) => d.id === id)!;
+
+        await dealsPage.gotoManageDeals(restaurantId);
+        requireScheduling(
+          "dashboard",
+          (await ownerPage.getByTestId("deal-live-status").count()) > 0
+        );
+        await dealsPage.setRowsPerPage(25);
+        const chip = async (name: string, expected: string | RegExp) => {
+          await dealsPage.search(name);
+          await expect(dealsPage.rowLiveStatus(name)).toHaveText(expected);
+        };
+        await chip(N.plain, "Live now");
+        await chip(N.inactive, "Off");
+        await chip(N.expired, "Ended");
+        await expect(dealsPage.rowSwitch(N.expired)).toBeDisabled();
+        await expect(dealsPage.rowSwitchTooltip(N.expired)).toHaveAttribute(
+          "aria-label",
+          "This deal has ended. Change its last day to turn it back on."
+        );
+        await expect(dealsPage.rowSwitch(N.expired)).toHaveAttribute(
+          "aria-label",
+          /ended/i
+        );
+        // The chip shows the server's resolved availabilityLabel ("Starts Oct 10",
+        // or "Available Saturday at 11:00 AM" when under a week away).
+        await chip(
+          scheduled.name,
+          normalizeSpaces(fromList(scheduled.id).availabilityLabel ?? "")
+        );
+        await expect(dealsPage.row(scheduled.name)).toContainText(
+          normalizeSpaces(fromList(scheduled.id).scheduleSummary ?? "")
+        );
+        await dealsPage.search(N.plain);
+        await expect(dealsPage.row(N.plain)).toContainText(
+          "Any time the store is open"
+        );
+        if (later) {
+          const at = new Date(fromList(later.id).nextAvailableAt!);
+          await dealsPage.search(later.name);
+          // Server text, e.g. "Available from 3:00 PM" (spec §3 as built).
+          expect(
+            normalizeSpaces(
+              await dealsPage.rowLiveStatus(later.name).innerText()
+            )
+          ).toBe(normalizeSpaces(fromList(later.id).availabilityLabel ?? ""));
+          expect(
+            normalizeSpaces(fromList(later.id).availabilityLabel ?? "")
+          ).toContain(formatInstantClockEn(tz, at));
+        } else {
+          test.info().annotations.push({
+            type: "note",
+            description:
+              "'Later today' chip not asserted — no hour left in today's business hours",
+          });
+        }
+      } finally {
+        const t = await freshToken();
+        // Best-effort — the AUTO sweep in globalTeardown backstops a leftover.
+        for (const id of temp) await deleteDealApi(t, id).catch(() => {});
+      }
+    });
+
+    test("TC-532: the AI generator unlocks meal type; (stubbed, never-paid) suggestion cards show their schedule; 'Edit before saving' asks 'Edit this suggestion?' and Edit opens Create Deal pre-filled", async ({
+      ownerPage,
+    }) => {
+      await allure.description(
+        "POST /api/deals/ai/generate/:id is PAID — it is intercepted with page.route and never reaches the " +
+          "backend (asserted: exactly one intercepted call). The job status poll is stubbed to 'completed' with TWO " +
+          "suggestions built from this run's real items — a Lunch one (Mon–Fri 11:00–14:00) and a Dinner one — so " +
+          "'Edit before saving' goes through the 'Edit this suggestion?' confirm. Nothing is created."
+      );
+      requireScheduling("backend", Boolean(tz));
+      const ai = createAiDealsGeneratorPage(ownerPage);
+      const form = createDealFormPage(ownerPage);
+      const dealsPage = createOwnerDealsPage(ownerPage);
+      const jobId = `auto-mock-${runId}`;
+      const suggestion = {
+        name: `AUTO AI Lunch ${runId}`,
+        description: "stubbed suggestion",
+        suggestedPrice: 14,
+        originalPrice: 16.5,
+        items: [itemA, itemB].map((i) => ({
+          menuItemId: i.id,
+          menuItemName: i.name,
+          menuItemPrice: i.price,
+          quantity: 1,
+        })),
+        targetAudience: "Family",
+        mealType: "Lunch",
+        occasion: "Everyday",
+        reasoning: "Weekday lunch combo",
+        validDays: [...WEEKDAYS],
+        validTimeStart: "11:00",
+        validTimeEnd: "14:00",
+      };
+      const second = {
+        ...suggestion,
+        name: `AUTO AI Dinner ${runId}`,
+        mealType: "Dinner",
+        reasoning: "Evening combo",
+        validDays: [],
+        validTimeStart: "17:00",
+        validTimeEnd: "22:00",
+      };
+      let generateCalls = 0;
+      await ownerPage.route(/\/api\/deals\/ai\/generate\//, async (route) => {
+        generateCalls += 1;
+        await route.fulfill({ json: { success: true, jobId } });
+      });
+      await ownerPage.route(new RegExp(`/api/jobs/${jobId}/status`), (route) =>
+        route.fulfill({
+          json: {
+            success: true,
+            data: {
+              status: "completed",
+              progress: 100,
+              result: {
+                deals: [suggestion, second],
+                menuItemCount: 3,
+                generatedCount: 2,
+              },
+            },
+          },
+        })
+      );
+
+      await dealsPage.gotoTab(restaurantId, "ai-deals");
+      await expect(ai.heading()).toBeVisible({ timeout: 15_000 });
+      for (const label of [
+        "Breakfast",
+        "Lunch",
+        "Dinner",
+        "Late Night",
+        "All Day",
+      ])
+        await expect(ai.radio(label)).toBeEnabled();
+      await ai.radio("Family").check();
+      await ai.radio("Mid-Range").check();
+      await ai.radio("Lunch").check();
+      await ai.generateButton().click();
+      await expect(ai.card(suggestion.name)).toBeVisible({ timeout: 30_000 });
+      requireScheduling(
+        "dashboard",
+        (await ai.cardSchedule(suggestion.name).count()) > 0
+      );
+      const shown = normalizeSpaces(
+        await ai.cardSchedule(suggestion.name).innerText()
+      );
+      expect(shown).toMatch(/Mon\s?[–-]\s?Fri/);
+      expect(shown).toMatch(/11:00 AM/);
+      expect(shown).toMatch(/2:00 PM/);
+      await expect(ai.card(second.name)).toBeVisible();
+
+      await ai.cardEdit(suggestion.name).click();
+      await expect(ai.editConfirmDialog()).toBeVisible();
+      await expect(ai.keepSuggestionsButton()).toBeVisible();
+      await ai.editConfirmButton().click();
+      await form.assertCreateMode();
+      await expect(form.nameInput()).toHaveValue(suggestion.name);
+      await expect(form.priceInput()).toHaveValue("14");
+      await expect(form.itemCard(itemA.name)).toBeVisible();
+      await expect(form.itemCard(itemB.name)).toBeVisible();
+      await form.assertChipSelected("lunch");
+      for (const d of WEEKDAYS) await form.assertDaySelected(d);
+      await expect(form.summaryLine()).toContainText(
+        "Mon–Fri, 11:00 AM–2:00 PM"
+      );
+      await form.cancelButton().click();
+
+      expect(
+        generateCalls,
+        "the paid generate endpoint was stubbed, never reached"
+      ).toBe(1);
+      expect(
+        (await getRestaurantDeals(await freshToken(), restaurantId)).some((d) =>
+          [suggestion.name, second.name].includes(d.name)
+        )
+      ).toBe(false);
     });
   });
 });
