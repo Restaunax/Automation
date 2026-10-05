@@ -36,8 +36,12 @@ import {
   addDaysToKey,
   atLocal,
   dayNameOfKey,
+  formatClockEn,
   formatDateKeyEn,
+  hhmm,
+  laterTodayWindow,
   localDateKey,
+  localParts,
   normalizeSpaces,
   shortDayEn,
 } from "../../../utils/dealSchedule";
@@ -130,6 +134,13 @@ test.describe("Owner — Deals API contract", () => {
   let tz = "";
   const twoItems = () =>
     [itemA, itemB].map((i) => ({ id: i.id, name: i.name, price: i.price }));
+  const twoBody = () =>
+    [itemA, itemB].map((i) => ({
+      menuItemId: i.id,
+      quantity: 1,
+      itemName: i.name,
+      itemPrice: i.price,
+    }));
   let groupId = "";
   const createdItemIds: string[] = [];
   const createdDealIds: string[] = [];
@@ -1087,6 +1098,157 @@ test.describe("Owner — Deals API contract", () => {
         if (!previous)
           await setRestaurantPublishedApi(adminToken, restaurantId, false);
       }
+    });
+  });
+
+  test.describe("schedule — owner list, cap and ended deals (restaunax Plan 1)", () => {
+    test.beforeEach(() => {
+      requireScheduling("backend", Boolean(tz));
+    });
+
+    test("TC-516: the owner list reports each deal's live status on the restaurant clock — LIVE, LATER_TODAY (with its start), SCHEDULED, ENDED, OFF — plus timeZone/timeZoneLabel and YYYY-MM-DD dates", async () => {
+      const live = await seedDeal("Live", 12, twoItems());
+      const later = laterTodayWindow(tz);
+      const laterDeal = later
+        ? await seedDeal("Later", 12, twoItems(), {
+            validTimeStart: later.start,
+            validTimeEnd: later.end,
+          })
+        : null;
+      const startKey = localDateKey(tz, 3);
+      const scheduled = await seedDeal("Scheduled", 12, twoItems(), {
+        startDate: startKey,
+      });
+      const endedKey = localDateKey(tz, -2);
+      const ended = await seedDeal("Ended", 12, twoItems(), {
+        endDate: endedKey,
+      });
+      const off = await seedDeal("Off", 12, twoItems());
+      expect((await setDealStatusRaw(token, off.id, "INACTIVE")).status).toBe(
+        200
+      );
+
+      const res = await getRestaurantDealsRaw(token, restaurantId);
+      expect(res.status).toBe(200);
+      expect(res.data.timeZone).toBe(tz);
+      expect((res.data.timeZoneLabel ?? "").length).toBeGreaterThan(0);
+      const byId = (id: string) => res.data.deals!.find((d) => d.id === id)!;
+      expect(byId(live.id)).toMatchObject({
+        liveStatus: "LIVE",
+        scheduleSummary: null,
+        availabilityLabel: null,
+      });
+      if (laterDeal && later) {
+        const l = byId(laterDeal.id);
+        expect(l.liveStatus).toBe("LATER_TODAY");
+        expect(l.nextAvailableAt).toBe(atLocal(tz, later.dateKey, later.start));
+        expect(normalizeSpaces(l.availabilityLabel ?? "")).toBe(
+          `Available from ${formatClockEn(later.start)}`
+        );
+      } else {
+        test.info().annotations.push({
+          type: "note",
+          description:
+            "LATER_TODAY not asserted — less than an hour left in the restaurant's day",
+        });
+      }
+      expect(byId(scheduled.id)).toMatchObject({
+        liveStatus: "SCHEDULED",
+        startDate: startKey,
+      });
+      expect(normalizeSpaces(byId(scheduled.id).scheduleSummary ?? "")).toBe(
+        `From ${formatDateKeyEn(startKey)}`
+      );
+      expect(byId(ended.id)).toMatchObject({
+        liveStatus: "ENDED",
+        computedStatus: "EXPIRED",
+        status: "ACTIVE",
+        endDate: endedKey,
+      });
+      expect(byId(off.id).liveStatus).toBe("OFF");
+    });
+
+    test("TC-517: a deal whose end date has passed does not take one of the 10 active slots — ten live deals still fit beside it, the eleventh is refused; a deal on its last day whose window is over is ENDED but still holds a slot", async () => {
+      const activeCount = async () =>
+        (await getActiveDealsCountRaw(token, restaurantId)).data
+          .activeDealsCount ?? 0;
+      const ended = await seedDeal("CapEnded", 9, twoItems(), {
+        endDate: localDateKey(tz, -2),
+      });
+      expect(ended.status).toBe("ACTIVE");
+      expect(await activeCount(), "a date-ended deal frees its slot").toBe(0);
+
+      await allure.step(
+        "last day, window already over → ENDED, but the slot frees only after the date (DEAL_SCHEDULING.md rule 4)",
+        async () => {
+          const now = localParts(tz);
+          const endMinute = Math.floor((now.minuteOfDay - 15) / 15) * 15;
+          const startMinute = endMinute - 60;
+          if (startMinute < 0) {
+            test.info().annotations.push({
+              type: "note",
+              description:
+                "too early in the restaurant's day for a window that is already over",
+            });
+            return;
+          }
+          const lastDay = await seedDeal("LastDayOver", 9, twoItems(), {
+            endDate: now.dateKey,
+            validTimeStart: hhmm(startMinute),
+            validTimeEnd: hhmm(endMinute),
+          });
+          const row = (
+            await getRestaurantDealsRaw(token, restaurantId)
+          ).data.deals!.find((d) => d.id === lastDay.id)!;
+          expect(row.liveStatus).toBe("ENDED");
+          expect(
+            await activeCount(),
+            "still holds a slot until its local end date passes"
+          ).toBe(1);
+          expect((await deleteDealRaw(token, lastDay.id)).status).toBe(200);
+        }
+      );
+
+      for (let i = 0; i < 10; i++)
+        await seedDeal(`Cap live #${i + 1}`, 9, twoItems());
+      const over = await createDealRaw(token, restaurantId, {
+        name: `AUTO Cap overflow ${runId}`,
+        dealPrice: 9,
+        items: twoBody(),
+      });
+      if (over.data?.deal?.id) track(over.data.deal.id);
+      expect(over.status, JSON.stringify(over.data)).toBe(400);
+      expect(over.data as { error?: string }).toMatchObject({
+        error: "MAX_ACTIVE_DEALS_REACHED",
+      });
+    });
+
+    test("TC-518: an ended deal cannot be switched back on (PATCH or PUT → 400 DEAL_ENDED) until its end date moves", async () => {
+      const deal = await seedDeal("EndedOff", 9, twoItems(), {
+        endDate: localDateKey(tz, -2),
+      });
+      expect((await setDealStatusRaw(token, deal.id, "INACTIVE")).status).toBe(
+        200
+      );
+      const on = await setDealStatusRaw(token, deal.id, "ACTIVE");
+      expect(on.status).toBe(400);
+      expect((on.data as { errorCode?: string }).errorCode).toBe("DEAL_ENDED");
+      expect(msg(on.data)).toBe(
+        "This deal has ended. Change its end date to turn it back on."
+      );
+      const put = await updateDealRaw(token, deal.id, { status: "ACTIVE" });
+      expect(put.status).toBe(400);
+      expect((put.data as { errorCode?: string }).errorCode).toBe("DEAL_ENDED");
+      expect(msg(put.data)).toBe(
+        "This deal has ended. Change its end date to turn it back on."
+      );
+      const moved = await updateDealRaw(token, deal.id, {
+        endDate: localDateKey(tz, 5),
+      });
+      expect(moved.status, JSON.stringify(moved.data)).toBe(200);
+      expect((await setDealStatusRaw(token, deal.id, "ACTIVE")).status).toBe(
+        200
+      );
     });
   });
 
