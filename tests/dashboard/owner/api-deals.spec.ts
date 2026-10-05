@@ -26,7 +26,11 @@
 
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
-import { readSharedState, generateRunId } from "../../../utils/testData";
+import {
+  readSharedState,
+  generateRunId,
+  generateSeedPhone,
+} from "../../../utils/testData";
 import { requireScheduling } from "../../../utils/dealScheduleGate";
 import {
   addDaysToKey,
@@ -63,6 +67,9 @@ import {
   getActiveDealsPublic,
   getRestaurantTimeZonePublic,
   getMealPeriodsPublic,
+  placeOrderRaw,
+  setRestaurantPublishedApi,
+  updateRestaurantSettingsApi,
   validateDealPublic,
   getAiDealQuestionsPublic,
   createChainDealRaw,
@@ -948,6 +955,138 @@ test.describe("Owner — Deals API contract", () => {
         at: new Date(Date.now() + 29 * 86_400_000).toISOString(),
       });
       expect(far.status).toBe(200);
+    });
+
+    test("TC-514: /quote judges a deal at scheduledFor — 400 DEAL_NOT_AVAILABLE_AT_TIME with the deal, its schedule and next start before the window, 200 inside it; ASAP is judged now", async () => {
+      await allure.description(
+        "Deal = D's weekday only, 15:00–17:00. scheduledFor D 12:00 → 400 errorCode DEAL_NOT_AVAILABLE_AT_TIME, " +
+          "details {dealId, dealName, scheduleSummary '<Day> · 3:00 PM–5:00 PM', nextAvailableAt D 15:00}. " +
+          "scheduledFor D 15:30 → 200 at the deal price. No scheduledFor (ASAP) → judged now; D is never today → 400."
+      );
+      const day = dayNameOfKey(D);
+      const deal = await seedDeal("HappyHour", 12, twoItems(), {
+        validDays: [day],
+        validTimeStart: "15:00",
+        validTimeEnd: "17:00",
+      });
+      const body = {
+        orderItems: [],
+        orderDeals: [
+          {
+            dealId: deal.id,
+            quantity: 1,
+            items: [
+              { menuItemId: itemA.id, quantity: 1 },
+              { menuItemId: itemB.id, quantity: 1 },
+            ],
+          },
+        ],
+      };
+      const summary = `${shortDayEn(day)} · 3:00 PM–5:00 PM`;
+      const early = await quoteOrderRaw(restaurantId, {
+        ...body,
+        scheduledFor: at(D, "12:00"),
+      });
+      expect(early.status, JSON.stringify(early.data)).toBe(400);
+      expect(early.data.errorCode).toBe("DEAL_NOT_AVAILABLE_AT_TIME");
+      expect(early.data.details).toEqual({
+        dealId: deal.id,
+        dealName: deal.name,
+        scheduleSummary: summary,
+        nextAvailableAt: at(D, "15:00"),
+      });
+      const message = normalizeSpaces(early.data.message ?? "");
+      expect(message).toContain(deal.name);
+      expect(message).toContain(summary);
+
+      const inside = await quoteOrderRaw(restaurantId, {
+        ...body,
+        scheduledFor: at(D, "15:30"),
+      });
+      expect(inside.status, JSON.stringify(inside.data)).toBe(200);
+      expect(inside.data.quote?.deals?.[0]).toMatchObject({
+        dealId: deal.id,
+        dealPrice: 12,
+        lineTotal: 12,
+      });
+
+      const asap = await quoteOrderRaw(restaurantId, body);
+      expect(
+        asap.status,
+        "ASAP is judged now — D is never the restaurant's today"
+      ).toBe(400);
+      expect(asap.data.errorCode).toBe("DEAL_NOT_AVAILABLE_AT_TIME");
+    });
+
+    test("TC-515: placing a scheduled order with a deal outside its window is refused with DEAL_NOT_AVAILABLE_AT_TIME; the same order inside the window is accepted", async () => {
+      await allure.description(
+        "POST /api/order/new/restaurantId/:id (the storefront checkout) with scheduledFor. The tenant is published " +
+          "and accepting orders for this test only (unpublished stores refuse every order) and has no business " +
+          "hours (= always open). The accepted control leaves one INITIALIZED (unpaid) order on the throwaway tenant."
+      );
+      const day = dayNameOfKey(D);
+      const deal = await seedDeal("Scheduled", 12, twoItems(), {
+        validDays: [day],
+        validTimeStart: "15:00",
+        validTimeEnd: "17:00",
+      });
+      adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
+      const { previous } = await setRestaurantPublishedApi(
+        adminToken,
+        restaurantId,
+        true
+      );
+      await updateRestaurantSettingsApi(token, restaurantId, {
+        acceptingOrders: true,
+      });
+      const orderBody = (scheduledFor: string) => ({
+        orderType: "PICKUP",
+        subtotal: 12,
+        tax: 0.96,
+        deliveryFee: 0,
+        tip: 0,
+        total: 12.96,
+        customerEmail: `deal-sched-${runId}@restaunax-test.com`,
+        customerPhone: generateSeedPhone(),
+        firstName: "Deal",
+        lastName: "Schedule",
+        orderItems: [],
+        orderDeals: [
+          {
+            dealId: deal.id,
+            dealName: deal.name,
+            dealPrice: 12,
+            quantity: 1,
+            items: [itemA, itemB].map((i) => ({
+              menuItemId: i.id,
+              menuItemName: i.name,
+              menuItemPrice: i.price,
+              quantity: 1,
+            })),
+          },
+        ],
+        scheduledFor,
+      });
+      try {
+        const refused = await placeOrderRaw(
+          restaurantId,
+          orderBody(at(D, "12:00"))
+        );
+        expect(refused.status, JSON.stringify(refused.data)).toBe(400);
+        expect(refused.data.errorCode).toBe("DEAL_NOT_AVAILABLE_AT_TIME");
+        expect(refused.data.details).toMatchObject({
+          dealId: deal.id,
+          nextAvailableAt: at(D, "15:00"),
+        });
+        const placed = await placeOrderRaw(
+          restaurantId,
+          orderBody(at(D, "15:30"))
+        );
+        expect(placed.ok, JSON.stringify(placed.data)).toBe(true);
+      } finally {
+        if (!previous)
+          await setRestaurantPublishedApi(adminToken, restaurantId, false);
+      }
     });
   });
 
