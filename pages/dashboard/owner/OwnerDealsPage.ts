@@ -2,15 +2,14 @@ import { type Page, type Locator, expect } from "@playwright/test";
 import { createOwnerRestaurantManagementPage } from "./OwnerRestaurantManagementPage";
 
 /**
- * Status text in the row's status cell. Before restaunax #898: the
- * DealStatusBadge ("Active"/"Inactive"/"Expired"); since: the live-status chip
- * ("Live now"/"Off"/"Ended", or the server's availabilityLabel when upcoming).
- * Specs assert with these until the dashboard gate is enforced (Task 16 Step 9).
+ * Status text in the row's status cell: the live-status chip ("Live now" /
+ * "Off" / "Ended", or the server's availabilityLabel when upcoming), since
+ * restaunax #898.
  */
 export const DEAL_STATUS_TEXT = {
-  active: /^(Active|Live now)$/,
-  inactive: /^(Inactive|Off)$/,
-  expired: /^(Expired|Ended)$/,
+  active: /^Live now$/,
+  inactive: /^Off$/,
+  expired: /^Ended$/,
 } as const;
 
 /**

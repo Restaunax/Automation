@@ -11,11 +11,11 @@ import { test, expect } from "../fixtures/base";
 
 export const SCHEDULING_ON_QA = {
   /** restaunax Plan 1 — /active carries `timeZone`. */
-  backend: false,
+  backend: true,
   /** restaunax Plan 2 — the deal form has the schedule section. */
-  dashboard: false,
+  dashboard: true,
   /** Plan 4 — template-wind renders deal-schedule-summary. */
-  wind: false,
+  wind: true,
   /** Plan 4 — template-lima renders deal-schedule-summary + sends dealItemId. */
   lima: false,
 };
