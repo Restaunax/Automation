@@ -6555,6 +6555,39 @@ export function payrollProviderRaw<T = { data?: LooseJson }>(
   );
 }
 
+/** R2 sales tax routes: `/api/tax/:rid{path}` (core — no add-on). */
+export function taxRaw<T = { data?: LooseJson }>(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/api/tax/${restaurantId}${path}`,
+    body,
+    ownerToken
+  );
+}
+
+/** R1 report routes: `/api/reports/:rid{path}` (core — no add-on). CSV
+ *  endpoints answer text, which arrives as the raw body string. */
+export function reportsRaw<T = LooseJson>(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/api/reports/${restaurantId}${path}`,
+    body,
+    ownerToken
+  );
+}
+
 /** Any POS call: `/api/tablet{path}` with the device token, plus the
  *  X-Staff-Session header when a staff session is given. */
 export function tabletRaw<T = LooseJson>(
