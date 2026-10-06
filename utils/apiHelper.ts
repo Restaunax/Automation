@@ -6586,6 +6586,22 @@ export function taxRaw<T = { data?: LooseJson; message?: string }>(
   );
 }
 
+/** A1 accounting routes: `/api/accounting/:rid{path}` (ACCOUNTING_SYNC). */
+export function accountingRaw<T = { data?: LooseJson; message?: string }>(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/api/accounting/${restaurantId}${path}`,
+    body,
+    ownerToken
+  );
+}
+
 /** R1 report routes: `/api/reports/:rid{path}` (core — no add-on). CSV
  *  endpoints answer text, which arrives as the raw body string. */
 export function reportsRaw<T = LooseJson>(
