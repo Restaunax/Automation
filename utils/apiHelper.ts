@@ -6289,3 +6289,174 @@ export function updateRestaurantSettingsRaw(
     accessToken
   );
 }
+
+// ── Back office: staff, jobs, scheduling, Restaunax Staff (T1) ───────────────
+//
+// Helpers for tests/dashboard/owner/api-staff-*.spec.ts. All raw (status +
+// body) so specs can assert refusals as well as successes. Owner routes are
+// gated by TIMECARDS (jobs) and SCHEDULING (shifts, requests) — grant them
+// with setFeatureOverrideAdminRaw first. Staff-app routes use the STAFF
+// member's own token (their RestauNax account, claimed from the invite).
+
+/** Owner invites a staff member by email (creates the staff row + sends the
+ *  "added to the team" email with the claim token). */
+export function inviteStaffRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: {
+    email: string;
+    firstName: string;
+    lastName: string;
+    staffRole?: string;
+  }
+): Promise<RawResponse<{ data?: { staffMemberId: string } }>> {
+  return apiRequestRaw(
+    "POST",
+    `/restaurant/${restaurantId}/staff/invite`,
+    body,
+    ownerToken
+  );
+}
+
+export function createStaffJobRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: { name: string; defaultHourlyRateCents: number; isTipped?: boolean }
+): Promise<RawResponse<{ data?: { id: string } }>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/staff/payroll/${restaurantId}/jobs`,
+    body,
+    ownerToken
+  );
+}
+
+export function setMemberJobsRaw(
+  ownerToken: string,
+  restaurantId: string,
+  staffMemberId: string,
+  jobs: { jobId: string; hourlyRateCents?: number; isPrimary?: boolean }[]
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "PUT",
+    `/api/staff/payroll/${restaurantId}/members/${staffMemberId}/jobs`,
+    { jobs },
+    ownerToken
+  );
+}
+
+export function getPayrollSettingsRaw(
+  ownerToken: string,
+  restaurantId: string
+): Promise<RawResponse<{ data?: Record<string, unknown> }>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/staff/payroll/${restaurantId}/settings`,
+    undefined,
+    ownerToken
+  );
+}
+
+export function putPayrollSettingsRaw(
+  ownerToken: string,
+  restaurantId: string,
+  patch: Record<string, unknown>
+): Promise<RawResponse<{ data?: Record<string, unknown> }>> {
+  return apiRequestRaw(
+    "PUT",
+    `/api/staff/payroll/${restaurantId}/settings`,
+    patch,
+    ownerToken
+  );
+}
+
+const scheduling = (restaurantId: string) =>
+  `/api/staff/scheduling/${restaurantId}`;
+
+export function createShiftRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: {
+    staffMemberId: string | null;
+    jobId: string;
+    startAt: string;
+    endAt: string;
+    breakMinutes?: number;
+    notes?: string;
+  }
+): Promise<RawResponse<{ data?: { shift: { id: string } } }>> {
+  return apiRequestRaw(
+    "POST",
+    `${scheduling(restaurantId)}/shifts`,
+    body,
+    ownerToken
+  );
+}
+
+export function publishScheduleRaw(
+  ownerToken: string,
+  restaurantId: string,
+  date: string,
+  notifyMode: "CHANGED" | "ALL" | "NONE" = "NONE"
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "POST",
+    `${scheduling(restaurantId)}/publish`,
+    { date, notifyMode },
+    ownerToken
+  );
+}
+
+/** The week containing `date`: shifts, availability, time off, warnings. */
+export function getScheduleWeekRaw(
+  ownerToken: string,
+  restaurantId: string,
+  date: string
+): Promise<RawResponse<{ data?: Record<string, unknown> }>> {
+  return apiRequestRaw(
+    "GET",
+    `${scheduling(restaurantId)}?date=${date}`,
+    undefined,
+    ownerToken
+  );
+}
+
+/** The manager's Requests inbox (time off, availability, shift changes). */
+export function getRequestsRaw(
+  token: string,
+  restaurantId: string,
+  status: "PENDING" | "DECIDED" = "PENDING"
+): Promise<RawResponse<{ data?: Record<string, unknown> }>> {
+  return apiRequestRaw(
+    "GET",
+    `${scheduling(restaurantId)}/requests?status=${status}`,
+    undefined,
+    token
+  );
+}
+
+export function decideRequestRaw(
+  ownerToken: string,
+  restaurantId: string,
+  kind: "time-off" | "availability" | "shift-change",
+  requestId: string,
+  approve: boolean,
+  note?: string
+): Promise<RawResponse<{ data?: Record<string, unknown> }>> {
+  return apiRequestRaw(
+    "POST",
+    `${scheduling(restaurantId)}/requests/${kind}/${requestId}/decide`,
+    { approve, note },
+    ownerToken
+  );
+}
+
+/** Any Restaunax Staff call, as the staff member (`/api/staff-app/...`). */
+export function staffAppRaw<T = { data?: unknown }>(
+  staffToken: string,
+  method: "GET" | "POST" | "PUT" | "DELETE",
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(method, `/api/staff-app${path}`, body, staffToken);
+}
