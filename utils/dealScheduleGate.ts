@@ -17,7 +17,7 @@ export const SCHEDULING_ON_QA = {
   /** Plan 4 — template-wind renders deal-schedule-summary. */
   wind: true,
   /** Plan 4 — template-lima renders deal-schedule-summary + sends dealItemId. */
-  lima: false,
+  lima: true,
 };
 
 export type SchedulingPart = keyof typeof SCHEDULING_ON_QA;
