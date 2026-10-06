@@ -14,12 +14,13 @@ to the central backend over REST.
 
 - **restaunax** — owner/admin dashboard (`restaunax-frontend`: React + Vite + MUI) + the central API (`restaunax-backend`: Node/Express/Prisma/Postgres) + docs. The backend is the single source every app calls.
 - **Restaunax-Owner** — owner mobile app (React Native + Expo Router): run a restaurant (or a chain) from a phone — the mobile counterpart of the dashboard's `restaurant/restaurantManagement` and chain shells, not the full admin app. Built out, not a skeleton: orders, menu, customers, analytics, billing/payouts, store operations, staff, jobs, marketing, menu TVs and owner settings, in both restaurant and chain scope. Screens gate on the backend entitlement set (`useHasFeature` / `FeatureGate`) — never on locally-derived rules. EN+ES.
+- **Restaunax-Staff** — employee mobile app "Restaunax Staff" (React Native + Expo Router): each employee's own shifts across every restaurant they work at, hours and tips per pay period; availability, time off, shift changes and pay stubs next. Signed in with the person's RestauNax user account (the staff invite links it to their staff record). EN+ES.
 - **restaunax-ordering-app** — customer mobile ordering app (React Native + Expo).
 - **device-in-store** — in-store POS / kiosk (React Native + Expo; Stripe Terminal + receipt printers).
 - **restaunax-web** — public marketing & SEO site (Next.js). Distinct from `restaunax-frontend` (the authed app).
 - **template-wind** — restaurant website template (Next.js + Tailwind; chain-aware, typed block system, branding config).
-- **template-lima** — alternate restaurant website template (React + Vite + MUI; block system, **no** branding config).
-- **restaunax-tv-display** + **restaunax-tv-shell** — in-store menu TV (Vite web app + Android/Fire TV Kotlin WebView kiosk shell).
+- **template-lima** — the **embedded ordering surface** (React + Vite + MUI): menu → cart → checkout → rewards for restaurants that keep their own website and embed an "Order Now" button. No landing-page block system; branding colours/fonts are applied.
+- **restaunax-tv-display** — in-store menu TV (Vite web app; the player is a Linux + Chromium kiosk). The old Android/Fire TV WebView shell, `restaunax-tv-shell`, is **archived** (2026-08-06, superseded) — reference only.
 - **Automation** ← _this repo_ — Playwright E2E suite for the whole platform (targets QA; the roles/routes reference lives in its CLAUDE.md).
 <!-- ecosystem:end -->
 
