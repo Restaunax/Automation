@@ -41,8 +41,11 @@ export const createCustomerDealPage = (page: Page) => {
     page.getByRole("heading", { name: "Today's Deals" });
   /**
    * The DealCard for a deal name — the innermost container that holds the
-   * name, the "View Deal" button AND the "Save X%" badge (the badge sits in
-   * the image header, above the p-5 body, so the body div alone is too small).
+   * name AND the "Save X%" badge (the badge sits in the image header, above
+   * the p-5 body, so the body div alone is too small). Do NOT also require the
+   * "View Deal" button: a deal that is not available now shows its
+   * availability label instead of the button, and requiring it widens the
+   * match to the whole grid (every deal's label and button).
    */
   const dealCard = (dealName: string) =>
     page
@@ -50,11 +53,19 @@ export const createCustomerDealPage = (page: Page) => {
       .filter({
         has: page.getByRole("heading", { name: dealName, exact: true }),
       })
-      .filter({ has: page.getByRole("button", { name: "View Deal" }) })
       .filter({ hasText: /Save \d+%/ })
       .last();
-  const viewDeal = (dealName: string) =>
-    dealCard(dealName).getByRole("button", { name: "View Deal" }).click();
+  /** Open the deal: its "View Deal" button, or — when the deal is not orderable now and has no button — the card itself. */
+  const viewDeal = async (dealName: string) => {
+    const button = dealCard(dealName).getByRole("button", {
+      name: "View Deal",
+    });
+    if ((await button.count()) > 0) await button.click();
+    else
+      await dealCard(dealName)
+        .getByRole("heading", { name: dealName, exact: true })
+        .click();
+  };
 
   // ── Builder ────────────────────────────────────────────────────────────────
   const builderHeading = (dealName: string) =>
