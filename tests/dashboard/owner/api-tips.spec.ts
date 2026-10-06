@@ -28,12 +28,11 @@ import {
   createSecondOwner,
   deleteTestRestaurant,
   setFeatureOverrideAdminRaw,
-  inviteStaffRaw,
   createStaffJobRaw,
   setMemberJobsRaw,
   payrollRaw,
   tipsRaw,
-  ownerStaffRaw,
+  tabletRaw,
   updateRestaurantSettingsApi,
   createMenuGroupNamed,
   createMenuItemFull,
@@ -50,7 +49,6 @@ import {
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
-const DOMAIN = process.env.TEST_EMAIL_DOMAIN ?? "demomailtrap.co";
 const TZ = "America/New_York";
 
 type Rec = Record<string, LooseJson>;
@@ -186,23 +184,40 @@ test.describe("Tips — pools, tip-outs, cash (API)", () => {
     });
     jobs.host = await job("Host", { isTipped: false });
 
+    const device = await createTabletDevice(
+      adminToken,
+      restaurantId,
+      `auto-tips-${runId}`
+    );
+    deviceId = device.id;
+    tabletToken = await tabletLogin(device.name, device.code);
+    const ownerMember = await setOwnerPosPin(ownerToken, restaurantId, "8462");
+    const ownerSession = await tabletStaffSignIn(
+      tabletToken,
+      ownerMember,
+      "8462"
+    );
+    // People are created on the POS (PIN-only, active at once): an emailed
+    // invite stays "pending" until the link is used, and a pending person
+    // can't sign in even with an owner-set PIN (see api-staff-hiring TC-618).
     const person = async (
       p: { id: string; pin: string },
       first: string,
       jobId: string
     ) => {
-      const r = await inviteStaffRaw(ownerToken, restaurantId, {
-        email: `auto-tips-${first.toLowerCase()}-${runId}@${DOMAIN}`,
-        firstName: first,
-        lastName: "Tipsy",
-      });
-      p.id = String(r.data.data?.staffMemberId);
+      const r = await tabletRaw<Rec>(
+        tabletToken,
+        "POST",
+        "/staff/manage",
+        { firstName: first, lastName: "Tipsy", pin: p.pin },
+        ownerSession
+      );
+      if (r.status !== 201)
+        throw new Error(`[api-tips] staff: ${JSON.stringify(r.data)}`);
+      p.id = String(r.data.data.id);
       await setMemberJobsRaw(ownerToken, restaurantId, p.id, [
         { jobId, isPrimary: true },
       ]);
-      await ownerStaffRaw(ownerToken, restaurantId, "POST", `/${p.id}/pin`, {
-        pin: p.pin,
-      });
     };
     await person(ana, "Ana", jobs.server);
     await person(cal, "Cal", jobs.server);
@@ -227,14 +242,6 @@ test.describe("Tips — pools, tip-outs, cash (API)", () => {
     await worked(ana.id, jobs.server, 130, 70);
     await worked(ben.id, jobs.busser, 130, 70);
     await worked(cal.id, jobs.server, 60, 20);
-
-    const device = await createTabletDevice(
-      adminToken,
-      restaurantId,
-      `auto-tips-${runId}`
-    );
-    deviceId = device.id;
-    tabletToken = await tabletLogin(device.name, device.code);
 
     // Ana and Cal open their checks before anyone holds the drawer.
     const openCheck = async (
@@ -271,12 +278,6 @@ test.describe("Tips — pools, tip-outs, cash (API)", () => {
     const calCheck = await openCheck(cal, "T2", 1);
 
     // The owner (Owner role) opens the drawer and settles both in cash.
-    const ownerMember = await setOwnerPosPin(ownerToken, restaurantId, "8462");
-    const ownerSession = await tabletStaffSignIn(
-      tabletToken,
-      ownerMember,
-      "8462"
-    );
     await openRegisterSessionPos(tabletToken, ownerSession, 100);
     const settle = async (
       check: { id: string; total: number },

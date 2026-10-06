@@ -579,4 +579,34 @@ test.describe("Hiring — invite, claim, job, role, staff app (API)", () => {
     );
     expect(list(jobs.data.data)[0]?.hourlyRateCents).toBe(1825);
   });
+
+  test("TC-618: an owner-set PIN lets an invited (not yet claimed) person sign in on the POS", async () => {
+    // PRODUCT BUG (found 2026-10-06): POST /restaurant/:rid/staff/:id/pin on a
+    // pending email invitee answers 200 "PIN updated." but leaves the row
+    // unactivated (setStaffPinDirect never sets activatedAt), so the person is
+    // missing from the POS roster and /api/tablet/staff/sign-in answers 401
+    // "The PIN you entered is incorrect." — restaunax-backend
+    // src/Service/restaurantStaffService.ts setStaffPinDirect (~L1971) vs
+    // eligibleCandidateWhere (~L1360, activatedAt: { not: null }). Expected:
+    // either activate on an owner-set PIN (as POS-created staff are) or refuse
+    // the PIN with a clear message. Remove test.fail() once fixed.
+    test.fail();
+    const invited = await inviteStaffRaw(ownerToken, restaurantId, {
+      email: `auto-staff-pat-${runId}@${DOMAIN}`,
+      firstName: "Pat",
+      lastName: "Moss",
+    });
+    expect(invited.status).toBe(201);
+    const patId = String(invited.data.data?.staffMemberId);
+    const pin = await ownerStaffRaw(
+      ownerToken,
+      restaurantId,
+      "POST",
+      `/${patId}/pin`,
+      { pin: "7391" }
+    );
+    expect(pin.status, JSON.stringify(pin.data)).toBe(200);
+    const signIn = await tabletStaffSignInRaw(tabletToken, patId, "7391");
+    expect(signIn.status, JSON.stringify(signIn.data)).toBe(200);
+  });
 });

@@ -23,7 +23,6 @@ import {
   apiLogin,
   createSecondOwner,
   deleteTestRestaurant,
-  inviteStaffRaw,
   ownerStaffRaw,
   tabletRaw,
   updateRestaurantSettingsApi,
@@ -42,7 +41,6 @@ import {
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
-const DOMAIN = process.env.TEST_EMAIL_DOMAIN ?? "demomailtrap.co";
 
 type Rec = Record<string, LooseJson>;
 const list = (v: unknown) => (Array.isArray(v) ? (v as Rec[]) : []);
@@ -161,25 +159,6 @@ test.describe("Discount, comp and custom-item permissions on the POS (API)", () 
     for (const role of list(r.data.data))
       if (role.preset) roles[role.preset] = role;
 
-    const person = async (
-      p: { id: string; pin: string },
-      first: string,
-      preset: string
-    ) => {
-      const inv = await inviteStaffRaw(ownerToken, restaurantId, {
-        email: `auto-perm-${first.toLowerCase()}-${runId}@${DOMAIN}`,
-        firstName: first,
-        lastName: "Perm",
-        roleId: roles[preset]?.id,
-      });
-      p.id = String(inv.data.data?.staffMemberId);
-      await ownerStaffRaw(ownerToken, restaurantId, "POST", `/${p.id}/pin`, {
-        pin: p.pin,
-      });
-    };
-    await person(kim, "Kim", "STAFF");
-    await person(lou, "Lou", "SHIFT_LEAD");
-
     const device = await createTabletDevice(
       adminToken,
       restaurantId,
@@ -188,6 +167,38 @@ test.describe("Discount, comp and custom-item permissions on the POS (API)", () 
     deviceId = device.id;
     tabletToken = await tabletLogin(device.name, device.code);
     owner.id = await setOwnerPosPin(ownerToken, restaurantId, owner.pin);
+    const ownerSession = await tabletStaffSignIn(
+      tabletToken,
+      owner.id,
+      owner.pin
+    );
+    // Created on the POS: PIN-only staff are active at once (an emailed
+    // invite stays pending until its link is used — api-staff-hiring TC-618).
+    const person = async (
+      p: { id: string; pin: string },
+      first: string,
+      preset: string
+    ) => {
+      const r = await tabletRaw<Rec>(
+        tabletToken,
+        "POST",
+        "/staff/manage",
+        {
+          firstName: first,
+          lastName: "Perm",
+          pin: p.pin,
+          roleId: roles[preset]?.id,
+        },
+        ownerSession
+      );
+      if (r.status !== 201)
+        throw new Error(
+          `[api-discount-permissions] staff: ${JSON.stringify(r.data)}`
+        );
+      p.id = String(r.data.data.id);
+    };
+    await person(kim, "Kim", "STAFF");
+    await person(lou, "Lou", "SHIFT_LEAD");
     kim.session = await tabletStaffSignIn(tabletToken, kim.id, kim.pin);
     lou.session = await tabletStaffSignIn(tabletToken, lou.id, lou.pin);
     await policy(BASE_POLICY);

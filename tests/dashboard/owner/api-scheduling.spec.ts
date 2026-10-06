@@ -311,7 +311,7 @@ test.describe("Scheduling — build, cost, warn, publish, clock-in rule (API)", 
     });
     expect(notHeld.status).toBe(201);
     const notHeldId = String(notHeld.data.data?.shift.id);
-    // 04:00Z on d1 = midnight in Miami: 6h after her 22:00Z finish, next day.
+    // 04:00Z on d1 = midnight in Miami, the next local day.
     const early = await shift(
       dee.staffMemberId,
       at(d1, "04:00"),
@@ -334,7 +334,8 @@ test.describe("Scheduling — build, cost, warn, publish, clock-in rule (API)", 
     expect(codes(w, "SHORT_REST")).toEqual([
       expect.objectContaining({
         staffMemberId: dee.staffMemberId,
-        restMinutes: 360,
+        // After the overlapping 20:00–23:00Z shift, not 22:00Z: 5 h.
+        restMinutes: 300,
       }),
     ]);
     // Each warning carries a message for the screen (text, not a key).
