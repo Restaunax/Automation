@@ -121,6 +121,12 @@ Helpers live in `utils/apiHelper.ts`: `createSeededOrder`,
 3): `updateDeviceModeOwnerRaw`, `tabletStaffSignInRaw`,
 `getOrderStatisticsDetailRaw`.
 
+- **`10-deals.spec.ts` (TC-524..527)** — deals at the POS on a per-run throwaway tenant: the
+  in-store list is the public `/active?channel=in_person` (in-store + everywhere deals, never
+  online-only), a deal rings up on an open check (`orderDeals` on the order), an online-only deal
+  is refused at the counter, and — once deal scheduling (restaunax Plan 1) is on QA — a deal
+  outside its schedule is refused with `DEAL_NOT_AVAILABLE_AT_TIME` on the restaurant's clock.
+
 ## Gotchas worth knowing before adding more coverage here
 
 - **Device-pairing budget: a full run is already at 7 of the 10 `tabletLogin`

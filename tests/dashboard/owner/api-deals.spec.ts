@@ -26,7 +26,26 @@
 
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
-import { readSharedState, generateRunId } from "../../../utils/testData";
+import {
+  readSharedState,
+  generateRunId,
+  generateSeedPhone,
+} from "../../../utils/testData";
+import { requireScheduling } from "../../../utils/dealScheduleGate";
+import {
+  addDaysToKey,
+  atLocal,
+  dayNameOfKey,
+  formatClockEn,
+  formatDateKeyEn,
+  hhmm,
+  laterTodayWindow,
+  localDateKey,
+  localParts,
+  normalizeSpaces,
+  shortDayEn,
+} from "../../../utils/dealSchedule";
+
 import {
   apiLogin,
   createMenuGroupNamed,
@@ -50,6 +69,14 @@ import {
   getDealMenuItemsRaw,
   bulkCreateDealsRaw,
   getActiveDealsPublic,
+  getRestaurantTimeZonePublic,
+  getMealPeriodsPublic,
+  getDealScheduleCheckRaw,
+  getBusinessHoursRaw,
+  setBusinessHoursApi,
+  placeOrderRaw,
+  setRestaurantPublishedApi,
+  updateRestaurantSettingsApi,
   validateDealPublic,
   getAiDealQuestionsPublic,
   createChainDealRaw,
@@ -61,6 +88,7 @@ import {
   deleteTestRestaurant,
   ensureTaxRate,
   type ApiDeal,
+  type BusinessHoursRow,
   type ApiMenuItem,
 } from "../../../utils/apiHelper";
 
@@ -88,11 +116,6 @@ const DAY_NAMES = [
 ];
 /** A weekday that is NOT today in any timezone within ±24h of UTC (UTC + 3 days). */
 const farDay = () => DAY_NAMES[(new Date().getUTCDay() + 3) % 7]!;
-/** "HH:MM" twelve hours away from UTC-now — a 1-minute window that is never "now" on a UTC server. */
-const farHHMM = () => {
-  const d = new Date(Date.now() + 12 * 60 * 60 * 1000);
-  return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
-};
 
 test.describe("Owner — Deals API contract", () => {
   test.skip(
@@ -111,6 +134,17 @@ test.describe("Owner — Deals API contract", () => {
   let adminToken = "";
   /** The throwaway restaurant every deal in this file lives on. */
   let restaurantId = "";
+  /** The throwaway tenant's IANA zone as the backend resolves it; "" before Plan 1. */
+  let tz = "";
+  const twoItems = () =>
+    [itemA, itemB].map((i) => ({ id: i.id, name: i.name, price: i.price }));
+  const twoBody = () =>
+    [itemA, itemB].map((i) => ({
+      menuItemId: i.id,
+      quantity: 1,
+      itemName: i.name,
+      itemPrice: i.price,
+    }));
   let groupId = "";
   const createdItemIds: string[] = [];
   const createdDealIds: string[] = [];
@@ -231,6 +265,7 @@ test.describe("Owner — Deals API contract", () => {
         },
       ],
     });
+    tz = await getRestaurantTimeZonePublic(restaurantId);
   });
 
   test.afterAll(async () => {
@@ -427,7 +462,9 @@ test.describe("Owner — Deals API contract", () => {
       "Expired",
       8,
       [itemA, itemB].map((i) => ({ id: i.id, name: i.name, price: i.price })),
-      { endDate: daysFromNowIso(-1) }
+      // -2 days, not -1: since deal scheduling (Plan 1) "ended" means before the
+      // RESTAURANT's today; UTC-yesterday is still today in New York for ~4 h a day.
+      { endDate: daysFromNowIso(-2) }
     );
     const live = await seedDeal("Live", 8, [
       { id: itemA.id, name: itemA.name, price: itemA.price },
@@ -565,53 +602,39 @@ test.describe("Owner — Deals API contract", () => {
 
   // ── Public availability ────────────────────────────────────────────────────
 
-  test("TC-331: public /active lists only deals that are ACTIVE and inside every window (status, dates, weekday, HH:MM); unknown restaurant → 200 []", async () => {
+  test("TC-331: public /active lists only deals that are ACTIVE and inside their dates and weekday on the restaurant's calendar; unknown restaurant → 200 []", async () => {
     await allure.description(
-      "GET /api/deals/restaurant/:id/active is what the storefront renders. Six seeded deals: one plain " +
-        "(listed, with dealPrice/originalPrice/savings and slot items), one INACTIVE, one endDate yesterday, " +
-        "one startDate in 3 days, one validDays = a weekday 3 days from now, one 1-minute validTimeStart=End " +
-        "window 12 h away (server-local time) — the five restricted ones are absent. Empty validDays = all " +
-        "days; a single-sided time bound is ignored (validTimeStart only → still listed)."
+      "GET /api/deals/restaurant/:id/active is what the storefronts render. Rewritten for deal scheduling " +
+        "(restaunax Plan 1): each restricted deal is placed by a DATE or WEEKDAY that is wrong in every " +
+        "timezone (UTC ±2 days / UTC weekday +3), never by an HH:MM from the runner's clock — QA now judges " +
+        "windows on the restaurant clock and rejects start == end. HH:mm windows, overnight and date edges " +
+        "are TC-509..512."
     );
-    const two = [itemA, itemB].map((i) => ({
-      id: i.id,
-      name: i.name,
-      price: i.price,
-    }));
+    const two = twoItems();
     const plain = await seedDeal("Plain", 12, two);
     const inactive = await seedDeal("Inactive", 12, two);
     expect(
       (await setDealStatusRaw(token, inactive.id, "INACTIVE")).status
     ).toBe(200);
     const ended = await seedDeal("Ended", 12, two, {
-      endDate: daysFromNowIso(-1),
+      endDate: daysFromNowIso(-2).slice(0, 10),
     });
     const notYet = await seedDeal("NotYet", 12, two, {
-      startDate: daysFromNowIso(3),
+      startDate: daysFromNowIso(3).slice(0, 10),
     });
     const wrongDay = await seedDeal("WrongDay", 12, two, {
       validDays: [farDay()],
-    });
-    const hhmm = farHHMM();
-    const wrongTime = await seedDeal("WrongTime", 12, two, {
-      validTimeStart: hhmm,
-      validTimeEnd: hhmm,
-    });
-    const halfWindow = await seedDeal("HalfWindow", 12, two, {
-      validTimeStart: hhmm,
     });
 
     const res = await getActiveDealsPublic(restaurantId);
     expect(res.status).toBe(200);
     const ids = (res.data.deals ?? []).map((d) => d.id);
     expect(ids).toContain(plain.id);
-    expect(ids).toContain(halfWindow.id);
     for (const [label, d] of [
       ["INACTIVE", inactive],
-      ["endDate past", ended],
-      ["startDate future", notYet],
+      ["endDate before the restaurant's today", ended],
+      ["startDate after the restaurant's today", notYet],
       ["validDays other weekday", wrongDay],
-      ["1-minute window 12h away", wrongTime],
     ] as const) {
       expect(ids, `${label} must be hidden`).not.toContain(d.id);
     }
@@ -621,28 +644,30 @@ test.describe("Owner — Deals API contract", () => {
     expect(shown.savingsAmount).toBe(4.5);
     expect(shown.savingsPercentage).toBe(27.3);
     expect(shown.items).toHaveLength(2);
-    expect(shown.items!.map((i) => i.menuItemId).sort()).toEqual(
-      [itemA.id, itemB.id].sort()
-    );
-    // /validate explains WHY the restricted ones are hidden — this is the
-    // timezone-independent cross-check for the time-window case.
-    const v = await validateDealPublic({ dealId: wrongTime.id, restaurantId });
-    expect(v.status).toBe(200);
-    expect(v.data.isValid).toBe(false);
-    expect(v.data.issues).toContain(
-      `Deal is only available between ${hhmm} and ${hhmm}`
-    );
     const vd = await validateDealPublic({ dealId: wrongDay.id, restaurantId });
+    expect(vd.status).toBe(200);
     expect(vd.data.isValid).toBe(false);
-    expect(
-      vd.data.issues?.some((s) => /^Deal is not available on /.test(s))
-    ).toBe(true);
 
     const none = await getActiveDealsPublic(
       "00000000-0000-4000-8000-000000000000"
     );
     expect(none.status).toBe(200);
     expect(none.data.deals).toEqual([]);
+  });
+
+  test("TC-542: public /active carries the restaurant's timeZone and null schedule text for an unrestricted deal (deal scheduling, Plan 1)", async () => {
+    requireScheduling("backend", Boolean(tz));
+    const plain = await seedDeal("PlainTz", 12, twoItems());
+    const res = await getActiveDealsPublic(restaurantId);
+    expect(res.status).toBe(200);
+    expect(res.data.timeZone).toBe(tz);
+    expect(res.data.deals!.find((d) => d.id === plain.id)).toMatchObject({
+      availableNow: true,
+      scheduleSummary: null,
+      availabilityLabel: null,
+      startDate: null,
+      endDate: null,
+    });
   });
 
   test("TC-332: 86'ing a required slot item hides the deal from /active; restoring brings it back", async () => {
@@ -727,6 +752,796 @@ test.describe("Owner — Deals API contract", () => {
     expect(inactive.status).toBe(200);
     expect(inactive.data.isValid).toBe(false);
     expect(inactive.data.issues).toContain("Deal is not active");
+  });
+
+  // ── Deal scheduling: /active judged at ?at= on the restaurant clock ──────────
+  //
+  // D = the restaurant-local date two days out: never "today" in any zone,
+  // well inside the 30-day `at` horizon, and D-1 is still in the future. Every
+  // instant is built with atLocal(tz, …) — the restaurant's wall clock.
+  test.describe("schedule — public /active at ?at= (restaunax Plan 1)", () => {
+    let D = "";
+    const at = (dateKey: string, time: string) => atLocal(tz, dateKey, time);
+    const listAt = async (when: string, lang?: "en" | "es") => {
+      const res = await getActiveDealsPublic(restaurantId, { at: when, lang });
+      expect(res.status, JSON.stringify(res.data)).toBe(200);
+      return res.data.deals ?? [];
+    };
+    const find = (deals: ApiDeal[], id: string) =>
+      deals.find((d) => d.id === id);
+    const text = (s: string | null | undefined) => normalizeSpaces(s ?? "");
+
+    test.beforeEach(() => {
+      requireScheduling("backend", Boolean(tz));
+      D = localDateKey(tz, 2);
+    });
+
+    test("TC-508: GET /api/deals/meal-periods lists the five meal periods with their hours, in order", async () => {
+      const res = await getMealPeriodsPublic();
+      expect(res.status).toBe(200);
+      expect(res.data.success).toBe(true);
+      expect(res.data.data).toEqual([
+        { value: "Breakfast", start: "05:00", end: "11:00" },
+        { value: "Lunch", start: "11:00", end: "14:00" },
+        { value: "Dinner", start: "17:00", end: "22:00" },
+        { value: "Late Night", start: "22:00", end: "05:00" },
+        { value: "All Day", start: null, end: null },
+      ]);
+    });
+
+    test("TC-509: a 15:00–17:00 window is listed earlier that day with availableNow false and its next start, is live from 15:00 (inclusive) to 17:00 (exclusive); a start-only window runs to end of day", async () => {
+      await allure.description(
+        "Window deal at D 14:00 → listed, availableNow false, nextAvailableAt = D 15:00 local, label " +
+          "'Available from 3:00 PM', summary '3:00 PM–5:00 PM'. D 15:00 and 16:59 → availableNow true. D 17:00 → " +
+          "omitted (end exclusive; next window is another local day). validTimeStart 21:00 alone = 21:00 → midnight."
+      );
+      const deal = await seedDeal("Window", 12, twoItems(), {
+        validTimeStart: "15:00",
+        validTimeEnd: "17:00",
+      });
+      const before = find(await listAt(at(D, "14:00")), deal.id);
+      expect(
+        before,
+        "a window later the same local day keeps the deal listed"
+      ).toBeTruthy();
+      expect(before!.availableNow).toBe(false);
+      expect(before!.nextAvailableAt).toBe(at(D, "15:00"));
+      expect(text(before!.availabilityLabel)).toBe("Available from 3:00 PM");
+      expect(text(before!.scheduleSummary)).toBe("3:00 PM–5:00 PM");
+      const opening = find(await listAt(at(D, "15:00")), deal.id);
+      expect(opening?.availableNow, "start is inclusive").toBe(true);
+      expect(opening?.availabilityLabel ?? null).toBeNull();
+      expect(find(await listAt(at(D, "16:59")), deal.id)?.availableNow).toBe(
+        true
+      );
+      expect(
+        find(await listAt(at(D, "17:00")), deal.id),
+        "end is exclusive → omitted"
+      ).toBeUndefined();
+
+      const evening = await seedDeal("FromNine", 12, twoItems(), {
+        validTimeStart: "21:00",
+      });
+      const early = find(await listAt(at(D, "20:00")), evening.id);
+      expect(early?.availableNow).toBe(false);
+      expect(text(early?.availabilityLabel)).toBe("Available from 9:00 PM");
+      expect(text(early?.scheduleSummary)).toBe("From 9:00 PM");
+      expect(find(await listAt(at(D, "23:59")), evening.id)?.availableNow).toBe(
+        true
+      );
+    });
+
+    test("TC-510: an overnight window (22:00–02:00 on one weekday) belongs to the day it STARTS — live after midnight on the next day, gone at 02:00, and not on the previous night", async () => {
+      const day = dayNameOfKey(D);
+      const nextDay = addDaysToKey(D, 1);
+      const deal = await seedDeal("Overnight", 12, twoItems(), {
+        validDays: [day],
+        validTimeStart: "22:00",
+        validTimeEnd: "02:00",
+      });
+      const evening = find(await listAt(at(D, "21:00")), deal.id);
+      expect(evening?.availableNow).toBe(false);
+      expect(text(evening?.availabilityLabel)).toBe("Available from 10:00 PM");
+      expect(text(evening?.scheduleSummary)).toBe(
+        `${shortDayEn(day)} · 10:00 PM–2:00 AM`
+      );
+      expect(find(await listAt(at(D, "23:30")), deal.id)?.availableNow).toBe(
+        true
+      );
+      expect(
+        find(await listAt(at(nextDay, "01:30")), deal.id)?.availableNow,
+        "the tail after midnight belongs to the start day"
+      ).toBe(true);
+      expect(find(await listAt(at(nextDay, "02:00")), deal.id)).toBeUndefined();
+      expect(
+        find(await listAt(at(addDaysToKey(D, -1), "23:30")), deal.id),
+        "the night before is not a start day"
+      ).toBeUndefined();
+    });
+
+    test("TC-511: start/end dates are restaurant-local calendar days, inclusive — live from 00:00 on the start date through 23:59 on the end date; dates come back as YYYY-MM-DD", async () => {
+      const end = addDaysToKey(D, 1);
+      const deal = await seedDeal("Dated", 12, twoItems(), {
+        startDate: D,
+        endDate: end,
+      });
+      expect(
+        find(await listAt(at(addDaysToKey(D, -1), "23:59")), deal.id),
+        "not started, and it starts on another local day"
+      ).toBeUndefined();
+      const first = find(await listAt(at(D, "00:00")), deal.id);
+      expect(first?.availableNow).toBe(true);
+      expect(first?.startDate).toBe(D);
+      expect(first?.endDate).toBe(end);
+      expect(text(first?.scheduleSummary)).toBe(
+        `${formatDateKeyEn(D)} – ${formatDateKeyEn(end)}`
+      );
+      expect(find(await listAt(at(end, "23:59")), deal.id)?.availableNow).toBe(
+        true
+      );
+      expect(
+        find(await listAt(at(addDaysToKey(D, 2), "00:00")), deal.id),
+        "ended after the end date"
+      ).toBeUndefined();
+    });
+
+    test("TC-512: a deal that is off for the whole local day is omitted (and listed on its day); schedule text follows Accept-Language", async () => {
+      const otherDay = await seedDeal("OtherDay", 12, twoItems(), {
+        validDays: [dayNameOfKey(addDaysToKey(D, 1))],
+      });
+      expect(find(await listAt(at(D, "12:00")), otherDay.id)).toBeUndefined();
+      expect(
+        find(await listAt(at(addDaysToKey(D, 1), "12:00")), otherDay.id)
+          ?.availableNow
+      ).toBe(true);
+
+      const window = await seedDeal("Spanish", 12, twoItems(), {
+        validTimeStart: "15:00",
+        validTimeEnd: "17:00",
+      });
+      const es = find(await listAt(at(D, "14:00"), "es"), window.id);
+      expect(text(es?.scheduleSummary)).toBe("15:00–17:00");
+      expect(text(es?.availabilityLabel)).toBe("Disponible desde las 15:00");
+    });
+
+    test("TC-539: includeUnavailable=1 (the POS list) adds a deal that is off for the whole day — availableNow false, its next start and schedule — but never an ended deal; without the flag the day-off deal stays omitted", async () => {
+      await allure.description(
+        "GET /active?channel=in_person&includeUnavailable=1 is what the POS lists (it shows unavailable deals and " +
+          "explains their hours on tap; the kiosk hides them and calls without the flag). Deal A is valid only on " +
+          "the restaurant-local weekday three days out (never today's), deal B ended two local days ago."
+      );
+      const offDayKey = localDateKey(tz, 3);
+      const offDay = dayNameOfKey(offDayKey);
+      const dayOff = await seedDeal("DayOff", 12, twoItems(), {
+        validDays: [offDay],
+      });
+      const ended = await seedDeal("EndedFlag", 12, twoItems(), {
+        endDate: localDateKey(tz, -2),
+      });
+      const without = await getActiveDealsPublic(restaurantId, {
+        channel: "in_person",
+      });
+      expect(without.status).toBe(200);
+      const withoutIds = (without.data.deals ?? []).map((d) => d.id);
+      expect(
+        withoutIds,
+        "off all day → omitted without the flag"
+      ).not.toContain(dayOff.id);
+      expect(withoutIds).not.toContain(ended.id);
+
+      const withFlag = await getActiveDealsPublic(restaurantId, {
+        channel: "in_person",
+        includeUnavailable: true,
+      });
+      expect(withFlag.status).toBe(200);
+      const listed = find(withFlag.data.deals ?? [], dayOff.id);
+      expect(listed, "off all day → listed with the flag").toBeTruthy();
+      expect(listed!.availableNow).toBe(false);
+      expect(listed!.nextAvailableAt).toBe(atLocal(tz, offDayKey, "00:00"));
+      expect(text(listed!.scheduleSummary)).toBe(shortDayEn(offDay));
+      expect(
+        find(withFlag.data.deals ?? [], ended.id),
+        "ended deals never come back"
+      ).toBeUndefined();
+    });
+
+    test("TC-513: ?at= more than 5 minutes in the past, more than 30 days ahead, or unparsable → 400; small clock skew and 29 days ahead are fine", async () => {
+      const bad = async (value: string, label: string) => {
+        const r = await getActiveDealsPublic(restaurantId, { at: value });
+        expect(r.status, `${label}: ${JSON.stringify(r.data)}`).toBe(400);
+        expect(r.data.message).toBe(
+          "That pickup time can't be used to check deals."
+        );
+      };
+      await bad(
+        new Date(Date.now() - 60 * 60_000).toISOString(),
+        "an hour ago"
+      );
+      await bad(
+        new Date(Date.now() + 31 * 86_400_000).toISOString(),
+        "31 days ahead"
+      );
+      await bad("not-a-date", "garbage");
+      const skew = await getActiveDealsPublic(restaurantId, {
+        at: new Date(Date.now() - 2 * 60_000).toISOString(),
+      });
+      expect(skew.status, "a 2-minute clock skew is tolerated").toBe(200);
+      const far = await getActiveDealsPublic(restaurantId, {
+        at: new Date(Date.now() + 29 * 86_400_000).toISOString(),
+      });
+      expect(far.status).toBe(200);
+    });
+
+    test("TC-514: /quote judges a deal at scheduledFor — 400 DEAL_NOT_AVAILABLE_AT_TIME with the deal, its schedule and next start before the window, 200 inside it; ASAP is judged now", async () => {
+      await allure.description(
+        "Deal = D's weekday only, 15:00–17:00. scheduledFor D 12:00 → 400 errorCode DEAL_NOT_AVAILABLE_AT_TIME, " +
+          "details {dealId, dealName, scheduleSummary '<Day> · 3:00 PM–5:00 PM', nextAvailableAt D 15:00}. " +
+          "scheduledFor D 15:30 → 200 at the deal price. No scheduledFor (ASAP) → judged now; D is never today → 400."
+      );
+      const day = dayNameOfKey(D);
+      const deal = await seedDeal("HappyHour", 12, twoItems(), {
+        validDays: [day],
+        validTimeStart: "15:00",
+        validTimeEnd: "17:00",
+      });
+      const body = {
+        orderItems: [],
+        orderDeals: [
+          {
+            dealId: deal.id,
+            quantity: 1,
+            items: [
+              { menuItemId: itemA.id, quantity: 1 },
+              { menuItemId: itemB.id, quantity: 1 },
+            ],
+          },
+        ],
+      };
+      const summary = `${shortDayEn(day)} · 3:00 PM–5:00 PM`;
+      const early = await quoteOrderRaw(restaurantId, {
+        ...body,
+        scheduledFor: at(D, "12:00"),
+      });
+      expect(early.status, JSON.stringify(early.data)).toBe(400);
+      expect(early.data.errorCode).toBe("DEAL_NOT_AVAILABLE_AT_TIME");
+      expect(early.data.details).toEqual({
+        dealId: deal.id,
+        dealName: deal.name,
+        scheduleSummary: summary,
+        nextAvailableAt: at(D, "15:00"),
+      });
+      const message = normalizeSpaces(early.data.message ?? "");
+      expect(message).toContain(deal.name);
+      expect(message).toContain(summary);
+
+      const inside = await quoteOrderRaw(restaurantId, {
+        ...body,
+        scheduledFor: at(D, "15:30"),
+      });
+      expect(inside.status, JSON.stringify(inside.data)).toBe(200);
+      expect(inside.data.quote?.deals?.[0]).toMatchObject({
+        dealId: deal.id,
+        dealPrice: 12,
+        lineTotal: 12,
+      });
+
+      const asap = await quoteOrderRaw(restaurantId, body);
+      expect(
+        asap.status,
+        "ASAP is judged now — D is never the restaurant's today"
+      ).toBe(400);
+      expect(asap.data.errorCode).toBe("DEAL_NOT_AVAILABLE_AT_TIME");
+    });
+
+    test("TC-515: placing a scheduled order with a deal outside its window is refused with DEAL_NOT_AVAILABLE_AT_TIME; the same order inside the window is accepted", async () => {
+      await allure.description(
+        "POST /api/order/new/restaurantId/:id (the storefront checkout) with scheduledFor. The tenant is published " +
+          "and accepting orders for this test only (unpublished stores refuse every order) and has no business " +
+          "hours (= always open). The accepted control leaves one INITIALIZED (unpaid) order on the throwaway tenant."
+      );
+      const day = dayNameOfKey(D);
+      const deal = await seedDeal("Scheduled", 12, twoItems(), {
+        validDays: [day],
+        validTimeStart: "15:00",
+        validTimeEnd: "17:00",
+      });
+      adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
+      const { previous } = await setRestaurantPublishedApi(
+        adminToken,
+        restaurantId,
+        true
+      );
+      await updateRestaurantSettingsApi(token, restaurantId, {
+        acceptingOrders: true,
+      });
+      const orderBody = (scheduledFor: string) => ({
+        orderType: "PICKUP",
+        subtotal: 12,
+        tax: 0.96,
+        deliveryFee: 0,
+        tip: 0,
+        total: 12.96,
+        customerEmail: `deal-sched-${runId}@restaunax-test.com`,
+        customerPhone: generateSeedPhone(),
+        firstName: "Deal",
+        lastName: "Schedule",
+        orderItems: [],
+        orderDeals: [
+          {
+            dealId: deal.id,
+            dealName: deal.name,
+            dealPrice: 12,
+            quantity: 1,
+            items: [itemA, itemB].map((i) => ({
+              menuItemId: i.id,
+              menuItemName: i.name,
+              menuItemPrice: i.price,
+              quantity: 1,
+            })),
+          },
+        ],
+        scheduledFor,
+      });
+      try {
+        const refused = await placeOrderRaw(
+          restaurantId,
+          orderBody(at(D, "12:00"))
+        );
+        expect(refused.status, JSON.stringify(refused.data)).toBe(400);
+        expect(refused.data.errorCode).toBe("DEAL_NOT_AVAILABLE_AT_TIME");
+        expect(refused.data.details).toMatchObject({
+          dealId: deal.id,
+          nextAvailableAt: at(D, "15:00"),
+        });
+        const placed = await placeOrderRaw(
+          restaurantId,
+          orderBody(at(D, "15:30"))
+        );
+        expect(placed.ok, JSON.stringify(placed.data)).toBe(true);
+      } finally {
+        if (!previous)
+          await setRestaurantPublishedApi(adminToken, restaurantId, false);
+      }
+    });
+  });
+
+  test.describe("schedule — owner list, cap and ended deals (restaunax Plan 1)", () => {
+    test.beforeEach(() => {
+      requireScheduling("backend", Boolean(tz));
+    });
+
+    test("TC-516: the owner list reports each deal's live status on the restaurant clock — LIVE, LATER_TODAY (with its start), SCHEDULED, ENDED, OFF — plus timeZone/timeZoneLabel and YYYY-MM-DD dates", async () => {
+      const live = await seedDeal("Live", 12, twoItems());
+      const later = laterTodayWindow(tz);
+      const laterDeal = later
+        ? await seedDeal("Later", 12, twoItems(), {
+            validTimeStart: later.start,
+            validTimeEnd: later.end,
+          })
+        : null;
+      const startKey = localDateKey(tz, 3);
+      const scheduled = await seedDeal("Scheduled", 12, twoItems(), {
+        startDate: startKey,
+      });
+      const endedKey = localDateKey(tz, -2);
+      const ended = await seedDeal("Ended", 12, twoItems(), {
+        endDate: endedKey,
+      });
+      const off = await seedDeal("Off", 12, twoItems());
+      expect((await setDealStatusRaw(token, off.id, "INACTIVE")).status).toBe(
+        200
+      );
+
+      const res = await getRestaurantDealsRaw(token, restaurantId);
+      expect(res.status).toBe(200);
+      expect(res.data.timeZone).toBe(tz);
+      expect((res.data.timeZoneLabel ?? "").length).toBeGreaterThan(0);
+      const byId = (id: string) => res.data.deals!.find((d) => d.id === id)!;
+      expect(byId(live.id)).toMatchObject({
+        liveStatus: "LIVE",
+        scheduleSummary: null,
+        availabilityLabel: null,
+      });
+      if (laterDeal && later) {
+        const l = byId(laterDeal.id);
+        expect(l.liveStatus).toBe("LATER_TODAY");
+        expect(l.nextAvailableAt).toBe(atLocal(tz, later.dateKey, later.start));
+        expect(normalizeSpaces(l.availabilityLabel ?? "")).toBe(
+          `Available from ${formatClockEn(later.start)}`
+        );
+      } else {
+        test.info().annotations.push({
+          type: "note",
+          description:
+            "LATER_TODAY not asserted — less than an hour left in the restaurant's day",
+        });
+      }
+      expect(byId(scheduled.id)).toMatchObject({
+        liveStatus: "SCHEDULED",
+        startDate: startKey,
+      });
+      expect(normalizeSpaces(byId(scheduled.id).scheduleSummary ?? "")).toBe(
+        `From ${formatDateKeyEn(startKey)}`
+      );
+      expect(byId(ended.id)).toMatchObject({
+        liveStatus: "ENDED",
+        computedStatus: "EXPIRED",
+        status: "ACTIVE",
+        endDate: endedKey,
+      });
+      expect(byId(off.id).liveStatus).toBe("OFF");
+    });
+
+    test("TC-517: a deal whose end date has passed does not take one of the 10 active slots — ten live deals still fit beside it, the eleventh is refused; a deal on its last day whose window is over is ENDED but still holds a slot", async () => {
+      const activeCount = async () =>
+        (await getActiveDealsCountRaw(token, restaurantId)).data
+          .activeDealsCount ?? 0;
+      const ended = await seedDeal("CapEnded", 9, twoItems(), {
+        endDate: localDateKey(tz, -2),
+      });
+      expect(ended.status).toBe("ACTIVE");
+      expect(await activeCount(), "a date-ended deal frees its slot").toBe(0);
+
+      await allure.step(
+        "last day, window already over → ENDED, but the slot frees only after the date (DEAL_SCHEDULING.md rule 4)",
+        async () => {
+          const now = localParts(tz);
+          const endMinute = Math.floor((now.minuteOfDay - 15) / 15) * 15;
+          const startMinute = endMinute - 60;
+          if (startMinute < 0) {
+            test.info().annotations.push({
+              type: "note",
+              description:
+                "too early in the restaurant's day for a window that is already over",
+            });
+            return;
+          }
+          const lastDay = await seedDeal("LastDayOver", 9, twoItems(), {
+            endDate: now.dateKey,
+            validTimeStart: hhmm(startMinute),
+            validTimeEnd: hhmm(endMinute),
+          });
+          const row = (
+            await getRestaurantDealsRaw(token, restaurantId)
+          ).data.deals!.find((d) => d.id === lastDay.id)!;
+          expect(row.liveStatus).toBe("ENDED");
+          expect(
+            await activeCount(),
+            "still holds a slot until its local end date passes"
+          ).toBe(1);
+          expect((await deleteDealRaw(token, lastDay.id)).status).toBe(200);
+        }
+      );
+
+      for (let i = 0; i < 10; i++)
+        await seedDeal(`Cap live #${i + 1}`, 9, twoItems());
+      const over = await createDealRaw(token, restaurantId, {
+        name: `AUTO Cap overflow ${runId}`,
+        dealPrice: 9,
+        items: twoBody(),
+      });
+      if (over.data?.deal?.id) track(over.data.deal.id);
+      expect(over.status, JSON.stringify(over.data)).toBe(400);
+      expect(over.data as { error?: string }).toMatchObject({
+        error: "MAX_ACTIVE_DEALS_REACHED",
+      });
+    });
+
+    test("TC-518: an ended deal cannot be switched back on (PATCH or PUT → 400 DEAL_ENDED) until its end date moves", async () => {
+      const deal = await seedDeal("EndedOff", 9, twoItems(), {
+        endDate: localDateKey(tz, -2),
+      });
+      expect((await setDealStatusRaw(token, deal.id, "INACTIVE")).status).toBe(
+        200
+      );
+      const on = await setDealStatusRaw(token, deal.id, "ACTIVE");
+      expect(on.status).toBe(400);
+      expect((on.data as { errorCode?: string }).errorCode).toBe("DEAL_ENDED");
+      expect(msg(on.data)).toBe(
+        "This deal has ended. Change its end date to turn it back on."
+      );
+      const put = await updateDealRaw(token, deal.id, { status: "ACTIVE" });
+      expect(put.status).toBe(400);
+      expect((put.data as { errorCode?: string }).errorCode).toBe("DEAL_ENDED");
+      expect(msg(put.data)).toBe(
+        "This deal has ended. Change its end date to turn it back on."
+      );
+      const moved = await updateDealRaw(token, deal.id, {
+        endDate: localDateKey(tz, 5),
+      });
+      expect(moved.status, JSON.stringify(moved.data)).toBe(200);
+      expect((await setDealStatusRaw(token, deal.id, "ACTIVE")).status).toBe(
+        200
+      );
+    });
+
+    const SCHEDULE_ERRORS = {
+      dateOrder: "The end date must be on or after the start date.",
+      sameStartEnd: "The start and end time can't be the same.",
+      invalidDays: "Choose valid days of the week.",
+      invalidDate: "Enter dates as YYYY-MM-DD.",
+      invalidOption:
+        "Choose an option from the list for audience, meal type and occasion.",
+    } as const;
+
+    test("TC-519: create and PUT reject bad schedules with plain messages and normalize good ones (all seven days → [], ISO date → its date, overnight + options kept)", async () => {
+      const k5 = localDateKey(tz, 5);
+      const k10 = localDateKey(tz, 10);
+      const cases: [string, Record<string, unknown>, string][] = [
+        [
+          "end before start",
+          { startDate: k10, endDate: k5 },
+          SCHEDULE_ERRORS.dateOrder,
+        ],
+        [
+          "start equals end",
+          { validTimeStart: "15:00", validTimeEnd: "15:00" },
+          SCHEDULE_ERRORS.sameStartEnd,
+        ],
+        [
+          "unknown weekday",
+          { validDays: ["FUNDAY"] },
+          SCHEDULE_ERRORS.invalidDays,
+        ],
+        ["US date", { startDate: "10/10/2026" }, SCHEDULE_ERRORS.invalidDate],
+        [
+          "impossible date",
+          { endDate: "2026-02-30" },
+          SCHEDULE_ERRORS.invalidDate,
+        ],
+        ["meal type", { mealType: "Brunch" }, SCHEDULE_ERRORS.invalidOption],
+        ["audience", { targetAudience: "Kids" }, SCHEDULE_ERRORS.invalidOption],
+        ["occasion", { occasion: "Birthday" }, SCHEDULE_ERRORS.invalidOption],
+      ];
+      for (const [label, extra, message] of cases) {
+        const res = await createDealRaw(token, restaurantId, {
+          name: `AUTO Invalid ${runId}`,
+          dealPrice: 9,
+          items: twoBody(),
+          ...extra,
+        });
+        if (res.data?.deal?.id) track(res.data.deal.id);
+        expect(res.status, `${label}: ${JSON.stringify(res.data)}`).toBe(400);
+        expect(msg(res.data), label).toBe(message);
+      }
+
+      const deal = await seedDeal("Patchable", 9, twoItems());
+      const badPut = await updateDealRaw(token, deal.id, {
+        startDate: k10,
+        endDate: k5,
+      });
+      expect(badPut.status).toBe(400);
+      expect(msg(badPut.data)).toBe(SCHEDULE_ERRORS.dateOrder);
+      const badOption = await updateDealRaw(token, deal.id, {
+        mealType: "Brunch",
+      });
+      expect(badOption.status).toBe(400);
+      expect(msg(badOption.data)).toBe(SCHEDULE_ERRORS.invalidOption);
+
+      const k3 = localDateKey(tz, 3);
+      const good = await createDealRaw(token, restaurantId, {
+        name: `AUTO Normalized ${runId}`,
+        dealPrice: 9,
+        items: twoBody(),
+        validDays: [
+          "SUNDAY",
+          "MONDAY",
+          "TUESDAY",
+          "WEDNESDAY",
+          "THURSDAY",
+          "FRIDAY",
+          "SATURDAY",
+        ],
+        validTimeStart: "22:00",
+        validTimeEnd: "02:00",
+        startDate: `${k3}T04:00:00.000Z`,
+        endDate: k10,
+        targetAudience: "Couples",
+        mealType: "Late Night",
+        occasion: "Weekend",
+      });
+      expect(good.status, JSON.stringify(good.data)).toBe(201);
+      track(good.data.deal!.id);
+      const row = (await getRestaurantDeals(token, restaurantId)).find(
+        (d) => d.id === good.data.deal!.id
+      )!;
+      expect(row).toMatchObject({
+        validDays: [],
+        validTimeStart: "22:00",
+        validTimeEnd: "02:00",
+        startDate: k3,
+        endDate: k10,
+        targetAudience: "Couples",
+        mealType: "Late Night",
+        occasion: "Weekend",
+      });
+    });
+
+    test("TC-520: bulk create (the AI generator's path) runs the same validation before writing anything, and keeps schedule + occasion on a valid deal", async () => {
+      const before = (await getRestaurantDeals(token, restaurantId)).length;
+      const bad = await bulkCreateDealsRaw(token, restaurantId, [
+        { name: `AUTO BulkOk ${runId}`, dealPrice: 9, items: twoBody() },
+        {
+          name: `AUTO BulkBad ${runId}`,
+          dealPrice: 9,
+          items: twoBody(),
+          mealType: "Brunch",
+        },
+      ]);
+      for (const d of bad.data.deals ?? []) track(d.id);
+      expect(bad.status, JSON.stringify(bad.data)).toBe(400);
+      expect(msg(bad.data)).toBe(SCHEDULE_ERRORS.invalidOption);
+      expect(
+        (await getRestaurantDeals(token, restaurantId)).length,
+        "nothing was written"
+      ).toBe(before);
+
+      const reversed = await bulkCreateDealsRaw(token, restaurantId, [
+        {
+          name: `AUTO BulkDates ${runId}`,
+          dealPrice: 9,
+          items: twoBody(),
+          startDate: localDateKey(tz, 10),
+          endDate: localDateKey(tz, 5),
+        },
+      ]);
+      for (const d of reversed.data.deals ?? []) track(d.id);
+      expect(reversed.status).toBe(400);
+      expect(msg(reversed.data)).toBe(SCHEDULE_ERRORS.dateOrder);
+
+      const good = await bulkCreateDealsRaw(token, restaurantId, [
+        {
+          name: `AUTO BulkSched ${runId}`,
+          dealPrice: 9,
+          items: twoBody(),
+          validDays: ["SATURDAY", "SUNDAY"],
+          validTimeStart: "11:00",
+          validTimeEnd: "14:00",
+          targetAudience: "Family",
+          mealType: "Lunch",
+          occasion: "Weekend",
+        },
+      ]);
+      expect(good.status, JSON.stringify(good.data)).toBe(201);
+      for (const d of good.data.deals ?? []) track(d.id);
+      const row = (await getRestaurantDeals(token, restaurantId)).find(
+        (d) => d.name === `AUTO BulkSched ${runId}`
+      )!;
+      expect([...(row.validDays ?? [])].sort()).toEqual(["SATURDAY", "SUNDAY"]);
+      expect(row).toMatchObject({
+        validTimeStart: "11:00",
+        validTimeEnd: "14:00",
+        mealType: "Lunch",
+        occasion: "Weekend",
+      });
+    });
+
+    /** Mon–Sat 11:00–21:00, Friday until 02:00 (overnight), Sunday closed. */
+    const WEEK_HOURS: BusinessHoursRow[] = [
+      ...(
+        ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "SATURDAY"] as const
+      ).map((day) => ({
+        day,
+        openingTime: "11:00:00",
+        closingTime: "21:00:00",
+        isClosed: false,
+        is24Hours: false,
+      })),
+      {
+        day: "FRIDAY",
+        openingTime: "11:00:00",
+        closingTime: "02:00:00",
+        isClosed: false,
+        is24Hours: false,
+      },
+      {
+        day: "SUNDAY",
+        openingTime: null,
+        closingTime: null,
+        isClosed: true,
+        is24Hours: false,
+      },
+    ];
+
+    /** Run `body` with WEEK_HOURS set on the tenant; restore the rows it had (normally none). */
+    const withWeekHours = async (body: () => Promise<void>) => {
+      const original =
+        (await getBusinessHoursRaw(token, restaurantId)).data.businessHours ??
+        [];
+      await setBusinessHoursApi(token, restaurantId, WEEK_HOURS);
+      try {
+        await body();
+      } finally {
+        await setBusinessHoursApi(await freshToken(), restaurantId, original);
+      }
+    };
+    const check = async (q: Parameters<typeof getDealScheduleCheckRaw>[2]) => {
+      const res = await getDealScheduleCheckRaw(token, restaurantId, q);
+      expect(res.status, JSON.stringify(res.data)).toBe(200);
+      return res.data.data!;
+    };
+
+    test("TC-521: schedule-check warns about closed days and windows that START outside business hours, names the restaurant, and is quiet when no hours are set; bad days → 400", async () => {
+      await allure.description(
+        "GET /api/deals/restaurant/:id/schedule-check (warning-only; the owner may still save). Throwaway " +
+          "tenant: no hours → no warnings; with Mon–Sat 11–21 / Sun closed: Sun+Mon → one 'closed on Sun' warning, " +
+          "Mon 09:00–12:00 → one warning naming Mon, Any time → the Sunday warning. Hours restored in finally."
+      );
+      const original =
+        (await getBusinessHoursRaw(token, restaurantId)).data.businessHours ??
+        [];
+      if (original.length === 0) {
+        const none = await check({
+          validDays: ["SUNDAY"],
+          validTimeStart: "05:00",
+          validTimeEnd: "06:00",
+        });
+        expect(none.timeZone).toBe(tz);
+        expect(none.timeZoneLabel.length).toBeGreaterThan(0);
+        expect(none.warnings).toEqual([]);
+      }
+      await withWeekHours(async () => {
+        const closed = await check({ validDays: ["SUNDAY", "MONDAY"] });
+        expect(closed.warnings).toHaveLength(1);
+        expect(closed.warnings[0]!.restaurantId).toBe(restaurantId);
+        expect(closed.warnings[0]!.restaurantName.length).toBeGreaterThan(0);
+        expect(closed.warnings[0]!.message).toMatch(/closed/i);
+        expect(closed.warnings[0]!.message).toContain("Sun");
+
+        const early = await check({
+          validDays: ["MONDAY"],
+          validTimeStart: "09:00",
+          validTimeEnd: "12:00",
+        });
+        expect(early.warnings).toHaveLength(1);
+        expect(early.warnings[0]!.message).toContain("Mon");
+
+        const anyTime = await check({});
+        expect(anyTime.warnings.map((w) => w.message).join(" ")).toContain(
+          "Sun"
+        );
+
+        const bad = await getDealScheduleCheckRaw(token, restaurantId, {
+          validDays: ["FUNDAY"],
+        });
+        expect(bad.status).toBe(400);
+        expect(msg(bad.data)).toBe("Choose valid days of the week.");
+      });
+    });
+
+    test("TC-522: schedule-check does NOT warn when a window starts inside business hours — even when it runs past closing, or is an overnight window inside an overnight day", async () => {
+      await withWeekHours(async () => {
+        expect(
+          (
+            await check({
+              validDays: ["MONDAY"],
+              validTimeStart: "20:00",
+              validTimeEnd: "23:00",
+            })
+          ).warnings,
+          "runs past the 21:00 close but starts while open"
+        ).toEqual([]);
+        expect(
+          (
+            await check({
+              validDays: ["FRIDAY"],
+              validTimeStart: "22:00",
+              validTimeEnd: "01:00",
+            })
+          ).warnings,
+          "overnight inside Friday's 11:00–02:00"
+        ).toEqual([]);
+        expect(
+          (
+            await check({
+              validDays: ["MONDAY", "TUESDAY"],
+              validTimeStart: "12:00",
+              validTimeEnd: "14:00",
+            })
+          ).warnings
+        ).toEqual([]);
+      });
+    });
   });
 
   // ── The 10-active cap (RestauNax #618: also enforced on create + PUT) ────────

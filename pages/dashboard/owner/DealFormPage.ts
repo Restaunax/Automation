@@ -1,4 +1,42 @@
-import { type Page, expect } from "@playwright/test";
+import { type Locator, type Page, expect } from "@playwright/test";
+import type { DayName } from "../../../utils/dealSchedule";
+
+/** The "Time of day" chip row of DealScheduleSection (restaunax #898). */
+export type ScheduleChip =
+  | "any"
+  | "breakfast"
+  | "lunch"
+  | "dinner"
+  | "late-night"
+  | "happy-hour"
+  | "custom";
+/** Visible label prefix (meal and happy-hour chips continue with " · <hours>"). */
+export const SCHEDULE_CHIP_LABELS: Record<ScheduleChip, string> = {
+  any: "Any time",
+  breakfast: "Breakfast",
+  lunch: "Lunch",
+  dinner: "Dinner",
+  "late-night": "Late Night",
+  "happy-hour": "Happy hour",
+  custom: "Custom",
+};
+/** GET /api/deals/meal-periods `value` → its chip (testid = value lower-cased, spaces → "-"). */
+export const MEAL_CHIP: Record<string, ScheduleChip> = {
+  Breakfast: "breakfast",
+  Lunch: "lunch",
+  Dinner: "dinner",
+  "Late Night": "late-night",
+};
+const DAY_SHORT: Record<DayName, string> = {
+  SUNDAY: "Sun",
+  MONDAY: "Mon",
+  TUESDAY: "Tue",
+  WEDNESDAY: "Wed",
+  THURSDAY: "Thu",
+  FRIDAY: "Fri",
+  SATURDAY: "Sat",
+};
+const pad2 = (n: number) => String(n).padStart(2, "0");
 
 /**
  * DealForm.tsx — `?tab=create-deal` (create) and the same tab in edit mode
@@ -7,7 +45,9 @@ import { type Page, expect } from "@playwright/test";
  * of-stock items excluded; each pick renders an outlined Card with a qty
  * spinbutton and an unlabeled delete IconButton) → Pricing (live "Original
  * Price:", "Savings: $x (y% off)", ≥90% warning) → Time Restrictions /
- * Additional Information (hard-disabled on purpose, commit 011c5188) → sticky
+ * 'When is this deal available?' (DealScheduleSection, restaunax #898: two
+ * always-visible chip rows — days and time of day — MUI X v8 pickers, live
+ * summary, business-hours warning) + 'Extra details (optional)' accordion → sticky
  * preview with the submit button ("Create Deal" / "Update Deal" / chain
  * variants) and "Cancel".
  *
@@ -102,10 +142,131 @@ export const createDealFormPage = (page: Page) => {
       .getByRole("alert")
       .filter({ hasText: "This item is already in the deal" });
 
-  // Disabled-on-purpose sections (asserted, never driven)
-  const dayCheckbox = (
-    label: "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat" | "Sun"
-  ) => page.getByRole("checkbox", { name: label, exact: true });
+  // ── "When is this deal available?" (DealScheduleSection, restaunax #898) ───
+  const scheduleSection = () =>
+    page
+      .getByTestId("deal-schedule-section")
+      .or(page.getByRole("heading", { name: "When is this deal available?" }))
+      .first();
+  /** False on a QA deployment that predates #898 (the gate's `present`). */
+  const hasScheduleSection = async (): Promise<boolean> =>
+    scheduleSection()
+      .waitFor({ state: "visible", timeout: 10_000 })
+      .then(() => true)
+      // Not visible within 10 s = the section isn't deployed; the caller gates on false.
+      .catch(() => false);
+
+  const scheduleChip = (chip: ScheduleChip): Locator =>
+    page
+      .getByTestId(`deal-schedule-chip-${chip}`)
+      .or(
+        page.getByRole("button", {
+          name: new RegExp(`^${escapeRe(SCHEDULE_CHIP_LABELS[chip])}\\b`),
+        })
+      )
+      .first();
+  const pickScheduleChip = (chip: ScheduleChip) => scheduleChip(chip).click();
+  const assertChipSelected = (chip: ScheduleChip, selected = true) =>
+    expect(scheduleChip(chip)).toHaveAttribute(
+      "aria-pressed",
+      String(selected)
+    );
+
+  /** "Weekdays" / "Weekends" shortcuts in the days row (aria-pressed when the days match exactly). */
+  const dayPresetChip = (preset: "weekdays" | "weekends"): Locator =>
+    page.getByTestId(`deal-schedule-chip-${preset}`);
+  const dayChip = (day: DayName): Locator =>
+    page
+      .getByTestId(`deal-day-chip-${day}`)
+      .or(page.getByRole("button", { name: DAY_SHORT[day], exact: true }))
+      .first();
+  const toggleDay = (day: DayName) => dayChip(day).click();
+  const assertDaySelected = (day: DayName, selected = true) =>
+    expect(dayChip(day)).toHaveAttribute("aria-pressed", String(selected));
+
+  // ── MUI X v8 pickers (accessible sectioned DOM) ──────────────────────────────
+  // The visible field is a row of role=spinbutton spans (aria-label = section:
+  // "Hours"/"Minutes"/"Meridiem", "Month"/"Day"/"Year"); the real <input> is
+  // aria-hidden and only mirrors the value. So never fill(): click the first
+  // section and type every section's digits/letters in order.
+  const timeStartField = () => page.getByTestId("deal-time-start");
+  const timeEndField = () => page.getByTestId("deal-time-end");
+  /**
+   * The aria-hidden <input> that mirrors the picker's value, e.g. "02:00 PM"
+   * (EN "hh:mm A") or "14:00" (ES) — assert with toHaveValue (it retries).
+   */
+  const timeStartInput = () => timeStartField().locator("input").first();
+  const timeEndInput = () => timeEndField().locator("input").first();
+  /** Type "HH:mm": "0300PM" where there is a Meridiem section (EN), "1500" where there isn't (ES, 24h). */
+  const typeTime = async (field: Locator, hhmm: string) => {
+    const [h = 0, m = 0] = hhmm.split(":").map(Number);
+    const twelveHour =
+      (await field.getByRole("spinbutton", { name: "Meridiem" }).count()) > 0;
+    await field.getByRole("spinbutton", { name: "Hours" }).click();
+    await page.keyboard.type(
+      twelveHour
+        ? `${pad2(h % 12 || 12)}${pad2(m)}${h >= 12 ? "PM" : "AM"}`
+        : `${pad2(h)}${pad2(m)}`
+    );
+  };
+  const setStartTime = (hhmm: string) => typeTime(timeStartField(), hhmm);
+  const setEndTime = (hhmm: string) => typeTime(timeEndField(), hhmm);
+  /** "Until close" — a checkbox OUTSIDE the picker roots; checked = no end time. */
+  const untilCloseCheckbox = () =>
+    page.getByTestId("deal-time-until-close").getByRole("checkbox");
+
+  const summaryLine = () =>
+    page
+      .getByTestId("deal-schedule-summary")
+      .or(page.getByText(/^Customers can get this deal/))
+      .first();
+  const summaryText = async () =>
+    (await summaryLine().innerText())
+      .replace(/[\u00a0\u202f]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const hoursWarning = () => page.getByTestId("deal-schedule-warning");
+  const hoursWarningLink = () =>
+    hoursWarning()
+      .getByRole("link", { name: /business hours/i })
+      .first();
+
+  const dateRangeSwitch = () =>
+    page
+      .getByTestId("deal-date-range-switch")
+      .or(page.getByRole("switch", { name: /Run only between these dates/i }))
+      .first();
+  const startDateField = () => page.getByTestId("deal-start-date");
+  const endDateField = () => page.getByTestId("deal-end-date");
+  /** Type a "YYYY-MM-DD" key into a DatePicker in its own section order ("L": MM/DD/YYYY in EN, DD/MM/YYYY in ES). */
+  const typeDate = async (field: Locator, dateKey: string) => {
+    const [y = "", mo = "", d = ""] = dateKey.split("-");
+    const first = field.getByRole("spinbutton").first();
+    const dayFirst = /^(Day|Día)$/i.test(
+      (await first.getAttribute("aria-label")) ?? ""
+    );
+    await first.click();
+    await page.keyboard.type(dayFirst ? `${d}${mo}${y}` : `${mo}${d}${y}`);
+  };
+  const setStartDate = (dateKey: string) => typeDate(startDateField(), dateKey);
+  const setEndDate = (dateKey: string) => typeDate(endDateField(), dateKey);
+
+  const extraDetailsToggle = () =>
+    page.getByRole("button", { name: /Extra details/i });
+  const audienceSelect = () => page.getByTestId("deal-target-audience");
+  const occasionSelect = () => page.getByTestId("deal-occasion");
+  const mealTypeSelect = () => page.getByTestId("deal-meal-type");
+
+  /** The (debounced) business-hours check; `match` narrows to the request you just caused. */
+  const waitForScheduleCheck = (match: (url: string) => boolean = () => true) =>
+    page.waitForResponse(
+      (r) =>
+        /\/schedule-check(\?|$)/.test(r.url()) &&
+        r.request().method() === "GET" &&
+        match(decodeURIComponent(r.url())),
+      { timeout: 20_000 }
+    );
 
   // Submit / cancel
   const submitButton = () =>
@@ -133,7 +294,14 @@ export const createDealFormPage = (page: Page) => {
       ),
       submitButton().click(),
     ]);
-    return { status: res.status(), body: await res.json().catch(() => ({})) };
+    return {
+      status: res.status(),
+      body: await res.json().catch(() => ({})),
+      requestBody: (res.request().postDataJSON() ?? {}) as Record<
+        string,
+        unknown
+      >,
+    };
   };
   const createdSnackbar = () =>
     page.getByRole("alert").filter({ hasText: "Deal created successfully" });
@@ -170,10 +338,39 @@ export const createDealFormPage = (page: Page) => {
     pricePositiveError,
     priceBelowOriginalError,
     duplicateItemSnackbar,
-    dayCheckbox,
     submitButton,
     cancelButton,
     submitAndWait,
+    scheduleSection,
+    hasScheduleSection,
+    scheduleChip,
+    pickScheduleChip,
+    assertChipSelected,
+    dayPresetChip,
+    dayChip,
+    toggleDay,
+    assertDaySelected,
+    timeStartField,
+    timeEndField,
+    timeStartInput,
+    timeEndInput,
+    setStartTime,
+    setEndTime,
+    untilCloseCheckbox,
+    summaryLine,
+    summaryText,
+    hoursWarning,
+    hoursWarningLink,
+    dateRangeSwitch,
+    startDateField,
+    endDateField,
+    setStartDate,
+    setEndDate,
+    extraDetailsToggle,
+    audienceSelect,
+    occasionSelect,
+    mealTypeSelect,
+    waitForScheduleCheck,
     createdSnackbar,
     updatedSnackbar,
     fanOutDialog,
