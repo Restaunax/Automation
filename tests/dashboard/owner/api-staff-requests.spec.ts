@@ -126,15 +126,18 @@ test.describe("Restaunax Staff — requests and shift changes (API)", () => {
     restaurantId = tenant.restaurantId;
     ownerToken = tenant.accessToken;
     ownerEmail = tenant.email;
-    for (const feature of ["TIMECARDS", "SCHEDULING"]) {
-      const g = await setFeatureOverrideAdminRaw(
-        adminToken,
-        restaurantId,
-        feature,
-        true
+    // SCHEDULING is a sellable package that implies TIMECARDS (jobs, wages).
+    // TIMECARDS itself is a component and can't be granted on its own.
+    const g = await setFeatureOverrideAdminRaw(
+      adminToken,
+      restaurantId,
+      "SCHEDULING",
+      true
+    );
+    if (!g.ok) {
+      throw new Error(
+        `[api-staff-requests] could not grant SCHEDULING: ${JSON.stringify(g.data)}`
       );
-      if (!g.ok)
-        throw new Error(`[api-staff-requests] could not grant ${feature}`);
     }
     await hire(ana, "Ana", "Ruiz");
     await hire(bo, "Bo", "Lee");
