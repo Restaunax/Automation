@@ -20,7 +20,7 @@ to the central backend over REST.
 - **restaunax-web** — public marketing & SEO site (Next.js). Distinct from `restaunax-frontend` (the authed app).
 - **template-wind** — restaurant website template (Next.js + Tailwind; chain-aware, typed block system, branding config).
 - **template-lima** — the **embedded ordering surface** (React + Vite + MUI): menu → cart → checkout → rewards for restaurants that keep their own website and embed an "Order Now" button. No landing-page block system; branding colours/fonts are applied.
-- **restaunax-tv-display** + **restaunax-tv-shell** — in-store menu TV (Vite web app + Android/Fire TV Kotlin WebView kiosk shell).
+- **restaunax-tv-display** — in-store menu TV (Vite web app; the player is a Linux + Chromium kiosk). The old Android/Fire TV WebView shell, `restaunax-tv-shell`, is **archived** (2026-08-06, superseded) — reference only.
 - **Automation** ← _this repo_ — Playwright E2E suite for the whole platform (targets QA; the roles/routes reference lives in its CLAUDE.md).
 <!-- ecosystem:end -->
 
