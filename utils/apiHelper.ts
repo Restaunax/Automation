@@ -6323,7 +6323,13 @@ export function inviteStaffRaw(
 export function createStaffJobRaw(
   ownerToken: string,
   restaurantId: string,
-  body: { name: string; defaultHourlyRateCents: number; isTipped?: boolean }
+  body: {
+    name: string;
+    defaultHourlyRateCents: number;
+    isTipped?: boolean;
+    /** P2: a manager/supervisor job never receives pooled tips. */
+    isManagerial?: boolean;
+  }
 ): Promise<RawResponse<{ data?: { id: string } }>> {
   return apiRequestRaw(
     "POST",
