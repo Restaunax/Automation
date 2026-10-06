@@ -6400,7 +6400,11 @@ export function publishScheduleRaw(
   restaurantId: string,
   date: string,
   notifyMode: "CHANGED" | "ALL" | "NONE" = "NONE"
-): Promise<RawResponse> {
+): Promise<
+  RawResponse<{
+    data?: { published: number; notified: number; publicationId: string };
+  }>
+> {
   return apiRequestRaw(
     "POST",
     `${scheduling(restaurantId)}/publish`,
