@@ -901,6 +901,11 @@ export interface QuoteResponse {
     tax?: number;
     amountToCharge?: number;
     total?: number;
+    /** S1 service fee (excl. its tax) and its tax, both inside tax/total. */
+    serviceFee?: number;
+    serviceFeeTax?: number;
+    serviceFeeLabel?: string | null;
+    serviceFeeNotice?: string | null;
     deals?: {
       dealId: string;
       dealName: string;
