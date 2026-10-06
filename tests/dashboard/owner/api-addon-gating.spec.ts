@@ -293,14 +293,22 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
       provider: 200,
     });
     // Running payroll through RestauNax (P5) is PAYROLL only.
+    const provider = await payrollProviderRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      ""
+    );
+    expect(provider.data.data.payrollEntitled).toBe(false);
     const embedded = await payrollProviderRaw(
       ownerToken,
       restaurantId,
       "POST",
       "/embedded/start",
-      {}
+      { legalName: `Automation ${runId} LLC`, acceptTerms: true }
     );
-    expect(embedded.status).toBe(403);
+    expect(embedded.status).toBe(400);
+    expect(String(embedded.data.message)).toMatch(/Payroll & Team add-on/);
 
     const clock = await timeClock();
     expect(clock.clockInRule).not.toBe("OFF");
@@ -343,6 +351,13 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
       ["PAYROLL", "SCHEDULING", "TIMECARDS", "TIP_MANAGEMENT"].sort()
     );
     expect((await ownerStatuses()).tips).toBe(200);
+    const provider = await payrollProviderRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      ""
+    );
+    expect(provider.data.data.payrollEntitled).toBe(true);
 
     await remove("SCHEDULING");
     expect(await features()).toEqual(

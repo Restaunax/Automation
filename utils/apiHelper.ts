@@ -6486,7 +6486,7 @@ export type LooseJson = any;
 
 /** Owner staff routes: `/restaurant/:rid/staff{path}` (list, invite, roles,
  *  PATCH/DELETE a person, PIN). */
-export function ownerStaffRaw<T = { data?: LooseJson }>(
+export function ownerStaffRaw<T = { data?: LooseJson; message?: string }>(
   ownerToken: string,
   restaurantId: string,
   method: Method,
@@ -6502,7 +6502,7 @@ export function ownerStaffRaw<T = { data?: LooseJson }>(
 }
 
 /** P1/P3 payroll routes: `/api/staff/payroll/:rid{path}` (TIMECARDS). */
-export function payrollRaw<T = { data?: LooseJson }>(
+export function payrollRaw<T = { data?: LooseJson; message?: string }>(
   ownerToken: string,
   restaurantId: string,
   method: Method,
@@ -6518,7 +6518,7 @@ export function payrollRaw<T = { data?: LooseJson }>(
 }
 
 /** L1 scheduling routes: `/api/staff/scheduling/:rid{path}` (SCHEDULING). */
-export function schedulingRaw<T = { data?: LooseJson }>(
+export function schedulingRaw<T = { data?: LooseJson; message?: string }>(
   ownerToken: string,
   restaurantId: string,
   method: Method,
@@ -6534,7 +6534,7 @@ export function schedulingRaw<T = { data?: LooseJson }>(
 }
 
 /** P2 tip routes: `/api/staff/tips/:rid{path}` (TIP_MANAGEMENT). */
-export function tipsRaw<T = { data?: LooseJson }>(
+export function tipsRaw<T = { data?: LooseJson; message?: string }>(
   ownerToken: string,
   restaurantId: string,
   method: Method,
@@ -6550,7 +6550,7 @@ export function tipsRaw<T = { data?: LooseJson }>(
 }
 
 /** P4/P5 payroll-provider routes: `/api/staff/payroll-provider/:rid{path}`. */
-export function payrollProviderRaw<T = { data?: LooseJson }>(
+export function payrollProviderRaw<T = { data?: LooseJson; message?: string }>(
   ownerToken: string,
   restaurantId: string,
   method: Method,
@@ -6566,7 +6566,7 @@ export function payrollProviderRaw<T = { data?: LooseJson }>(
 }
 
 /** R2 sales tax routes: `/api/tax/:rid{path}` (core — no add-on). */
-export function taxRaw<T = { data?: LooseJson }>(
+export function taxRaw<T = { data?: LooseJson; message?: string }>(
   ownerToken: string,
   restaurantId: string,
   method: Method,
