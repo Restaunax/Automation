@@ -6598,6 +6598,22 @@ export function reportsRaw<T = LooseJson>(
   );
 }
 
+/** GET /restaurant/:rid/approval-logs/summary?from&to — S2 exceptions:
+ *  discounts, comps, price changes, voids, refunds by employee/approver. */
+export function approvalLogSummaryRaw(
+  ownerToken: string,
+  restaurantId: string,
+  from: string,
+  to: string
+): Promise<RawResponse<{ data?: LooseJson; message?: string }>> {
+  return apiRequestRaw(
+    "GET",
+    `/restaurant/${restaurantId}/approval-logs/summary?from=${from}&to=${to}`,
+    undefined,
+    ownerToken
+  );
+}
+
 /** Any POS call: `/api/tablet{path}` with the device token, plus the
  *  X-Staff-Session header when a staff session is given. */
 export function tabletRaw<T = LooseJson>(
