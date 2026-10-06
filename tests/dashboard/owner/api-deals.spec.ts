@@ -751,7 +751,7 @@ test.describe("Owner — Deals API contract", () => {
     });
     expect(inactive.status).toBe(200);
     expect(inactive.data.isValid).toBe(false);
-    expect(inactive.data.issues).toContain("Deal is not active");
+    expect(inactive.data.issues).toContain("This deal is not currently active");
   });
 
   // ── Deal scheduling: /active judged at ?at= on the restaurant clock ──────────
