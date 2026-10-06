@@ -267,8 +267,7 @@ test.describe("Owner — Deals", () => {
       await expect(row).toContainText("$12.00");
       await expect(row).toContainText("$16.50");
       await expect(row).toContainText("27% off");
-      // Legacy column: "All days"/"All day"; #898 column: "Any time the store is open".
-      await expect(row).toContainText(/All days|Any time the store is open/);
+      await expect(row).toContainText("Any time the store is open");
       await expect(row).toContainText("0 times");
       await expect(dealsPage.rowStatusText(N.plain)).toHaveText(
         DEAL_STATUS_TEXT.active
@@ -279,10 +278,8 @@ test.describe("Owner — Deals", () => {
     await allure.step("restricted deal shows its window", async () => {
       const row = dealsPage.row(N.restricted);
       await expect(row).toContainText("Mon, Wed");
-      // Legacy "11:00 - 14:00"; #898 shows scheduleSummary "Mon, Wed · 11:00 AM–2:00 PM".
-      await expect(row).toContainText(
-        /11:00 - 14:00|11:00\s?AM\s?[–-]\s?2:00\s?PM/
-      );
+      // scheduleSummary: "Mon, Wed · 11:00 AM–2:00 PM".
+      await expect(row).toContainText(/11:00\s?AM\s?[–-]\s?2:00\s?PM/);
     });
     await allure.step("pricey deal: 3 slots, 20 of 24 → 17% off", async () => {
       const row = dealsPage.row(N.pricey);

@@ -293,11 +293,8 @@ test.describe("Deals → Storefront hand-off", () => {
     });
     await expect(deals.saveBadge()).toHaveText("Save 21%");
     await expect(deals.youSaveChip()).toHaveText("You save $5.50");
-    // Legacy builder line; Plan 4 drops it for unrestricted deals (scheduleSummary null).
-    if ((await deals.availabilityLine().count()) > 0)
-      await expect(deals.availabilityLine()).toHaveText(
-        "Available: All days, All day"
-      );
+    // Unrestricted deal: no schedule line at all (scheduleSummary is null).
+    await expect(deals.availabilityLine()).toHaveCount(0);
     await deals.assertProgress(0, 3);
     await expect(deals.slotCards(burger.name)).toHaveCount(2);
     await expect(deals.slotCards(fries.name)).toHaveCount(1);
