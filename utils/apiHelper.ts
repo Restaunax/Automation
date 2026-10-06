@@ -6308,6 +6308,8 @@ export function inviteStaffRaw(
     firstName: string;
     lastName: string;
     staffRole?: string;
+    /** The restaurant role (S3) — from GET /restaurant/:rid/staff/roles. */
+    roleId?: string;
   }
 ): Promise<RawResponse<{ data?: { staffMemberId: string } }>> {
   return apiRequestRaw(
@@ -6459,4 +6461,154 @@ export function staffAppRaw<T = { data?: unknown }>(
   body?: unknown
 ): Promise<RawResponse<T>> {
   return apiRequestRaw(method, `/api/staff-app${path}`, body, staffToken);
+}
+
+// ── Back office: route-family wrappers (hiring, gating, timecards, tips) ────
+//
+// Same shape as staffAppRaw: one raw wrapper per mounted router, the spec
+// names the sub-path. Keeps each spec readable without a helper per endpoint.
+
+type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+
+/** Response bodies these specs read deeply; the assertions are the types. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type LooseJson = any;
+
+/** Owner staff routes: `/restaurant/:rid/staff{path}` (list, invite, roles,
+ *  PATCH/DELETE a person, PIN). */
+export function ownerStaffRaw<T = { data?: LooseJson }>(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  path = "",
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/restaurant/${restaurantId}/staff${path}`,
+    body,
+    ownerToken
+  );
+}
+
+/** P1/P3 payroll routes: `/api/staff/payroll/:rid{path}` (TIMECARDS). */
+export function payrollRaw<T = { data?: LooseJson }>(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/api/staff/payroll/${restaurantId}${path}`,
+    body,
+    ownerToken
+  );
+}
+
+/** L1 scheduling routes: `/api/staff/scheduling/:rid{path}` (SCHEDULING). */
+export function schedulingRaw<T = { data?: LooseJson }>(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/api/staff/scheduling/${restaurantId}${path}`,
+    body,
+    ownerToken
+  );
+}
+
+/** P2 tip routes: `/api/staff/tips/:rid{path}` (TIP_MANAGEMENT). */
+export function tipsRaw<T = { data?: LooseJson }>(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/api/staff/tips/${restaurantId}${path}`,
+    body,
+    ownerToken
+  );
+}
+
+/** P4/P5 payroll-provider routes: `/api/staff/payroll-provider/:rid{path}`. */
+export function payrollProviderRaw<T = { data?: LooseJson }>(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/api/staff/payroll-provider/${restaurantId}${path}`,
+    body,
+    ownerToken
+  );
+}
+
+/** Any POS call: `/api/tablet{path}` with the device token, plus the
+ *  X-Staff-Session header when a staff session is given. */
+export function tabletRaw<T = LooseJson>(
+  tabletToken: string,
+  method: Method,
+  path: string,
+  body?: unknown,
+  staffSession?: string
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/api/tablet${path}`,
+    body,
+    tabletToken,
+    staffSession ? staffHeaders(staffSession) : undefined
+  );
+}
+
+/** GET /restaurant/restaurantId/:rid/features — the entitlement set the
+ *  dashboard gates on: data.features[]. */
+export function getRestaurantFeaturesRaw(
+  token: string,
+  restaurantId: string
+): Promise<RawResponse<{ data?: { features?: string[] } }>> {
+  return apiRequestRaw(
+    "GET",
+    `/restaurant/restaurantId/${restaurantId}/features`,
+    undefined,
+    token
+  );
+}
+
+/** POST /api/auth/staff/claim-while-signed-in {token} — a signed-in account
+ *  claims a staff invite (InvitationLanding's path). */
+export function claimStaffInviteSignedInRaw(
+  userToken: string,
+  inviteToken: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    "/api/auth/staff/claim-while-signed-in",
+    { token: inviteToken },
+    userToken
+  );
+}
+
+/** POST /api/auth/staff/set-invitation-pin {token, pin} — public, from the
+ *  invite link; single use. */
+export function setInvitationPinRaw(
+  inviteToken: string,
+  pin: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw("POST", "/api/auth/staff/set-invitation-pin", {
+    token: inviteToken,
+    pin,
+  });
 }
