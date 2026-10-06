@@ -1,0 +1,8 @@
+"DESCRIPTION","DURATION IN MS","NAME","PARENT SUITE","START TIME","STATUS","STOP TIME","SUB SUITE","SUITE","TEST CLASS","TEST METHOD"
+"","863","TC-563: no add-ons — every back-office owner route refuses; core features answer","dashboard","2026-10-06","passed","2026-10-06","Back-office add-ons gate every surface (API)","","",""
+"","1","TC-568: a component can't be granted alone; revoking a component hides it under its package","dashboard","2026-10-06","skipped","2026-10-06","Back-office add-ons gate every surface (API)","","",""
+"","160","TC-565: no add-ons — Restaunax Staff shows no requests and refuses time off","dashboard","2026-10-06","passed","2026-10-06","Back-office add-ons gate every surface (API)","","",""
+"","501","TC-566: SCHEDULING only — schedule, jobs and the clock-in rule appear; tips and payroll runs don't","dashboard","2026-10-06","failed","2026-10-06","Back-office add-ons gate every surface (API)","","",""
+"","830","TC-564: no add-ons — the POS time clock is the plain one; breaks, timecards and schedule are refused","dashboard","2026-10-06","passed","2026-10-06","Back-office add-ons gate every surface (API)","","",""
+"","0","TC-569: removing the add-ons hides everything again; granting back finds the data intact","dashboard","2026-10-06","skipped","2026-10-06","Back-office add-ons gate every surface (API)","","",""
+"","1","TC-567: + PAYROLL — tips appear; PAYROLL alone keeps jobs and tips but drops scheduling","dashboard","2026-10-06","skipped","2026-10-06","Back-office add-ons gate every surface (API)","","",""
