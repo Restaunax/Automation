@@ -503,7 +503,18 @@ test.describe("Scheduling — build, cost, warn, publish, clock-in rule (API)", 
   test("TC-576: clock-in rule on the POS — BLOCK needs a manager, WARN flags, the early window and OFF", async () => {
     // A shift starting in an hour, today. Too close to local midnight and
     // "today" would end before it starts.
-    const localHour = Number(
+    // A one-hour shift starting in 30 minutes: 15 minutes is too early for
+    // it, 120 isn't. It must end on today's local date (and after the 04:00
+    // business-day cutoff), or "today" no longer holds it.
+    const start = new Date(
+      Math.ceil((Date.now() + 30 * 60_000) / 60_000) * 60_000
+    );
+    const end = new Date(start.getTime() + 60 * 60_000);
+    const localDate = (d: Date) =>
+      new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(
+        d
+      );
+    const localHourNow = Number(
       new Intl.DateTimeFormat("en-US", {
         timeZone: "America/New_York",
         hour: "numeric",
@@ -511,13 +522,9 @@ test.describe("Scheduling — build, cost, warn, publish, clock-in rule (API)", 
       }).format(new Date())
     );
     test.skip(
-      localHour >= 20,
-      "late evening in Miami: no room for a shift today"
+      localDate(end) !== localDate(new Date()) || localHourNow < 4,
+      "too close to midnight in Miami for a shift today"
     );
-    const start = new Date(
-      Math.ceil((Date.now() + 60 * 60_000) / 60_000) * 60_000
-    );
-    const end = new Date(start.getTime() + 2 * 60 * 60_000);
     const today = await shift(
       dee.staffMemberId,
       start.toISOString(),
