@@ -730,6 +730,15 @@ test.describe("Scheduling — build, cost, warn, publish, clock-in rule (API)", 
     try {
       const w = await week(start.toISOString().slice(0, 10));
       const s = list(w.shifts).find((x) => x.id === mine);
+      // Evidence in the CI log (an expected failure prints no error).
+      console.log(
+        "[TC-636]",
+        JSON.stringify({
+          clockInException: inn.data.data.shift.clockInException,
+          scheduledShiftId: inn.data.data.shift.scheduledShiftId,
+          attendance: s?.attendance ?? null,
+        })
+      );
       // The bug: scheduledShiftId is null, so the week shows no clock-in.
       expect(inn.data.data.shift.scheduledShiftId).toBe(mine);
       expect(s?.attendance?.clockInAt).toBeTruthy();
