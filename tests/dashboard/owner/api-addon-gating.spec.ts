@@ -310,9 +310,26 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
     expect(embedded.status).toBe(400);
     expect(String(embedded.data.message)).toMatch(/Payroll & Team add-on/);
 
+    // The clock-in rule is OFF until the owner picks one; with SCHEDULING
+    // the POS gets whatever they pick.
+    expect((await timeClock()).clockInRule).toBe("OFF");
+    const rule = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "PUT",
+      "/settings",
+      {
+        scheduling: { clockInRule: "WARN" },
+      }
+    );
+    expect(rule.status, JSON.stringify(rule.data)).toBe(200);
     const clock = await timeClock();
-    expect(clock.clockInRule).not.toBe("OFF");
-    expect(Array.isArray(clock.breakTypes)).toBe(true);
+    expect(clock.clockInRule).toBe("WARN");
+    expect(
+      list(clock.breakTypes)
+        .map((b) => b.id)
+        .sort()
+    ).toEqual(["meal", "rest"]);
     expect((await staffAppRequests())?.requests).toBe(true);
 
     // Data made under SCHEDULING, to prove it survives the add-on going.
@@ -370,6 +387,7 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
       tips: 200,
       provider: 200,
     });
+    // Losing SCHEDULING turns the saved WARN rule off on the POS.
     expect((await timeClock()).clockInRule).toBe("OFF");
     expect((await staffAppRequests())?.requests).toBe(false);
   });

@@ -102,6 +102,13 @@ test.describe("Payroll export — every format from the approved period (API)", 
       `/pay-periods/${start}/export`,
       { format }
     );
+  /** A file that must download: 200 and CSV text, else show what came. */
+  const csvOf = async (format: string) => {
+    const r = await file(format);
+    expect(r.status, JSON.stringify(r.data)).toBe(200);
+    expect(typeof r.data, JSON.stringify(r.data)).toBe("string");
+    return lines(r.data);
+  };
   const codes = (w: Rec) =>
     list(w.warnings)
       .map((x) => String(x.code))
@@ -395,7 +402,7 @@ test.describe("Payroll export — every format from the approved period (API)", 
   });
 
   test("TC-600: Gusto, ADP RUN and Paychex files carry the same hours and money", async () => {
-    const gusto = lines((await file("GUSTO")).data);
+    const gusto = await csvOf("GUSTO");
     expect(gusto[0]).toBe(
       "Last_name,First_name,Gusto_employee_id,Title,Regular_hours,Overtime_hours,Double_overtime_hours,paycheck_tips,cash_tips"
     );
@@ -404,7 +411,7 @@ test.describe("Payroll export — every format from the approved period (API)", 
     );
     expect(gusto).toContain(`Zane,Ivy,,${hostName},8.00,0.00,0.00,0.00,0.00`);
 
-    const adp = lines((await file("ADP_RUN")).data);
+    const adp = await csvOf("ADP_RUN");
     const dates = `W,${usDate(p1)},${usDate(addDays(p1, 6))}`;
     expect(adp).toEqual(
       expect.arrayContaining([
@@ -416,7 +423,7 @@ test.describe("Payroll export — every format from the approved period (API)", 
     );
     expect(adp).toHaveLength(5);
 
-    const paychex = lines((await file("PAYCHEX")).data);
+    const paychex = await csvOf("PAYCHEX");
     expect(paychex[0]).toBe(
       "Client ID,Worker ID,Job Number,Pay Component,Rate,Hours,Amount"
     );

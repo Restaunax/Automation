@@ -138,9 +138,11 @@ test.describe("Service fee — every option for its effect (API)", () => {
     if (!tenant.restaurantId) throw new Error("[api-service-fee] no tenant");
     restaurantId = tenant.restaurantId;
     ownerToken = tenant.accessToken;
+    // tax: 0 — a rate must be set (even 0%) or the online quote refuses.
     await updateRestaurantSettingsApi(ownerToken, restaurantId, {
       tableServiceEnabled: true,
       acceptingOrders: true,
+      tax: 0,
     });
     const groupId = (
       await createMenuGroupNamed(ownerToken, `Fee ${runId}`, { restaurantId })
