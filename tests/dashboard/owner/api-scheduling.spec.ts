@@ -690,16 +690,8 @@ test.describe("Scheduling — build, cost, warn, publish, clock-in rule (API)", 
   });
 
   test("TC-636: a manager-approved early clock-in counts as attendance for its shift", async () => {
-    // PRODUCT BUG B2 (found 2026-10-06): POST /api/tablet/staff/clock-in under
-    // BLOCK (or WARN) with an EARLY match records clockInException "EARLY" but
-    // scheduledShiftId null — tabletStaffController.ts clockIn sets
-    // `schedule.scheduledShiftId = match.kind === "MATCHED" ? … : null` even
-    // though match.shift is known. The week view's scheduled-vs-actual only
-    // reads clock-ins linked by scheduledShiftId, so the person who came in
-    // early (with approval) shows as not in / no-show for the shift they are
-    // working. Expected: link the EARLY clock-in to match.shift. Remove
-    // test.fail() once fixed.
-    test.fail();
+    // Was bug B2 (found 2026-10-06, fixed in restaunax #909): an EARLY
+    // clock-in wasn't linked to its shift, so attendance showed "not in".
     test.skip(!todayShift, "TC-576 didn't run (time window)");
     // A fresh shift today for the owner (who holds APPROVE_CLOCK_IN, so an
     // early clock-in is approved on the spot) — no other clock-in is linked
@@ -730,16 +722,6 @@ test.describe("Scheduling — build, cost, warn, publish, clock-in rule (API)", 
     try {
       const w = await week(start.toISOString().slice(0, 10));
       const s = list(w.shifts).find((x) => x.id === mine);
-      // Evidence in the CI log (an expected failure prints no error).
-      console.log(
-        "[TC-636]",
-        JSON.stringify({
-          clockInException: inn.data.data.shift.clockInException,
-          scheduledShiftId: inn.data.data.shift.scheduledShiftId,
-          attendance: s?.attendance ?? null,
-        })
-      );
-      // The bug: scheduledShiftId is null, so the week shows no clock-in.
       expect(inn.data.data.shift.scheduledShiftId).toBe(mine);
       expect(s?.attendance?.clockInAt).toBeTruthy();
     } finally {
