@@ -1,0 +1,1 @@
+{"total":2,"items":[{"uid":"0a371b82858bd2ae20e7b067eab32ab3","name":"Scheduling","statistic":{"failed":1,"broken":0,"skipped":0,"passed":10,"unknown":0,"total":11}},{"uid":"fd77dd41693041d2151d52c28e0d3bd2","name":"Add-on gating","statistic":{"failed":0,"broken":0,"skipped":0,"passed":1,"unknown":0,"total":1}}]}
