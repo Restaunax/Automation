@@ -901,6 +901,11 @@ export interface QuoteResponse {
     tax?: number;
     amountToCharge?: number;
     total?: number;
+    /** S1 service fee (excl. its tax) and its tax, both inside tax/total. */
+    serviceFee?: number;
+    serviceFeeTax?: number;
+    serviceFeeLabel?: string | null;
+    serviceFeeNotice?: string | null;
     deals?: {
       dealId: string;
       dealName: string;
@@ -6308,6 +6313,8 @@ export function inviteStaffRaw(
     firstName: string;
     lastName: string;
     staffRole?: string;
+    /** The restaurant role (S3) — from GET /restaurant/:rid/staff/roles. */
+    roleId?: string;
   }
 ): Promise<RawResponse<{ data?: { staffMemberId: string } }>> {
   return apiRequestRaw(
@@ -6321,7 +6328,13 @@ export function inviteStaffRaw(
 export function createStaffJobRaw(
   ownerToken: string,
   restaurantId: string,
-  body: { name: string; defaultHourlyRateCents: number; isTipped?: boolean }
+  body: {
+    name: string;
+    defaultHourlyRateCents: number;
+    isTipped?: boolean;
+    /** P2: a manager/supervisor job never receives pooled tips. */
+    isManagerial?: boolean;
+  }
 ): Promise<RawResponse<{ data?: { id: string } }>> {
   return apiRequestRaw(
     "POST",
@@ -6398,7 +6411,11 @@ export function publishScheduleRaw(
   restaurantId: string,
   date: string,
   notifyMode: "CHANGED" | "ALL" | "NONE" = "NONE"
-): Promise<RawResponse> {
+): Promise<
+  RawResponse<{
+    data?: { published: number; notified: number; publicationId: string };
+  }>
+> {
   return apiRequestRaw(
     "POST",
     `${scheduling(restaurantId)}/publish`,
@@ -6459,4 +6476,235 @@ export function staffAppRaw<T = { data?: unknown }>(
   body?: unknown
 ): Promise<RawResponse<T>> {
   return apiRequestRaw(method, `/api/staff-app${path}`, body, staffToken);
+}
+
+// ── Back office: route-family wrappers (hiring, gating, timecards, tips) ────
+//
+// Same shape as staffAppRaw: one raw wrapper per mounted router, the spec
+// names the sub-path. Keeps each spec readable without a helper per endpoint.
+
+type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+
+/** Response bodies these specs read deeply; the assertions are the types. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type LooseJson = any;
+
+/** Owner staff routes: `/restaurant/:rid/staff{path}` (list, invite, roles,
+ *  PATCH/DELETE a person, PIN). */
+export function ownerStaffRaw<T = { data?: LooseJson; message?: string }>(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  path = "",
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/restaurant/${restaurantId}/staff${path}`,
+    body,
+    ownerToken
+  );
+}
+
+/** P1/P3 payroll routes: `/api/staff/payroll/:rid{path}` (TIMECARDS). */
+export function payrollRaw<T = { data?: LooseJson; message?: string }>(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/api/staff/payroll/${restaurantId}${path}`,
+    body,
+    ownerToken
+  );
+}
+
+/** L1 scheduling routes: `/api/staff/scheduling/:rid{path}` (SCHEDULING). */
+export function schedulingRaw<T = { data?: LooseJson; message?: string }>(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/api/staff/scheduling/${restaurantId}${path}`,
+    body,
+    ownerToken
+  );
+}
+
+/** P2 tip routes: `/api/staff/tips/:rid{path}` (TIP_MANAGEMENT). */
+export function tipsRaw<T = { data?: LooseJson; message?: string }>(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/api/staff/tips/${restaurantId}${path}`,
+    body,
+    ownerToken
+  );
+}
+
+/** P4/P5 payroll-provider routes: `/api/staff/payroll-provider/:rid{path}`. */
+export function payrollProviderRaw<T = { data?: LooseJson; message?: string }>(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/api/staff/payroll-provider/${restaurantId}${path}`,
+    body,
+    ownerToken
+  );
+}
+
+/** R2 sales tax routes: `/api/tax/:rid{path}` (core — no add-on). */
+export function taxRaw<T = { data?: LooseJson; message?: string }>(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/api/tax/${restaurantId}${path}`,
+    body,
+    ownerToken
+  );
+}
+
+/** A1 accounting routes: `/api/accounting/:rid{path}` (ACCOUNTING_SYNC). */
+export function accountingRaw<T = { data?: LooseJson; message?: string }>(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/api/accounting/${restaurantId}${path}`,
+    body,
+    ownerToken
+  );
+}
+
+/** R1 report routes: `/api/reports/:rid{path}` (core — no add-on). CSV
+ *  endpoints answer text, which arrives as the raw body string. */
+export function reportsRaw<T = LooseJson>(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/api/reports/${restaurantId}${path}`,
+    body,
+    ownerToken
+  );
+}
+
+/** GET /restaurant/:rid/approval-logs/summary?from&to — S2 exceptions:
+ *  discounts, comps, price changes, voids, refunds by employee/approver. */
+export function approvalLogSummaryRaw(
+  ownerToken: string,
+  restaurantId: string,
+  from: string,
+  to: string
+): Promise<RawResponse<{ data?: LooseJson; message?: string }>> {
+  return apiRequestRaw(
+    "GET",
+    `/restaurant/${restaurantId}/approval-logs/summary?from=${from}&to=${to}`,
+    undefined,
+    ownerToken
+  );
+}
+
+/** Owner self-serve add-ons: GET `/restaurant/:rid/addons` (data.addons[])
+ *  and POST { addonId, billingInterval? } to buy one. */
+export function ownerAddonsRaw(
+  token: string,
+  restaurantId: string,
+  method: "GET" | "POST",
+  body?: unknown
+): Promise<RawResponse<{ data?: LooseJson; message?: string }>> {
+  return apiRequestRaw(
+    method,
+    `/restaurant/${restaurantId}/addons`,
+    body,
+    token
+  );
+}
+
+/** Any POS call: `/api/tablet{path}` with the device token, plus the
+ *  X-Staff-Session header when a staff session is given. */
+export function tabletRaw<T = LooseJson>(
+  tabletToken: string,
+  method: Method,
+  path: string,
+  body?: unknown,
+  staffSession?: string
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/api/tablet${path}`,
+    body,
+    tabletToken,
+    staffSession ? staffHeaders(staffSession) : undefined
+  );
+}
+
+/** GET /restaurant/restaurantId/:rid/features — the entitlement set the
+ *  dashboard gates on: data.features[]. */
+export function getRestaurantFeaturesRaw(
+  token: string,
+  restaurantId: string
+): Promise<RawResponse<{ data?: { features?: string[] } }>> {
+  return apiRequestRaw(
+    "GET",
+    `/restaurant/restaurantId/${restaurantId}/features`,
+    undefined,
+    token
+  );
+}
+
+/** POST /api/auth/staff/claim-while-signed-in {token} — a signed-in account
+ *  claims a staff invite (InvitationLanding's path). */
+export function claimStaffInviteSignedInRaw(
+  userToken: string,
+  inviteToken: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    "/api/auth/staff/claim-while-signed-in",
+    { token: inviteToken },
+    userToken
+  );
+}
+
+/** POST /api/auth/staff/set-invitation-pin {token, pin} — public, from the
+ *  invite link; single use. */
+export function setInvitationPinRaw(
+  inviteToken: string,
+  pin: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw("POST", "/api/auth/staff/set-invitation-pin", {
+    token: inviteToken,
+    pin,
+  });
 }
