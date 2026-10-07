@@ -44,6 +44,7 @@ import {
   getScheduleWeekRaw,
   taxRaw,
   reportsRaw,
+  createRestaurantRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
 
@@ -431,5 +432,47 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
       true
     );
     await remove("SCHEDULING");
+  });
+
+  test("TC-635: a home-food seller never gets back-office features, even with the packages granted", async () => {
+    const created = await createRestaurantRaw(adminToken, {
+      name: `Automation Home Kitchen ${runId}`,
+      street: "12 Garden Lane",
+      city: "Miami",
+      state: "FL",
+      zipCode: "33101",
+      cuisineType: "American",
+      restaurantPhone: "3055550178",
+      description: "Throwaway home-food seller (gating test)",
+      minimumOrderPreparationTime: 0,
+      businessType: "HOME_FOOD",
+    });
+    const homeId = String(
+      (created.data as { restaurant?: { id?: string } })?.restaurant?.id ?? ""
+    );
+    expect(homeId, JSON.stringify(created.data)).not.toBe("");
+    try {
+      for (const f of ["SCHEDULING", "PAYROLL"])
+        await setFeatureOverrideAdminRaw(adminToken, homeId, f, true);
+      const set = await getRestaurantFeaturesRaw(adminToken, homeId);
+      expect(set.status).toBe(200);
+      const back = (set.data.data?.features ?? []).filter((f) =>
+        BACK_OFFICE.includes(f)
+      );
+      expect(back).toEqual([]);
+      const jobs = await payrollRaw(adminToken, homeId, "GET", "/jobs");
+      expect(jobs.status).toBe(403);
+      const schedule = await schedulingRaw(adminToken, homeId, "GET", "");
+      expect(schedule.status).toBe(403);
+      // Core features stay: roles and sales tax.
+      expect(
+        (await ownerStaffRaw(adminToken, homeId, "GET", "/roles")).status
+      ).toBe(200);
+      expect((await taxRaw(adminToken, homeId, "GET", "/rates")).status).toBe(
+        200
+      );
+    } finally {
+      await deleteTestRestaurant(adminToken, homeId).catch(() => {});
+    }
   });
 });
