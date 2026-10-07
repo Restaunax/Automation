@@ -98,6 +98,8 @@ test.describe("Scheduling — build, cost, warn, publish, clock-in rule (API)", 
   let w2 = "";
   let w3 = "";
   const ids = { deeD1: "", open: "", eveD2: "" };
+  /** TC-576's shift today (published), reused by TC-636. */
+  let todayShift = "";
 
   const hire = async (who: Person, first: string, last: string) => {
     who.email = `auto-sched-${first.toLowerCase()}-${runId}@${DOMAIN}`;
@@ -530,6 +532,7 @@ test.describe("Scheduling — build, cost, warn, publish, clock-in rule (API)", 
       start.toISOString(),
       end.toISOString()
     );
+    todayShift = today;
     const p = await publishScheduleRaw(
       ownerToken,
       restaurantId,
@@ -574,7 +577,7 @@ test.describe("Scheduling — build, cost, warn, publish, clock-in rule (API)", 
     expect(approved.status, JSON.stringify(approved.data)).toBe(200);
     expect(approved.data.data.shift).toMatchObject({
       clockInException: "EARLY",
-      scheduledShiftId: today,
+      clockInApprovedByStaffMemberId: ownerMemberId,
     });
     await clockOut();
 
@@ -684,5 +687,39 @@ test.describe("Scheduling — build, cost, warn, publish, clock-in rule (API)", 
     await settings({ showPayToStaff: false });
     expect(await showPay()).toBe(false);
     await settings({ showPayToStaff: true });
+  });
+
+  test("TC-636: a manager-approved early clock-in counts as attendance for its shift", async () => {
+    // PRODUCT BUG B2 (found 2026-10-06): POST /api/tablet/staff/clock-in under
+    // BLOCK (or WARN) with an EARLY match records clockInException "EARLY" but
+    // scheduledShiftId null — tabletStaffController.ts clockIn sets
+    // `schedule.scheduledShiftId = match.kind === "MATCHED" ? … : null` even
+    // though match.shift is known. The week view's scheduled-vs-actual only
+    // reads clock-ins linked by scheduledShiftId, so the person who came in
+    // early (with approval) shows as not in / no-show for the shift they are
+    // working. Expected: link the EARLY clock-in to match.shift. Remove
+    // test.fail() once fixed.
+    test.fail();
+    test.skip(!todayShift, "TC-576 didn't create today's shift (time window)");
+    await settings({ clockInRule: "BLOCK", earlyClockInMinutes: 15 });
+    const inn = await tabletRaw<Rec>(tabletToken, "POST", "/staff/clock-in", {
+      staffMemberId: dee.staffMemberId,
+      pin: DEE_PIN,
+      supportsClockInRules: true,
+      managerPin: OWNER_PIN,
+      approverStaffMemberId: ownerMemberId,
+    });
+    expect(inn.status, JSON.stringify(inn.data)).toBe(200);
+    try {
+      const w = await week(new Date().toISOString().slice(0, 10));
+      const s = list(w.shifts).find((x) => x.id === todayShift);
+      expect(s?.attendance?.clockInAt).toBeTruthy();
+    } finally {
+      await tabletRaw(tabletToken, "POST", "/staff/clock-out", {
+        staffMemberId: dee.staffMemberId,
+        pin: DEE_PIN,
+      });
+      await settings({ clockInRule: "OFF" });
+    }
   });
 });

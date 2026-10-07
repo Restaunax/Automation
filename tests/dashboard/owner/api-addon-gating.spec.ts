@@ -457,7 +457,9 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
         (
           (await getRestaurantFeaturesRaw(adminToken, id)).data.data
             ?.features ?? []
-        ).filter((f) => BACK_OFFICE.includes(f));
+        )
+          .filter((f) => BACK_OFFICE.includes(f))
+          .sort();
       expect(await backOfficeOf(homeId)).toEqual([]);
 
       // The self-serve catalogue: a storefront restaurant vs a home seller.
