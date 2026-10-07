@@ -700,24 +700,43 @@ test.describe("Scheduling — build, cost, warn, publish, clock-in rule (API)", 
     // working. Expected: link the EARLY clock-in to match.shift. Remove
     // test.fail() once fixed.
     test.fail();
-    test.skip(!todayShift, "TC-576 didn't create today's shift (time window)");
+    test.skip(!todayShift, "TC-576 didn't run (time window)");
+    // A fresh shift today for the owner (who holds APPROVE_CLOCK_IN, so an
+    // early clock-in is approved on the spot) — no other clock-in is linked
+    // to it, unlike TC-576's shift.
+    const start = new Date(
+      Math.ceil((Date.now() + 30 * 60_000) / 60_000) * 60_000
+    );
+    const end = new Date(start.getTime() + 30 * 60_000);
+    const mine = await shift(
+      ownerMemberId,
+      start.toISOString(),
+      end.toISOString()
+    );
+    await publishScheduleRaw(
+      ownerToken,
+      restaurantId,
+      start.toISOString().slice(0, 10),
+      "NONE"
+    );
     await settings({ clockInRule: "BLOCK", earlyClockInMinutes: 15 });
     const inn = await tabletRaw<Rec>(tabletToken, "POST", "/staff/clock-in", {
-      staffMemberId: dee.staffMemberId,
-      pin: DEE_PIN,
+      staffMemberId: ownerMemberId,
+      pin: OWNER_PIN,
       supportsClockInRules: true,
-      managerPin: OWNER_PIN,
-      approverStaffMemberId: ownerMemberId,
     });
     expect(inn.status, JSON.stringify(inn.data)).toBe(200);
+    expect(inn.data.data.shift.clockInException).toBe("EARLY");
     try {
-      const w = await week(new Date().toISOString().slice(0, 10));
-      const s = list(w.shifts).find((x) => x.id === todayShift);
+      const w = await week(start.toISOString().slice(0, 10));
+      const s = list(w.shifts).find((x) => x.id === mine);
+      // The bug: scheduledShiftId is null, so the week shows no clock-in.
+      expect(inn.data.data.shift.scheduledShiftId).toBe(mine);
       expect(s?.attendance?.clockInAt).toBeTruthy();
     } finally {
       await tabletRaw(tabletToken, "POST", "/staff/clock-out", {
-        staffMemberId: dee.staffMemberId,
-        pin: DEE_PIN,
+        staffMemberId: ownerMemberId,
+        pin: OWNER_PIN,
       });
       await settings({ clockInRule: "OFF" });
     }
