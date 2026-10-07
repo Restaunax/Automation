@@ -43,6 +43,7 @@ import {
   createTabletDevice,
   tabletLogin,
   deactivateTabletDevice,
+  restaurantBasicInfoRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
 
@@ -100,6 +101,38 @@ test.describe("Scheduling — build, cost, warn, publish, clock-in rule (API)", 
   const ids = { deeD1: "", open: "", eveD2: "" };
   /** TC-576's shift today (published), reused by TC-636. */
   let todayShift = "";
+  /** The zone TC-576 moved the restaurant to (local time ≈ noon). */
+  let middayZone = "America/New_York";
+
+  /** A fixed-offset IANA zone where it is about 12:00 now: Etc/GMT-N is
+   *  UTC+N (the sign is inverted by the IANA convention). */
+  const zoneAtMidday = (now = new Date()) => {
+    let offset = 12 - now.getUTCHours();
+    if (offset < -12) offset += 24;
+    if (offset > 14) offset -= 24;
+    if (offset === 0) return "Etc/GMT";
+    return `Etc/GMT${offset > 0 ? "-" : "+"}${Math.abs(offset)}`;
+  };
+  const localDateIn = (zone: string, d: Date) =>
+    new Intl.DateTimeFormat("en-CA", { timeZone: zone }).format(d);
+  /** PUT /restaurant/:rid/basic-info {timezone} — the owner's zone override. */
+  const moveToMidday = async () => {
+    const zone = zoneAtMidday();
+    const r = await restaurantBasicInfoRaw(ownerToken, restaurantId, {
+      timezone: zone,
+    });
+    expect(r.status, JSON.stringify(r.data)).toBe(200);
+    const hour = Number(
+      new Intl.DateTimeFormat("en-US", {
+        timeZone: zone,
+        hour: "numeric",
+        hourCycle: "h23",
+      }).format(new Date())
+    );
+    expect(hour).toBeGreaterThanOrEqual(11);
+    expect(hour).toBeLessThanOrEqual(13);
+    return zone;
+  };
 
   const hire = async (who: Person, first: string, last: string) => {
     who.email = `auto-sched-${first.toLowerCase()}-${runId}@${DOMAIN}`;
@@ -503,30 +536,16 @@ test.describe("Scheduling — build, cost, warn, publish, clock-in rule (API)", 
   });
 
   test("TC-576: clock-in rule on the POS — BLOCK needs a manager, WARN flags, the early window and OFF", async () => {
-    // A shift starting in an hour, today. Too close to local midnight and
-    // "today" would end before it starts.
-    // A one-hour shift starting in 30 minutes: 15 minutes is too early for
-    // it, 120 isn't. It must end on today's local date (and after the 04:00
-    // business-day cutoff), or "today" no longer holds it.
+    // Time-independent: move the restaurant to a zone where it is about
+    // noon right now, so "a one-hour shift starting in 30 minutes" is always
+    // today, well clear of midnight and the 04:00 business-day cutoff. (The
+    // earlier tests ran in Miami; the ones after only use dates far apart.)
+    middayZone = await moveToMidday();
+    // 15 minutes is too early for it, 120 isn't.
     const start = new Date(
       Math.ceil((Date.now() + 30 * 60_000) / 60_000) * 60_000
     );
     const end = new Date(start.getTime() + 60 * 60_000);
-    const localDate = (d: Date) =>
-      new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(
-        d
-      );
-    const localHourNow = Number(
-      new Intl.DateTimeFormat("en-US", {
-        timeZone: "America/New_York",
-        hour: "numeric",
-        hourCycle: "h23",
-      }).format(new Date())
-    );
-    test.skip(
-      localDate(end) !== localDate(new Date()) || localHourNow < 4,
-      "too close to midnight in Miami for a shift today"
-    );
     const today = await shift(
       dee.staffMemberId,
       start.toISOString(),
@@ -536,7 +555,7 @@ test.describe("Scheduling — build, cost, warn, publish, clock-in rule (API)", 
     const p = await publishScheduleRaw(
       ownerToken,
       restaurantId,
-      start.toISOString().slice(0, 10),
+      localDateIn(middayZone, start),
       "NONE"
     );
     expect(p.status).toBe(200);
@@ -690,17 +709,12 @@ test.describe("Scheduling — build, cost, warn, publish, clock-in rule (API)", 
   });
 
   test("TC-636: a manager-approved early clock-in counts as attendance for its shift", async () => {
-    // PRODUCT BUG B2 (found 2026-10-06): POST /api/tablet/staff/clock-in under
-    // BLOCK (or WARN) with an EARLY match records clockInException "EARLY" but
-    // scheduledShiftId null — tabletStaffController.ts clockIn sets
-    // `schedule.scheduledShiftId = match.kind === "MATCHED" ? … : null` even
-    // though match.shift is known. The week view's scheduled-vs-actual only
-    // reads clock-ins linked by scheduledShiftId, so the person who came in
-    // early (with approval) shows as not in / no-show for the shift they are
-    // working. Expected: link the EARLY clock-in to match.shift. Remove
-    // test.fail() once fixed.
-    test.fail();
-    test.skip(!todayShift, "TC-576 didn't run (time window)");
+    // Was bug B2 (found 2026-10-06, fixed in restaunax #909): an EARLY
+    // clock-in wasn't linked to its shift, so attendance showed "not in".
+    expect(
+      todayShift,
+      "TC-576 runs first and moves the clock to noon"
+    ).not.toBe("");
     // A fresh shift today for the owner (who holds APPROVE_CLOCK_IN, so an
     // early clock-in is approved on the spot) — no other clock-in is linked
     // to it, unlike TC-576's shift.
@@ -716,7 +730,7 @@ test.describe("Scheduling — build, cost, warn, publish, clock-in rule (API)", 
     await publishScheduleRaw(
       ownerToken,
       restaurantId,
-      start.toISOString().slice(0, 10),
+      localDateIn(middayZone, start),
       "NONE"
     );
     await settings({ clockInRule: "BLOCK", earlyClockInMinutes: 15 });
@@ -728,18 +742,8 @@ test.describe("Scheduling — build, cost, warn, publish, clock-in rule (API)", 
     expect(inn.status, JSON.stringify(inn.data)).toBe(200);
     expect(inn.data.data.shift.clockInException).toBe("EARLY");
     try {
-      const w = await week(start.toISOString().slice(0, 10));
+      const w = await week(localDateIn(middayZone, start));
       const s = list(w.shifts).find((x) => x.id === mine);
-      // Evidence in the CI log (an expected failure prints no error).
-      console.log(
-        "[TC-636]",
-        JSON.stringify({
-          clockInException: inn.data.data.shift.clockInException,
-          scheduledShiftId: inn.data.data.shift.scheduledShiftId,
-          attendance: s?.attendance ?? null,
-        })
-      );
-      // The bug: scheduledShiftId is null, so the week shows no clock-in.
       expect(inn.data.data.shift.scheduledShiftId).toBe(mine);
       expect(s?.attendance?.clockInAt).toBeTruthy();
     } finally {

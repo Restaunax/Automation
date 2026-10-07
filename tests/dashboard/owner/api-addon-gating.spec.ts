@@ -217,9 +217,14 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
     expect(report.status).toBe(200);
   });
 
-  test("TC-564: no add-ons — the POS time clock is the plain one; breaks, timecards and schedule are refused", async () => {
+  test("TC-564: no add-ons — the POS time clock has clock-in and breaks, no job picker; timecard review and the schedule are refused", async () => {
     const clock = await timeClock();
-    expect(clock.breakTypes).toEqual([]);
+    // Break types come with STAFF (free); the clock-in rule needs SCHEDULING.
+    expect(
+      list(clock.breakTypes)
+        .map((b) => b.id)
+        .sort()
+    ).toEqual(["meal", "rest"]);
     expect(clock.clockInRule).toBe("OFF");
     const me = list(clock.data).find((s) => s.id === ownerMemberId) ?? {};
     expect(list(me.jobs)).toHaveLength(0);
@@ -230,17 +235,25 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
       pin: PIN,
     });
     expect(inn.status, JSON.stringify(inn.data)).toBe(200);
+    // Basic breaks are free (packaging v2): a break starts and ends with no
+    // add-on; api-free-breaks covers the hours.
     const brk = await tabletRaw<Rec>(
       tabletToken,
       "POST",
       "/staff/break/start",
+      { staffMemberId: ownerMemberId, pin: PIN, breakTypeId: "rest" }
+    );
+    expect(brk.status, JSON.stringify(brk.data)).toBe(200);
+    const brkEnd = await tabletRaw<Rec>(
+      tabletToken,
+      "POST",
+      "/staff/break/end",
       {
         staffMemberId: ownerMemberId,
         pin: PIN,
-        breakTypeId: "any",
       }
     );
-    expect(brk.status).toBe(403);
+    expect(brkEnd.status, JSON.stringify(brkEnd.data)).toBe(200);
     const out = await tabletRaw<Rec>(tabletToken, "POST", "/staff/clock-out", {
       staffMemberId: ownerMemberId,
       pin: PIN,
@@ -271,9 +284,9 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
     expect(today.status, "today's schedule needs SCHEDULING").toBe(403);
   });
 
-  test("TC-565: no add-ons — Restaunax Staff shows no requests and refuses time off", async () => {
-    const r = await staffAppRequests();
-    expect(r).toMatchObject({ requests: false, payStubs: false });
+  test("TC-565: no add-ons — Restaunax Staff doesn't list the restaurant and refuses time off", async () => {
+    // A restaurant with none of the staff-app sections isn't listed at all.
+    expect(await staffAppRequests()).toBeUndefined();
     const off = await staffAppRaw(
       ownerToken,
       "POST",
@@ -309,8 +322,9 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
       "/embedded/start",
       { legalName: `Automation ${runId} LLC`, acceptTerms: true }
     );
-    expect(embedded.status).toBe(400);
-    expect(String(embedded.data.message)).toMatch(/Payroll & Team add-on/);
+    // Route-level gate since #909: the PAYROLL package itself.
+    expect(embedded.status).toBe(403);
+    expect(embedded.data).toMatchObject({ error: "FEATURE_NOT_ENTITLED" });
 
     // The clock-in rule is OFF until the owner picks one; with SCHEDULING
     // the POS gets whatever they pick.
@@ -332,7 +346,13 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
         .map((b) => b.id)
         .sort()
     ).toEqual(["meal", "rest"]);
-    expect((await staffAppRequests())?.requests).toBe(true);
+    expect(await staffAppRequests()).toMatchObject({
+      requests: true,
+      schedule: true,
+      hours: true,
+      tips: false,
+      payStubs: false,
+    });
 
     // Data made under SCHEDULING, to prove it survives the add-on going.
     const job = await createStaffJobRaw(ownerToken, restaurantId, {
@@ -364,10 +384,10 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
     expect(list(me?.jobs).length).toBe(1);
   });
 
-  test("TC-567: + PAYROLL — tips appear; PAYROLL alone keeps jobs and tips but drops scheduling", async () => {
-    await grant("PAYROLL");
+  test("TC-567: SCHEDULING + TIP_MANAGEMENT, then Tip Management alone — tips without the schedule", async () => {
+    await grant("TIP_MANAGEMENT");
     expect(await features()).toEqual(
-      ["PAYROLL", "SCHEDULING", "TIMECARDS", "TIP_MANAGEMENT"].sort()
+      ["SCHEDULING", "TIMECARDS", "TIP_MANAGEMENT"].sort()
     );
     expect((await ownerStatuses()).tips).toBe(200);
     const provider = await payrollProviderRaw(
@@ -376,9 +396,33 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
       "GET",
       ""
     );
-    expect(provider.data.data.payrollEntitled).toBe(true);
+    expect(provider.data.data.payrollEntitled, "tips aren't payroll").toBe(
+      false
+    );
 
+    // Tip Management on its own: it brings TIMECARDS (tips split by hours).
     await remove("SCHEDULING");
+    expect(await features()).toEqual(["TIMECARDS", "TIP_MANAGEMENT"].sort());
+    expect(await ownerStatuses()).toEqual({
+      jobs: 200,
+      settings: 200,
+      schedule: 403,
+      tips: 200,
+      provider: 200,
+    });
+    // Losing SCHEDULING turns the saved WARN rule off on the POS.
+    expect((await timeClock()).clockInRule).toBe("OFF");
+    expect(await staffAppRequests()).toMatchObject({
+      requests: false,
+      schedule: false,
+      hours: true,
+      tips: true,
+    });
+  });
+
+  test("TC-568: PAYROLL alone brings tips and timecards; Tip Management can't be bought on top; TIMECARDS is never granted alone", async () => {
+    await remove("TIP_MANAGEMENT");
+    await grant("PAYROLL");
     expect(await features()).toEqual(
       ["PAYROLL", "TIMECARDS", "TIP_MANAGEMENT"].sort()
     );
@@ -389,25 +433,52 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
       tips: 200,
       provider: 200,
     });
-    // Losing SCHEDULING turns the saved WARN rule off on the POS.
-    expect((await timeClock()).clockInRule).toBe("OFF");
-    expect((await staffAppRequests())?.requests).toBe(false);
-  });
+    const provider = await payrollProviderRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      ""
+    );
+    expect(provider.data.data.payrollEntitled).toBe(true);
 
-  test("TC-568: a component can't be granted alone; revoking a component hides it under its package", async () => {
+    // The owner catalogue shows Tip Management as included, never addable.
+    const offered = list(
+      (await ownerAddonsRaw(ownerToken, restaurantId, "GET")).data.data?.addons
+    );
+    const tips = offered.find((x) => x.feature === "TIP_MANAGEMENT");
+    test.info().annotations.push({
+      type: "catalogue",
+      description: `back-office add-ons offered on QA: ${
+        offered
+          .map((x) => `${x.feature}:${x.status}`)
+          .filter((x) => /SCHEDULING|TIP_MANAGEMENT|PAYROLL/.test(x))
+          .join(", ") || "none"
+      }`,
+    });
+    if (tips) {
+      expect(tips).toMatchObject({ status: "INCLUDED", canAdd: false });
+      const bought = await ownerAddonsRaw(ownerToken, restaurantId, "POST", {
+        addonId: tips.id,
+      });
+      expect(bought.status, JSON.stringify(bought.data)).toBe(400);
+    }
+
+    // TIMECARDS is a component: never granted alone…
     const alone = await setFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,
-      "TIP_MANAGEMENT",
+      "TIMECARDS",
       true
     );
     expect(alone.status).toBe(400);
-    // An admin may revoke a component inside a package.
-    await grant("TIP_MANAGEMENT", false);
-    expect(await features()).toEqual(["PAYROLL", "TIMECARDS"].sort());
-    expect((await ownerStatuses()).tips).toBe(403);
-    await remove("TIP_MANAGEMENT");
-    expect((await ownerStatuses()).tips).toBe(200);
+    expect(
+      String((alone.data as Rec).message ?? (alone.data as Rec).error)
+    ).toMatch(/part of a package/);
+    // …but an admin may revoke it inside a package.
+    await grant("TIMECARDS", false);
+    expect((await ownerStatuses()).jobs).toBe(403);
+    await remove("TIMECARDS");
+    expect((await ownerStatuses()).jobs).toBe(200);
   });
 
   test("TC-569: removing the add-ons hides everything again; granting back finds the data intact", async () => {
@@ -424,6 +495,7 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
       (s) => s.id === ownerMemberId
     );
     expect(list(me?.jobs), "no job picker without TIMECARDS").toHaveLength(0);
+    expect(await staffAppRequests()).toBeUndefined();
 
     await grant("SCHEDULING");
     const jobs = await payrollRaw(ownerToken, restaurantId, "GET", "/jobs");
