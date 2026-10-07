@@ -322,10 +322,9 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
       "/embedded/start",
       { legalName: `Automation ${runId} LLC`, acceptTerms: true }
     );
-    expect(embedded.status).toBe(400);
-    expect(String(embedded.data.message)).toMatch(
-      /RestauNax Payroll is its own add-on/
-    );
+    // Route-level gate since #909: the PAYROLL package itself.
+    expect(embedded.status).toBe(403);
+    expect(embedded.data).toMatchObject({ error: "FEATURE_NOT_ENTITLED" });
 
     // The clock-in rule is OFF until the owner picks one; with SCHEDULING
     // the POS gets whatever they pick.

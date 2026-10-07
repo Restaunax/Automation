@@ -231,7 +231,10 @@ test.describe("POS screen loads never 403 (API)", () => {
         kai.session,
         headers
       );
-    expect((await safe()).status, "no approval").toBe(403);
+    // No approval: the POS is asked for a manager's PIN (400), not let in.
+    const none = await safe();
+    expect(none.status, "no approval").toBe(400);
+    expect(String(none.data.message)).toMatch(/manager PIN is required/);
     expect(
       (await safe({ "x-approval-token": "forged.token.value" })).status
     ).toBe(403);
