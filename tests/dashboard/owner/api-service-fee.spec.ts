@@ -81,15 +81,17 @@ test.describe("Service fee — every option for its effect (API)", () => {
     expect(r.status, JSON.stringify(r.data)).toBe(200);
   };
   /** An open check of `qty` × $10.00, priced by the server; the stored order. */
-  const check = async (qty: number) => {
+  /** `foodTax`: the device's tax claim — the POS computes food tax itself
+   *  (the server logs a mismatch, never refuses); the fee's tax is the server's. */
+  const check = async (qty: number, foodTax = 0) => {
     table += 1;
     const r = await createTabletOrderRaw(tabletToken, session, {
       restaurantId,
       orderType: "PICKUP",
       subtotal: 10 * qty,
-      tax: 0,
+      tax: foodTax,
       tip: 0,
-      total: 10 * qty,
+      total: round2(10 * qty + foodTax),
       customerPhone: "",
       orderItems: [
         {
@@ -256,14 +258,14 @@ test.describe("Service fee — every option for its effect (API)", () => {
   test("TC-615: taxable — taxed at the restaurant rate and tracked apart", async () => {
     await updateRestaurantSettingsApi(ownerToken, restaurantId, { tax: 8 });
     await rule({ taxable: true });
-    const o = await check(2);
+    const o = await check(2, 1.6);
     expect(fee(o)).toBe(0.6);
     expect(Number(o.serviceFeeTax)).toBe(round2(0.6 * 0.08)); // $0.05
     expect(round2(Number(o.tax) - Number(o.serviceFeeTax))).toBe(1.6);
     expect(Number(o.total)).toBe(round2(20 + 0.6 + Number(o.tax)));
 
     await rule({ taxable: false });
-    const plain = await check(2);
+    const plain = await check(2, 1.6);
     expect(Number(plain.serviceFeeTax ?? 0)).toBe(0);
     expect(Number(plain.tax)).toBe(1.6);
   });
