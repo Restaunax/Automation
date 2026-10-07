@@ -6635,6 +6635,22 @@ export function approvalLogSummaryRaw(
   );
 }
 
+/** Owner self-serve add-ons: GET `/restaurant/:rid/addons` (data.addons[])
+ *  and POST { addonId, billingInterval? } to buy one. */
+export function ownerAddonsRaw(
+  token: string,
+  restaurantId: string,
+  method: "GET" | "POST",
+  body?: unknown
+): Promise<RawResponse<{ data?: LooseJson; message?: string }>> {
+  return apiRequestRaw(
+    method,
+    `/restaurant/${restaurantId}/addons`,
+    body,
+    token
+  );
+}
+
 /** Any POS call: `/api/tablet{path}` with the device token, plus the
  *  X-Staff-Session header when a staff session is given. */
 export function tabletRaw<T = LooseJson>(

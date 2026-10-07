@@ -45,6 +45,7 @@ import {
   taxRaw,
   reportsRaw,
   createRestaurantRaw,
+  ownerAddonsRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
 
@@ -434,7 +435,7 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
     await remove("SCHEDULING");
   });
 
-  test("TC-635: a home-food seller never gets back-office features, even with the packages granted", async () => {
+  test("TC-635: a home-food seller is never offered or sold back-office add-ons; only an explicit admin override grants them", async () => {
     const created = await createRestaurantRaw(adminToken, {
       name: `Automation Home Kitchen ${runId}`,
       street: "12 Garden Lane",
@@ -452,24 +453,41 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
     );
     expect(homeId, JSON.stringify(created.data)).not.toBe("");
     try {
-      for (const f of ["SCHEDULING", "PAYROLL"])
-        await setFeatureOverrideAdminRaw(adminToken, homeId, f, true);
-      const set = await getRestaurantFeaturesRaw(adminToken, homeId);
-      expect(set.status).toBe(200);
-      const back = (set.data.data?.features ?? []).filter((f) =>
-        BACK_OFFICE.includes(f)
-      );
-      expect(back).toEqual([]);
-      const jobs = await payrollRaw(adminToken, homeId, "GET", "/jobs");
-      expect(jobs.status).toBe(403);
-      const schedule = await schedulingRaw(adminToken, homeId, "GET", "");
-      expect(schedule.status).toBe(403);
-      // Core features stay: roles and sales tax.
-      expect(
-        (await ownerStaffRaw(adminToken, homeId, "GET", "/roles")).status
-      ).toBe(200);
-      expect((await taxRaw(adminToken, homeId, "GET", "/rates")).status).toBe(
-        200
+      const backOfficeOf = async (id: string) =>
+        (
+          (await getRestaurantFeaturesRaw(adminToken, id)).data.data
+            ?.features ?? []
+        ).filter((f) => BACK_OFFICE.includes(f));
+      expect(await backOfficeOf(homeId)).toEqual([]);
+
+      // The self-serve catalogue: a storefront restaurant vs a home seller.
+      const offered = async (token: string, id: string) =>
+        list((await ownerAddonsRaw(token, id, "GET")).data.data?.addons).filter(
+          (x) => BACK_OFFICE.includes(String(x.feature))
+        );
+      const forHome = await offered(adminToken, homeId);
+      expect(forHome.map((x) => x.feature)).toEqual([]);
+      const forStore = await offered(ownerToken, restaurantId);
+      for (const addon of forStore) {
+        const bought = await ownerAddonsRaw(adminToken, homeId, "POST", {
+          addonId: addon.id,
+        });
+        expect(bought.status, `${addon.feature} sold to a home seller`).toBe(
+          400
+        );
+      }
+      test.info().annotations.push({
+        type: "catalogue",
+        description: `self-serve back-office add-ons on QA: ${
+          forStore.map((x) => x.feature).join(", ") || "none"
+        }`,
+      });
+
+      // Escape hatch by design (restaurantFeatureService step 3): an admin
+      // override still grants, with the components.
+      await setFeatureOverrideAdminRaw(adminToken, homeId, "SCHEDULING", true);
+      expect(await backOfficeOf(homeId)).toEqual(
+        ["SCHEDULING", "TIMECARDS"].sort()
       );
     } finally {
       await deleteTestRestaurant(adminToken, homeId).catch(() => {});
