@@ -284,9 +284,9 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
     expect(today.status, "today's schedule needs SCHEDULING").toBe(403);
   });
 
-  test("TC-565: no add-ons — Restaunax Staff shows no requests and refuses time off", async () => {
-    const r = await staffAppRequests();
-    expect(r).toMatchObject({ requests: false, payStubs: false });
+  test("TC-565: no add-ons — Restaunax Staff doesn't list the restaurant and refuses time off", async () => {
+    // A restaurant with none of the staff-app sections isn't listed at all.
+    expect(await staffAppRequests()).toBeUndefined();
     const off = await staffAppRaw(
       ownerToken,
       "POST",
@@ -347,7 +347,13 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
         .map((b) => b.id)
         .sort()
     ).toEqual(["meal", "rest"]);
-    expect((await staffAppRequests())?.requests).toBe(true);
+    expect(await staffAppRequests()).toMatchObject({
+      requests: true,
+      schedule: true,
+      hours: true,
+      tips: false,
+      payStubs: false,
+    });
 
     // Data made under SCHEDULING, to prove it survives the add-on going.
     const job = await createStaffJobRaw(ownerToken, restaurantId, {
@@ -407,7 +413,12 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
     });
     // Losing SCHEDULING turns the saved WARN rule off on the POS.
     expect((await timeClock()).clockInRule).toBe("OFF");
-    expect((await staffAppRequests())?.requests).toBe(false);
+    expect(await staffAppRequests()).toMatchObject({
+      requests: false,
+      schedule: false,
+      hours: true,
+      tips: true,
+    });
   });
 
   test("TC-568: PAYROLL alone brings tips and timecards; Tip Management can't be bought on top; TIMECARDS is never granted alone", async () => {
@@ -485,6 +496,7 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
       (s) => s.id === ownerMemberId
     );
     expect(list(me?.jobs), "no job picker without TIMECARDS").toHaveLength(0);
+    expect(await staffAppRequests()).toBeUndefined();
 
     await grant("SCHEDULING");
     const jobs = await payrollRaw(ownerToken, restaurantId, "GET", "/jobs");
