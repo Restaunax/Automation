@@ -29,23 +29,78 @@ once its backend is merged to `qa` and deployed.
 
 ## Order and status
 
-| #   | Area                                                                                                                                                                                                                                                     | Spec                                               | TCs         | Status                          |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- | ----------- | ------------------------------- |
-| 1   | Restaunax Staff requests: time off (rules, inbox, approve, week warning), availability (approve, week overlay), release → pick up → approve, walls (staff can't open the inbox, can't withdraw a coworker's request, other restaurants 404), owner email | `tests/dashboard/owner/api-staff-requests.spec.ts` | TC-543..552 | Passing on QA (CI 2026-10-06)   |
-| 2   | Scheduling: build and publish a week, staff are emailed, the staff app shows it, warnings (overlap, no rate)                                                                                                                                             | `api-scheduling.spec.ts`                           | —           | Next                            |
-| 3   | Timecards and pay periods: punch edits, approve, export file totals = approval                                                                                                                                                                           | —                                                  | —           | Planned                         |
-| 4   | Tips: pool rules, card-fee withholding, cash declarations                                                                                                                                                                                                | —                                                  | —           | Planned                         |
-| 5   | Service fee on every ticket; roles; manager-only discounts refused for staff                                                                                                                                                                             | —                                                  | —           | Planned                         |
-| 6   | Sales tax (several rates, tax-exempt) and report CSVs                                                                                                                                                                                                    | —                                                  | —           | Planned                         |
-| 7   | Gusto connection and RestauNax Payroll against Gusto's demo                                                                                                                                                                                              | —                                                  | —           | Needs the Gusto demo keys on QA |
-| 8   | UI: Staff → Requests (approve with a note), schedule markers, settings                                                                                                                                                                                   | —                                                  | —           | After 1–2                       |
+Every spec mints its own tenant and deletes it after. "Passing" means the CI
+dispatch of `e2e.yml` on the PR branch against QA.
+
+| #   | Area                                                                                                                                                                                                                                                                                                                                                                          | Spec                               | TCs                 | Status                                                          |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | ------------------- | --------------------------------------------------------------- |
+| 1   | Restaunax Staff requests: time off, availability, release → pick up → approve, walls, owner email                                                                                                                                                                                                                                                                             | `api-staff-requests.spec.ts`       | TC-543..552         | Passing on QA (2026-10-06)                                      |
+| 2   | Hiring: invite → email → register with the invite → on the staff list → job + own wage → role on the POS (Staff refused, custom role, role edit live) → guards (no self-edit, no escalation) → Restaunax Staff `/me` → deactivation closes POS + staff app; single-use invite                                                                                                 | `api-staff-hiring.spec.ts`         | TC-553..562, TC-618 | Passing on QA (2026-10-06); TC-618 `test.fail` = product bug B1 |
+| 3   | Add-on gating: none → SCHEDULING → +PAYROLL → PAYROLL only → none, across owner API, dashboard + POS feature sets, POS time clock (jobs, breaks, clock-in rule, schedule, timecard review), Restaunax Staff; components can't be granted alone; data kept after removal                                                                                                       | `api-addon-gating.spec.ts`         | TC-563..569         | see PR status                                                   |
+| 4   | Scheduling: costed week in cents (personal rate, unpaid break, open shift), projected overtime, warnings (overlap, job not held, short rest, can't notify), publish + emails, staff app sees published only, edit after publish, copy week as open (DST), clock-in rule BLOCK/WARN/early window/OFF with manager PIN, time-off notice + blackouts, approval toggles, show pay | `api-scheduling.spec.ts`           | TC-570..579         | see PR status                                                   |
+| 5   | Timecards & pay periods: blended-rate overtime ($760.00), FEDERAL/CALIFORNIA/CUSTOM, raise never re-prices, breaks (unpaid meal, paid rest, overage conversion), missed break blocks approval until reviewed, approve locks, reopen needs reason, labor report + CSV, staff app hours before / pay after approval, POS job picker + breaks                                    | `api-timecards.spec.ts`            | TC-580..587         | Passing on QA (2026-10-06)                                      |
+| 6   | Tips: no pool, pool by points × hours, EQUAL, tip-out % of tips, % of sales, legal guards, managerial-after-save, declared cash (never pooled, supersedes), tips CSV — exact cents                                                                                                                                                                                            | `api-tips.spec.ts`                 | TC-588..596         | Passing on QA (2026-10-06)                                      |
+| 7   | Payroll export: only approved periods, preview warnings per format, RestauNax / Gusto / ADP RUN / Paychex files row by row, totals = approval, EXPORTED, identical re-export after a raise, staff app wages                                                                                                                                                                   | `api-payroll-export.spec.ts`       | TC-597..603         | see PR status                                                   |
+| 8   | Discount / comp / custom-item permissions (S2) and roles (S3) through the order API; manager PIN approval limit; exceptions summary                                                                                                                                                                                                                                           | `api-discount-permissions.spec.ts` | TC-604..610         | Passing on QA (2026-10-06)                                      |
+| 9   | Service fee (S1): off by default, rate, counter claim (right / short / legacy POS), minimum, order types, channels (POS vs online quote), taxable, HOUSE/STAFF frozen, device can't edit, clamping                                                                                                                                                                            | `api-service-fee.spec.ts`          | TC-611..617         | see PR status                                                   |
+| 10  | Sales tax (R2) several rates + tax-free item, quote, report + CSV per rate, rate change frozen; R1 sales-by-day CSV and A1 accounting day entry agree with the orders                                                                                                                                                                                                         | `api-sales-tax-reports.spec.ts`    | TC-619..624         | Passing on QA (2026-10-06)                                      |
+| 11  | Gusto (P4/P5): probe whether QA's backend has Gusto configured; connect URL or a clear refusal                                                                                                                                                                                                                                                                                | `api-payroll-gusto.spec.ts`        | TC-625..627         | see PR status                                                   |
+| 12  | Dashboard UI: Staff tabs follow SCHEDULING / PAYROLL, roles, jobs, payroll modes, gated deep link                                                                                                                                                                                                                                                                             | `21-back-office-staff-ui.spec.ts`  | TC-628..634         | see PR status                                                   |
+
+### Settings tested for their effect
+
+| Setting                                                                                           | Test                                |
+| ------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| Role permissions (custom role, role edit)                                                         | TC-553, TC-559, TC-609              |
+| Job default rate vs personal rate                                                                 | TC-557, TC-570, TC-582              |
+| `clockInRule` OFF / WARN / BLOCK, `earlyClockInMinutes`                                           | TC-566, TC-576                      |
+| `minRestHours` (8 → 0)                                                                            | TC-572                              |
+| `notifyByEmail`                                                                                   | TC-572                              |
+| Publish notify mode CHANGED / NONE                                                                | TC-573, TC-574                      |
+| `timeOffMinNoticeDays`, `timeOffBlackouts`                                                        | TC-577                              |
+| `availabilityNeedsApproval`, `shiftChangesNeedApproval`                                           | TC-578 (+ TC-549/550 with approval) |
+| `showPayToStaff`                                                                                  | TC-579, TC-586                      |
+| Overtime preset FEDERAL / CALIFORNIA / CUSTOM                                                     | TC-581                              |
+| Break types, rules (`afterHours`, waivable), `convertPaidOverageToUnpaid`                         | TC-583, TC-584                      |
+| Pay frequency WEEKLY + anchor                                                                     | TC-580..587, TC-597..603            |
+| Tip pool on/off, points, BY_HOURS / EQUAL, contributors (% tips, % sales), tip credit, managerial | TC-588..594                         |
+| Export settings (ADP company + earning codes, Paychex client + components, payroll ID, job code)  | TC-598..600                         |
+| POS approval policy (allowance %, custom items, required reasons)                                 | TC-605, TC-607, TC-608              |
+| Service fee (enabled, percent, minimum, types, channels, taxable, distribution)                   | TC-611..617                         |
+| Tax rates (default, coded, exempt, rate change)                                                   | TC-619..622                         |
+
+### Not covered end to end (and why)
+
+- **Card-fee withholding from tips** (P2): needs a _captured card tip_; QA can
+  only produce one through Stripe Terminal hardware or a Connect-onboarded
+  storefront checkout. The engine math is unit-tested in restaunax
+  (`tipEngine`). Same for "tips paid in the paycheck" amounts from card
+  orders: the export spec covers declared cash in an approved period.
+- **Tips in an approved pay period from orders**: order tips land on today's
+  business day, and a period can only be approved once it's over.
+- **Gusto connection / RestauNax Payroll runs**: only if QA's Dokploy has the
+  GUSTO\_\* variables (TC-625 reports it; TC-626/627 branch on it).
+- **HOME_FOOD trimming of back-office features**: not yet.
+- **UI flows** (publish from the grid, approve a period, approve a request with
+  a note): the UI spec covers visibility and rendering; the flows are covered
+  through the API they call.
+
+### Product bugs found
+
+- **B1 — owner-set PIN doesn't activate an invited person** (TC-618,
+  `test.fail`). `POST /restaurant/:rid/staff/:id/pin` on a pending email
+  invitee answers 200 "PIN updated." but leaves `activatedAt` null, so the
+  person is missing from the POS roster and sign-in says "The PIN you entered
+  is incorrect." (`setStaffPinDirect` in `restaurantStaffService.ts` vs
+  `eligibleCandidateWhere`, `activatedAt: { not: null }`). Either activate on
+  an owner-set PIN (as POS-created staff are) or refuse with a clear message.
 
 ## Running
 
 ```bash
 npx playwright test --project=dashboard tests/dashboard/owner/api-staff-requests.spec.ts
 # or on CI, for one area:
-gh workflow run e2e.yml --ref <branch> -f grep="TC-54[3-9]|TC-55[0-2]" -f project=dashboard
+gh workflow run e2e.yml --ref <branch> -f grep="TC-5[4-9][0-9]|TC-6[0-3][0-9]" -f project=dashboard
 ```
 
 Locally the Mailpit-dependent files need `MAILPIT_BASE_URL`,
