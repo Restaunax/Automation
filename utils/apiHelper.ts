@@ -6658,14 +6658,20 @@ export function tabletRaw<T = LooseJson>(
   method: Method,
   path: string,
   body?: unknown,
-  staffSession?: string
+  staffSession?: string,
+  /** e.g. { "x-approval-token": token } for a manager-approved read. */
+  extraHeaders?: Record<string, string>
 ): Promise<RawResponse<T>> {
+  const headers = {
+    ...(staffSession ? staffHeaders(staffSession) : {}),
+    ...(extraHeaders ?? {}),
+  };
   return apiRequestRaw(
     method,
     `/api/tablet${path}`,
     body,
     tabletToken,
-    staffSession ? staffHeaders(staffSession) : undefined
+    Object.keys(headers).length ? headers : undefined
   );
 }
 
