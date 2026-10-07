@@ -6651,6 +6651,21 @@ export function ownerAddonsRaw(
   );
 }
 
+/** PUT /restaurant/:rid/basic-info — owner basic info, incl. the `timezone`
+ *  override (an IANA zone; null clears it back to the address's zone). */
+export function restaurantBasicInfoRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<{ data?: LooseJson; message?: string }>> {
+  return apiRequestRaw(
+    "PUT",
+    `/restaurant/${restaurantId}/basic-info`,
+    body,
+    ownerToken
+  );
+}
+
 /** Any POS call: `/api/tablet{path}` with the device token, plus the
  *  X-Staff-Session header when a staff session is given. */
 export function tabletRaw<T = LooseJson>(
