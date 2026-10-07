@@ -5,7 +5,7 @@
  * Browser. A per-run throwaway owner logs in through the UI (loginViaUi) and
  * opens Restaurant Management → Staff (?tab=staff). Add-ons are switched by
  * admin override between steps and the page reloaded:
- *   none       → People, Shifts, Roles, Discount & void rules — nothing else;
+ *   none       → People, Shifts, Breaks, Roles, Discount & void rules;
  *   SCHEDULING → + Schedule, Requests, Timecards, Labor, Jobs & wages,
  *                Payroll settings (Timecards replaces Shifts); no tips;
  *   + PAYROLL  → + Tips, Tip policy; Payroll settings offers the three ways
@@ -33,7 +33,8 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 const DOMAIN = process.env.TEST_EMAIL_DOMAIN ?? "demomailtrap.co";
 
-const CORE = ["People", "Shifts", "Roles", "Discount & void rules"];
+// Free (no add-on): basic breaks have their own tab (packaging v2).
+const CORE = ["People", "Shifts", "Breaks", "Roles", "Discount & void rules"];
 
 test.describe.configure({ mode: "serial" });
 
@@ -117,6 +118,20 @@ test.describe("Owner — Staff area follows the add-ons (UI)", () => {
     await expect(
       page().getByText("Quinn", { exact: false }).first()
     ).toBeVisible();
+    // The free Breaks tab lists the break types.
+    await openStaff("breaks");
+    // Names are editable fields: read their values.
+    const field = page().locator("input");
+    await expect(field.first()).toBeVisible({ timeout: 15_000 });
+    await expect
+      .poll(async () =>
+        (
+          await field.evaluateAll((els) =>
+            els.map((e) => (e as HTMLInputElement).value)
+          )
+        ).filter((v) => /break/i.test(v))
+      )
+      .toEqual(expect.arrayContaining(["Meal break", "Rest break"]));
   });
 
   test("TC-629: SCHEDULING adds the schedule, requests, timecards, labor, jobs and payroll settings — not tips", async () => {
@@ -183,5 +198,29 @@ test.describe("Owner — Staff area follows the add-ons (UI)", () => {
     await openStaff("timecards");
     expect(await tabs()).toEqual(CORE);
     await expect(page().getByText("How you run payroll")).toHaveCount(0);
+  });
+
+  test("TC-650: Tip Management alone — timecards, labor, jobs, tips and payroll settings; no schedule", async () => {
+    await grant("TIP_MANAGEMENT");
+    try {
+      await openStaff();
+      expect(await tabs()).toEqual([
+        "People",
+        "Timecards",
+        "Labor",
+        "Jobs & wages",
+        "Tips",
+        "Payroll settings",
+        "Tip policy",
+        "Roles",
+        "Discount & void rules",
+      ]);
+    } finally {
+      await deleteFeatureOverrideAdminRaw(
+        adminToken,
+        restaurantId,
+        "TIP_MANAGEMENT"
+      );
+    }
   });
 });
