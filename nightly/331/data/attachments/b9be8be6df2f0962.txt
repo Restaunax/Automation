@@ -1,0 +1,1 @@
+[TC-636] {"clockInException":"EARLY","scheduledShiftId":null,"attendance":{"status":"UPCOMING","lateMinutes":0,"clockInAt":null,"clockOutAt":null}}
