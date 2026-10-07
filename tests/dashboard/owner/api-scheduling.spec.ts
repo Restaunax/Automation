@@ -483,9 +483,21 @@ test.describe("Scheduling — build, cost, warn, publish, clock-in rule (API)", 
     expect(shifts).toHaveLength(3);
     expect(shifts.every((s) => s.staffMemberId === null)).toBe(true);
     expect(shifts.every((s) => s.pending)).toBe(true);
-    // Same weekday and time, two weeks on.
-    const times = shifts.map((s) => new Date(s.startAt).getUTCHours()).sort();
-    expect(times).toEqual([18, 18, 19]);
+    // Same weekday and LOCAL time, four weeks on — across the DST change in
+    // early November the UTC hour moves, the Miami wall-clock time doesn't.
+    const localHour = (iso: string) =>
+      Number(
+        new Intl.DateTimeFormat("en-US", {
+          timeZone: "America/New_York",
+          hour: "numeric",
+          hourCycle: "h23",
+        }).format(new Date(iso))
+      );
+    const sourceHours = list((await week(w1)).shifts)
+      .map((s) => localHour(s.startAt))
+      .sort();
+    const times = shifts.map((s) => localHour(s.startAt)).sort();
+    expect(times).toEqual(sourceHours);
   });
 
   test("TC-576: clock-in rule on the POS — BLOCK needs a manager, WARN flags, the early window and OFF", async () => {
