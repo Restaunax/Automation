@@ -1,0 +1,5 @@
+"DESCRIPTION","DURATION IN MS","NAME","PARENT SUITE","START TIME","STATUS","STOP TIME","SUB SUITE","SUITE","TEST CLASS","TEST METHOD"
+"","1","TC-665: Timecards opens on the oldest period still waiting for approval","dashboard","2026-10-08","skipped","2026-10-08","Owner — UX-audit fixes in the Staff area (UI)","","",""
+"","2","TC-664: at 390px the Staff tab bar reaches every tab and the page fits the screen","dashboard","2026-10-08","skipped","2026-10-08","Owner — UX-audit fixes in the Staff area (UI)","","",""
+"","1","TC-666: the language picked in the top bar survives a reload","dashboard","2026-10-08","skipped","2026-10-08","Owner — UX-audit fixes in the Staff area (UI)","","",""
+"","18771","TC-664: at 1024px the Staff tab bar reaches every tab and the page fits the screen","dashboard","2026-10-08","failed","2026-10-08","Owner — UX-audit fixes in the Staff area (UI)","","",""
