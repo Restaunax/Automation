@@ -1,0 +1,11 @@
+[TC-664 1024px] {"tab":"People","offsetLeft":0,"width":90,"scrollLeft":0,"clientWidth":654,"scrollWidth":1104,"overflowX":"auto"}
+[TC-664 1024px] {"tab":"Schedule","offsetLeft":90,"width":90,"scrollLeft":0,"clientWidth":654,"scrollWidth":1104,"overflowX":"auto"}
+[TC-664 1024px] {"tab":"Requests0","offsetLeft":180,"width":90,"scrollLeft":0,"clientWidth":654,"scrollWidth":1104,"overflowX":"auto"}
+[TC-664 1024px] {"tab":"Timecards","offsetLeft":270,"width":91,"scrollLeft":0,"clientWidth":654,"scrollWidth":1104,"overflowX":"auto"}
+[TC-664 1024px] {"tab":"Labor","offsetLeft":361,"width":90,"scrollLeft":0,"clientWidth":654,"scrollWidth":1104,"overflowX":"auto"}
+[TC-664 1024px] {"tab":"Jobs & wages","offsetLeft":451,"width":111,"scrollLeft":0,"clientWidth":654,"scrollWidth":1104,"overflowX":"auto"}
+[TC-664 1024px] {"tab":"Tips","offsetLeft":562,"width":90,"scrollLeft":0,"clientWidth":654,"scrollWidth":1104,"overflowX":"auto"}
+[TC-664 1024px] {"tab":"Payroll settings","offsetLeft":652,"width":118,"scrollLeft":14,"clientWidth":654,"scrollWidth":1104,"overflowX":"auto"}
+[TC-664 1024px] {"tab":"Tip policy","offsetLeft":770,"width":90,"scrollLeft":53,"clientWidth":654,"scrollWidth":1104,"overflowX":"auto"}
+[TC-664 1024px] {"tab":"Roles","offsetLeft":860,"width":90,"scrollLeft":182,"clientWidth":654,"scrollWidth":1104,"overflowX":"auto"}
+[TC-664 1024px] {"tab":"Discount & void rules","offsetLeft":950,"width":154,"scrollLeft":328,"clientWidth":654,"scrollWidth":1104,"overflowX":"auto"}
