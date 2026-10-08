@@ -176,6 +176,7 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI)", () => {
         await expect(tab).toBeFocused();
         await page().keyboard.press("Enter");
         await expect(tab).toHaveAttribute("aria-selected", "true");
+        await page().evaluate(() => window.scrollTo(0, 0));
         await expect(tab).toBeInViewport();
       }
       const overflow = await page().evaluate(
@@ -201,11 +202,19 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI)", () => {
       .getByRole("button", { name: "Select Language" })
       .first()
       .click();
+    // The choice is saved to the account (PATCH /api/users/me/locale);
+    // reload only once that has answered, as a person would.
+    const saved = page().waitForResponse(
+      (r) =>
+        r.url().includes("/api/users/me/locale") &&
+        r.request().method() === "PATCH"
+    );
     await page()
       .getByRole("menuitem")
       .filter({ hasText: /Español|Spanish|ES/ })
       .first()
       .click();
+    expect((await saved).status()).toBe(200);
     await expect(page().getByRole("tab", { name: "Personas" })).toBeVisible({
       timeout: 15_000,
     });
