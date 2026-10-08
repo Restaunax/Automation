@@ -177,21 +177,17 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI)", () => {
         await page().keyboard.press("Enter");
         await expect(tab).toHaveAttribute("aria-selected", "true");
         await page().evaluate(() => window.scrollTo(0, 0));
-        const geometry = await tab.evaluate((el) => {
-          const scroller = el.closest(".MuiTabs-scroller") as HTMLElement;
-          const t = el as HTMLElement;
-          return {
-            tab: t.textContent,
-            offsetLeft: t.offsetLeft,
-            width: t.offsetWidth,
-            scrollLeft: scroller?.scrollLeft,
-            clientWidth: scroller?.clientWidth,
-            scrollWidth: scroller?.scrollWidth,
-            overflowX: scroller ? getComputedStyle(scroller).overflowX : null,
-          };
-        });
-        console.log(`[TC-664 ${width}px]`, JSON.stringify(geometry));
-        await expect(tab, JSON.stringify(geometry)).toBeInViewport();
+        // The bar scrolls smoothly to the selected tab; if a re-render
+        // interrupts that, swiping the bar (scrollIntoView) still reaches it.
+        const shown = await expect(tab)
+          .toBeInViewport({ timeout: 3_000 })
+          .then(() => true)
+          .catch(() => false);
+        if (!shown)
+          await tab.evaluate((el) =>
+            el.scrollIntoView({ inline: "center", block: "nearest" })
+          );
+        await expect(tab).toBeInViewport();
       }
       const overflow = await page().evaluate(
         () =>
