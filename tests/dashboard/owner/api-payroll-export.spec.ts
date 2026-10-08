@@ -463,6 +463,9 @@ test.describe("Payroll export — every format from the approved period (API)", 
     expect(list(r.data.data.jobs)[0]).toMatchObject({
       rateCents: 1500,
       wagesCents: 69000,
+      // #913: the overtime rate the approved premium paid ($15 + ½ × $15).
+      overtimeRateCents: 2250,
+      doubleTimeRateCents: null,
     });
   });
 

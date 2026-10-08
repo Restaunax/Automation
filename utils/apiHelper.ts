@@ -6270,14 +6270,28 @@ export function getRestaurantDetailsPublicRaw(
 /** GET /api/restaurantId/:id/settings — the owner/admin settings row. */
 export function getRestaurantSettingsRaw(
   accessToken: string,
-  restaurantId: string
+  restaurantId: string,
+  /** e.g. { "Accept-Language": "es" } — server-resolved text follows it. */
+  headers?: Record<string, string>
 ): Promise<RawResponse<Record<string, unknown>>> {
   return apiRequestRaw(
     "GET",
     `/api/restaurantId/${restaurantId}/settings`,
     undefined,
-    accessToken
+    accessToken,
+    headers
   );
+}
+
+/** Any signed-in user's own account: `/api/users{path}` (e.g. /me,
+ *  PATCH /me/locale { locale }). */
+export function usersRaw<T = { data?: LooseJson; message?: string }>(
+  token: string,
+  method: "GET" | "PATCH" | "PUT",
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(method, `/api/users${path}`, body, token);
 }
 
 /** PUT /api/restaurantId/:id/settings — RAW (asserts refusals: 400 on the
@@ -6315,6 +6329,8 @@ export function inviteStaffRaw(
     staffRole?: string;
     /** The restaurant role (S3) — from GET /restaurant/:rid/staff/roles. */
     roleId?: string;
+    /** The invite email's (and later staff emails') language. */
+    language?: "en" | "es";
   }
 ): Promise<RawResponse<{ data?: { staffMemberId: string } }>> {
   return apiRequestRaw(
