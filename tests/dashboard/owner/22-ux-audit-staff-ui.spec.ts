@@ -67,12 +67,6 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI)", () => {
     if (!session) throw new Error("no browser session");
     return session.page;
   };
-  const isInView = async (loc: ReturnType<Page["locator"]>) => {
-    const box = await loc.boundingBox();
-    const bar = await page().getByRole("tablist").first().boundingBox();
-    if (!box || !bar) return false;
-    return box.x >= bar.x - 8 && box.x + box.width <= bar.x + bar.width + 8;
-  };
   const openStaff = async (staffTab?: string) => {
     await page().goto(
       `/restaurant/restaurantId/${restaurantId}/restaurantManagement?tab=staff${
@@ -170,30 +164,18 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI)", () => {
       const tabs = bar.getByRole("tab");
       const count = await tabs.count();
       expect(count).toBeGreaterThanOrEqual(10);
-      const next = bar.locator(".MuiTabs-scrollButtons").last();
+      // Walk the bar from the keyboard: each tab must scroll into view and
+      // open. (The ‹ › arrows sit under the fixed top bar once the page has
+      // scrolled, which makes them unclickable for automation — not users.)
+      await page().evaluate(() => window.scrollTo(0, 0));
+      await tabs.first().focus();
       for (let i = 0; i < count; i++) {
         const tab = tabs.nth(i);
-        // Reach it the way a person does: the › arrow when the bar shows
-        // arrows (desktop), else swiping the bar (phones hide the arrows).
-        for (let step = 0; step < count && !(await isInView(tab)); step++) {
-          const arrow =
-            (await next.isVisible().catch(() => false)) &&
-            !/Mui-disabled/.test((await next.getAttribute("class")) ?? "");
-          // Back to the top first: the bar sits under the fixed top bar once
-          // the page has scrolled (a person scrolls up to use it).
-          await page().evaluate(() => window.scrollTo(0, 0));
-          if (arrow) await next.click();
-          else {
-            await tab.evaluate((el) =>
-              el.scrollIntoView({ inline: "center", block: "nearest" })
-            );
-            break;
-          }
-        }
-        await page().evaluate(() => window.scrollTo(0, 0));
-        await expect(tab).toBeInViewport();
-        await tab.click();
+        if (i > 0) await page().keyboard.press("ArrowRight");
+        await expect(tab).toBeFocused();
+        await page().keyboard.press("Enter");
         await expect(tab).toHaveAttribute("aria-selected", "true");
+        await expect(tab).toBeInViewport();
       }
       const overflow = await page().evaluate(
         () =>
