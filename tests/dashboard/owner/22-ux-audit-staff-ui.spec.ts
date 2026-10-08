@@ -165,10 +165,12 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI)", () => {
     test(`TC-664: at ${width}px the Staff tab bar reaches every tab and the page fits the screen`, async () => {
       await page().setViewportSize({ width, height });
       await openStaff();
-      const tabs = page().getByRole("tab");
+      // The Staff tab bar only (some screens have tabs of their own).
+      const bar = page().locator(".MuiTabs-root").first();
+      const tabs = bar.getByRole("tab");
       const count = await tabs.count();
       expect(count).toBeGreaterThanOrEqual(10);
-      const next = page().locator(".MuiTabs-scrollButtons").last();
+      const next = bar.locator(".MuiTabs-scrollButtons").last();
       for (let i = 0; i < count; i++) {
         const tab = tabs.nth(i);
         // Reach it the way a person does: the › arrow when the bar shows
