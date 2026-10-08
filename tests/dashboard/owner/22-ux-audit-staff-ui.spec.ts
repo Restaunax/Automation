@@ -67,6 +67,12 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI)", () => {
     if (!session) throw new Error("no browser session");
     return session.page;
   };
+  const isInView = async (loc: ReturnType<Page["locator"]>) => {
+    const box = await loc.boundingBox();
+    const bar = await page().getByRole("tablist").first().boundingBox();
+    if (!box || !bar) return false;
+    return box.x >= bar.x - 1 && box.x + box.width <= bar.x + bar.width + 1;
+  };
   const openStaff = async (staffTab?: string) => {
     await page().goto(
       `/restaurant/restaurantId/${restaurantId}/restaurantManagement?tab=staff${
@@ -162,9 +168,18 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI)", () => {
       const tabs = page().getByRole("tab");
       const count = await tabs.count();
       expect(count).toBeGreaterThanOrEqual(10);
+      const next = page().locator(".MuiTabs-scrollButtons").last();
       for (let i = 0; i < count; i++) {
         const tab = tabs.nth(i);
-        await tab.scrollIntoViewIfNeeded();
+        // Reach it the way a person does: the › arrow when the bar shows
+        // arrows (desktop), else swiping the bar (phones hide the arrows).
+        for (let step = 0; step < count && !(await isInView(tab)); step++) {
+          if (await next.isVisible().catch(() => false)) await next.click();
+          else
+            await tab.evaluate((el) =>
+              el.scrollIntoView({ inline: "center", block: "nearest" })
+            );
+        }
         await expect(tab).toBeInViewport();
         await tab.click();
         await expect(tab).toHaveAttribute("aria-selected", "true");

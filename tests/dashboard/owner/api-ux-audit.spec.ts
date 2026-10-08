@@ -52,6 +52,7 @@ import {
   deactivateTabletDevice,
   setOwnerPosPin,
   tabletStaffSignIn,
+  loginRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
 
@@ -459,8 +460,10 @@ test.describe("UX-audit fixes (API)", () => {
       locale: "es",
     });
     expect(set.status, JSON.stringify(set.data)).toBe(200);
-    const me = await usersRaw<Rec>(ola.token, "GET", "/me");
-    expect(JSON.stringify(me.data)).toContain('"locale":"es"');
+    expect(JSON.stringify(set.data)).toContain('"locale":"es"');
+    // GET /api/users/me doesn't return the locale; a fresh sign-in does.
+    const again = await loginRaw(ola.email, `Automation!Staff-${runId}`);
+    expect(again.data.locale).toBe("es");
     const bad = await usersRaw(ola.token, "PATCH", "/me/locale", {
       locale: "fr",
     });

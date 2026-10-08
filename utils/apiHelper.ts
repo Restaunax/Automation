@@ -6283,6 +6283,14 @@ export function getRestaurantSettingsRaw(
   );
 }
 
+/** POST /login — RAW: the whole sign-in payload (locale, permissions…). */
+export function loginRaw(
+  email: string,
+  password: string
+): Promise<RawResponse<{ locale?: string; accessToken?: string }>> {
+  return apiRequestRaw("POST", "/login", { email, password });
+}
+
 /** Any signed-in user's own account: `/api/users{path}` (e.g. /me,
  *  PATCH /me/locale { locale }). */
 export function usersRaw<T = { data?: LooseJson; message?: string }>(
