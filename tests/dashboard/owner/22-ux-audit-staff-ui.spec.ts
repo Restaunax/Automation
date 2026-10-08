@@ -179,6 +179,9 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI)", () => {
           const arrow =
             (await next.isVisible().catch(() => false)) &&
             !/Mui-disabled/.test((await next.getAttribute("class")) ?? "");
+          // Back to the top first: the bar sits under the fixed top bar once
+          // the page has scrolled (a person scrolls up to use it).
+          await page().evaluate(() => window.scrollTo(0, 0));
           if (arrow) await next.click();
           else {
             await tab.evaluate((el) =>
@@ -187,6 +190,7 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI)", () => {
             break;
           }
         }
+        await page().evaluate(() => window.scrollTo(0, 0));
         await expect(tab).toBeInViewport();
         await tab.click();
         await expect(tab).toHaveAttribute("aria-selected", "true");
