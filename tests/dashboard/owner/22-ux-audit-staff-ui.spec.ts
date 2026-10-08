@@ -27,6 +27,7 @@ import {
   putPayrollSettingsRaw,
   payrollRaw,
   usersRaw,
+  loginRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
 
@@ -62,6 +63,8 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI)", () => {
   let restaurantId = "";
   let session: UiLoginSession | undefined;
   let older = "";
+  let ownerEmail = "";
+  let ownerPassword = "";
 
   const page = (): Page => {
     if (!session) throw new Error("no browser session");
@@ -130,11 +133,9 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI)", () => {
         throw new Error(`[ux-ui] shift: ${JSON.stringify(r.data)}`);
     }
     older = finished.slice(-2)[0] ?? "";
-    session = await loginViaUi(
-      browser,
-      tenant.email,
-      process.env.OWNER2_PASSWORD || `Automation!Owner2-${runId}`
-    );
+    ownerEmail = tenant.email;
+    ownerPassword = process.env.OWNER2_PASSWORD || `Automation!Owner2-${runId}`;
+    session = await loginViaUi(browser, ownerEmail, ownerPassword);
   });
 
   test.afterAll(async () => {
@@ -212,11 +213,9 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI)", () => {
     await expect(page().getByRole("tab", { name: "Personas" })).toBeVisible({
       timeout: 20_000,
     });
-    // Saved to the account, not just the browser.
+    // Saved to the account, not just the browser: a fresh sign-in says es.
     await expect
-      .poll(async () =>
-        JSON.stringify((await usersRaw<Rec>(ownerToken, "GET", "/me")).data)
-      )
-      .toContain('"locale":"es"');
+      .poll(async () => (await loginRaw(ownerEmail, ownerPassword)).data.locale)
+      .toBe("es");
   });
 });
