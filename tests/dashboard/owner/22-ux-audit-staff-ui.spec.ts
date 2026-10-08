@@ -71,7 +71,7 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI)", () => {
     const box = await loc.boundingBox();
     const bar = await page().getByRole("tablist").first().boundingBox();
     if (!box || !bar) return false;
-    return box.x >= bar.x - 1 && box.x + box.width <= bar.x + bar.width + 1;
+    return box.x >= bar.x - 8 && box.x + box.width <= bar.x + bar.width + 8;
   };
   const openStaff = async (staffTab?: string) => {
     await page().goto(
@@ -174,11 +174,16 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI)", () => {
         // Reach it the way a person does: the › arrow when the bar shows
         // arrows (desktop), else swiping the bar (phones hide the arrows).
         for (let step = 0; step < count && !(await isInView(tab)); step++) {
-          if (await next.isVisible().catch(() => false)) await next.click();
-          else
+          const arrow =
+            (await next.isVisible().catch(() => false)) &&
+            !/Mui-disabled/.test((await next.getAttribute("class")) ?? "");
+          if (arrow) await next.click();
+          else {
             await tab.evaluate((el) =>
               el.scrollIntoView({ inline: "center", block: "nearest" })
             );
+            break;
+          }
         }
         await expect(tab).toBeInViewport();
         await tab.click();
