@@ -6270,14 +6270,36 @@ export function getRestaurantDetailsPublicRaw(
 /** GET /api/restaurantId/:id/settings — the owner/admin settings row. */
 export function getRestaurantSettingsRaw(
   accessToken: string,
-  restaurantId: string
+  restaurantId: string,
+  /** e.g. { "Accept-Language": "es" } — server-resolved text follows it. */
+  headers?: Record<string, string>
 ): Promise<RawResponse<Record<string, unknown>>> {
   return apiRequestRaw(
     "GET",
     `/api/restaurantId/${restaurantId}/settings`,
     undefined,
-    accessToken
+    accessToken,
+    headers
   );
+}
+
+/** POST /login — RAW: the whole sign-in payload (locale, permissions…). */
+export function loginRaw(
+  email: string,
+  password: string
+): Promise<RawResponse<{ locale?: string; accessToken?: string }>> {
+  return apiRequestRaw("POST", "/login", { email, password });
+}
+
+/** Any signed-in user's own account: `/api/users{path}` (e.g. /me,
+ *  PATCH /me/locale { locale }). */
+export function usersRaw<T = { data?: LooseJson; message?: string }>(
+  token: string,
+  method: "GET" | "PATCH" | "PUT",
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(method, `/api/users${path}`, body, token);
 }
 
 /** PUT /api/restaurantId/:id/settings — RAW (asserts refusals: 400 on the
@@ -6315,6 +6337,8 @@ export function inviteStaffRaw(
     staffRole?: string;
     /** The restaurant role (S3) — from GET /restaurant/:rid/staff/roles. */
     roleId?: string;
+    /** The invite email's (and later staff emails') language. */
+    language?: "en" | "es";
   }
 ): Promise<RawResponse<{ data?: { staffMemberId: string } }>> {
   return apiRequestRaw(
@@ -6650,6 +6674,21 @@ export function ownerAddonsRaw(
     token
   );
 }
+
+/**
+ * A fixed-offset IANA zone where it is about 12:00 right now (Etc/GMT-N is
+ * UTC+N — the sign is inverted by the IANA convention). Specs that need
+ * "today" to hold hours already worked, or a shift later today, move their
+ * throwaway restaurant there (restaurantBasicInfoRaw {timezone}) so they run
+ * at any hour, nightly included.
+ */
+export const zoneAtMidday = (now = new Date()): string => {
+  let offset = 12 - now.getUTCHours();
+  if (offset < -12) offset += 24;
+  if (offset > 14) offset -= 24;
+  if (offset === 0) return "Etc/GMT";
+  return `Etc/GMT${offset > 0 ? "-" : "+"}${Math.abs(offset)}`;
+};
 
 /** PUT /restaurant/:rid/basic-info — owner basic info, incl. the `timezone`
  *  override (an IANA zone; null clears it back to the address's zone). */
