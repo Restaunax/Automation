@@ -6675,6 +6675,21 @@ export function ownerAddonsRaw(
   );
 }
 
+/**
+ * A fixed-offset IANA zone where it is about 12:00 right now (Etc/GMT-N is
+ * UTC+N — the sign is inverted by the IANA convention). Specs that need
+ * "today" to hold hours already worked, or a shift later today, move their
+ * throwaway restaurant there (restaurantBasicInfoRaw {timezone}) so they run
+ * at any hour, nightly included.
+ */
+export const zoneAtMidday = (now = new Date()): string => {
+  let offset = 12 - now.getUTCHours();
+  if (offset < -12) offset += 24;
+  if (offset > 14) offset -= 24;
+  if (offset === 0) return "Etc/GMT";
+  return `Etc/GMT${offset > 0 ? "-" : "+"}${Math.abs(offset)}`;
+};
+
 /** PUT /restaurant/:rid/basic-info — owner basic info, incl. the `timezone`
  *  override (an IANA zone; null clears it back to the address's zone). */
 export function restaurantBasicInfoRaw(

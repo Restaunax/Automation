@@ -16,9 +16,8 @@
  * card tip, which needs Stripe Terminal or a Connect-onboarded storefront. The
  * policy save + engine math for it are unit-tested in restaunax (tipEngine).
  *
- * Serial. Needs ADMIN creds; skips late at night / before 05:00 in Miami
- * (the day's hours must already be worked, and the business day must equal
- * the calendar day).
+ * Serial. Needs ADMIN creds. The tenant is moved to a zone where it is about
+ * noon (zoneAtMidday), so "today's finished hours" hold at any hour.
  */
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
@@ -44,25 +43,21 @@ import {
   openRegisterSessionPos,
   createTabletOrderRaw,
   settleTabCashRaw,
+  restaurantBasicInfoRaw,
+  zoneAtMidday,
   type LooseJson,
 } from "../../../utils/apiHelper";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
-const TZ = "America/New_York";
+/** Where the tenant is moved: about noon now, so today's finished hours
+ *  and today's business day always line up (runs at any hour). */
+const ZONE = zoneAtMidday();
 
 type Rec = Record<string, LooseJson>;
 const list = (v: unknown) => (Array.isArray(v) ? (v as Rec[]) : []);
-const localHour = () =>
-  Number(
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: TZ,
-      hour: "numeric",
-      hourCycle: "h23",
-    }).format(new Date())
-  );
 const localToday = () =>
-  new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(new Date());
+  new Intl.DateTimeFormat("en-CA", { timeZone: ZONE }).format(new Date());
 const minutesAgo = (m: number) =>
   new Date(Math.floor(Date.now() / 60_000) * 60_000 - m * 60_000).toISOString();
 
@@ -72,10 +67,6 @@ test.describe("Tips — pools, tip-outs, cash (API)", () => {
   test.skip(
     !ADMIN_EMAIL || !ADMIN_PASSWORD,
     "ADMIN_EMAIL / ADMIN_PASSWORD not set (the file mints its own tenant)"
-  );
-  test.skip(
-    localHour() < 5,
-    "before 05:00 in Miami: today's hours can't be worked yet and the business day lags"
   );
 
   const runId = generateRunId();
@@ -136,12 +127,17 @@ test.describe("Tips — pools, tip-outs, cash (API)", () => {
 
   test.beforeAll(async () => {
     test.setTimeout(240_000);
-    if (!ADMIN_EMAIL || !ADMIN_PASSWORD || localHour() < 5) return;
+    if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return;
     adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
     const tenant = await createSecondOwner(adminToken, runId);
     if (!tenant.restaurantId) throw new Error("[api-tips] no tenant");
     restaurantId = tenant.restaurantId;
     ownerToken = tenant.accessToken;
+    const zone = await restaurantBasicInfoRaw(ownerToken, restaurantId, {
+      timezone: ZONE,
+    });
+    if (zone.status !== 200)
+      throw new Error(`[api-tips] timezone: ${JSON.stringify(zone.data)}`);
     const g = await setFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,
