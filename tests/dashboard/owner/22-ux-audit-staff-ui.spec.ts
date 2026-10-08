@@ -177,7 +177,21 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI)", () => {
         await page().keyboard.press("Enter");
         await expect(tab).toHaveAttribute("aria-selected", "true");
         await page().evaluate(() => window.scrollTo(0, 0));
-        await expect(tab).toBeInViewport();
+        const geometry = await tab.evaluate((el) => {
+          const scroller = el.closest(".MuiTabs-scroller") as HTMLElement;
+          const t = el as HTMLElement;
+          return {
+            tab: t.textContent,
+            offsetLeft: t.offsetLeft,
+            width: t.offsetWidth,
+            scrollLeft: scroller?.scrollLeft,
+            clientWidth: scroller?.clientWidth,
+            scrollWidth: scroller?.scrollWidth,
+            overflowX: scroller ? getComputedStyle(scroller).overflowX : null,
+          };
+        });
+        console.log(`[TC-664 ${width}px]`, JSON.stringify(geometry));
+        await expect(tab, JSON.stringify(geometry)).toBeInViewport();
       }
       const overflow = await page().evaluate(
         () =>
