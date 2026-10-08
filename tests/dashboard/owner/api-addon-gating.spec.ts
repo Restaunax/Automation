@@ -284,9 +284,20 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
     expect(today.status, "today's schedule needs SCHEDULING").toBe(403);
   });
 
-  test("TC-565: no add-ons — Restaunax Staff doesn't list the restaurant and refuses time off", async () => {
-    // A restaurant with none of the staff-app sections isn't listed at all.
-    expect(await staffAppRequests()).toBeUndefined();
+  test("TC-565: no add-ons — Restaunax Staff lists the restaurant with no sections and refuses time off", async () => {
+    // restaunax #913: still listed (leaving it out told the person their
+    // account wasn't linked), flagged as having no staff-app sections yet.
+    expect(await staffAppRequests()).toMatchObject({
+      staffAppEnabled: false,
+      schedule: false,
+      hours: false,
+      tips: false,
+      payStubs: false,
+    });
+    const me = await staffAppRaw<{ data: Rec }>(ownerToken, "GET", "/me");
+    expect(list(me.data.data.staffWithoutAppSections)).toEqual([
+      expect.objectContaining({ restaurantId }),
+    ]);
     const off = await staffAppRaw(
       ownerToken,
       "POST",
@@ -495,7 +506,7 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
       (s) => s.id === ownerMemberId
     );
     expect(list(me?.jobs), "no job picker without TIMECARDS").toHaveLength(0);
-    expect(await staffAppRequests()).toBeUndefined();
+    expect((await staffAppRequests())?.staffAppEnabled).toBe(false);
 
     await grant("SCHEDULING");
     const jobs = await payrollRaw(ownerToken, restaurantId, "GET", "/jobs");
