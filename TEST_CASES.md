@@ -1761,7 +1761,7 @@ Deals carry days, an HH:mm window (overnight allowed) and start/end dates, judge
 
 ## TC-667 → TC-688 — Guided Deal Types (type-first deals, 2026-10)
 
-**Status:** ⏭️ Written (2026-10-09), gated on deploy. Every case SKIPS with a reason until restaunax `feat/guided-deal-types` (backend + dashboard) is on QA (`utils/dealTypesGate.ts`: backend presence = `/ai/questions` has `dealTypes`; dashboard presence = `deal-type-COMBO` in Create Deal). After the deploy is confirmed, flip `DEAL_TYPES_ON_QA` so a missing capability FAILS instead.
+**Status:** ✅ Passing on QA (2026-10-09, after restaunax #927 + #928). The deploy gate was removed — these always run.
 
 Deals are now picked by type first (spec `restaunax/docs/features/DEAL_TYPES.md`): `COMBO` (default; ≥ 2 unit rows, owner price below regular), `BOGO_FREE`, `BOGO_PERCENT_OFF`, `PERCENT_OFF` (price computed server-side). Every write re-reads item prices from the menu.
 
@@ -1793,7 +1793,7 @@ TC-360 → TC-362 were rewritten for the same form (see the Deals section above)
 
 ### Slot matching + "buy any X, get one free" (TC-681 → TC-688)
 
-**Status:** ⏭️ Written (2026-10-09), gated on `DEAL_TYPES_ON_QA.slots` (presence: `/quote` refuses a Drink in a Burger + Fries combo's Fries slot; on the POS, the mismatched ticket is refused). Spec: `restaunax/docs/features/DEAL_TYPES.md` → "Deal picks must match their slots", "Buy any pizza, get one free", "Orders store what the server charged". API cases add an "Automation Pizza" category to the throwaway tenant: Small 8, Large 14, and a Slice 5 that is 86'd.
+**Status:** ✅ Passing on QA (2026-10-09). Spec: `restaunax/docs/features/DEAL_TYPES.md` → "Deal picks must match their slots", "Buy any pizza, get one free", "Orders store what the server charged". API cases add an "Automation Pizza" category to the throwaway tenant: Small 8, Large 14, and a Slice 5 that is 86'd.
 
 | TC         | What it checks                                                                                                                                                                                                                                                                                                                                                                                         |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
