@@ -59,6 +59,19 @@ const pad2 = (n: number) => String(n).padStart(2, "0");
  * duplicate-item guard is a warning snackbar "This item is already in the deal".
  * After a successful save the form shows "Deal created/updated successfully"
  * and returns to ?tab=deals after ~1.5 s.
+ *
+ * Guided deal types (restaunax feat/guided-deal-types, DEAL_TYPES.md) replace
+ * the item picker with a type-first form: "What kind of deal?" cards
+ * (`deal-type-COMBO|BOGO_FREE|BOGO_PERCENT_OFF|PERCENT_OFF`), then one list per
+ * role (`deal-lines-BUY|GET|INCLUDED`, each with its `deal-add-item-<ROLE>`
+ * picker) holding ONE LINE PER UNIT — picking an item again adds another line,
+ * there is no quantity box and no "already in the deal" refusal — the BOGO
+ * "Same item" shortcut (`deal-same-item`), `deal-percent-input`,
+ * `deal-price-input`, the live `deal-price-preview` ("regular $X · saves $Y
+ * (Z%)" / the computed price) and `deal-save`. Written ahead of the frontend:
+ * the testids are the contract; the inner structure (a line's remove button,
+ * whether the adder IS the combobox) is resolved defensively below. The legacy
+ * helpers stay for a QA that predates the deploy; `hasGuidedForm()` is the gate.
  */
 export const createDealFormPage = (page: Page) => {
   const heading = () =>
@@ -74,7 +87,15 @@ export const createDealFormPage = (page: Page) => {
 
   const nameInput = () => page.locator("#deal-name");
   const descriptionInput = () => page.locator("#deal-description");
-  const priceInput = () => page.locator("#deal-price");
+  /** The <input> behind a testid that may sit on the TextField root or on the input itself. */
+  const inputIn = (testId: string): Locator =>
+    page
+      .getByTestId(testId)
+      .locator("input")
+      .or(page.locator(`input[data-testid="${testId}"]`))
+      .first();
+  const priceInput = () =>
+    inputIn("deal-price-input").or(page.locator("#deal-price")).first();
   const itemPicker = () =>
     page.getByRole("combobox", { name: "Search and add menu items..." });
 
@@ -268,14 +289,98 @@ export const createDealFormPage = (page: Page) => {
       { timeout: 20_000 }
     );
 
+  // ── Guided deal types (type-first form) ──────────────────────────────────
+  type GuidedType = "COMBO" | "BOGO_FREE" | "BOGO_PERCENT_OFF" | "PERCENT_OFF";
+  type LineRole = "BUY" | "GET" | "INCLUDED";
+  const typeCard = (type: GuidedType): Locator =>
+    page.getByTestId(`deal-type-${type}`);
+  /** False on a QA deployment that predates guided deal types (the gate's `present`). */
+  const hasGuidedForm = async (): Promise<boolean> =>
+    typeCard("COMBO")
+      .waitFor({ state: "visible", timeout: 10_000 })
+      .then(() => true)
+      // Not visible within 10 s = the guided form isn't deployed; the caller gates on false.
+      .catch(() => false);
+  const chooseType = (type: GuidedType) => typeCard(type).click();
+  const lines = (role: LineRole): Locator =>
+    page.getByTestId(`deal-lines-${role}`);
+  /** Every line in `role`'s list showing `itemName` (one per unit). */
+  const lineItems = (role: LineRole, itemName: string): Locator =>
+    lines(role).getByText(itemName, { exact: true });
+  /**
+   * Add one line of `itemName` to `role`'s list through its
+   * `deal-add-item-<ROLE>` control — the Autocomplete itself, its input, or a
+   * button that opens (and focuses) a search combobox.
+   */
+  const addLine = async (role: LineRole, itemName: string) => {
+    const adder = page.getByTestId(`deal-add-item-${role}`);
+    const inner = adder
+      .locator("input")
+      .or(page.locator(`input[data-testid="deal-add-item-${role}"]`))
+      .first();
+    await adder.first().click();
+    const field =
+      (await inner.count()) > 0
+        ? inner
+        : page.getByRole("combobox").and(page.locator(":focus"));
+    await field.fill(itemName);
+    const option = page
+      .getByRole("option", { name: new RegExp(`^${escapeRe(itemName)}\\b`) })
+      .first();
+    await option.waitFor({ state: "visible", timeout: 10_000 });
+    await option.click();
+  };
+  /**
+   * Remove the last line of `itemName` from `role`'s list. The line is the
+   * innermost element holding both the name and a button (DOM order puts
+   * descendants after ancestors); its last button is the remove action.
+   */
+  const removeLine = async (role: LineRole, itemName: string) => {
+    const line = lines(role)
+      .locator("*")
+      .filter({ has: page.getByText(itemName, { exact: true }) })
+      .filter({ has: page.getByRole("button") })
+      .last();
+    await line.getByRole("button").last().click();
+  };
+  const sameItemButton = () => page.getByTestId("deal-same-item");
+  const percentInput = () => inputIn("deal-percent-input");
+  const pricePreview = () => page.getByTestId("deal-price-preview");
+  const saveButton = () => page.getByTestId("deal-save");
+  /** A picked item on either form: a guided line, or the legacy item card. */
+  const itemShown = (itemName: string): Locator =>
+    page
+      .locator('[data-testid^="deal-lines-"]')
+      .getByText(itemName, { exact: true })
+      .or(itemCard(itemName))
+      .first();
+  /**
+   * Put these items in the deal on whichever form is deployed: the guided
+   * form as a COMBO (one line each), the legacy one through its picker.
+   */
+  const addComboItems = async (itemNames: string[]) => {
+    if (await hasGuidedForm()) {
+      await chooseType("COMBO");
+      for (const n of itemNames) await addLine("INCLUDED", n);
+    } else {
+      for (const n of itemNames) await addItem(n);
+    }
+  };
+
   // Submit / cancel
-  const submitButton = () =>
+  const legacySubmit = () =>
     page
       .locator("#root")
       .getByRole("button", {
         name: /^(Create Deal|Update Deal|Create deal for .*|Update deal .*|Saving\.\.\.)$/,
       })
       .last();
+  /**
+   * `deal-save` once the guided form is deployed, else the legacy label match.
+   * `.last()` of the union: the form's save button sits after the page-header
+   * "Create Deal" action in the DOM, so either way the form's button wins.
+   */
+  const submitButton = () => saveButton().or(legacySubmit()).last();
   const cancelButton = () =>
     page.locator("#root").getByRole("button", { name: "Cancel", exact: true });
 
@@ -334,6 +439,19 @@ export const createDealFormPage = (page: Page) => {
     previewSaveChip,
     previewIncludesChips,
     previewNoItems,
+    typeCard,
+    hasGuidedForm,
+    chooseType,
+    lines,
+    lineItems,
+    addLine,
+    removeLine,
+    sameItemButton,
+    percentInput,
+    pricePreview,
+    saveButton,
+    itemShown,
+    addComboItems,
     nameRequiredError,
     pricePositiveError,
     priceBelowOriginalError,

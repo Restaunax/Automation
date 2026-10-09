@@ -1441,11 +1441,29 @@ export async function deleteAutomationCoupons(
 // ── Deals ────────────────────────────────────────────────────────────────────
 //
 // POST /api/deals/restaurant/:id (MODIFY_RESTAURANT — the owner token has it).
-// Body contract (backend CreateDealBody): {name, dealPrice, items:
-// [{menuItemId, quantity, itemName, itemPrice, isRequired?, sortOrder?}],
-// validDays?/validTimeStart?/validTimeEnd? ...} — omit the restrictions so a
-// seeded deal is always active. AUTO-prefixed names get swept by
-// deleteAutomationDeals in globalTeardown, mirroring the coupon sweep.
+// Body contract (backend CreateDealBody): {name, dealType?, discountPercent?,
+// dealPrice?, items: [{menuItemId, quantity, itemName, itemPrice, role?,
+// isRequired?, sortOrder?}], validDays?/validTimeStart?/validTimeEnd? ...} —
+// omit the restrictions so a seeded deal is always active. AUTO-prefixed names
+// get swept by deleteAutomationDeals in globalTeardown, mirroring the coupon
+// sweep.
+//
+// Guided deal types (restaunax docs/features/DEAL_TYPES.md): every write runs
+// the type rules — a COMBO (the default) needs >= 2 UNIT rows (quantity 2 of
+// one item counts as two) priced BELOW the items' regular price; BOGO_FREE /
+// BOGO_PERCENT_OFF / PERCENT_OFF have their dealPrice COMPUTED server-side (a
+// sent one is ignored). Item name/price snapshots are re-read from the menu, so
+// a seed's itemPrice must be the item's real price for any savings assertion
+// to hold — never a made-up number.
+
+/** Guided deal type (DEAL_TYPES.md); absent on a write = COMBO. */
+export type DealType =
+  | "COMBO"
+  | "BOGO_FREE"
+  | "BOGO_PERCENT_OFF"
+  | "PERCENT_OFF";
+/** Per-row role: BUY / GET on the two BOGO types, INCLUDED otherwise. */
+export type DealItemRole = "INCLUDED" | "BUY" | "GET";
 
 export interface ApiDealItem {
   id: string;
@@ -1456,6 +1474,8 @@ export interface ApiDealItem {
   itemPrice: number;
   isRequired: boolean;
   sortOrder: number;
+  /** Guided deal types — absent on a pre-deploy backend. */
+  role?: DealItemRole;
   menuItem?: {
     id: string;
     name: string;
@@ -1483,8 +1503,9 @@ export interface ApiErrorBody {
 
 /**
  * A deal as the owner routes return it (create/get/list). Money fields are
- * SERVER-computed (originalPrice = Σ itemPrice, savingsAmount = max(0, orig −
- * deal), savingsPercentage 1 dp) — assert against them, never a hand sum.
+ * SERVER-computed (originalPrice = Σ itemPrice — the MENU's price, re-read on
+ * every write since guided deal types — savingsAmount = max(0, orig − deal),
+ * savingsPercentage 1 dp) — assert against them, never a hand sum.
  * `computedStatus` / `hasOutOfStockItem` / `isAvailable` are list-only
  * projections (GET /restaurant/:id) — see docs/DEALS_TAB_TEST_STRATEGY.md §3.6.
  */
@@ -1492,6 +1513,9 @@ export interface ApiDeal {
   id: string;
   name: string;
   description?: string | null;
+  /** Guided deal types — absent on a pre-deploy backend. */
+  dealType?: DealType;
+  discountPercent?: number | null;
   dealPrice?: number;
   originalPrice?: number;
   savingsAmount?: number;
@@ -1534,6 +1558,11 @@ export interface ApiDeal {
 export interface DealBody {
   name?: string;
   description?: string;
+  /** Absent = COMBO. */
+  dealType?: DealType;
+  /** Whole percent 1–99 — BOGO_PERCENT_OFF / PERCENT_OFF only. */
+  discountPercent?: number | null;
+  /** Required for COMBO; ignored (server-computed) for every other type. */
   dealPrice?: number;
   items?: {
     menuItemId?: string;
@@ -1541,6 +1570,8 @@ export interface DealBody {
     quantity: number;
     itemName?: string;
     itemPrice?: number;
+    /** BUY / GET on BOGO types; absent = INCLUDED. */
+    role?: DealItemRole;
     isRequired?: boolean;
     sortOrder?: number;
   }[];
@@ -1555,6 +1586,30 @@ export interface DealBody {
   aiGenerated?: boolean;
   status?: string;
   availableChannels?: ("ONLINE" | "IN_PERSON")[];
+}
+
+/** A seed slot: a real menu item (`price` = its real price) + optional qty / role. */
+export interface DealSeedItem {
+  id: string;
+  name: string;
+  price: number;
+  quantity?: number;
+  role?: DealItemRole;
+}
+
+/** DealSeedItem[] → the API's items[] (role omitted when unset = legacy body). */
+export function dealSeedRows(
+  items: DealSeedItem[]
+): NonNullable<DealBody["items"]> {
+  return items.map((it, i) => ({
+    menuItemId: it.id,
+    quantity: it.quantity ?? 1,
+    itemName: it.name,
+    itemPrice: it.price,
+    ...(it.role ? { role: it.role } : {}),
+    isRequired: true,
+    sortOrder: i,
+  }));
 }
 
 /** Raw deal create — create response is { success, message, deal }. */
@@ -1582,21 +1637,14 @@ export async function createDealApi(
   restaurantId: string,
   name: string,
   dealPrice: number,
-  items: { id: string; name: string; price: number; quantity?: number }[],
+  items: DealSeedItem[],
   extra: Partial<DealBody> = {}
 ): Promise<ApiDeal> {
   const res = await createDealRaw(accessToken, restaurantId, {
     name,
     description: "Automation deal — safe to delete",
     dealPrice,
-    items: items.map((it, i) => ({
-      menuItemId: it.id,
-      quantity: it.quantity ?? 1,
-      itemName: it.name,
-      itemPrice: it.price,
-      isRequired: true,
-      sortOrder: i,
-    })),
+    items: dealSeedRows(items),
     ...extra,
   });
   if (!res.ok || !res.data?.deal) {
@@ -1654,7 +1702,7 @@ export async function createDealApiCapSafe(
   restaurantId: string,
   name: string,
   dealPrice: number,
-  items: { id: string; name: string; price: number; quantity?: number }[],
+  items: DealSeedItem[],
   extra: Partial<DealBody> = {},
   timeoutMs = CAP_WAIT_MS
 ): Promise<ApiDeal> {
@@ -1664,14 +1712,7 @@ export async function createDealApiCapSafe(
       name,
       description: "Automation deal — safe to delete",
       dealPrice,
-      items: items.map((it, i) => ({
-        menuItemId: it.id,
-        quantity: it.quantity ?? 1,
-        itemName: it.name,
-        itemPrice: it.price,
-        isRequired: true,
-        sortOrder: i,
-      })),
+      items: dealSeedRows(items),
       ...extra,
     });
     if (res.ok && res.data?.deal) return res.data.deal;
@@ -2090,7 +2131,9 @@ export function getAiDealQuestionsPublic(): Promise<
     questions?: {
       id: string;
       question: string;
-      options?: { value: string; label: string }[];
+      /** "single" (radio) or "multiple" (dealTypes, guided deal types). */
+      type?: string;
+      options?: { value: string; label: string; description?: string }[];
     }[];
   }>
 > {

@@ -600,7 +600,9 @@ test.describe("Owner — Menu API contract", () => {
       items: [
         {
           menuItemId: item.id,
-          quantity: 1,
+          // Two units: a one-item COMBO is refused since guided deal types
+          // (comboNeedsTwoItems); quantity 2 of one item counts as two.
+          quantity: 2,
           itemName: item.name,
           itemPrice: 11,
           isRequired: true,

@@ -22,6 +22,13 @@ const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
 // coverage. One own single-slot deal on the seed menu item (no day/time
 // restrictions → always active), AUTO-prefixed so globalTeardown's deal
 // sweep backstops the afterAll delete.
+//
+// Guided deal types (restaunax DEAL_TYPES.md): a one-item COMBO is now refused
+// (comboNeedsTwoItems), so the single slot is seeded as a PERCENT_OFF deal —
+// still ONE slot, so the "0 of 1" builder assertions are unchanged. The body
+// also carries the same price as dealPrice, which a pre-deploy backend (no
+// dealType) uses and the new backend ignores (it computes it) — so the seed
+// works on both sides of the deploy.
 test.describe("Customer — Deals", () => {
   test.skip(
     !TEMPLATE_WIND_URL || !OWNER_EMAIL || !OWNER_PASSWORD,
@@ -38,12 +45,14 @@ test.describe("Customer — Deals", () => {
     const restaurantId = readRestaurantId();
     const { menuItemId, menuItemName, menuItemPrice } = readSharedState();
     dealName = `AUTO Deal ${generateRunId()}`;
+    const percent = 20;
     const res = await createDealRaw(ownerToken, restaurantId, {
       name: dealName,
       description: "Automation deal — safe to delete",
-      // Below the item price (there must be savings) but well above Stripe's
-      // $0.50 floor.
-      dealPrice: Math.max(1, Math.round((menuItemPrice - 2) * 100) / 100),
+      dealType: "PERCENT_OFF",
+      discountPercent: percent,
+      // What the server computes for 20% off; only a pre-deploy backend reads it.
+      dealPrice: Math.round(menuItemPrice * (1 - percent / 100) * 100) / 100,
       items: [
         {
           menuItemId,

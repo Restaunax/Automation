@@ -22,6 +22,12 @@
  * were fixed in RestauNax #618/#619 and are LIVE on QA — the tests that pinned
  * them as test.fail() now assert the FIXED behaviour (TC-334, 335b, 336, 341,
  * 343, 347..350). See docs/DEALS_TAB_TEST_STRATEGY.md §1.
+ *
+ * Guided deal types (restaunax DEAL_TYPES.md, TC-667..677): every write now
+ * runs the type rules — a COMBO needs >= 2 unit rows priced below the items'
+ * regular price; BOGO / % off prices are computed. The legacy fixtures here
+ * already satisfy both (two real items, deal prices below 16.50); the new
+ * cases are deploy-gated by utils/dealTypesGate.ts.
  */
 
 import * as allure from "allure-js-commons";
@@ -32,6 +38,10 @@ import {
   generateSeedPhone,
 } from "../../../utils/testData";
 import { requireScheduling } from "../../../utils/dealScheduleGate";
+import {
+  dealTypesOnBackend,
+  requireDealTypes,
+} from "../../../utils/dealTypesGate";
 import {
   addDaysToKey,
   atLocal,
@@ -1987,6 +1997,456 @@ test.describe("Owner — Deals API contract", () => {
       expect(typeof q.question).toBe("string");
       expect((q.options ?? []).length).toBeGreaterThan(0);
     }
+  });
+
+  // ── Guided deal types (restaunax DEAL_TYPES.md) ────────────────────────────
+  //
+  // Gated: SKIP until feat/guided-deal-types is on QA (utils/dealTypesGate.ts —
+  // flip DEAL_TYPES_ON_QA.backend once it is, so a regression FAILS instead).
+  // Prices: itemA 10.00, itemB 6.50, itemC 4.00 — every expected dealPrice is
+  // what Service/deal/dealTypePricing.ts computes from the MENU's prices.
+
+  test.describe("guided deal types", () => {
+    /** EN text of error:deal.type.* (restaunax-backend/src/locales/en/error.json). */
+    const TYPE_ERRORS = {
+      invalidType: "Choose a valid deal type.",
+      invalidRole:
+        "Each item must be marked as something the customer buys or something they get.",
+      comboNeedsTwoItems:
+        "A combo needs at least 2 items. You can add the same item twice.",
+      bogoNeedsBuyAndGet:
+        "Add at least one item the customer buys and one item they get.",
+      discountPercentRange: "Enter a discount between 1% and 99%.",
+      priceMustBeBelowRegular:
+        "The deal price must be lower than the items' regular price.",
+    };
+    /** One unit row of a real seed item (price = its real price). */
+    const row = (
+      item: ApiMenuItem,
+      role?: "INCLUDED" | "BUY" | "GET",
+      itemPrice = item.price
+    ) => ({
+      menuItemId: item.id,
+      quantity: 1,
+      itemName: item.name,
+      itemPrice,
+      ...(role ? { role } : {}),
+    });
+    /** Create, track for cleanup, assert 201 and return the deal. */
+    const create = async (body: Record<string, unknown>): Promise<ApiDeal> => {
+      const res = await createDealRaw(token, restaurantId, body);
+      if (res.data?.deal?.id) track(res.data.deal.id);
+      expect(res.status, JSON.stringify(res.data)).toBe(201);
+      return res.data.deal!;
+    };
+    const roles = (d: ApiDeal) =>
+      (d.items ?? [])
+        .slice()
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .map((i) => i.role);
+
+    test.beforeEach(async () => {
+      await allure.label("feature", "Deals API Contract — guided deal types");
+      requireDealTypes("backend", await dealTypesOnBackend());
+    });
+
+    test("TC-667: BOGO_FREE of one item — no dealPrice needed; the server prices it at 1× the item and stores a BUY and a GET row", async () => {
+      await allure.description(
+        "POST {dealType BOGO_FREE, items [Burger BUY, Burger GET]} with NO dealPrice → 201, dealPrice 10 " +
+          "(sum of BUY rows; GET free), originalPrice 20, savings 10 (50%), discountPercent null, two qty-1 rows " +
+          "with roles BUY then GET — and the GET /:id read-back carries the same type and roles. Post-deploy run."
+      );
+      const deal = await create({
+        name: `AUTO BOGO Free ${runId}`,
+        dealType: "BOGO_FREE",
+        items: [row(itemA, "BUY"), row(itemA, "GET")],
+      });
+      expect(deal).toMatchObject({
+        dealType: "BOGO_FREE",
+        discountPercent: null,
+        dealPrice: 10,
+        originalPrice: 20,
+        savingsAmount: 10,
+        savingsPercentage: 50,
+      });
+      expect(deal.items).toHaveLength(2);
+      expect(deal.items!.every((i) => i.menuItemId === itemA.id)).toBe(true);
+      expect(deal.items!.every((i) => i.quantity === 1)).toBe(true);
+      expect(roles(deal)).toEqual(["BUY", "GET"]);
+      const back = await getDealApi(token, deal.id);
+      expect(back.dealType).toBe("BOGO_FREE");
+      expect(roles(back)).toEqual(["BUY", "GET"]);
+    });
+
+    test("TC-668: BOGO_PERCENT_OFF 50% — BUY full price + GET at half; discountPercent persisted", async () => {
+      await allure.description(
+        "Buy a Burger (10), get Fries (6.50) at 50% off → dealPrice 10 + 3.25 = 13.25, originalPrice 16.50, " +
+          "savings 3.25, discountPercent 50, roles [BUY, GET]. Post-deploy run."
+      );
+      const deal = await create({
+        name: `AUTO BOGO Half ${runId}`,
+        dealType: "BOGO_PERCENT_OFF",
+        discountPercent: 50,
+        items: [row(itemA, "BUY"), row(itemB, "GET")],
+      });
+      expect(deal).toMatchObject({
+        dealType: "BOGO_PERCENT_OFF",
+        discountPercent: 50,
+        dealPrice: 13.25,
+        originalPrice: 16.5,
+        savingsAmount: 3.25,
+      });
+      expect(roles(deal)).toEqual(["BUY", "GET"]);
+    });
+
+    test("TC-669: PERCENT_OFF on a single item is a valid deal — 25% off the Burger costs 7.50, one INCLUDED row", async () => {
+      await allure.description(
+        "PERCENT_OFF needs one item or more (a COMBO needs two). Burger 10 at 25% off → dealPrice 7.50, " +
+          "originalPrice 10, savings 2.50, discountPercent 25, a single INCLUDED row. Post-deploy run."
+      );
+      const deal = await create({
+        name: `AUTO Pct Single ${runId}`,
+        dealType: "PERCENT_OFF",
+        discountPercent: 25,
+        items: [row(itemA)],
+      });
+      expect(deal).toMatchObject({
+        dealType: "PERCENT_OFF",
+        discountPercent: 25,
+        dealPrice: 7.5,
+        originalPrice: 10,
+        savingsAmount: 2.5,
+      });
+      expect(roles(deal)).toEqual(["INCLUDED"]);
+    });
+
+    test("TC-670: the client's dealPrice is ignored for computed types, and a client itemPrice never reaches originalPrice (re-read from the menu)", async () => {
+      await allure.description(
+        "Server-authoritative money: BOGO_FREE sent with dealPrice 1 is stored at 10; PERCENT_OFF 10% sent with " +
+          "dealPrice 999 is stored at 9. A COMBO whose rows claim itemPrice 99 / 50 is snapshotted at the menu's " +
+          "10 / 6.50 — originalPrice 16.50, not 149 — so the advertised savings can't be inflated. " +
+          "Post-deploy run."
+      );
+      const bogo = await create({
+        name: `AUTO BOGO Tamper ${runId}`,
+        dealType: "BOGO_FREE",
+        dealPrice: 1,
+        items: [row(itemA, "BUY"), row(itemA, "GET")],
+      });
+      expect(bogo.dealPrice).toBe(10);
+      const pct = await create({
+        name: `AUTO Pct Tamper ${runId}`,
+        dealType: "PERCENT_OFF",
+        discountPercent: 10,
+        dealPrice: 999,
+        items: [row(itemA)],
+      });
+      expect(pct.dealPrice).toBe(9);
+      const combo = await create({
+        name: `AUTO Combo Snapshot ${runId}`,
+        dealPrice: 12,
+        items: [row(itemA, undefined, 99), row(itemB, undefined, 50)],
+      });
+      expect(combo.originalPrice).toBe(16.5);
+      expect(combo.savingsAmount).toBe(4.5);
+      expect(
+        Object.fromEntries(
+          (combo.items ?? []).map((i) => [i.menuItemId, i.itemPrice])
+        )
+      ).toEqual({ [itemA.id]: 10, [itemB.id]: 6.5 });
+    });
+
+    test("TC-671: shapes that don't fit their type are 400 with the deal.type.* messages, and nothing is written", async () => {
+      await allure.description(
+        "invalidType (dealType 'BUNDLE'); invalidRole (a BOGO row without a role / a COMBO row marked BUY); " +
+          "bogoNeedsBuyAndGet (BUY only); discountPercentRange (missing, 0, 100, 12.5); comboNeedsTwoItems " +
+          "(ONE unit — previously accepted by the API); priceMustBeBelowRegular (combo at exactly and above " +
+          "16.50). Post-deploy run."
+      );
+      const before = (await getRestaurantDeals(token, restaurantId)).length;
+      const cases: [string, Record<string, unknown>, string][] = [
+        [
+          "unknown type",
+          { dealType: "BUNDLE", dealPrice: 9, items: [row(itemA), row(itemB)] },
+          TYPE_ERRORS.invalidType,
+        ],
+        [
+          "BOGO row without a role",
+          { dealType: "BOGO_FREE", items: [row(itemA, "BUY"), row(itemA)] },
+          TYPE_ERRORS.invalidRole,
+        ],
+        [
+          "COMBO row marked BUY",
+          { dealPrice: 9, items: [row(itemA, "BUY"), row(itemB)] },
+          TYPE_ERRORS.invalidRole,
+        ],
+        [
+          "BOGO with only BUY rows",
+          {
+            dealType: "BOGO_FREE",
+            items: [row(itemA, "BUY"), row(itemB, "BUY")],
+          },
+          TYPE_ERRORS.bogoNeedsBuyAndGet,
+        ],
+        [
+          "percent missing",
+          { dealType: "PERCENT_OFF", items: [row(itemA)] },
+          TYPE_ERRORS.discountPercentRange,
+        ],
+        [
+          "percent 0",
+          { dealType: "PERCENT_OFF", discountPercent: 0, items: [row(itemA)] },
+          TYPE_ERRORS.discountPercentRange,
+        ],
+        [
+          "percent 100",
+          {
+            dealType: "BOGO_PERCENT_OFF",
+            discountPercent: 100,
+            items: [row(itemA, "BUY"), row(itemB, "GET")],
+          },
+          TYPE_ERRORS.discountPercentRange,
+        ],
+        [
+          "percent 12.5",
+          {
+            dealType: "PERCENT_OFF",
+            discountPercent: 12.5,
+            items: [row(itemA)],
+          },
+          TYPE_ERRORS.discountPercentRange,
+        ],
+        [
+          "combo of one unit",
+          { dealPrice: 8, items: [row(itemA)] },
+          TYPE_ERRORS.comboNeedsTwoItems,
+        ],
+        [
+          "combo at the regular price",
+          { dealPrice: 16.5, items: [row(itemA), row(itemB)] },
+          TYPE_ERRORS.priceMustBeBelowRegular,
+        ],
+        [
+          "combo above the regular price",
+          { dealPrice: 20, items: [row(itemA), row(itemB)] },
+          TYPE_ERRORS.priceMustBeBelowRegular,
+        ],
+      ];
+      for (const [label, body, message] of cases) {
+        await allure.step(label, async () => {
+          const res = await createDealRaw(token, restaurantId, {
+            name: `AUTO Bad Type ${runId}`,
+            ...body,
+          });
+          if (res.data?.deal?.id) track(res.data.deal.id);
+          expect(res.status, `${label}: ${JSON.stringify(res.data)}`).toBe(400);
+          expect(msg(res.data), label).toBe(message);
+        });
+      }
+      expect(
+        (await getRestaurantDeals(token, restaurantId)).length,
+        "nothing was written"
+      ).toBe(before);
+    });
+
+    test("TC-672: a COMBO of the same item twice is accepted — as two rows or as quantity 2 — and stored as two unit rows", async () => {
+      await allure.description(
+        "'2 burgers for $15': two rows of the Burger, or one row with quantity 2 (split server-side), both " +
+          "count as two items → 201, two qty-1 INCLUDED rows, originalPrice 20, savings 5. Post-deploy run."
+      );
+      for (const [label, items] of [
+        ["two rows", [row(itemA), row(itemA)]],
+        ["quantity 2", [{ ...row(itemA), quantity: 2 }]],
+      ] as const) {
+        await allure.step(label, async () => {
+          const deal = await create({
+            name: `AUTO Two Burgers ${label} ${runId}`,
+            dealPrice: 15,
+            items,
+          });
+          expect(deal.dealType).toBe("COMBO");
+          expect(deal.items).toHaveLength(2);
+          expect(deal.items!.every((i) => i.menuItemId === itemA.id)).toBe(
+            true
+          );
+          expect(deal.items!.every((i) => i.quantity === 1)).toBe(true);
+          expect(roles(deal)).toEqual(["INCLUDED", "INCLUDED"]);
+          expect(deal.originalPrice).toBe(20);
+          expect(deal.savingsAmount).toBe(5);
+        });
+      }
+    });
+
+    test("TC-673: a price-only PUT is re-validated against the stored rows without rewriting them — at/above regular is 400; a valid one keeps every row id; a percent-only PUT reprices a BOGO in place", async () => {
+      await allure.description(
+        "COMBO Burger + Fries at 12. PUT {dealPrice 16.5} → 400 priceMustBeBelowRegular, price still 12. " +
+          "PUT {dealPrice 11} → 200, savings 5.50, and the DealItem ids are UNCHANGED (they are the checkout " +
+          "slots open carts point at). BOGO_PERCENT_OFF 50% (Burger BUY, Fries GET) → PUT {discountPercent 20} " +
+          "→ dealPrice 10 + 5.20 = 15.20, discountPercent 20, row ids and roles unchanged. Post-deploy run."
+      );
+      const combo = await create({
+        name: `AUTO Put Combo ${runId}`,
+        dealPrice: 12,
+        items: [row(itemA), row(itemB)],
+      });
+      const ids = (d: ApiDeal) => (d.items ?? []).map((i) => i.id).sort();
+      const comboIds = ids(await getDealApi(token, combo.id));
+
+      const tooHigh = await updateDealRaw(token, combo.id, { dealPrice: 16.5 });
+      expect(tooHigh.status, JSON.stringify(tooHigh.data)).toBe(400);
+      expect(msg(tooHigh.data)).toBe(TYPE_ERRORS.priceMustBeBelowRegular);
+      expect((await getDealApi(token, combo.id)).dealPrice).toBe(12);
+
+      const ok = await updateDealRaw(token, combo.id, { dealPrice: 11 });
+      expect(ok.status, JSON.stringify(ok.data)).toBe(200);
+      const after = await getDealApi(token, combo.id);
+      expect(after.dealPrice).toBe(11);
+      expect(after.savingsAmount).toBe(5.5);
+      expect(ids(after), "a price-only PUT never rewrites the rows").toEqual(
+        comboIds
+      );
+
+      const bogo = await create({
+        name: `AUTO Put BOGO ${runId}`,
+        dealType: "BOGO_PERCENT_OFF",
+        discountPercent: 50,
+        items: [row(itemA, "BUY"), row(itemB, "GET")],
+      });
+      const bogoIds = ids(await getDealApi(token, bogo.id));
+      const pct = await updateDealRaw(token, bogo.id, { discountPercent: 20 });
+      expect(pct.status, JSON.stringify(pct.data)).toBe(200);
+      const repriced = await getDealApi(token, bogo.id);
+      expect(repriced).toMatchObject({
+        dealType: "BOGO_PERCENT_OFF",
+        discountPercent: 20,
+        dealPrice: 15.2,
+      });
+      expect(ids(repriced)).toEqual(bogoIds);
+      expect(roles(repriced)).toEqual(["BUY", "GET"]);
+    });
+
+    test("TC-674: a legacy create (no dealType, no roles) reads back as a COMBO of INCLUDED rows with no percent", async () => {
+      await allure.description(
+        "Every client that predates guided deal types (ordering apps, POS, older dashboards) sends no dealType " +
+          "and no item roles. That body still creates a deal: dealType COMBO, discountPercent null, every row " +
+          "INCLUDED, the owner's dealPrice kept. Post-deploy run."
+      );
+      const deal = await create({
+        name: `AUTO Legacy ${runId}`,
+        dealPrice: 12,
+        items: twoBody(),
+      });
+      expect(deal).toMatchObject({
+        dealType: "COMBO",
+        discountPercent: null,
+        dealPrice: 12,
+        originalPrice: 16.5,
+      });
+      expect(roles(deal)).toEqual(["INCLUDED", "INCLUDED"]);
+      const listed = (await getRestaurantDeals(token, restaurantId)).find(
+        (d) => d.id === deal.id
+      )!;
+      expect(listed.dealType).toBe("COMBO");
+    });
+
+    test("TC-675: /quote charges a BOGO deal its computed dealPrice — buy a Burger, get a Burger is 10.00, not 20.00", async () => {
+      await allure.description(
+        "The guided type is still a plain fixed-price deal for checkout: /quote with the BOGO_FREE deal and " +
+          "both slots filled with the Burger → quote.deals[0] {dealPrice 10, quantity 1, lineTotal 10, savings 10}, " +
+          "dealsSubtotal 10. A client dealPrice (0.01) is ignored. Post-deploy run."
+      );
+      const deal = await create({
+        name: `AUTO BOGO Quote ${runId}`,
+        dealType: "BOGO_FREE",
+        items: [row(itemA, "BUY"), row(itemA, "GET")],
+      });
+      const q = await quoteOrderRaw(restaurantId, {
+        orderItems: [],
+        orderDeals: [
+          {
+            dealId: deal.id,
+            dealPrice: 0.01,
+            quantity: 1,
+            items: [
+              { menuItemId: itemA.id, quantity: 1 },
+              { menuItemId: itemA.id, quantity: 1 },
+            ],
+          },
+        ],
+      });
+      expect(q.status, JSON.stringify(q.data)).toBe(200);
+      expect(q.data.quote?.deals?.[0]).toMatchObject({
+        dealId: deal.id,
+        dealPrice: 10,
+        quantity: 1,
+        lineTotal: 10,
+        savings: 10,
+      });
+      expect(q.data.quote?.dealsSubtotal).toBe(10);
+    });
+
+    test("TC-676: bulk create (the AI path) prices computed types and reports a type-invalid deal in errors[] without failing the batch", async () => {
+      await allure.description(
+        "POST /bulk with a BOGO_FREE deal (no dealPrice) and a one-unit COMBO: 201, createdCount 1 — the BOGO " +
+          "stored at 10 with BUY/GET rows — and errors [{index 1, error comboNeedsTwoItems}]. Post-deploy run."
+      );
+      const res = await bulkCreateDealsRaw(token, restaurantId, [
+        {
+          name: `AUTO Bulk BOGO ${runId}`,
+          dealType: "BOGO_FREE",
+          items: [row(itemA, "BUY"), row(itemA, "GET")],
+        },
+        {
+          name: `AUTO Bulk Solo ${runId}`,
+          dealPrice: 8,
+          items: [row(itemA)],
+        },
+      ]);
+      for (const d of res.data.deals ?? []) track(d.id);
+      expect(res.status, JSON.stringify(res.data)).toBe(201);
+      expect(res.data.createdCount).toBe(1);
+      expect(res.data.errors).toEqual([
+        { index: 1, error: TYPE_ERRORS.comboNeedsTwoItems },
+      ]);
+      const bogo = (await getRestaurantDeals(token, restaurantId)).find(
+        (d) => d.name === `AUTO Bulk BOGO ${runId}`
+      )!;
+      expect(bogo).toMatchObject({ dealType: "BOGO_FREE", dealPrice: 10 });
+      expect(roles(bogo)).toEqual(["BUY", "GET"]);
+    });
+
+    test("TC-677: public GET /ai/questions adds the optional multi-select 'dealTypes' question with the four types", async () => {
+      await allure.description(
+        "The AI generator's questionnaire grows a 5th question, id 'dealTypes', type 'multiple', whose option " +
+          "values are exactly COMBO / BOGO_FREE / BOGO_PERCENT_OFF / PERCENT_OFF, each with a label and a plain " +
+          "description. The four original ids are still there. Post-deploy run."
+      );
+      const res = await getAiDealQuestionsPublic();
+      expect(res.status).toBe(200);
+      const questions = res.data.questions ?? [];
+      expect(questions.map((q) => q.id)).toEqual(
+        expect.arrayContaining([
+          "targetAudience",
+          "priceRange",
+          "mealType",
+          "occasion",
+          "dealTypes",
+        ])
+      );
+      const q = questions.find((x) => x.id === "dealTypes")!;
+      expect(q.type).toBe("multiple");
+      expect(typeof q.question).toBe("string");
+      expect((q.options ?? []).map((o) => o.value)).toEqual([
+        "COMBO",
+        "BOGO_FREE",
+        "BOGO_PERCENT_OFF",
+        "PERCENT_OFF",
+      ]);
+      for (const o of q.options ?? []) {
+        expect(o.label, o.value).toBeTruthy();
+        expect(o.description, o.value).toBeTruthy();
+      }
+    });
   });
 
   // ── Chain scope ────────────────────────────────────────────────────────────

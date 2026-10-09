@@ -247,8 +247,8 @@ test.describe("Owner — Chain deals", () => {
       ownerPage.getByText(/Menu items shown reflect the chain's first location/)
     ).toBeVisible();
     await form.nameInput().fill(name);
-    await form.addItem(s1.name);
-    await form.addItem(s2.name);
+    // Guided deal types: a COMBO on the new form, the picker on the old one.
+    await form.addComboItems([s1.name, s2.name]);
     await form.priceInput().fill("13");
     await expect(form.submitButton()).toHaveText(
       "Create deal for all 2 locations"
