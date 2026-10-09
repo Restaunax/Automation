@@ -16,6 +16,12 @@ export const DEAL_TYPES_ON_QA = {
   backend: false,
   /** Dashboard: the type-first deal form (deal-type-* cards, one line per unit). */
   dashboard: false,
+  /**
+   * Backend: deal picks must match their slots (all channels) + "buy any X,
+   * get one free" category BOGO priced from the picks + orders store the
+   * server price (DEAL_TYPES.md, restaunax "picks must match their slots").
+   */
+  slots: false,
 };
 
 export type DealTypesPart = keyof typeof DEAL_TYPES_ON_QA;
@@ -25,6 +31,8 @@ const REASON: Record<DealTypesPart, string> = {
     "Guided deal types backend (restaunax feat/guided-deal-types) is not on QA yet — /ai/questions has no 'dealTypes'",
   dashboard:
     "Guided deal form (restaunax feat/guided-deal-types) is not on QA yet — no deal-type-* cards in Create Deal",
+  slots:
+    "Deal slot matching / category BOGO (restaunax 'picks must match their slots') is not on QA yet — a pick outside the deal is still accepted",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
@@ -48,4 +56,19 @@ export function dealTypesOnBackend(): Promise<boolean> {
     // An unreachable probe reads as "not deployed"; with the flag on that fails loudly.
     .catch(() => false);
   return backendProbe;
+}
+
+let slotsProbe: Promise<boolean> | undefined;
+
+/**
+ * Presence signal for the slots part. It needs a tenant + deal, so the spec
+ * supplies the probe (e.g. "/quote refuses a pick that isn't in the deal");
+ * the first call's answer is cached per worker. A probe that throws reads as
+ * "not deployed"; with the flag on that fails loudly.
+ */
+export function dealSlotRulesOnBackend(
+  probe: () => Promise<boolean>
+): Promise<boolean> {
+  slotsProbe ??= probe().catch(() => false);
+  return slotsProbe;
 }

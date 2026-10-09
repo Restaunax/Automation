@@ -878,6 +878,8 @@ export interface QuoteDeal {
   quantity?: number;
   /** template-wind sends `orderDealItems`; the backend treats it as `items`. */
   items?: {
+    /** The deal slot (DealItem.id) this pick fills — optional (older clients, voice). */
+    dealItemId?: string;
     menuItemId: string;
     quantity?: number;
     selectedModifiers?: { modifierId: string; quantity?: number }[];
@@ -2180,6 +2182,8 @@ export function getOrderByIdRaw(
       orderDealItems?: {
         menuItemId: string;
         menuItemName: string;
+        /** Regular unit price the server priced the pick at (since slot matching). */
+        menuItemPrice?: number;
         quantity: number;
       }[];
     }[];

@@ -175,7 +175,7 @@ Automation/
 │   │   │   ├── 10-subscription.spec.ts       # ✅ real — Subscription/Billing page (permission-gated, not role-gated)
 │   │   │   ├── 11-deals.spec.ts              # ✅ real — Manage Deals table (rows/search/filter/sort/expand/toggle/delete/cap banners), Create/Edit form, Deal Analytics, AI smoke (TC-86/87, TC-351..364 (TC-353 rewritten; TC-360..362 rewritten for guided deal types), TC-528..532, TC-540/541 deal scheduling; TC-678..680 guided deal types; TC-358 pin)
 │   │   │   ├── 18-chain-deals.spec.ts        # ✅ real — chain shell deals: Chain chip/rollup/View Analytics, member managed-at-chain-level, fan-out create (TC-365/366, TC-523, TC-533/534)
-│   │   │   ├── api-deals.spec.ts             # ✅ real — deals API contract on a per-run throwaway tenant: create math, qty-1 split, windows, /validate, /quote charge+upcharge, stats, bulk, chain, authz (TC-325..350, TC-508..522 + TC-539, TC-542 deal scheduling, TC-667..677 guided deal types; 8 🔴 pins)
+│   │   │   ├── api-deals.spec.ts             # ✅ real — deals API contract on a per-run throwaway tenant: create math, qty-1 split, windows, /validate, /quote charge+upcharge, stats, bulk, chain, authz (TC-325..350, TC-508..522 + TC-539, TC-542 deal scheduling, TC-667..677 guided deal types, TC-681..687 slot matching + "buy any X, get one free"; 8 🔴 pins)
 │   │   │   ├── 20-supply-shop.spec.ts        # ✅ real — Print Shop (owner): product offered gift-cards-on-or-off, estimate range + place with NO charge, designStarted email + CTA, proof changes/approve (409 on stale), admin finalise → Awaiting payment + Pay link, cancel, on-behalf order (TC-446..455)
 │   │   │   ├── api-supply-shop.spec.ts       # ✅ real — owner supply-shop API contract: tier math + 25% spread, X-Restaurant-Id tenancy, search finds the gift card gift-cards-on-or-off, order list strips internals, proof/cancel refusals (TC-478..483)
 │   │   │   ├── 16-marketing-automations.spec.ts  # ✅ real — Automated Marketing tab: master + per-program opt-out, API-verified + self-restoring (needs OWNER creds)
@@ -237,7 +237,7 @@ real-price order, bumped past INITIALIZED), `createTabletDevice` / `tabletLogin`
 via the full POS auth chain (tablet JWT + `X-Staff-Session` + register
 session) — helpers: `setOwnerPosPin`, `tabletStaffSignIn`,
 `openRegisterSessionPos`, `createTabletOrderRaw`, the `settleTab*Raw` /
-`*TerminalIntentRaw` / `transferTabTableRaw` family. See `tests/pos/README.md`. `10-deals.spec.ts` (TC-524..527) covers deals at the POS — the `?channel=in_person` list and ring-up on an open check, with channel and schedule refusals.
+`*TerminalIntentRaw` / `transferTabTableRaw` family. See `tests/pos/README.md`. `10-deals.spec.ts` (TC-524..527, TC-688) covers deals at the POS — the `?channel=in_person` list and ring-up on an open check, with channel, schedule and slot-matching refusals.
 `tests/auth/` is an empty stub folder with no files yet.
 
 **Design principle:** the tree mirrors **app → role → feature** (how users
