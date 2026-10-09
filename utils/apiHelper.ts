@@ -6568,13 +6568,16 @@ export function tipsRaw<T = { data?: LooseJson; message?: string }>(
   restaurantId: string,
   method: Method,
   path: string,
-  body?: unknown
+  body?: unknown,
+  /** e.g. { "Accept-Language": "es" } for messages in Spanish. */
+  headers?: Record<string, string>
 ): Promise<RawResponse<T>> {
   return apiRequestRaw(
     method,
     `/api/staff/tips/${restaurantId}${path}`,
     body,
-    ownerToken
+    ownerToken,
+    headers
   );
 }
 
@@ -6682,8 +6685,8 @@ export function ownerAddonsRaw(
  * throwaway restaurant there (restaurantBasicInfoRaw {timezone}) so they run
  * at any hour, nightly included.
  */
-export const zoneAtMidday = (now = new Date()): string => {
-  let offset = 12 - now.getUTCHours();
+export const zoneAtMidday = (now = new Date(), localHour = 12): string => {
+  let offset = localHour - now.getUTCHours();
   if (offset < -12) offset += 24;
   if (offset > 14) offset -= 24;
   if (offset === 0) return "Etc/GMT";
