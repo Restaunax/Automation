@@ -126,7 +126,7 @@ Helpers live in `utils/apiHelper.ts`: `createSeededOrder`,
   online-only), a deal rings up on an open check (`orderDeals` on the order), an online-only deal
   is refused at the counter, and — once deal scheduling (restaunax Plan 1) is on QA — a deal
   outside its schedule is refused with `DEAL_NOT_AVAILABLE_AT_TIME` on the restaurant's clock.
-  TC-688 (gated on `DEAL_TYPES_ON_QA.slots`): a ticket whose deal pick isn't one of the deal's items
+  TC-688: a ticket whose deal pick isn't one of the deal's items
   (or leaves a slot empty) is refused by the pricing floor with the web checkout's sentence.
 
 ## Gotchas worth knowing before adding more coverage here
