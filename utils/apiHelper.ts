@@ -6615,13 +6615,16 @@ export function tipsRaw<T = { data?: LooseJson; message?: string }>(
   restaurantId: string,
   method: Method,
   path: string,
-  body?: unknown
+  body?: unknown,
+  /** e.g. { "Accept-Language": "es" } for messages in Spanish. */
+  headers?: Record<string, string>
 ): Promise<RawResponse<T>> {
   return apiRequestRaw(
     method,
     `/api/staff/tips/${restaurantId}${path}`,
     body,
-    ownerToken
+    ownerToken,
+    headers
   );
 }
 
@@ -6729,8 +6732,8 @@ export function ownerAddonsRaw(
  * throwaway restaurant there (restaurantBasicInfoRaw {timezone}) so they run
  * at any hour, nightly included.
  */
-export const zoneAtMidday = (now = new Date()): string => {
-  let offset = 12 - now.getUTCHours();
+export const zoneAtMidday = (now = new Date(), localHour = 12): string => {
+  let offset = localHour - now.getUTCHours();
   if (offset < -12) offset += 24;
   if (offset > 14) offset -= 24;
   if (offset === 0) return "Etc/GMT";
@@ -6814,4 +6817,178 @@ export function setInvitationPinRaw(
     token: inviteToken,
     pin,
   });
+}
+
+// ── Pay at the table (restaunax #926, PAY_AT_TABLE.md) ──────────────────────
+
+/** Public guest endpoints: `/api/public/check-pay/:token{path}` — no auth;
+ *  the 22-char QR token or the typed code is the only key. */
+export function checkPayRaw<
+  T = {
+    data?: LooseJson;
+    code?: string;
+    error?: string;
+    message?: string;
+    bill?: LooseJson;
+    released?: string;
+  },
+>(
+  method: Method,
+  token: string,
+  path = "",
+  body?: unknown,
+  headers?: Record<string, string>
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/api/public/check-pay/${encodeURIComponent(token)}${path}`,
+    body,
+    undefined,
+    headers
+  );
+}
+
+/** GET /api/public/check-pay/code/:displayCode — a typed code → its token. */
+export function checkPayCodeRaw(
+  displayCode: string
+): Promise<
+  RawResponse<{ data?: { token: string; displayCode: string }; code?: string }>
+> {
+  return apiRequestRaw(
+    "GET",
+    `/api/public/check-pay/code/${encodeURIComponent(displayCode)}`
+  );
+}
+
+/** GET|PUT /api/restaurantId/:rid/pay-at-table ({settings}). */
+export function payAtTableSettingsRaw(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  body?: unknown
+): Promise<
+  RawResponse<{ data?: LooseJson; message?: string; error?: string }>
+> {
+  return apiRequestRaw(
+    method,
+    `/api/restaurantId/${restaurantId}/pay-at-table`,
+    body,
+    ownerToken
+  );
+}
+
+/** GET|PUT /api/restaurantId/:rid/receipt-qr-codes ({codes, links}). */
+export function receiptQrCodesRaw(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  body?: unknown,
+  headers?: Record<string, string>
+): Promise<
+  RawResponse<{
+    data?: LooseJson;
+    code?: string;
+    error?: string;
+    details?: LooseJson;
+  }>
+> {
+  return apiRequestRaw(
+    method,
+    `/api/restaurantId/${restaurantId}/receipt-qr-codes`,
+    body,
+    ownerToken,
+    headers
+  );
+}
+
+/** POST /api/tablet/orders/:orderId/receipt-qrs {receiptType, orderPaymentId?}
+ *  — the ordered QR codes for one print (tablet auth, no staff session). */
+export function tabletReceiptQrsRaw(
+  tabletToken: string,
+  orderId: string,
+  body: { receiptType: string; orderPaymentId?: string }
+): Promise<
+  RawResponse<{
+    data?: {
+      codes: {
+        kind: string;
+        label: string;
+        url: string;
+        displayCode: string | null;
+      }[];
+    };
+    code?: string;
+  }>
+> {
+  return apiRequestRaw(
+    "POST",
+    `/api/tablet/orders/${orderId}/receipt-qrs`,
+    body,
+    tabletToken
+  );
+}
+
+/** POST /api/stripe/restaurant/:rid/stripe/test-onboarding — QA-only dummy
+ *  Connect onboarding (creates the account when there is none). Primary owner. */
+export function stripeTestOnboardingRaw(
+  ownerToken: string,
+  restaurantId: string
+): Promise<RawResponse<{ stripeAccountId?: string; error?: string }>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/stripe/restaurant/${restaurantId}/stripe/test-onboarding`,
+    { scenario: "ready" },
+    ownerToken
+  );
+}
+
+/** GET /api/stripe/config — the publishable key every client initialises with. */
+export function stripeConfigRaw(): Promise<
+  RawResponse<{ data?: { publishableKey?: string } }>
+> {
+  return apiRequestRaw("GET", "/api/stripe/config");
+}
+
+/** POST /api/rewards/programs (company admin) — a reward program. */
+export function createRewardProgramRaw(
+  adminToken: string,
+  body: Record<string, unknown>
+): Promise<
+  RawResponse<{ data?: LooseJson; message?: string; error?: string }>
+> {
+  return apiRequestRaw("POST", "/api/rewards/programs", body, adminToken);
+}
+
+/**
+ * A call to Stripe's own API with the PUBLISHABLE key — exactly what a
+ * guest's browser can do (create a card PaymentMethod from a test token,
+ * confirm or read a PaymentIntent with its client secret). Never a secret key.
+ */
+export async function stripePublicRaw(
+  publishableKey: string,
+  method: "GET" | "POST",
+  path: string,
+  form: Record<string, string> = {}
+): Promise<RawResponse<Record<string, LooseJson>>> {
+  const qs = new URLSearchParams(form).toString();
+  const url =
+    method === "GET" && qs
+      ? `https://api.stripe.com/v1${path}?${qs}`
+      : `https://api.stripe.com/v1${path}`;
+  const res = await fetch(url, {
+    method,
+    headers: {
+      Authorization: `Bearer ${publishableKey}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: method === "POST" ? qs : undefined,
+  });
+  const text = await res.text();
+  let data: Record<string, LooseJson>;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = { raw: text };
+  }
+  return { status: res.status, ok: res.ok, data };
 }

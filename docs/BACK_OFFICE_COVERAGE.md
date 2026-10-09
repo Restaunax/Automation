@@ -51,6 +51,8 @@ dispatch of `e2e.yml` on the PR branch against QA.
 | 15  | POS screen loads never 403: capabilities catalogue (no role catalogue for non-managers), host stand view-only without contacts, writes refused; safe opens with a MANAGE_SAFE approval token only                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | `api-pos-screen-loads.spec.ts`     | TC-647..649         | Passing on QA (2026-10-07)                                                                                                                                                    |
 | 16  | UX-audit fixes (restaunax #913): "Get started" checklist ticks from real data; clock-in approved by a signed-in manager's session (refused for a Staff session); time-clock `hasPin` + `activeShift.jobName`; Spanish invite (subject/body, 7-day expiry, language kept); POS schedule for another day read-only; `tracksTime` from the POS; `hasAccount`; default discount/comp/void reasons EN/ES, saved list wins, saved-empty stays empty, tablet gets them; account language saved; existing account claims its invite after sign-in (`staffAppEnabled`, `app`); account invite for an active person without an account; payroll-settings `location`; add-ons page sources (`RESTAUNAX`, `INCLUDED_WITH`); manager-approved drawer belongs to the cashier | `api-ux-audit.spec.ts`             | TC-651..663         | Passing on QA (2026-10-08)                                                                                                                                                    |
 | 17  | UX-audit dashboard: Staff tab bar reaches every tab at 1024 and 390 px with no horizontal page scroll; Timecards opens the oldest unapproved period; the language choice survives a reload and is saved to the account                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | `22-ux-audit-staff-ui.spec.ts`     | TC-664..666         | Passing on QA (2026-10-08)                                                                                                                                                    |
+| 18  | Tip-out waterfall API (P6, restaunax #924): run order (`tipOutOrder`), §5 Saturday gave/received/net to the cent (cash tips — card tips can't be captured on QA), the §5 card-fee arithmetic through `POST /preview`, validation EN/ES (cycle, self, managerial, tip credit, >100%), no receivers on shift, not clocked in, two-job day, % of category sales, no rules, staff tip receipt (approved only / pay hidden / no Tip Management)                                                                                                                                                                                                                                                                                                                     | `api-tip-waterfall.spec.ts`        | TC-667..676         | Waiting for #924 on QA                                                                                                                                                        |
+| 19  | Tip-out waterfall dashboard: Waterfall preset → rules + flow + live example in dollars → Save; Tips tab Gave/Received and "Where the tip-outs went"; 390 px cards                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | `23-tip-waterfall-ui.spec.ts`      | TC-677..679         | Waiting for #924 on QA                                                                                                                                                        |
 
 ### Settings tested for their effect
 
@@ -111,6 +113,16 @@ dispatch of `e2e.yml` on the PR branch against QA.
   evidence: `{"clockInException":"EARLY","scheduledShiftId":null,"attendance":{"status":"UPCOMING","clockInAt":null}}`
   while the person is on the clock.
 
+### Tip-out waterfall: what QA can't show
+
+- **Card tips**: a card leg is verified against Stripe, so the §5 day runs on
+  cash tips (card fee $0); the 3% fee math is asserted through `/preview`,
+  the real engine on a made-up card day.
+- **Tip-outs inside an approved pay period**: today's tips can only be
+  approved once the period is over, so the receipt test approves a finished
+  week with declared cash; tip-out amounts in a snapshot / export / Gusto pay
+  run are covered by restaunax `payPeriodMoney.int.test.ts`.
+
 ### Runs at any hour
 
 Specs that need "hours already worked today" or "a shift later today" (tips,
@@ -137,6 +149,38 @@ nightly runs them instead of skipping.
 - By design, a POS open check's food tax is the device's claim (a mismatch is
   only logged as `pos_tax_mismatch`), so a device that sends `tax: 0` on
   taxable items is accepted (the service fee's tax is still the server's).
+
+## Pay at the table (restaunax #926)
+
+Not back office, but table service, and the same throwaway-tenant pattern:
+`tests/dashboard/owner/api-pay-at-table.spec.ts` (TC-680..690). Status:
+**waiting for #926 on QA**.
+
+The guest's phone is played by the test: the public `/api/public/check-pay`
+API plus Stripe's own API with the **publishable** key from
+`/api/stripe/config` (create a card PaymentMethod from `tok_visa` /
+`tok_visa_debit`, confirm the PaymentIntent with its client secret), exactly
+what the storefront page does. The tenant gets a Stripe test Connect account
+from the QA-only dummy onboarding (`/stripe/test-onboarding`), without which
+`/intent` answers 409 `PAYMENTS_UNAVAILABLE`.
+
+| TC  | What it proves                                                                                                                                                                                                                                                                     |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 680 | Owner `GET/PUT /pay-at-table`: defaults, minimum clamped to $0.50..$100, sharing needs by-item, availability (table service + storefront URL)                                                                                                                                      |
+| 681 | Owner `GET/PUT /receipt-qr-codes`: default order, 400 `TOO_MANY_ON_SLIP` (EN + ES), `URL_NOT_HTTPS`, `URL_NOT_GOOGLE`, `SOCIAL_URL_INVALID`; a valid list keeps the owner's order and drops slips a kind can't print on                                                            |
+| 682 | POS `POST /api/tablet/orders/:id/receipt-qrs`: the owner's order, pay link + typed code only on the CHECK slip, same token on a reprint, no rewards on an unpaid check, 400 `RECEIPT_TYPE_INVALID`                                                                                 |
+| 683 | The bill: totals (8% tax, 3% service fee, 18% auto-gratuity) = the order total, "additional" 3/5/7% tips, no PII / no payment ids, typed-code lookup (lower case, no dash), 404, 410 `DISABLED`                                                                                    |
+| 684 | Quotes: everything, even split (3 ways sum to the cent), by item, a third of a shared pizza, an amount + tip; refusals `AMOUNT_TOO_SMALL`, 409 `AMOUNT_EXCEEDS_REMAINING` with the bill, `TIP_TOO_LARGE` (EN + ES), `TIP_NEEDS_CONFIRMATION`, `BAD_PARTS`, `MODE_NOT_ALLOWED` (ES) |
+| 685 | The spec's $100 example to the cent: Ana $30 (+ tip) → each dish $17.50 (table credit $7.50) → Ben's dish → Cal even 2 ways $26.25 → Dee the rest $26.25 → closed at $100.00; table free                                                                                           |
+| 686 | Card fee with pass-through on: credit carries 3% (capped) on the share, never the tip; debit's fee is dropped before authorizing and the captured amount is the share                                                                                                              |
+| 687 | First to pay wins: two intents for "everything left", both authorized; one captured, the other's authorization cancelled; a paid check refuses new intents (`CHECK_CLOSED`); table free                                                                                            |
+| 688 | Receipt email in Mailpit, EN and ES (`Accept-Language`), once per payment (`RECEIPT_ALREADY_SENT`), `EMAIL_INVALID`, `RECEIPTS_OFF`                                                                                                                                                |
+| 689 | Reward claim: `NO_PROGRAM` → per-payment code on a split check (same code on repeat), the whole check's code for one payer, `REWARDS_OFF`                                                                                                                                          |
+| 690 | After a phone pays for items: POS edit removing them 409 (`paidByPhoneEdit`), coupon 409 (`paidByPhoneDiscount`), a pizza split in thirds refuses halves (`SHARE_CHANGED`), adding a salad keeps the paid one paid, the rest closes the check; table free                          |
+
+Not covered on QA: the Stripe webhook rung (a phone that authorizes and
+leaves) and wallets (Apple Pay / Google Pay) — #926's integration tests cover
+the webhook against a Stripe fake.
 
 ## Running
 
