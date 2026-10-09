@@ -69,6 +69,12 @@ test.describe("Owner — tip-out waterfall (UI)", () => {
     if (!session) throw new Error("no browser session");
     return session.page;
   };
+  // The Tips table's headers carry their explanation as the accessible name
+  // ("Tip-outs given to other jobs, …"); the visible label is the short word.
+  const header = (label: string) =>
+    page()
+      .getByRole("columnheader")
+      .filter({ hasText: new RegExp(`^${label}$`) });
   const openStaff = async (staffTab: string) => {
     await page().goto(
       `/restaurant/restaurantId/${restaurantId}/restaurantManagement?tab=staff&staffTab=${staffTab}`,
@@ -237,14 +243,8 @@ test.describe("Owner — tip-out waterfall (UI)", () => {
 
   test("TC-678: the Tips tab shows Gave / Received and where the tip-outs went", async () => {
     await openStaff("tips");
-    await expect(
-      page().getByRole("columnheader", { name: /Gave/ })
-    ).toBeVisible({
-      timeout: 20_000,
-    });
-    await expect(
-      page().getByRole("columnheader", { name: /Received/ })
-    ).toBeVisible();
+    await expect(header("Gave")).toBeVisible({ timeout: 20_000 });
+    await expect(header("Received")).toBeVisible();
     const went = page().getByTestId("tips-where-it-went");
     await expect(went).toBeVisible();
     await expect(went).toContainText("Where the tip-outs went");
@@ -258,9 +258,7 @@ test.describe("Owner — tip-out waterfall (UI)", () => {
     await expect(page().getByText("Ana Ui").first()).toBeVisible({
       timeout: 20_000,
     });
-    await expect(
-      page().getByRole("columnheader", { name: /Gave/ })
-    ).toHaveCount(0);
+    await expect(header("Gave")).toHaveCount(0);
     const overflow = await page().evaluate(
       () =>
         document.documentElement.scrollWidth -
