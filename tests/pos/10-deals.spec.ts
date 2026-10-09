@@ -15,7 +15,7 @@
  * settings → menu → ADMIN-created device → tablet login → owner PIN → staff
  * sign-in. Tax is left unset (0) so every total is a clean sum.
  *
- * TC-688 (guided deal types, DEAL_TYPES.md "Deal picks must match their
+ * TC-712 (guided deal types, DEAL_TYPES.md "Deal picks must match their
  * slots"): the POS pricing floor refuses a pick that isn't one of the deal's
  * items.
  */
@@ -376,7 +376,7 @@ test.describe("POS — Deals", () => {
     expect(ok.status, msg(ok.data)).toBe(201);
   });
 
-  test("TC-688: the POS refuses a deal ticket whose pick isn't one of the deal's items (slot matching), with or without dealItemId", async () => {
+  test("TC-712: the POS refuses a deal ticket whose pick isn't one of the deal's items (slot matching), with or without dealItemId", async () => {
     await allure.description(
       "Deal = Burger + Fries at 14. A ticket that rings the Soda in the Fries slot — sent without slot ids, and " +
         "with the Fries row's dealItemId — is refused 400 with the web checkout's sentence " +

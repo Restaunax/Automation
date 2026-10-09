@@ -5,7 +5,7 @@
  * TC-86/87 are the original navigation checks; TC-351..364 assert the UI on
  * API-seeded deals (see docs/DEALS_TAB_TEST_STRATEGY.md §4 Layer 2). Guided
  * deal types (restaunax DEAL_TYPES.md): the form tests TC-360..362 were
- * rewritten for the type-first, one-line-per-unit form and TC-678..680 cover
+ * rewritten for the type-first, one-line-per-unit form and TC-702..680 cover
  * BOGO free / BOGO % off / two-of-the-same combo — on the new form. Own data:
  * a per-run "Automation Deals UI <id>" category with three items on the seed
  * restaurant and six AUTO deals (plain / restricted / inactive / expired / two
@@ -643,7 +643,7 @@ test.describe("Owner — Deals", () => {
   //
   // Guided deal types (restaunax DEAL_TYPES.md) replaced the form: type cards
   // first, one line per unit, no quantity box, no "already in the deal"
-  // refusal. TC-360..362 were rewritten for it and TC-678..680 added.
+  // refusal. TC-360..362 were rewritten for it and TC-702..680 added.
 
   /** Open Create Deal on the guided (type-first) form. */
   const openGuidedCreate = async (ownerPage: Page) => {
@@ -851,7 +851,7 @@ test.describe("Owner — Deals", () => {
     }
   });
 
-  test("TC-678: Buy one get one FREE with 'Same item' — the form shows the computed price, and the API stores a BOGO_FREE deal with a BUY and a GET row of the Burger", async ({
+  test("TC-702: Buy one get one FREE with 'Same item' — the form shows the computed price, and the API stores a BOGO_FREE deal with a BUY and a GET row of the Burger", async ({
     ownerPage,
   }) => {
     await allure.description(
@@ -885,7 +885,7 @@ test.describe("Owner — Deals", () => {
     }
   });
 
-  test("TC-679: Buy one get one 50% off — Burger bought, Fries at half price: preview and stored price are 13.25, discountPercent 50", async ({
+  test("TC-703: Buy one get one 50% off — Burger bought, Fries at half price: preview and stored price are 13.25, discountPercent 50", async ({
     ownerPage,
   }) => {
     await allure.description(
@@ -924,7 +924,7 @@ test.describe("Owner — Deals", () => {
     }
   });
 
-  test("TC-680: a combo of two of the SAME item ('2 burgers for $15') — impossible on the old form — saves as two Burger rows", async ({
+  test("TC-704: a combo of two of the SAME item ('2 burgers for $15') — impossible on the old form — saves as two Burger rows", async ({
     ownerPage,
   }) => {
     await allure.description(
