@@ -724,13 +724,24 @@ test.describe("Tip-out waterfall (API)", () => {
 
     // A finished week with the owner's declared cash, approved.
     const day = String(finished?.startDate);
-    await payrollRaw(ownerToken, restaurantId, "POST", "/shifts", {
-      staffMemberId: ownerMember,
-      clockInAt: `${day}T14:00:00.000Z`,
-      clockOutAt: `${day}T18:00:00.000Z`,
-      jobId: jobs.server,
-      reason: "Paper sheet",
-    });
+    // A job with a rate, or the shift would block approval (no rate).
+    await setMemberJobsRaw(ownerToken, restaurantId, ownerMember, [
+      { jobId: jobs.server, isPrimary: true },
+    ]);
+    const entered = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "POST",
+      "/shifts",
+      {
+        staffMemberId: ownerMember,
+        clockInAt: `${day}T14:00:00.000Z`,
+        clockOutAt: `${day}T18:00:00.000Z`,
+        jobId: jobs.server,
+        reason: "Paper sheet",
+      }
+    );
+    expect(entered.status, JSON.stringify(entered.data)).toBe(201);
     const declared = await tipsRaw(
       ownerToken,
       restaurantId,
