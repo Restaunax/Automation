@@ -14,12 +14,17 @@
  * needed), all cancelled in afterAll. Setup chain mirrors 03-open-checks:
  * settings → menu → ADMIN-created device → tablet login → owner PIN → staff
  * sign-in. Tax is left unset (0) so every total is a clean sum.
+ *
+ * TC-688 (guided deal types, DEAL_TYPES.md "Deal picks must match their
+ * slots"): the POS pricing floor refuses a pick that isn't one of the deal's
+ * items — gated on DEAL_TYPES_ON_QA.slots (presence = the ticket is refused).
  */
 
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../fixtures/base";
 import { generateRunId } from "../../utils/testData";
 import { requireScheduling } from "../../utils/dealScheduleGate";
+import { requireDealTypes } from "../../utils/dealTypesGate";
 import {
   dayNameOfKey,
   liveNowWindow,
@@ -34,6 +39,7 @@ import {
   permanentlyDeleteMenuItemApi,
   deleteTestMenuGroup,
   createDealApi,
+  getDealApi,
   getRestaurantTimeZonePublic,
   deleteDealApi,
   getActiveDealsPublic,
@@ -101,7 +107,14 @@ test.describe("POS — Deals", () => {
   ];
 
   /** Open-check ticket: one soda + the deal (burger + fries). Real DB prices so the pricing floor passes. */
-  const dealTicket = (tableName: string, deal: ApiDeal) => {
+  const dealTicket = (
+    tableName: string,
+    deal: ApiDeal,
+    picks: { item: ApiMenuItem; dealItemId?: string }[] = [
+      { item: burger },
+      { item: fries },
+    ]
+  ) => {
     const dealPrice = deal.dealPrice ?? 0;
     return {
       restaurantId,
@@ -125,7 +138,8 @@ test.describe("POS — Deals", () => {
           dealName: deal.name,
           dealPrice,
           quantity: 1,
-          items: [burger, fries].map((i) => ({
+          items: picks.map(({ item: i, dealItemId }) => ({
+            ...(dealItemId ? { dealItemId } : {}),
             menuItemId: i.id,
             menuItemName: i.name,
             menuItemPrice: i.price,
@@ -141,11 +155,15 @@ test.describe("POS — Deals", () => {
   };
 
   /** Ring a ticket; a 201 is remembered for the afterAll cancel sweep. */
-  const ring = async (tableName: string, deal: ApiDeal) => {
+  const ring = async (
+    tableName: string,
+    deal: ApiDeal,
+    picks?: Parameters<typeof dealTicket>[2]
+  ) => {
     const res = await createTabletOrderRaw(
       tabletToken,
       staffSession,
-      dealTicket(tableName, deal)
+      dealTicket(tableName, deal, picks)
     );
     if (res.status === 201 && res.data.id) openedOrderIds.push(res.data.id);
     return res;
@@ -357,5 +375,42 @@ test.describe("POS — Deals", () => {
     dealIds.push(liveWindow.id);
     const ok = await ring(`Deals ${runId} 4`, liveWindow);
     expect(ok.status, msg(ok.data)).toBe(201);
+  });
+
+  test("TC-688: the POS refuses a deal ticket whose pick isn't one of the deal's items (slot matching), with or without dealItemId", async () => {
+    await allure.description(
+      "Deal = Burger + Fries at 14. A ticket that rings the Soda in the Fries slot — sent without slot ids, and " +
+        "with the Fries row's dealItemId — is refused 400 with the web checkout's sentence " +
+        "(api:error.pricingDealSelectionNotInDeal); a ticket with only the Burger is refused with " +
+        "pricingDealSlotUnfilled. Gated on DEAL_TYPES_ON_QA.slots: before the deploy the ticket rings up (201) " +
+        "and the test SKIPS. Post-deploy run."
+    );
+    const slots = (await getDealApi(token, everywhere.id)).items ?? [];
+    const burgerSlot = slots.find((s) => s.menuItemId === burger.id)!.id;
+    const friesSlot = slots.find((s) => s.menuItemId === fries.id)!.id;
+    const NOT_IN_DEAL =
+      "One of the items you picked isn't part of this deal. Please choose from the deal's options.";
+    const SLOT_UNFILLED = "Please choose all of the items your deal requires.";
+
+    const first = await ring(`Deals ${runId} 5`, everywhere, [
+      { item: burger },
+      { item: soda },
+    ]);
+    requireDealTypes("slots", first.status !== 201);
+    expect(first.status, msg(first.data)).toBe(400);
+    expect(msg(first.data)).toBe(NOT_IN_DEAL);
+
+    const named = await ring(`Deals ${runId} 6`, everywhere, [
+      { item: burger, dealItemId: burgerSlot },
+      { item: soda, dealItemId: friesSlot },
+    ]);
+    expect(named.status, msg(named.data)).toBe(400);
+    expect(msg(named.data)).toBe(NOT_IN_DEAL);
+
+    const missing = await ring(`Deals ${runId} 7`, everywhere, [
+      { item: burger, dealItemId: burgerSlot },
+    ]);
+    expect(missing.status, msg(missing.data)).toBe(400);
+    expect(msg(missing.data)).toBe(SLOT_UNFILLED);
   });
 });

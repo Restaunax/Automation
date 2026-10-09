@@ -3,7 +3,11 @@
  * form, cap banners, Deal Analytics, AI Generator smoke).
  *
  * TC-86/87 are the original navigation checks; TC-351..364 assert the UI on
- * API-seeded deals (see docs/DEALS_TAB_TEST_STRATEGY.md §4 Layer 2). Own data:
+ * API-seeded deals (see docs/DEALS_TAB_TEST_STRATEGY.md §4 Layer 2). Guided
+ * deal types (restaunax DEAL_TYPES.md): the form tests TC-360..362 were
+ * rewritten for the type-first, one-line-per-unit form and TC-678..680 cover
+ * BOGO free / BOGO % off / two-of-the-same combo — all gated on the new form
+ * (utils/dealTypesGate.ts). Own data:
  * a per-run "Automation Deals UI <id>" category with three items on the seed
  * restaurant and six AUTO deals (plain / restricted / inactive / expired / two
  * more for sorting + pagination), all deleted in afterAll — globalTeardown's
@@ -26,7 +30,10 @@ import {
   DEAL_STATUS_TEXT,
 } from "../../../pages/dashboard/owner/OwnerDealsPage";
 import { createAiDealsGeneratorPage } from "../../../pages/dashboard/owner/AiDealsGeneratorPage";
-import { createDealFormPage } from "../../../pages/dashboard/owner/DealFormPage";
+import {
+  createDealFormPage,
+  type DealFormPage,
+} from "../../../pages/dashboard/owner/DealFormPage";
 import { createDealAnalyticsPage } from "../../../pages/dashboard/owner/DealAnalyticsPage";
 import { readSharedState, generateRunId } from "../../../utils/testData";
 import { type Page } from "@playwright/test";
@@ -36,6 +43,7 @@ import {
   type ScheduleChip,
 } from "../../../pages/dashboard/owner/DealFormPage";
 import { requireScheduling } from "../../../utils/dealScheduleGate";
+import { requireDealTypes } from "../../../utils/dealTypesGate";
 import {
   WEEKDAYS,
   formatClockEn,
@@ -634,86 +642,124 @@ test.describe("Owner — Deals", () => {
   });
 
   // ── Create / Edit form ────────────────────────────────────────────────────
+  //
+  // Guided deal types (restaunax DEAL_TYPES.md) replaced the form: type cards
+  // first, one line per unit, no quantity box, no "already in the deal"
+  // refusal. TC-360..362 were rewritten for it and TC-678..680 added; all are
+  // gated on the guided form (utils/dealTypesGate.ts — flip
+  // DEAL_TYPES_ON_QA.dashboard once it is on QA) and need a post-deploy run.
 
-  test("TC-360: the form validates on submit and shows the live math (original price, savings, preview chip, ≥90% warning); duplicate items are refused; submit is disabled below 2 items", async ({
-    ownerPage,
-  }) => {
+  /** Open Create Deal on the guided form (skips while QA predates it). */
+  const openGuidedCreate = async (ownerPage: Page) => {
     const dealsPage = createOwnerDealsPage(ownerPage);
     const form = createDealFormPage(ownerPage);
     await dealsPage.gotoTab(restaurantId, "create-deal");
     await form.assertCreateMode();
-    await expect(form.submitButton()).toBeDisabled();
-    await expect(form.previewNoItems()).toBeVisible();
-    await form.addItem(itemA.name);
-    await expect(form.itemCard(itemA.name)).toBeVisible();
-    await expect(form.submitButton()).toBeDisabled();
-    await form.addItem(itemA.name);
-    await expect(form.duplicateItemSnackbar()).toBeVisible({ timeout: 5_000 });
-    await form.addItem(itemB.name);
-    await expect(form.itemCard(itemB.name)).toBeVisible();
-    await expect(form.submitButton()).toBeEnabled();
-    await expect(form.originalPriceText()).toContainText("$16.50");
-    await expect(form.previewIncludesChips()).toHaveText([
-      `1x ${itemA.name}`,
-      `1x ${itemB.name}`,
-    ]);
+    requireDealTypes("dashboard", await form.hasGuidedForm());
+    return { dealsPage, form };
+  };
+  /** Save a create through the form after waiting for a free cap slot; returns the new id + bodies. */
+  const saveGuidedCreate = async (form: DealFormPage) => {
+    // The form can't retry on the 10-active cap, so wait for a free slot first.
+    await waitForFreeDealSlot(token, restaurantId);
+    const { status, body, requestBody } = await form.submitAndWait("create");
+    const dealId = (body as { deal?: { id?: string } }).deal?.id ?? "";
+    if (dealId) extraDealIds.push(dealId);
+    return { status, body, requestBody, dealId };
+  };
+  const rolesOf = (d: ApiDeal) =>
+    (d.items ?? [])
+      .slice()
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((i) => i.role);
 
-    await form.submitButton().click();
-    await expect(form.nameRequiredError()).toBeVisible();
-    await expect(form.pricePositiveError()).toBeVisible();
-
-    await form.nameInput().fill(`AUTO Form Invalid ${runId}`);
-    await form.priceInput().fill("0");
-    await form.submitButton().click();
-    await expect(form.pricePositiveError()).toBeVisible();
-    await expect(form.nameRequiredError()).toHaveCount(0);
-
-    await form.priceInput().fill("16.5");
-    await form.submitButton().click();
-    await expect(form.priceBelowOriginalError()).toBeVisible();
-
-    await form.priceInput().fill("1");
-    await expect(form.savingsText()).toHaveText("Savings: $15.50 (94% off)");
-    await expect(form.previewSaveChip()).toHaveText("Save 94%");
-    await expect(form.highDiscountWarning()).toBeVisible();
-
-    await form.setItemQty(itemA.name, 2);
-    await form.priceInput().fill("20");
-    await expect(form.originalPriceText()).toContainText("$26.50");
-    await expect(form.savingsText()).toHaveText("Savings: $6.50 (25% off)");
-    await expect(form.previewIncludesChips().first()).toHaveText(
-      `2x ${itemA.name}`
+  test("TC-360: the guided form asks 'What kind of deal?' first; a combo takes one line per unit (picking an item again adds a line), the price preview is live, and a combo at its regular price is not saved", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Rewritten for guided deal types: the four type cards are shown; COMBO → picking the Burger twice gives " +
+        "TWO Burger lines (the old qty box and the 'This item is already in the deal' snackbar are gone); " +
+        "deal-price-preview follows the price live (2 × 10 at 15 → regular $20.00, saves $5.00 (25%); + Fries " +
+        "at 20 → $26.50 / $6.50); removing a line reprices; an empty name shows 'Deal name is required'; a " +
+        "price equal to the regular $16.50 never creates a deal (client-blocked, or a 400 from the server's " +
+        "priceMustBeBelowRegular). Post-deploy run."
     );
-    await expect(form.highDiscountWarning()).toHaveCount(0);
-    // Nothing was created.
+    const { form } = await openGuidedCreate(ownerPage);
+    for (const t of [
+      "COMBO",
+      "BOGO_FREE",
+      "BOGO_PERCENT_OFF",
+      "PERCENT_OFF",
+    ] as const)
+      await expect(form.typeCard(t)).toBeVisible();
+    await form.chooseType("COMBO");
+    await form.addLine("INCLUDED", itemA.name);
+    await expect(form.lineItems("INCLUDED", itemA.name)).toHaveCount(1);
+    await form.addLine("INCLUDED", itemA.name);
+    await expect(form.lineItems("INCLUDED", itemA.name)).toHaveCount(2);
+    await expect(form.duplicateItemSnackbar()).toHaveCount(0);
+
+    await form.priceInput().fill("15");
+    await expect(form.pricePreview()).toContainText("$20.00");
+    await expect(form.pricePreview()).toContainText("$5.00");
+    await expect(form.pricePreview()).toContainText("25%");
+
+    await form.addLine("INCLUDED", itemB.name);
+    await form.priceInput().fill("20");
+    await expect(form.pricePreview()).toContainText("$26.50");
+    await expect(form.pricePreview()).toContainText("$6.50");
+
+    await form.removeLine("INCLUDED", itemA.name);
+    await expect(form.lineItems("INCLUDED", itemA.name)).toHaveCount(1);
+    await expect(form.pricePreview()).toContainText("$16.50");
+
+    await form.saveButton().click();
+    await expect(form.nameRequiredError()).toBeVisible();
+
+    const name = `AUTO Form Invalid ${runId}`;
+    await form.nameInput().fill(name);
+    await form.priceInput().fill("16.5");
+    const posted = ownerPage
+      .waitForResponse(
+        (r) =>
+          /\/api\/deals\/restaurant\/[^/]+$/.test(r.url()) &&
+          r.request().method() === "POST",
+        { timeout: 5_000 }
+      )
+      // No POST within 5 s = the form blocked it client-side; the list check below is the real assertion.
+      .catch(() => null);
+    await form.saveButton().click();
+    const res = await posted;
+    if (res) expect(res.status(), "a combo at its regular price").toBe(400);
+    await expect(form.heading()).toBeVisible();
     expect(
       (await getRestaurantDeals(token, restaurantId)).some(
-        (d) => d.name === `AUTO Form Invalid ${runId}`
+        (d) => d.name === name
       )
     ).toBe(false);
   });
 
-  test("TC-361: creating a deal through the form persists the split slots and the server-computed savings, then lands on the table", async ({
+  test("TC-361: creating a combo through the guided form — the Burger picked twice + Fries — persists three unit rows and the server-computed savings, then lands on the table", async ({
     ownerPage,
   }) => {
-    const dealsPage = createOwnerDealsPage(ownerPage);
-    const form = createDealFormPage(ownerPage);
+    await allure.description(
+      "Rewritten for guided deal types (was: Burger qty 2 via the quantity box). COMBO, Burger line ×2 + " +
+        "Fries, price 21 → POST 201 with dealType COMBO; the row shows 3 items, $21.00, $26.50, 21% off; the " +
+        "API has three qty-1 INCLUDED rows (two Burgers), originalPrice 26.50, savings 5.50. Post-deploy run."
+    );
+    const { dealsPage, form } = await openGuidedCreate(ownerPage);
     const name = `AUTO Form Created ${runId}`;
-    await dealsPage.gotoTab(restaurantId, "create-deal");
-    await form.assertCreateMode();
+    await form.chooseType("COMBO");
+    await form.addLine("INCLUDED", itemA.name);
+    await form.addLine("INCLUDED", itemA.name);
+    await form.addLine("INCLUDED", itemB.name);
+    await form.priceInput().fill("21");
     await form.nameInput().fill(name);
     await form.descriptionInput().fill("created through the UI");
-    await form.addItem(itemA.name);
-    await form.addItem(itemB.name);
-    await form.setItemQty(itemA.name, 2);
-    await form.priceInput().fill("21");
-    // The form can't retry on the 10-active cap, so wait for a free slot first.
-    await waitForFreeDealSlot(token, restaurantId);
-    const { status, body } = await form.submitAndWait("create");
-    const dealId = (body as { deal?: { id?: string } }).deal?.id ?? "";
-    if (dealId) extraDealIds.push(dealId);
+    const { status, body, requestBody, dealId } = await saveGuidedCreate(form);
     try {
       expect(status, JSON.stringify(body)).toBe(201);
+      expect(requestBody.dealType ?? "COMBO").toBe("COMBO");
       await expect(form.createdSnackbar()).toBeVisible({ timeout: 5_000 });
       // 1.5 s later the form navigates back to the table.
       await dealsPage.assertManageDealsLoaded();
@@ -725,8 +771,13 @@ test.describe("Owner — Deals", () => {
       await expect(row).toContainText("$26.50");
       await expect(row).toContainText("21% off");
       const api = await getDealApi(token, dealId);
+      expect(api.dealType).toBe("COMBO");
       expect(api.items).toHaveLength(3);
       expect(api.items!.every((i) => i.quantity === 1)).toBe(true);
+      expect(api.items!.filter((i) => i.menuItemId === itemA.id)).toHaveLength(
+        2
+      );
+      expect(rolesOf(api)).toEqual(["INCLUDED", "INCLUDED", "INCLUDED"]);
       expect(api.originalPrice).toBe(26.5);
       expect(api.savingsAmount).toBe(5.5);
       expect(api.description).toBe("created through the UI");
@@ -736,9 +787,15 @@ test.describe("Owner — Deals", () => {
     }
   });
 
-  test("TC-362: Edit pre-fills the form; renaming, repricing, removing and adding a slot round-trips through PUT and the table", async ({
+  test("TC-362: Edit pre-fills the guided form; renaming, repricing, removing and adding a line round-trips through PUT and the table", async ({
     ownerPage,
   }) => {
+    await allure.description(
+      "Rewritten for guided deal types (lines instead of item cards). An API-seeded COMBO (Burger + Fries at " +
+        "12) opens in Edit with one line each and price 12; rename, remove the Fries line, add a Drink line, " +
+        "price 11 (preview regular $14.00) → PUT 200 → row $11.00 / $14.00 / 21% off; API items Burger + " +
+        "Drink, still a COMBO. Post-deploy run."
+    );
     const original = await createDealApiCapSafe(
       token,
       restaurantId,
@@ -755,19 +812,20 @@ test.describe("Owner — Deals", () => {
       await dealsPage.openRowMenu(original.name);
       await dealsPage.editMenuItem().click();
       await form.assertEditMode();
+      requireDealTypes("dashboard", await form.hasGuidedForm());
       await expect(form.nameInput()).toHaveValue(original.name);
       await expect(form.priceInput()).toHaveValue("12");
-      await expect(form.itemCard(itemA.name)).toBeVisible();
-      await expect(form.itemCard(itemB.name)).toBeVisible();
+      await expect(form.lineItems("INCLUDED", itemA.name)).toHaveCount(1);
+      await expect(form.lineItems("INCLUDED", itemB.name)).toHaveCount(1);
       await expect(form.submitButton()).toHaveText("Update Deal");
 
       const renamed = `AUTO Form Edited ${runId}`;
       await form.nameInput().fill(renamed);
-      await form.removeItem(itemB.name);
-      await expect(form.itemCard(itemB.name)).toHaveCount(0);
-      await form.addItem(itemC.name);
+      await form.removeLine("INCLUDED", itemB.name);
+      await expect(form.lineItems("INCLUDED", itemB.name)).toHaveCount(0);
+      await form.addLine("INCLUDED", itemC.name);
       await form.priceInput().fill("11");
-      await expect(form.originalPriceText()).toContainText("$14.00");
+      await expect(form.pricePreview()).toContainText("$14.00");
       const { status, body } = await form.submitAndWait("update");
       expect(status, JSON.stringify(body)).toBe(200);
       await expect(form.updatedSnackbar()).toBeVisible({ timeout: 5_000 });
@@ -781,12 +839,123 @@ test.describe("Owner — Deals", () => {
       const api = await getDealApi(token, original.id);
       expect(api.name).toBe(renamed);
       expect(api.dealPrice).toBe(11);
+      expect(api.dealType).toBe("COMBO");
       expect(api.items!.map((i) => i.menuItemId).sort()).toEqual(
         [itemA.id, itemC.id].sort()
       );
     } finally {
       // Free the shared restaurant's slot now, not in afterAll.
       await deleteDealApi(token, original.id).catch(() => {}); // best effort; AUTO sweep backstops
+    }
+  });
+
+  test("TC-678: Buy one get one FREE with 'Same item' — the form shows the computed price, and the API stores a BOGO_FREE deal with a BUY and a GET row of the Burger", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "BOGO_FREE → Burger in 'They buy' → 'Same item' copies it into 'They get' → deal-price-preview shows the " +
+        "computed $10.00 (the owner types no price) → save → POST 201 with dealType BOGO_FREE; GET /:id: two " +
+        "Burger rows, roles BUY then GET, dealPrice 10, originalPrice 20. Post-deploy run."
+    );
+    const { form } = await openGuidedCreate(ownerPage);
+    await form.chooseType("BOGO_FREE");
+    await form.addLine("BUY", itemA.name);
+    await expect(form.lineItems("BUY", itemA.name)).toHaveCount(1);
+    await form.sameItemButton().click();
+    await expect(form.lineItems("GET", itemA.name)).toHaveCount(1);
+    await expect(form.pricePreview()).toContainText("$10.00");
+    await form.nameInput().fill(`AUTO Form BOGO ${runId}`);
+    const { status, body, requestBody, dealId } = await saveGuidedCreate(form);
+    try {
+      expect(status, JSON.stringify(body)).toBe(201);
+      expect(requestBody.dealType).toBe("BOGO_FREE");
+      const api = await getDealApi(token, dealId);
+      expect(api).toMatchObject({
+        dealType: "BOGO_FREE",
+        dealPrice: 10,
+        originalPrice: 20,
+      });
+      expect(api.items).toHaveLength(2);
+      expect(api.items!.every((i) => i.menuItemId === itemA.id)).toBe(true);
+      expect(rolesOf(api)).toEqual(["BUY", "GET"]);
+    } finally {
+      if (dealId) await deleteDealApi(token, dealId).catch(() => {}); // best effort; AUTO sweep backstops
+    }
+  });
+
+  test("TC-679: Buy one get one 50% off — Burger bought, Fries at half price: preview and stored price are 13.25, discountPercent 50", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "BOGO_PERCENT_OFF → Burger in 'They buy', Fries in 'They get', deal-percent-input 50 → preview $13.25 " +
+        "(10 + 6.50 × 50%) → save → API dealType BOGO_PERCENT_OFF, discountPercent 50, dealPrice 13.25, " +
+        "roles BUY/GET. Post-deploy run."
+    );
+    const { form } = await openGuidedCreate(ownerPage);
+    await form.chooseType("BOGO_PERCENT_OFF");
+    await form.addLine("BUY", itemA.name);
+    await form.addLine("GET", itemB.name);
+    await form.percentInput().fill("50");
+    await expect(form.pricePreview()).toContainText("$13.25");
+    await form.nameInput().fill(`AUTO Form BOGO Half ${runId}`);
+    const { status, body, requestBody, dealId } = await saveGuidedCreate(form);
+    try {
+      expect(status, JSON.stringify(body)).toBe(201);
+      expect(requestBody).toMatchObject({
+        dealType: "BOGO_PERCENT_OFF",
+        discountPercent: 50,
+      });
+      const api = await getDealApi(token, dealId);
+      expect(api).toMatchObject({
+        dealType: "BOGO_PERCENT_OFF",
+        discountPercent: 50,
+        dealPrice: 13.25,
+        originalPrice: 16.5,
+      });
+      expect(rolesOf(api)).toEqual(["BUY", "GET"]);
+      expect(
+        api.items!.find((i) => i.role === "GET")?.menuItemId,
+        "the Fries are the discounted item"
+      ).toBe(itemB.id);
+    } finally {
+      if (dealId) await deleteDealApi(token, dealId).catch(() => {}); // best effort; AUTO sweep backstops
+    }
+  });
+
+  test("TC-680: a combo of two of the SAME item ('2 burgers for $15') — impossible on the old form — saves as two Burger rows", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "COMBO → pick the Burger twice → two lines, price 15, preview regular $20.00 → save → 201; the row shows " +
+        "2 items / $15.00 / $20.00; API: two qty-1 INCLUDED Burger rows, savings 5. Post-deploy run."
+    );
+    const { dealsPage, form } = await openGuidedCreate(ownerPage);
+    const name = `AUTO Form Two Burgers ${runId}`;
+    await form.chooseType("COMBO");
+    await form.addLine("INCLUDED", itemA.name);
+    await form.addLine("INCLUDED", itemA.name);
+    await expect(form.lineItems("INCLUDED", itemA.name)).toHaveCount(2);
+    await form.priceInput().fill("15");
+    await expect(form.pricePreview()).toContainText("$20.00");
+    await form.nameInput().fill(name);
+    const { status, body, dealId } = await saveGuidedCreate(form);
+    try {
+      expect(status, JSON.stringify(body)).toBe(201);
+      await dealsPage.assertManageDealsLoaded();
+      await dealsPage.search(name);
+      const row = dealsPage.row(name);
+      await expect(row).toBeVisible({ timeout: 15_000 });
+      await expect(row).toContainText("2 items");
+      await expect(row).toContainText("$15.00");
+      await expect(row).toContainText("$20.00");
+      const api = await getDealApi(token, dealId);
+      expect(api.dealType).toBe("COMBO");
+      expect(api.items).toHaveLength(2);
+      expect(api.items!.every((i) => i.menuItemId === itemA.id)).toBe(true);
+      expect(rolesOf(api)).toEqual(["INCLUDED", "INCLUDED"]);
+      expect(api.savingsAmount).toBe(5);
+    } finally {
+      if (dealId) await deleteDealApi(token, dealId).catch(() => {}); // best effort; AUTO sweep backstops
     }
   });
 
@@ -903,8 +1072,8 @@ test.describe("Owner — Deals", () => {
       name: string
     ) => {
       await form.nameInput().fill(name);
-      await form.addItem(itemA.name);
-      await form.addItem(itemB.name);
+      // Guided deal types: a COMBO on the new form, the picker on the old one.
+      await form.addComboItems([itemA.name, itemB.name]);
       await form.priceInput().fill("12");
     };
     /** Submit a create, keep this file's ACTIVE footprint at two, return the body sent + new id. */
@@ -1419,8 +1588,9 @@ test.describe("Owner — Deals", () => {
       await form.assertCreateMode();
       await expect(form.nameInput()).toHaveValue(suggestion.name);
       await expect(form.priceInput()).toHaveValue("14");
-      await expect(form.itemCard(itemA.name)).toBeVisible();
-      await expect(form.itemCard(itemB.name)).toBeVisible();
+      // A guided line or a legacy item card, whichever form is deployed.
+      await expect(form.itemShown(itemA.name)).toBeVisible();
+      await expect(form.itemShown(itemB.name)).toBeVisible();
       await form.assertChipSelected("lunch");
       for (const d of WEEKDAYS) await form.assertDaySelected(d);
       await expect(form.summaryLine()).toContainText(
