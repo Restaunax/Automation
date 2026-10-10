@@ -34,6 +34,45 @@ export interface ApiLoginResult {
 export interface ApiRestaurant {
   id: string;
   name: string;
+  /** Server-resolved IANA zone (column, then geo lookup, then default). */
+  resolvedTimezone?: string | null;
+  /** Hour the business day starts, restaurant-local (null = 4). */
+  businessDayCutoffHour?: number | null;
+}
+
+/**
+ * The restaurant's current BUSINESS day as YYYY-MM-DD — the day owner
+ * reports (Analytics, Orders, Customer analytics) mean by "Today": the
+ * restaurant's zone, and before its cutoff hour (default 4 AM) still the
+ * previous day. Mirrors the backend's getBusinessDayBounds.
+ */
+export function currentBusinessDay(
+  timeZone: string,
+  cutoffHour?: number | null,
+  now: Date = new Date()
+): string {
+  const cutoff =
+    cutoffHour != null &&
+    Number.isInteger(cutoffHour) &&
+    cutoffHour >= 0 &&
+    cutoffHour <= 23
+      ? cutoffHour
+      : 4;
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      hourCycle: "h23",
+    })
+      .formatToParts(now)
+      .map((p) => [p.type, p.value])
+  );
+  const day = new Date(`${parts.year}-${parts.month}-${parts.day}T00:00:00Z`);
+  if (Number(parts.hour) % 24 < cutoff) day.setUTCDate(day.getUTCDate() - 1);
+  return day.toISOString().slice(0, 10);
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────────────
