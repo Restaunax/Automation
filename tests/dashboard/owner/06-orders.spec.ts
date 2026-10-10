@@ -12,7 +12,9 @@ import {
 import {
   apiLogin,
   createSeededOrder,
+  currentBusinessDay,
   getOrderStats,
+  getOwnerRestaurants,
   type SeededOrder,
 } from "../../../utils/apiHelper";
 import { parseCsv } from "../../../utils/csvHelper";
@@ -1293,7 +1295,7 @@ test.describe("Owner — Orders Tab", () => {
         "orders raises Total Orders and Pickup count by ≥2 and Net Sales by ≥ 2 × item price (≥ because " +
         "concurrent spec files also seed). (2) UI: the four cards render exactly the values the stats " +
         "endpoint returned, 'Update Stats' re-fires it, and picking the 'Today' preset re-fires it with " +
-        "browser-local start=end=today."
+        "start=end=the restaurant's BUSINESS day (its zone; before its cutoff hour, still yesterday)."
     );
     const { restaurantId } = readSharedState();
     const token = await ownerToken();
@@ -1364,19 +1366,24 @@ test.describe("Owner — Orders Tab", () => {
       );
     });
 
-    await allure.step("Today preset → start=end=local today", async () => {
-      const localToday = await ownerPage.evaluate(() => {
-        const d = new Date();
-        const p = (n: number) => String(n).padStart(2, "0");
-        return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-      });
+    await allure.step("Today preset → start=end=the business day", async () => {
+      const restaurant = (await getOwnerRestaurants(token)).find(
+        (r) => r.id === restaurantId
+      );
+      const zone = restaurant?.resolvedTimezone;
+      expect(zone, "/restaurant/owned returns resolvedTimezone").toBeTruthy();
+      const businessToday = currentBusinessDay(
+        zone as string,
+        restaurant?.businessDayCutoffHour
+      );
+      await allure.parameter("businessToday", businessToday);
       await ordersPage.openDateRange();
       await ordersPage.datePreset("Today").click();
       const { query } = await ordersPage.waitForStatsResponse(() =>
         ordersPage.applyDateRange()
       );
-      expect(query.get("startDate")).toBe(localToday);
-      expect(query.get("endDate")).toBe(localToday);
+      expect(query.get("startDate")).toBe(businessToday);
+      expect(query.get("endDate")).toBe(businessToday);
     });
   });
 
