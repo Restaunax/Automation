@@ -50,6 +50,7 @@ import {
   stripeConfigRaw,
   stripePublicRaw,
   createRewardProgramRaw,
+  ensureOrderingSlug,
   type LooseJson,
 } from "../../../utils/apiHelper";
 
@@ -104,6 +105,9 @@ test.describe("Pay at the table — the guest's phone, on QA (API)", () => {
   let tablet = "";
   let session = "";
   let pk = "";
+  let slug = "";
+  /** Availability before the restaurant had any storefront URL. */
+  let availabilityWithoutStorefront: Rec = {};
   type CheckName = "C0" | "C1" | "C2" | "C3";
   type ItemName = "dish" | "pizza" | "salad";
   const blank = { id: "", name: "" };
@@ -314,6 +318,16 @@ test.describe("Pay at the table — the guest's phone, on QA (API)", () => {
       settings: { enabled: true },
     });
     expect(pat.status, JSON.stringify(pat.data)).toBe(200);
+    availabilityWithoutStorefront = (pat.data.data as Rec).availability as Rec;
+    // The QR needs a storefront to link to: a fresh tenant has no website,
+    // so give it an ordering path on QA's shared ordering host.
+    slug = await ensureOrderingSlug(
+      adminToken,
+      "restaurant",
+      restaurantId,
+      `auto-pat-${runId}`
+    );
+    expect(slug, "the admin slug endpoint must answer").toBeTruthy();
 
     // C0 before any tax or fee rule: four $25.00 dishes = $100.00 exactly.
     checks.C0 = await openCheck("T0", [{ item: "dish", qty: 4, price: 25 }], {
@@ -389,8 +403,16 @@ test.describe("Pay at the table — the guest's phone, on QA (API)", () => {
     });
     const avail = d.availability as Rec;
     expect(avail.tableServiceEnabled).toBe(true);
-    expect(String(avail.storefrontUrl)).toMatch(/^https?:\/\//);
+    expect(String(avail.storefrontUrl)).toMatch(
+      new RegExp(`^https?://.+/${slug}$`)
+    );
     expect(avail.available).toBe(true);
+    // Before it had one, the screen said the QR can't print.
+    expect(availabilityWithoutStorefront).toMatchObject({
+      tableServiceEnabled: true,
+      storefrontUrl: null,
+      available: false,
+    });
 
     // The minimum is clamped to $0.50..$100; sharing needs by-item.
     const low = await payAtTableSettingsRaw(ownerToken, restaurantId, "PUT", {
