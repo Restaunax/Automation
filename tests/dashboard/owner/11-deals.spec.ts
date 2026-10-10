@@ -5,9 +5,8 @@
  * TC-86/87 are the original navigation checks; TC-351..364 assert the UI on
  * API-seeded deals (see docs/DEALS_TAB_TEST_STRATEGY.md §4 Layer 2). Guided
  * deal types (restaunax DEAL_TYPES.md): the form tests TC-360..362 were
- * rewritten for the type-first, one-line-per-unit form and TC-678..680 cover
- * BOGO free / BOGO % off / two-of-the-same combo — all gated on the new form
- * (utils/dealTypesGate.ts). Own data:
+ * rewritten for the type-first, one-line-per-unit form and TC-702..680 cover
+ * BOGO free / BOGO % off / two-of-the-same combo — on the new form. Own data:
  * a per-run "Automation Deals UI <id>" category with three items on the seed
  * restaurant and six AUTO deals (plain / restricted / inactive / expired / two
  * more for sorting + pagination), all deleted in afterAll — globalTeardown's
@@ -43,7 +42,6 @@ import {
   type ScheduleChip,
 } from "../../../pages/dashboard/owner/DealFormPage";
 import { requireScheduling } from "../../../utils/dealScheduleGate";
-import { requireDealTypes } from "../../../utils/dealTypesGate";
 import {
   WEEKDAYS,
   formatClockEn,
@@ -645,17 +643,18 @@ test.describe("Owner — Deals", () => {
   //
   // Guided deal types (restaunax DEAL_TYPES.md) replaced the form: type cards
   // first, one line per unit, no quantity box, no "already in the deal"
-  // refusal. TC-360..362 were rewritten for it and TC-678..680 added; all are
-  // gated on the guided form (utils/dealTypesGate.ts — flip
-  // DEAL_TYPES_ON_QA.dashboard once it is on QA) and need a post-deploy run.
+  // refusal. TC-360..362 were rewritten for it and TC-702..680 added.
 
-  /** Open Create Deal on the guided form (skips while QA predates it). */
+  /** Open Create Deal on the guided (type-first) form. */
   const openGuidedCreate = async (ownerPage: Page) => {
     const dealsPage = createOwnerDealsPage(ownerPage);
     const form = createDealFormPage(ownerPage);
     await dealsPage.gotoTab(restaurantId, "create-deal");
     await form.assertCreateMode();
-    requireDealTypes("dashboard", await form.hasGuidedForm());
+    expect(
+      await form.hasGuidedForm(),
+      "Create Deal should open on the type-first form"
+    ).toBe(true);
     return { dealsPage, form };
   };
   /** Save a create through the form after waiting for a free cap slot; returns the new id + bodies. */
@@ -682,7 +681,7 @@ test.describe("Owner — Deals", () => {
         "deal-price-preview follows the price live (2 × 10 at 15 → regular $20.00, saves $5.00 (25%); + Fries " +
         "at 20 → $26.50 / $6.50); removing a line reprices; an empty name shows 'Deal name is required'; a " +
         "price equal to the regular $16.50 never creates a deal (client-blocked, or a 400 from the server's " +
-        "priceMustBeBelowRegular). Post-deploy run."
+        "priceMustBeBelowRegular)."
     );
     const { form } = await openGuidedCreate(ownerPage);
     for (const t of [
@@ -745,7 +744,7 @@ test.describe("Owner — Deals", () => {
     await allure.description(
       "Rewritten for guided deal types (was: Burger qty 2 via the quantity box). COMBO, Burger line ×2 + " +
         "Fries, price 21 → POST 201 with dealType COMBO; the row shows 3 items, $21.00, $26.50, 21% off; the " +
-        "API has three qty-1 INCLUDED rows (two Burgers), originalPrice 26.50, savings 5.50. Post-deploy run."
+        "API has three qty-1 INCLUDED rows (two Burgers), originalPrice 26.50, savings 5.50."
     );
     const { dealsPage, form } = await openGuidedCreate(ownerPage);
     const name = `AUTO Form Created ${runId}`;
@@ -794,7 +793,7 @@ test.describe("Owner — Deals", () => {
       "Rewritten for guided deal types (lines instead of item cards). An API-seeded COMBO (Burger + Fries at " +
         "12) opens in Edit with one line each and price 12; rename, remove the Fries line, add a Drink line, " +
         "price 11 (preview regular $14.00) → PUT 200 → row $11.00 / $14.00 / 21% off; API items Burger + " +
-        "Drink, still a COMBO. Post-deploy run."
+        "Drink, still a COMBO."
     );
     const original = await createDealApiCapSafe(
       token,
@@ -812,7 +811,10 @@ test.describe("Owner — Deals", () => {
       await dealsPage.openRowMenu(original.name);
       await dealsPage.editMenuItem().click();
       await form.assertEditMode();
-      requireDealTypes("dashboard", await form.hasGuidedForm());
+      expect(
+        await form.hasGuidedForm(),
+        "Edit Deal should open on the type-first form"
+      ).toBe(true);
       await expect(form.nameInput()).toHaveValue(original.name);
       await expect(form.priceInput()).toHaveValue("12");
       await expect(form.lineItems("INCLUDED", itemA.name)).toHaveCount(1);
@@ -849,13 +851,13 @@ test.describe("Owner — Deals", () => {
     }
   });
 
-  test("TC-678: Buy one get one FREE with 'Same item' — the form shows the computed price, and the API stores a BOGO_FREE deal with a BUY and a GET row of the Burger", async ({
+  test("TC-702: Buy one get one FREE with 'Same item' — the form shows the computed price, and the API stores a BOGO_FREE deal with a BUY and a GET row of the Burger", async ({
     ownerPage,
   }) => {
     await allure.description(
       "BOGO_FREE → Burger in 'They buy' → 'Same item' copies it into 'They get' → deal-price-preview shows the " +
         "computed $10.00 (the owner types no price) → save → POST 201 with dealType BOGO_FREE; GET /:id: two " +
-        "Burger rows, roles BUY then GET, dealPrice 10, originalPrice 20. Post-deploy run."
+        "Burger rows, roles BUY then GET, dealPrice 10, originalPrice 20."
     );
     const { form } = await openGuidedCreate(ownerPage);
     await form.chooseType("BOGO_FREE");
@@ -883,13 +885,13 @@ test.describe("Owner — Deals", () => {
     }
   });
 
-  test("TC-679: Buy one get one 50% off — Burger bought, Fries at half price: preview and stored price are 13.25, discountPercent 50", async ({
+  test("TC-703: Buy one get one 50% off — Burger bought, Fries at half price: preview and stored price are 13.25, discountPercent 50", async ({
     ownerPage,
   }) => {
     await allure.description(
       "BOGO_PERCENT_OFF → Burger in 'They buy', Fries in 'They get', deal-percent-input 50 → preview $13.25 " +
         "(10 + 6.50 × 50%) → save → API dealType BOGO_PERCENT_OFF, discountPercent 50, dealPrice 13.25, " +
-        "roles BUY/GET. Post-deploy run."
+        "roles BUY/GET."
     );
     const { form } = await openGuidedCreate(ownerPage);
     await form.chooseType("BOGO_PERCENT_OFF");
@@ -922,12 +924,12 @@ test.describe("Owner — Deals", () => {
     }
   });
 
-  test("TC-680: a combo of two of the SAME item ('2 burgers for $15') — impossible on the old form — saves as two Burger rows", async ({
+  test("TC-704: a combo of two of the SAME item ('2 burgers for $15') — impossible on the old form — saves as two Burger rows", async ({
     ownerPage,
   }) => {
     await allure.description(
       "COMBO → pick the Burger twice → two lines, price 15, preview regular $20.00 → save → 201; the row shows " +
-        "2 items / $15.00 / $20.00; API: two qty-1 INCLUDED Burger rows, savings 5. Post-deploy run."
+        "2 items / $15.00 / $20.00; API: two qty-1 INCLUDED Burger rows, savings 5."
     );
     const { dealsPage, form } = await openGuidedCreate(ownerPage);
     const name = `AUTO Form Two Burgers ${runId}`;

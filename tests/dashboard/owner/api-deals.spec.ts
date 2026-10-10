@@ -23,17 +23,16 @@
  * them as test.fail() now assert the FIXED behaviour (TC-334, 335b, 336, 341,
  * 343, 347..350). See docs/DEALS_TAB_TEST_STRATEGY.md §1.
  *
- * Guided deal types (restaunax DEAL_TYPES.md, TC-667..677): every write now
+ * Guided deal types (restaunax DEAL_TYPES.md, TC-691..677): every write now
  * runs the type rules — a COMBO needs >= 2 unit rows priced below the items'
  * regular price; BOGO / % off prices are computed. The legacy fixtures here
  * already satisfy both (two real items, deal prices below 16.50); the new
- * cases are deploy-gated by utils/dealTypesGate.ts.
+ * cases cover the guided deal types (DEAL_TYPES.md).
  *
- * Slot matching + "buy any X, get one free" (DEAL_TYPES.md, TC-681..687):
+ * Slot matching + "buy any X, get one free" (DEAL_TYPES.md, TC-705..687):
  * every pick must fit one of the deal's slots on /quote, placeOrder and
  * /validate; a BOGO with a category line is priced from the picks (equal or
- * lesser value) and the order stores the server's price. Gated on
- * DEAL_TYPES_ON_QA.slots (presence = /quote refuses a pick outside the deal).
+ * lesser value) and the order stores the server's price.
  * Every fixture above already picks exactly its slots' items.
  */
 
@@ -45,11 +44,6 @@ import {
   generateSeedPhone,
 } from "../../../utils/testData";
 import { requireScheduling } from "../../../utils/dealScheduleGate";
-import {
-  dealSlotRulesOnBackend,
-  dealTypesOnBackend,
-  requireDealTypes,
-} from "../../../utils/dealTypesGate";
 import {
   addDaysToKey,
   atLocal,
@@ -2014,8 +2008,6 @@ test.describe("Owner — Deals API contract", () => {
 
   // ── Guided deal types (restaunax DEAL_TYPES.md) ────────────────────────────
   //
-  // Gated: SKIP until feat/guided-deal-types is on QA (utils/dealTypesGate.ts —
-  // flip DEAL_TYPES_ON_QA.backend once it is, so a regression FAILS instead).
   // Prices: itemA 10.00, itemB 6.50, itemC 4.00 — every expected dealPrice is
   // what Service/deal/dealTypePricing.ts computes from the MENU's prices.
 
@@ -2060,14 +2052,13 @@ test.describe("Owner — Deals API contract", () => {
 
     test.beforeEach(async () => {
       await allure.label("feature", "Deals API Contract — guided deal types");
-      requireDealTypes("backend", await dealTypesOnBackend());
     });
 
-    test("TC-667: BOGO_FREE of one item — no dealPrice needed; the server prices it at 1× the item and stores a BUY and a GET row", async () => {
+    test("TC-691: BOGO_FREE of one item — no dealPrice needed; the server prices it at 1× the item and stores a BUY and a GET row", async () => {
       await allure.description(
         "POST {dealType BOGO_FREE, items [Burger BUY, Burger GET]} with NO dealPrice → 201, dealPrice 10 " +
           "(sum of BUY rows; GET free), originalPrice 20, savings 10 (50%), discountPercent null, two qty-1 rows " +
-          "with roles BUY then GET — and the GET /:id read-back carries the same type and roles. Post-deploy run."
+          "with roles BUY then GET — and the GET /:id read-back carries the same type and roles."
       );
       const deal = await create({
         name: `AUTO BOGO Free ${runId}`,
@@ -2091,10 +2082,10 @@ test.describe("Owner — Deals API contract", () => {
       expect(roles(back)).toEqual(["BUY", "GET"]);
     });
 
-    test("TC-668: BOGO_PERCENT_OFF 50% — BUY full price + GET at half; discountPercent persisted", async () => {
+    test("TC-692: BOGO_PERCENT_OFF 50% — BUY full price + GET at half; discountPercent persisted", async () => {
       await allure.description(
         "Buy a Burger (10), get Fries (6.50) at 50% off → dealPrice 10 + 3.25 = 13.25, originalPrice 16.50, " +
-          "savings 3.25, discountPercent 50, roles [BUY, GET]. Post-deploy run."
+          "savings 3.25, discountPercent 50, roles [BUY, GET]."
       );
       const deal = await create({
         name: `AUTO BOGO Half ${runId}`,
@@ -2112,10 +2103,10 @@ test.describe("Owner — Deals API contract", () => {
       expect(roles(deal)).toEqual(["BUY", "GET"]);
     });
 
-    test("TC-669: PERCENT_OFF on a single item is a valid deal — 25% off the Burger costs 7.50, one INCLUDED row", async () => {
+    test("TC-693: PERCENT_OFF on a single item is a valid deal — 25% off the Burger costs 7.50, one INCLUDED row", async () => {
       await allure.description(
         "PERCENT_OFF needs one item or more (a COMBO needs two). Burger 10 at 25% off → dealPrice 7.50, " +
-          "originalPrice 10, savings 2.50, discountPercent 25, a single INCLUDED row. Post-deploy run."
+          "originalPrice 10, savings 2.50, discountPercent 25, a single INCLUDED row."
       );
       const deal = await create({
         name: `AUTO Pct Single ${runId}`,
@@ -2133,12 +2124,11 @@ test.describe("Owner — Deals API contract", () => {
       expect(roles(deal)).toEqual(["INCLUDED"]);
     });
 
-    test("TC-670: the client's dealPrice is ignored for computed types, and a client itemPrice never reaches originalPrice (re-read from the menu)", async () => {
+    test("TC-694: the client's dealPrice is ignored for computed types, and a client itemPrice never reaches originalPrice (re-read from the menu)", async () => {
       await allure.description(
         "Server-authoritative money: BOGO_FREE sent with dealPrice 1 is stored at 10; PERCENT_OFF 10% sent with " +
           "dealPrice 999 is stored at 9. A COMBO whose rows claim itemPrice 99 / 50 is snapshotted at the menu's " +
-          "10 / 6.50 — originalPrice 16.50, not 149 — so the advertised savings can't be inflated. " +
-          "Post-deploy run."
+          "10 / 6.50 — originalPrice 16.50, not 149 — so the advertised savings can't be inflated. "
       );
       const bogo = await create({
         name: `AUTO BOGO Tamper ${runId}`,
@@ -2169,12 +2159,12 @@ test.describe("Owner — Deals API contract", () => {
       ).toEqual({ [itemA.id]: 10, [itemB.id]: 6.5 });
     });
 
-    test("TC-671: shapes that don't fit their type are 400 with the deal.type.* messages, and nothing is written", async () => {
+    test("TC-695: shapes that don't fit their type are 400 with the deal.type.* messages, and nothing is written", async () => {
       await allure.description(
         "invalidType (dealType 'BUNDLE'); invalidRole (a BOGO row without a role / a COMBO row marked BUY); " +
           "bogoNeedsBuyAndGet (BUY only); discountPercentRange (missing, 0, 100, 12.5); comboNeedsTwoItems " +
           "(ONE unit — previously accepted by the API); priceMustBeBelowRegular (combo at exactly and above " +
-          "16.50). Post-deploy run."
+          "16.50)."
       );
       const before = (await getRestaurantDeals(token, restaurantId)).length;
       const cases: [string, Record<string, unknown>, string][] = [
@@ -2262,10 +2252,10 @@ test.describe("Owner — Deals API contract", () => {
       ).toBe(before);
     });
 
-    test("TC-672: a COMBO of the same item twice is accepted — as two rows or as quantity 2 — and stored as two unit rows", async () => {
+    test("TC-696: a COMBO of the same item twice is accepted — as two rows or as quantity 2 — and stored as two unit rows", async () => {
       await allure.description(
         "'2 burgers for $15': two rows of the Burger, or one row with quantity 2 (split server-side), both " +
-          "count as two items → 201, two qty-1 INCLUDED rows, originalPrice 20, savings 5. Post-deploy run."
+          "count as two items → 201, two qty-1 INCLUDED rows, originalPrice 20, savings 5."
       );
       for (const [label, items] of [
         ["two rows", [row(itemA), row(itemA)]],
@@ -2290,12 +2280,12 @@ test.describe("Owner — Deals API contract", () => {
       }
     });
 
-    test("TC-673: a price-only PUT is re-validated against the stored rows without rewriting them — at/above regular is 400; a valid one keeps every row id; a percent-only PUT reprices a BOGO in place", async () => {
+    test("TC-697: a price-only PUT is re-validated against the stored rows without rewriting them — at/above regular is 400; a valid one keeps every row id; a percent-only PUT reprices a BOGO in place", async () => {
       await allure.description(
         "COMBO Burger + Fries at 12. PUT {dealPrice 16.5} → 400 priceMustBeBelowRegular, price still 12. " +
           "PUT {dealPrice 11} → 200, savings 5.50, and the DealItem ids are UNCHANGED (they are the checkout " +
           "slots open carts point at). BOGO_PERCENT_OFF 50% (Burger BUY, Fries GET) → PUT {discountPercent 20} " +
-          "→ dealPrice 10 + 5.20 = 15.20, discountPercent 20, row ids and roles unchanged. Post-deploy run."
+          "→ dealPrice 10 + 5.20 = 15.20, discountPercent 20, row ids and roles unchanged."
       );
       const combo = await create({
         name: `AUTO Put Combo ${runId}`,
@@ -2338,11 +2328,11 @@ test.describe("Owner — Deals API contract", () => {
       expect(roles(repriced)).toEqual(["BUY", "GET"]);
     });
 
-    test("TC-674: a legacy create (no dealType, no roles) reads back as a COMBO of INCLUDED rows with no percent", async () => {
+    test("TC-698: a legacy create (no dealType, no roles) reads back as a COMBO of INCLUDED rows with no percent", async () => {
       await allure.description(
         "Every client that predates guided deal types (ordering apps, POS, older dashboards) sends no dealType " +
           "and no item roles. That body still creates a deal: dealType COMBO, discountPercent null, every row " +
-          "INCLUDED, the owner's dealPrice kept. Post-deploy run."
+          "INCLUDED, the owner's dealPrice kept."
       );
       const deal = await create({
         name: `AUTO Legacy ${runId}`,
@@ -2362,11 +2352,11 @@ test.describe("Owner — Deals API contract", () => {
       expect(listed.dealType).toBe("COMBO");
     });
 
-    test("TC-675: /quote charges a BOGO deal its computed dealPrice — buy a Burger, get a Burger is 10.00, not 20.00", async () => {
+    test("TC-699: /quote charges a BOGO deal its computed dealPrice — buy a Burger, get a Burger is 10.00, not 20.00", async () => {
       await allure.description(
         "The guided type is still a plain fixed-price deal for checkout: /quote with the BOGO_FREE deal and " +
           "both slots filled with the Burger → quote.deals[0] {dealPrice 10, quantity 1, lineTotal 10, savings 10}, " +
-          "dealsSubtotal 10. A client dealPrice (0.01) is ignored. Post-deploy run."
+          "dealsSubtotal 10. A client dealPrice (0.01) is ignored."
       );
       const deal = await create({
         name: `AUTO BOGO Quote ${runId}`,
@@ -2398,10 +2388,10 @@ test.describe("Owner — Deals API contract", () => {
       expect(q.data.quote?.dealsSubtotal).toBe(10);
     });
 
-    test("TC-676: bulk create (the AI path) prices computed types and reports a type-invalid deal in errors[] without failing the batch", async () => {
+    test("TC-700: bulk create (the AI path) prices computed types and reports a type-invalid deal in errors[] without failing the batch", async () => {
       await allure.description(
         "POST /bulk with a BOGO_FREE deal (no dealPrice) and a one-unit COMBO: 201, createdCount 1 — the BOGO " +
-          "stored at 10 with BUY/GET rows — and errors [{index 1, error comboNeedsTwoItems}]. Post-deploy run."
+          "stored at 10 with BUY/GET rows — and errors [{index 1, error comboNeedsTwoItems}]."
       );
       const res = await bulkCreateDealsRaw(token, restaurantId, [
         {
@@ -2428,11 +2418,11 @@ test.describe("Owner — Deals API contract", () => {
       expect(roles(bogo)).toEqual(["BUY", "GET"]);
     });
 
-    test("TC-677: public GET /ai/questions adds the optional multi-select 'dealTypes' question with the four types", async () => {
+    test("TC-701: public GET /ai/questions adds the optional multi-select 'dealTypes' question with the four types", async () => {
       await allure.description(
         "The AI generator's questionnaire grows a 5th question, id 'dealTypes', type 'multiple', whose option " +
           "values are exactly COMBO / BOGO_FREE / BOGO_PERCENT_OFF / PERCENT_OFF, each with a label and a plain " +
-          "description. The four original ids are still there. Post-deploy run."
+          "description. The four original ids are still there."
       );
       const res = await getAiDealQuestionsPublic();
       expect(res.status).toBe(200);
@@ -2461,7 +2451,7 @@ test.describe("Owner — Deals API contract", () => {
       }
     });
 
-    // ── Slot matching + "buy any X, get one free" (TC-681..687) ─────────────
+    // ── Slot matching + "buy any X, get one free" (TC-705..687) ─────────────
     test.describe("deal picks must match their slots; buy any pizza, get one free", () => {
       /** EN text — restaunax-backend/src/locales/en/api.json + error.json. */
       const NOT_IN_DEAL =
@@ -2583,32 +2573,15 @@ test.describe("Owner — Deals API contract", () => {
           "feature",
           "Deals API Contract — slot matching & category BOGO"
         );
-        // Presence: /quote refuses a Drink in a Burger + Fries combo's Fries slot.
-        requireDealTypes(
-          "slots",
-          await dealSlotRulesOnBackend(async () => {
-            const probe = await create({
-              name: `AUTO Slot Probe ${runId}`,
-              dealPrice: 12,
-              items: [row(itemA), row(itemB)],
-            });
-            const q = await quoteDeal(probe.id, [
-              { menuItemId: itemA.id },
-              { menuItemId: itemC.id },
-            ]);
-            return q.status === 400;
-          })
-        );
       });
 
-      test("TC-681: /quote refuses a pick that isn't its slot's item and a missing pick — with or without dealItemId — and /validate flags the wrong pick", async () => {
+      test("TC-705: /quote refuses a pick that isn't its slot's item and a missing pick — with or without dealItemId — and /validate flags the wrong pick", async () => {
         await allure.description(
           "COMBO Burger + Fries at 12. The right picks quote 200 at 12, with slot ids or without (any order). " +
             "Refused with 400 + api:error.pricingDealSelectionNotInDeal: a Drink instead of the Fries (no ids), the " +
             "Drink named into the Fries slot, Burger and Fries named into each other's slots, a third item beside a " +
             "full deal. Refused with 400 + pricingDealSlotUnfilled: the Fries slot empty (with and without ids), no " +
-            "picks at all. Public /validate with the Drink in the Fries slot → isValid false with the same sentence. " +
-            "Post-deploy run."
+            "picks at all. Public /validate with the Drink in the Fries slot → isValid false with the same sentence. "
         );
         const deal = await create({
           name: `AUTO Slots ${runId}`,
@@ -2702,12 +2675,12 @@ test.describe("Owner — Deals API contract", () => {
         expect(v.data.issues).toContain(NOT_IN_DEAL);
       });
 
-      test("TC-682: placing an order refuses a pick that isn't its slot's item and a missing pick, with the same messages as /quote", async () => {
+      test("TC-706: placing an order refuses a pick that isn't its slot's item and a missing pick, with the same messages as /quote", async () => {
         await allure.description(
           "POST /api/order/new/restaurantId/:id (the storefront checkout) for a Burger + Fries combo at 12, the " +
             "tenant published + accepting orders for this test only. A Drink in the Fries slot (without and with " +
             "dealItemId) → 400 pricingDealSelectionNotInDeal; the Fries slot empty → 400 pricingDealSlotUnfilled. " +
-            "No order is created. Post-deploy run."
+            "No order is created."
         );
         const deal = await create({
           name: `AUTO Slots Order ${runId}`,
@@ -2758,12 +2731,12 @@ test.describe("Owner — Deals API contract", () => {
         });
       });
 
-      test("TC-683: a BOGO_FREE deal may use a category line for BUY and GET — its stored dealPrice is the 'from' price, the cheapest in-stock item of the category", async () => {
+      test("TC-707: a BOGO_FREE deal may use a category line for BUY and GET — its stored dealPrice is the 'from' price, the cheapest in-stock item of the category", async () => {
         await allure.description(
           "'Buy any pizza, get one free': BUY = Any pizza, GET = Any pizza (menuGroupId, no menuItemId). The " +
             "category holds Small 8, Large 14 and an 86'd Slice 5 → 201, dealPrice 8 (the cheapest IN-STOCK item — " +
             "the honest 'from' price), originalPrice 16, savings 8; both rows are category rows (menuGroupId set, " +
-            "menuItemId null) snapshotted at 8, roles BUY then GET. Post-deploy run."
+            "menuItemId null) snapshotted at 8, roles BUY then GET."
         );
         const deal = await create({
           name: `AUTO Any Pizza BOGO ${runId}`,
@@ -2786,13 +2759,13 @@ test.describe("Owner — Deals API contract", () => {
         expect(roles(deal)).toEqual(["BUY", "GET"]);
       });
 
-      test("TC-684: /quote prices 'buy any pizza, get one free' from the picks — the cheaper pizza is free whichever slot holds it; a pick from another category is refused", async () => {
+      test("TC-708: /quote prices 'buy any pizza, get one free' from the picks — the cheaper pizza is free whichever slot holds it; a pick from another category is refused", async () => {
         await allure.description(
           "Equal-or-lesser-value rule (DEAL_TYPES.md): the GET discount lands on the CHEAPEST pick. Small 8 + " +
             "Large 14 → dealPrice/lineTotal 14, savings 8 — with no slot ids, Large in BUY + Small in GET, AND " +
             "Small in BUY + Large in GET (nobody takes the large pizza free). Two Larges → 14 (savings 14); two " +
             "Smalls → 8. A client dealPrice 0.01 is ignored. A Burger (another category) in the GET slot, or " +
-            "beside a Large without ids → 400 pricingDealSelectionNotInDeal. Post-deploy run."
+            "beside a Large without ids → 400 pricingDealSelectionNotInDeal."
         );
         const deal = await create({
           name: `AUTO Any Pizza Quote ${runId}`,
@@ -2881,11 +2854,11 @@ test.describe("Owner — Deals API contract", () => {
         }
       });
 
-      test("TC-685: 'buy any pizza, get one 50% off' — stored at the 'from' price 12; /quote charges the dearer pick + half the cheaper", async () => {
+      test("TC-709: 'buy any pizza, get one 50% off' — stored at the 'from' price 12; /quote charges the dearer pick + half the cheaper", async () => {
         await allure.description(
           "BOGO_PERCENT_OFF 50 with Any pizza BUY + Any pizza GET → 201, discountPercent 50, dealPrice 8 + 4 = 12 " +
             "(from the cheapest in-stock pizza). /quote: Small in BUY + Large in GET → 14 + 4 = 18 (savings 4, the " +
-            "discount lands on the cheaper pizza); two Larges → 14 + 7 = 21. Post-deploy run."
+            "discount lands on the cheaper pizza); two Larges → 14 + 7 = 21."
         );
         const deal = await create({
           name: `AUTO Any Pizza Half ${runId}`,
@@ -2924,11 +2897,11 @@ test.describe("Owner — Deals API contract", () => {
         });
       });
 
-      test("TC-686: PERCENT_OFF refuses a category line (deal.type.categoryNotAllowedForPercentOff) and writes nothing; a COMBO with a category line keeps its set price", async () => {
+      test("TC-710: PERCENT_OFF refuses a category line (deal.type.categoryNotAllowedForPercentOff) and writes nothing; a COMBO with a category line keeps its set price", async () => {
         await allure.description(
           "PERCENT_OFF 20% on [Any pizza] or on [Burger + Any pizza] → 400 with the EN categoryNotAllowedForPercentOff " +
             "sentence, deal count unchanged. Control: a COMBO of Burger + Any pizza at 15 is still accepted " +
-            "(dealType COMBO, dealPrice 15 — the owner's set price). Post-deploy run."
+            "(dealType COMBO, dealPrice 15 — the owner's set price)."
         );
         const before = (await getRestaurantDeals(token, restaurantId)).length;
         const pizzaLine = {
@@ -2966,13 +2939,13 @@ test.describe("Owner — Deals API contract", () => {
         expect(combo).toMatchObject({ dealType: "COMBO", dealPrice: 15 });
       });
 
-      test("TC-687: a placed order stores the price the server charged — 'buy any pizza, get one free' with Small + Large is OrderDeal.dealPrice 14, not the client's tampered price or the 'from' price", async () => {
+      test("TC-711: a placed order stores the price the server charged — 'buy any pizza, get one free' with Small + Large is OrderDeal.dealPrice 14, not the client's tampered price or the 'from' price", async () => {
         await allure.description(
           "Orders store what the server charged (DEAL_TYPES.md): the storefront body claims dealPrice 0.01 and " +
             "menuItemPrice 0.01 per pick. Placed (tenant published for this test only; money claims = the /quote) → " +
             "owner GET /api/order/:id: orderDeals[0] {dealId, dealPrice 14, quantity 1}, upcharge 0, and the picks' " +
             "menuItemPrice re-read from the menu (Small 8, Large 14). Leaves one INITIALIZED (unpaid) order on the " +
-            "throwaway tenant. Post-deploy run."
+            "throwaway tenant."
         );
         const deal = await create({
           name: `AUTO Any Pizza Order ${runId}`,

@@ -15,16 +15,15 @@
  * settings → menu → ADMIN-created device → tablet login → owner PIN → staff
  * sign-in. Tax is left unset (0) so every total is a clean sum.
  *
- * TC-688 (guided deal types, DEAL_TYPES.md "Deal picks must match their
+ * TC-712 (guided deal types, DEAL_TYPES.md "Deal picks must match their
  * slots"): the POS pricing floor refuses a pick that isn't one of the deal's
- * items — gated on DEAL_TYPES_ON_QA.slots (presence = the ticket is refused).
+ * items.
  */
 
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../fixtures/base";
 import { generateRunId } from "../../utils/testData";
 import { requireScheduling } from "../../utils/dealScheduleGate";
-import { requireDealTypes } from "../../utils/dealTypesGate";
 import {
   dayNameOfKey,
   liveNowWindow,
@@ -377,13 +376,12 @@ test.describe("POS — Deals", () => {
     expect(ok.status, msg(ok.data)).toBe(201);
   });
 
-  test("TC-688: the POS refuses a deal ticket whose pick isn't one of the deal's items (slot matching), with or without dealItemId", async () => {
+  test("TC-712: the POS refuses a deal ticket whose pick isn't one of the deal's items (slot matching), with or without dealItemId", async () => {
     await allure.description(
       "Deal = Burger + Fries at 14. A ticket that rings the Soda in the Fries slot — sent without slot ids, and " +
         "with the Fries row's dealItemId — is refused 400 with the web checkout's sentence " +
         "(api:error.pricingDealSelectionNotInDeal); a ticket with only the Burger is refused with " +
-        "pricingDealSlotUnfilled. Gated on DEAL_TYPES_ON_QA.slots: before the deploy the ticket rings up (201) " +
-        "and the test SKIPS. Post-deploy run."
+        "pricingDealSlotUnfilled."
     );
     const slots = (await getDealApi(token, everywhere.id)).items ?? [];
     const burgerSlot = slots.find((s) => s.menuItemId === burger.id)!.id;
@@ -396,7 +394,6 @@ test.describe("POS — Deals", () => {
       { item: burger },
       { item: soda },
     ]);
-    requireDealTypes("slots", first.status !== 201);
     expect(first.status, msg(first.data)).toBe(400);
     expect(msg(first.data)).toBe(NOT_IN_DEAL);
 
