@@ -81,7 +81,9 @@ const DEFAULT_QR_KINDS = [
   "YELP",
 ];
 
-test.describe.configure({ mode: "serial" });
+// No retries: the public check-pay writes are limited to 60 / 15 min per IP
+// and one pass uses ~35, so a CI retry of the whole file would hit 429.
+test.describe.configure({ mode: "serial", retries: 0 });
 
 test.describe("Pay at the table — the guest's phone, on QA (API)", () => {
   test.skip(
