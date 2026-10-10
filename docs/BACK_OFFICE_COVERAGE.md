@@ -168,7 +168,11 @@ nightly runs them instead of skipping.
 
 Not back office, but table service, and the same throwaway-tenant pattern:
 `tests/dashboard/owner/api-pay-at-table.spec.ts` (TC-680..690). Status:
-**not run yet**: waiting for the payment-method domain script and the `payment_intent.amount_capturable_updated` webhook event on QA.
+**passing on QA** (2026-10-09, all 11; run 38020726009). The spec runs with
+`retries: 0`: one pass makes ~35 public writes against the 60 / 15 min per-IP
+limit, so a retry would hit 429. The tenant gets an ordering slug
+(`ensureOrderingSlug`): without a website or slug there is no storefront URL
+and the pay-at-table QR never prints (TC-680 asserts that too).
 
 The guest's phone is played by the test: the public `/api/public/check-pay`
 API plus Stripe's own API with the **publishable** key from
