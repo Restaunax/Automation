@@ -72,7 +72,7 @@ export const createOwnerReservationsPage = (page: Page) => {
       "Online booking can't be enabled until pacing limits are configured for this restaurant."
     );
   const pacingRequiredLink = () =>
-    page.getByRole("button", { name: "Go to Service periods" });
+    page.getByRole("button", { name: "Go to Booking hours" });
   const numericSettingInput = (
     key:
       | "graceMinutes"
@@ -99,12 +99,18 @@ export const createOwnerReservationsPage = (page: Page) => {
     return res;
   };
 
-  // ── Service periods panel ──────────────────────────────────────────────────
+  // ── Booking hours panel (service periods; renamed in RestauNax d0721f254) ──
   const addPeriodButton = () =>
-    main().getByRole("button", { name: "Add Period", exact: true });
+    main().getByRole("button", { name: "Add Window", exact: true });
   const periodNameInput = () =>
     page.getByTestId("period-form-name").locator("input");
-  const periodDaySelect = () => page.locator("#period-day-select");
+  /** Day chips replaced the single day select: one chip per weekday,
+   *  aria-label = the full day name. Picking ONE day saves via the single
+   *  POST; several days go through the bulk call. */
+  const periodDayChip = (dayName: string) =>
+    page
+      .getByTestId("period-form-days")
+      .getByRole("button", { name: dayName, exact: true });
   const periodStartTimeInput = () => page.locator("#period-start-time");
   const periodEndTimeInput = () => page.locator("#period-end-time");
   const periodSlotIntervalInput = () => page.locator("#period-slot-interval");
@@ -256,8 +262,10 @@ export const createOwnerReservationsPage = (page: Page) => {
     page.getByRole("row").filter({ hasText: guestName });
   const bookingRowMenuButton = (guestName: string) =>
     bookingRow(guestName).getByTestId("booking-row-menu");
+  // A row also carries a source chip ("Phone", data-testid booking-row-source)
+  // and table chips before it; the status chip is the row's LAST chip.
   const bookingRowStatusChip = (guestName: string) =>
-    bookingRow(guestName).locator(".MuiChip-label");
+    bookingRow(guestName).locator(".MuiChip-label").last();
 
   const openBookingRowMenu = async (guestName: string) => {
     await bookingRowMenuButton(guestName).click();
@@ -292,6 +300,9 @@ export const createOwnerReservationsPage = (page: Page) => {
   const phoneBookingPartySizeInput = () =>
     page.locator("#phone-booking-party-size");
   const phoneBookingTimeInput = () => page.locator("#phone-booking-time");
+  /** The phone-booking dialog prefills its date with the day the bookings
+   *  list is showing — step the list forward to book a future day. */
+  const nextDayButton = () => page.getByRole("button", { name: "Next day" });
   const phoneBookingNameInput = () => page.locator("#phone-booking-name");
   const phoneBookingPhoneInput = () => page.locator("#phone-booking-phone");
   const phoneBookingEmailInput = () => page.locator("#phone-booking-email");
@@ -339,7 +350,7 @@ export const createOwnerReservationsPage = (page: Page) => {
     saveReservationSettings,
     addPeriodButton,
     periodNameInput,
-    periodDaySelect,
+    periodDayChip,
     periodStartTimeInput,
     periodEndTimeInput,
     periodSlotIntervalInput,
@@ -383,6 +394,7 @@ export const createOwnerReservationsPage = (page: Page) => {
     phoneBookingKindSelect,
     phoneBookingPartySizeInput,
     phoneBookingTimeInput,
+    nextDayButton,
     phoneBookingNameInput,
     phoneBookingPhoneInput,
     phoneBookingEmailInput,
