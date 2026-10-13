@@ -209,9 +209,14 @@ test.describe("Owner — Tables & Floor", () => {
     await expect(floorPage.tableRow(table1)).toBeVisible({ timeout: 10_000 });
     await expect(floorPage.tableRow(table2)).toBeVisible();
     // TablesListPanel groups by section — its own subtitle heading for the
-    // group repeats the section's name above that section's table.
+    // group repeats the section's name above that section's table. Visible
+    // matches only: the floor editor stays mounted (hidden) behind the
+    // "Sections & tables" view, and its section tab carries the same name.
     await expect(
-      session.page.getByText(sectionName, { exact: true }).first()
+      session.page
+        .getByText(sectionName, { exact: true })
+        .filter({ visible: true })
+        .first()
     ).toBeVisible();
 
     const list = unwrap(await listTablesOwnerRaw(ownerToken, restaurantId)) as {
