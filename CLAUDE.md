@@ -348,6 +348,15 @@ siblings of the run folders first — a report parked at another suite's level g
 wiped). All Pages steps are `if: always()` so a failing run still publishes its
 report.
 
+**Keep `gh-pages` small.** Two settings stop the repo from bloating, so don't
+remove either one: `force_orphan: true` on the peaceiris step makes every deploy a
+single commit with no history, and the step that strips Playwright trace zips leaves
+traces out of the hosted report. Before these, every report stayed in git history,
+and by 2026-10 `gh-pages` had reached 12 GiB over 243 deploys (about 80% trace
+zips), even though the current tree was under 1 GB. Traces are still in the 14-day
+`test-results-<run>` artifact. Clone with `--single-branch --branch qa` so you
+never fetch `gh-pages`.
+
 **When the suite runs (four triggers):**
 
 - **Nightly** 06:00 UTC (`e2e.yml` schedule) — the daily safety net for QA

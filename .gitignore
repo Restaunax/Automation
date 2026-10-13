@@ -1,4 +1,6 @@
-node_modules/
+# No trailing slash: also match a node_modules SYMLINK (worktrees link the
+# main checkout's), which `node_modules/` misses since a symlink isn't a dir.
+node_modules
 allure-results/
 allure-report/
 playwright-report/
