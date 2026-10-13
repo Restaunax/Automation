@@ -243,12 +243,14 @@ test.describe("Owner — Chain deals", () => {
           sessionStorage.removeItem(k);
     });
     await form.assertCreateMode();
+    // Guided deal types: a COMBO on the new form, the picker on the old one.
+    // The item lines (with the anchor caption) and the name field only render
+    // once a type is picked, so the caption is checked after the type.
+    await form.addComboItems([s1.name, s2.name]);
     await expect(
       ownerPage.getByText(/Menu items shown reflect the chain's first location/)
     ).toBeVisible();
     await form.nameInput().fill(name);
-    // Guided deal types: a COMBO on the new form, the picker on the old one.
-    await form.addComboItems([s1.name, s2.name]);
     await form.priceInput().fill("13");
     await expect(form.submitButton()).toHaveText(
       "Create deal for all 2 locations"
@@ -414,6 +416,8 @@ test.describe("Owner — Chain deals", () => {
         const form = createDealFormPage(ownerPage);
         await dealsPage.gotoChainTab(chainGroupId, "create-deal");
         await form.assertCreateMode();
+        // Guided deal types: the schedule renders once a type is picked.
+        await form.chooseType("COMBO");
         requireScheduling("dashboard", await form.hasScheduleSection());
         // The zone part only appears once a time or date is set — Lunch sets times.
         await form.pickScheduleChip("lunch");

@@ -508,15 +508,23 @@ test.describe("Tips — pools, tip-outs, cash (API)", () => {
       .replace(/^\uFEFF/, "")
       .split("\n");
     expect(rows).toHaveLength(4); // header + Ana, Cal, Ben
-    // name, hours, card, cash, payroll, declared, given, received, fee, net
+    // Rule-based tip-outs (tip-out waterfall, P6) got their own columns, next
+    // to the pool's; this policy has a pool and no tip-out rules.
+    expect(rows[0]).toBe(
+      "Name,Hours,Card tips,Cash tips,Tips through payroll,Declared cash tips," +
+        "Tip-outs given,Tip-outs received,Given to the pool,Pool received," +
+        "Card fee withheld,Net tips"
+    );
+    // name, hours, card, cash, payroll, declared, tip-outs given, tip-outs
+    // received, given to pool, pool received, fee, net
     expect(rows).toContain(
-      "Ana Tipsy,1.00,0.00,10.00,0.00,0.00,2.00,0.00,0.00,8.00"
+      "Ana Tipsy,1.00,0.00,10.00,0.00,0.00,0.00,0.00,2.00,0.00,0.00,8.00"
     );
     expect(rows).toContain(
-      "Cal Tipsy,0.67,0.00,6.00,0.00,0.00,1.20,0.00,0.00,4.80"
+      "Cal Tipsy,0.67,0.00,6.00,0.00,0.00,0.00,0.00,1.20,0.00,0.00,4.80"
     );
     expect(rows).toContain(
-      "Ben Tipsy,1.00,0.00,0.00,0.00,6.50,0.00,3.20,0.00,3.20"
+      "Ben Tipsy,1.00,0.00,0.00,0.00,6.50,0.00,0.00,0.00,3.20,0.00,3.20"
     );
   });
 });
