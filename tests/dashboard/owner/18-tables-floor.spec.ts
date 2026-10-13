@@ -20,15 +20,13 @@
  * mirroring how 04-floor-tables.spec.ts (POS/API level) shares state across
  * its tests.
  *
- * Konva canvas (TC-436): outcomes are asserted via the owner API
- * (`listTablesOwnerRaw`), never pixels/screenshots. `placeTableFromTray`
- * (OwnerTablesFloorPage.ts) attempts a REAL mouse-driven HTML5 drag from the
- * Unplaced tray onto the canvas first (the tray chip is native `draggable`,
- * and Chromium's own drag-threshold detection fires off plain mouse events),
- * falling back to a plain click on the chip — also a first-class,
- * code-supported placement path (UnplacedTray.tsx: "Click a table to place
- * it... or drag it"), landing at the deterministic cascade position — if the
- * drag doesn't visibly register within a few seconds.
+ * Konva canvas (TC-436/437): outcomes are asserted via the owner API
+ * (`listTablesOwnerRaw`), never pixels/screenshots. Since the 2026-10-07
+ * floor-editor rework there is no Unplaced tray; placement and selection go
+ * through the DOM "All tables" browser (`pickTableInBrowser`), which places
+ * an unplaced table at the nearest free spot to the view centre — so TC-436
+ * asserts the saved geometry is on-canvas at the default size, not an exact
+ * coordinate.
  */
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
@@ -47,6 +45,7 @@ import {
   deleteFeatureOverrideAdminRaw,
   listTablesOwnerRaw,
   createTableOwnerRaw,
+  createTableSectionOwnerRaw,
 } from "../../../utils/apiHelper";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
@@ -78,9 +77,6 @@ test.describe("Owner — Tables & Floor", () => {
   const sectionName = `Main ${runId}`;
   const table1 = `T1 ${runId}`;
   const table2 = `T2 ${runId}`;
-  /** Set once TC-436 places + saves T1's geometry — TC-437 re-selects it
-   * after a fresh page load using this. */
-  let t1Geometry = { x: 0, y: 0, width: 0, height: 0 };
 
   test.beforeAll(async ({ browser }) => {
     if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return;
@@ -228,21 +224,23 @@ test.describe("Owner — Tables & Floor", () => {
 
   // ── Floor editor (Konva canvas) ──────────────────────────────────────────
 
-  test("TC-436: floor editor — place T1 from the Unplaced tray onto the canvas, Save layout, reload → still placed", async () => {
+  test("TC-436: floor editor — place T1 from the All tables browser, Save layout, reload → still placed", async () => {
+    await allure.description(
+      "Floor editor rework (2026-10-07): the Unplaced tray is gone — an " +
+        "unplaced table is placed by clicking it in the 'All tables' browser, " +
+        "which drops it at the nearest free spot to the visible centre and " +
+        "selects it. 'Save layout' sends PATCH .../tables/layout; after a " +
+        "reload the browser lists T1 as 'On floor' and the API carries real " +
+        "geometry at the default rectangle size."
+    );
     await floorPage.gotoTab(restaurantId);
     await floorPage.assertLoaded();
     await floorPage.sectionTab(sectionName).click();
-    await expect(floorPage.unplacedTrayChip(table1)).toBeVisible({
-      timeout: 10_000,
-    });
-
-    const RECT = { width: 160, height: 100 }; // TableFormSheet default shape = RECTANGLE
-    const placement = await floorPage.placeTableFromTray(
-      table1,
-      { x: 500, y: 300 },
-      RECT
+    await expect(await floorPage.openTablesBrowserRow(table1)).toContainText(
+      "Not placed"
     );
-    await allure.parameter("placement method", placement.method);
+
+    await floorPage.pickTableInBrowser(table1);
 
     await expect(floorPage.saveLayoutButton()).toBeVisible({ timeout: 5_000 });
     const [saveRes] = await Promise.all([
@@ -254,45 +252,56 @@ test.describe("Owner — Tables & Floor", () => {
       floorPage.saveLayoutButton().click(),
     ]);
     expect(saveRes.status()).toBe(200);
+    await expect(floorPage.saveLayoutButton()).toBeHidden({ timeout: 5_000 });
 
     await session.page.reload({ waitUntil: "domcontentloaded" });
     await floorPage.assertLoaded();
     await floorPage.sectionTab(sectionName).click();
-    await expect(floorPage.unplacedTrayChip(table1)).toHaveCount(0);
+    await expect(await floorPage.openTablesBrowserRow(table1)).toContainText(
+      "On floor"
+    );
 
+    const RECT = { width: 160, height: 100 }; // floorGeometry DEFAULT_RECT_SIZE
     const list = unwrap(await listTablesOwnerRaw(ownerToken, restaurantId)) as {
       tables: Record<string, unknown>[];
     };
     const row = list.tables.find((t) => t.name === table1) as
-      | { geometry?: Record<string, unknown>; shape?: string }
+      | {
+          geometry?: {
+            posX: number | null;
+            posY: number | null;
+            width: number | null;
+            height: number | null;
+            rotation: number;
+          };
+          shape?: string;
+        }
       | undefined;
-    expect(row?.geometry).toEqual({
-      posX: placement.expected.x,
-      posY: placement.expected.y,
+    expect(row?.shape).toBe("RECTANGLE");
+    expect(row?.geometry).toMatchObject({
       width: RECT.width,
       height: RECT.height,
       rotation: 0,
     });
-    expect(row?.shape).toBe("RECTANGLE");
-
-    t1Geometry = {
-      x: placement.expected.x,
-      y: placement.expected.y,
-      width: RECT.width,
-      height: RECT.height,
-    };
+    // Free-spot placement: exact coordinates depend on the viewport — assert
+    // the table landed on the 2000x1200 canvas, fully inside it.
+    const { posX, posY } = row!.geometry!;
+    expect(typeof posX).toBe("number");
+    expect(typeof posY).toBe("number");
+    expect(posX!).toBeGreaterThanOrEqual(0);
+    expect(posY!).toBeGreaterThanOrEqual(0);
+    expect(posX! + RECT.width).toBeLessThanOrEqual(2000);
+    expect(posY! + RECT.height).toBeLessThanOrEqual(1200);
   });
 
-  test("TC-437: edit panel — select the placed table on a fresh load, change capacity + bookable, Save details; API confirms", async () => {
+  test("TC-437: inspector — select the placed table on a fresh load, change capacity + bookable, Save details; API confirms", async () => {
     await floorPage.gotoTab(restaurantId);
     await floorPage.assertLoaded();
     await floorPage.sectionTab(sectionName).click();
     await expect(floorPage.floorCanvas()).toBeVisible({ timeout: 10_000 });
 
-    await floorPage.selectPlacedTable(t1Geometry);
-    await expect(floorPage.floorTableNameInput()).toHaveValue(table1, {
-      timeout: 10_000,
-    });
+    // A placed row in the browser selects the table and opens the inspector.
+    await floorPage.pickTableInBrowser(table1);
 
     await floorPage.floorTableCapacityInput().fill("6");
     await floorPage.floorTableBookableSwitch().uncheck();
@@ -377,5 +386,178 @@ test.describe("Owner — Tables & Floor", () => {
       tables: Record<string, unknown>[];
     };
     expect(list.tables.some((t) => t.id === t4.id)).toBe(false);
+  });
+
+  // ── Floor editor rework (2026-10-07) ─────────────────────────────────────
+
+  type OwnerTableRow = {
+    id: string;
+    name: string;
+    shape: string;
+    capacity: number | null;
+    sectionId: string | null;
+    geometry: {
+      posX: number | null;
+      posY: number | null;
+      width: number | null;
+      height: number | null;
+    };
+  };
+  const listTables = async () =>
+    (
+      unwrap(await listTablesOwnerRaw(ownerToken, restaurantId)) as {
+        tables: OwnerTableRow[];
+      }
+    ).tables;
+
+  /** A fresh section (API) whose floor tab the test then opens. */
+  const newSection = async (label: string) => {
+    const name = `${label} ${runId}`;
+    const res = await createTableSectionOwnerRaw(ownerToken, restaurantId, {
+      name,
+    });
+    expect(res.status, msg(res.data)).toBe(201);
+    return { id: unwrap(res).id as string, name };
+  };
+
+  const openSectionFloor = async (sectionLabel: string) => {
+    await floorPage.gotoTab(restaurantId);
+    await floorPage.assertLoaded();
+    await floorPage.sectionTab(sectionLabel).click();
+  };
+
+  const saveLayout = async () => {
+    const [res] = await Promise.all([
+      session.page.waitForResponse(
+        (r) =>
+          /\/tables\/layout$/.test(r.url()) && r.request().method() === "PATCH",
+        { timeout: 15_000 }
+      ),
+      floorPage.saveLayoutButton().click(),
+    ]);
+    expect(res.status()).toBe(200);
+    await expect(floorPage.saveLayoutButton()).toBeHidden({ timeout: 5_000 });
+  };
+
+  test("TC-750: add panel — a 'Round 6' preset creates a 6-seat round table in this section, placed and selected; Save layout keeps its 180×180 spot", async () => {
+    await allure.description(
+      "Clicking the round-6 tile in the 'Add table' panel sends POST " +
+        ".../tables (201, CIRCLE, capacity 6, this section, an auto 'Table " +
+        "N' name), places the new table on the floor (unsaved) and opens " +
+        "the inspector on it. Save layout persists a 180×180 geometry."
+    );
+    const section = await newSection("Presets");
+    await openSectionFloor(section.name);
+
+    const [created] = await Promise.all([
+      session.page.waitForResponse(
+        (r) => /\/tables$/.test(r.url()) && r.request().method() === "POST",
+        { timeout: 15_000 }
+      ),
+      floorPage.presetTile("round6").click(),
+    ]);
+    expect(created.status()).toBe(201);
+    const createdId = ((await created.json()) as any)?.data?.id as string;
+    expect(createdId).toBeTruthy();
+    await expect(floorPage.floorTableNameInput()).toHaveValue(/^Table \d+$/, {
+      timeout: 10_000,
+    });
+    await expect(floorPage.floorTableCapacityInput()).toHaveValue("6");
+
+    await saveLayout();
+    const row = (await listTables()).find((t) => t.id === createdId);
+    expect(row?.shape).toBe("CIRCLE");
+    expect(row?.capacity).toBe(6);
+    expect(row?.sectionId).toBe(section.id);
+    expect(row?.geometry).toMatchObject({ width: 180, height: 180 });
+    expect(typeof row?.geometry.posX).toBe("number");
+  });
+
+  test("TC-751: undo / redo / discard — a placement can be undone and redone, and Discard changes leaves the table unplaced on the server", async () => {
+    await allure.description(
+      "Place an API-seeded table from 'All tables' (unsaved: Save layout " +
+        "shows). Undo → no unsaved change left and the browser lists it " +
+        "'Not placed'; Redo → the change is back. Discard changes → the " +
+        "save control goes away and the API still has no position for it."
+    );
+    const section = await newSection("Undo");
+    const name = `Undo T ${runId}`;
+    const seeded = await createTableOwnerRaw(ownerToken, restaurantId, {
+      name,
+      sectionId: section.id,
+      capacity: 4,
+    });
+    expect(seeded.status, msg(seeded.data)).toBe(201);
+    await openSectionFloor(section.name);
+
+    await floorPage.pickTableInBrowser(name);
+    await expect(floorPage.saveLayoutButton()).toBeVisible({ timeout: 5_000 });
+
+    await floorPage.undoButton().click();
+    await expect(floorPage.saveLayoutButton()).toBeHidden({ timeout: 5_000 });
+    await expect(await floorPage.openTablesBrowserRow(name)).toContainText(
+      "Not placed"
+    );
+    await session.page.keyboard.press("Escape");
+
+    await floorPage.redoButton().click();
+    await expect(floorPage.saveLayoutButton()).toBeVisible({ timeout: 5_000 });
+
+    await floorPage.discardLayoutButton().click();
+    await expect(floorPage.saveLayoutButton()).toBeHidden({ timeout: 5_000 });
+    const row = (await listTables()).find((t) => t.name === name);
+    expect(row?.geometry.posX ?? null).toBeNull();
+  });
+
+  test("TC-752: empty section — the canvas says the section has no tables yet; 'Add a 4-seat table' adds one there", async () => {
+    await allure.description(
+      "A brand-new section's floor shows the empty state ('<section> has " +
+        "no tables yet'). Its primary button 'Add a 4-seat table' creates a " +
+        "4-seat rectangle in that section (POST .../tables 201) and the " +
+        "empty state disappears; Save layout keeps it placed."
+    );
+    const section = await newSection("Empty Room");
+    await openSectionFloor(section.name);
+
+    await expect(floorPage.floorEmptyState()).toContainText(
+      `${section.name} has no tables yet`,
+      { timeout: 10_000 }
+    );
+    await expect(floorPage.floorEmptyPrimaryButton()).toHaveText(
+      "Add a 4-seat table"
+    );
+    const [created] = await Promise.all([
+      session.page.waitForResponse(
+        (r) => /\/tables$/.test(r.url()) && r.request().method() === "POST",
+        { timeout: 15_000 }
+      ),
+      floorPage.floorEmptyPrimaryButton().click(),
+    ]);
+    expect(created.status()).toBe(201);
+    await expect(floorPage.floorEmptyState()).toBeHidden({ timeout: 10_000 });
+
+    await saveLayout();
+    const inSection = (await listTables()).filter(
+      (t) => t.sectionId === section.id
+    );
+    expect(inSection).toHaveLength(1);
+    expect(inSection[0]?.capacity).toBe(4);
+    expect(inSection[0]?.shape).toBe("RECTANGLE");
+    expect(typeof inSection[0]?.geometry.posX).toBe("number");
+  });
+
+  test("TC-753: the toolbar's Keyboard shortcuts button opens the shortcuts list, and Close dismisses it", async () => {
+    await allure.description(
+      "Toolbar → 'Keyboard shortcuts' opens the 'Floor editor shortcuts' " +
+        "dialog listing Undo, Redo and Save layout; Close hides it."
+    );
+    await openSectionFloor(sectionName);
+    await floorPage.shortcutsButton().click();
+    const dialog = floorPage.shortcutsDialog();
+    await expect(dialog).toBeVisible({ timeout: 5_000 });
+    for (const text of ["Undo", "Redo", "Save layout"])
+      await expect(dialog).toContainText(text);
+    await dialog.getByRole("button", { name: "Close" }).first().click();
+    await expect(dialog).toBeHidden({ timeout: 5_000 });
   });
 });

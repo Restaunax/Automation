@@ -452,12 +452,13 @@ test.describe("POS — Table Management (floor, tables, sections, combinations)"
     expect(rowB?.shape).toBe("RECTANGLE");
   });
 
-  test("TC-388: merge repoints the open check and cleans up the source table", async () => {
+  test("TC-388: merge is refused while a table is in use; once idle, history repoints and the source is cleaned up", async () => {
     await allure.description(
-      "Open a check on table A (explicit tableId), merge A into B — A's " +
-        "order is repointed onto B (Order.tableId updates) and, once nothing " +
-        "else references A, A is hard-deleted (gone) rather than merely " +
-        "deactivated; B keeps the live open-check count."
+      "Merge is the duplicate-cleanup tool, not a way to move a live party " +
+        "(2026-10-07): with an open check on table A, merging A into B → 409 " +
+        "TABLE_IN_USE and nothing moves. Cancel the check, merge again → 200: " +
+        "A's (now historical) order is repointed onto B (Order.tableId " +
+        "updates) and A is gone or deactivated; B remains."
     );
     const tA = unwrap(
       await createTableOwnerRaw(token, restaurantId, {
@@ -472,6 +473,20 @@ test.describe("POS — Table Management (floor, tables, sections, combinations)"
 
     const orderId = await openCheckOnTable(tA.id, staffSession);
 
+    const refused = await mergeTableOwnerRaw(token, restaurantId, tA.id, tB.id);
+    expect(refused.status, msg(refused.data)).toBe(409);
+    expect(errorCode(refused.data)).toBe("TABLE_IN_USE");
+    const stillOnA = await getOrderFullRaw(token, orderId);
+    expect(stillOnA.data.tableId).toBe(tA.id);
+
+    const cancel = await cancelTabletOrderRaw(
+      tabletToken,
+      staffSession,
+      orderId,
+      "TC-388: free the table for the merge"
+    );
+    expect(cancel.ok, msg(cancel.data)).toBe(true);
+
     const merge = await mergeTableOwnerRaw(token, restaurantId, tA.id, tB.id);
     expect(merge.status, msg(merge.data)).toBe(200);
 
@@ -483,32 +498,26 @@ test.describe("POS — Table Management (floor, tables, sections, combinations)"
       !rowA || rowA.isActive === false,
       "source table should be gone or deactivated"
     ).toBe(true);
-    const rowB = list.tables.find((t) => t.id === tB.id);
-    expect(rowB, "target table should remain").toBeTruthy();
-    expect(rowB!.openCheckCount).toBeGreaterThanOrEqual(1);
+    expect(
+      list.tables.find((t) => t.id === tB.id),
+      "target table should remain"
+    ).toBeTruthy();
 
     const full = await getOrderFullRaw(token, orderId);
     expect(full.data.tableId).toBe(tB.id);
-
-    const cancel = await cancelTabletOrderRaw(
-      tabletToken,
-      staffSession,
-      orderId,
-      "TC-388 cleanup"
-    );
-    expect(cancel.ok, msg(cancel.data)).toBe(true);
   });
 
   let softDeletedTableId = "";
-  let softDeletedOrderId = "";
   let hardDeletedTableId = "";
 
-  test("TC-389: delete semantics — unreferenced hard-deletes, referenced soft-deactivates", async () => {
+  test("TC-389: delete semantics — unreferenced hard-deletes, an open check refuses, history-only soft-deactivates", async () => {
     await allure.description(
       "DELETE .../tables/:id on a table nothing references → " +
-        "data.deleted:true and the row disappears from the owner list; on a " +
-        "table with a live order → data.deleted:false and isActive:false " +
-        "(history keeps a row to point at)."
+        "data.deleted:true and the row disappears from the owner list. On a " +
+        "table with a live open check → 409 TABLE_HAS_OPEN_CHECK (2026-10-07: " +
+        "the check would drop off the floor with money owed). Once that " +
+        "check is cancelled the table is still referenced by history → " +
+        "data.deleted:false and isActive:false."
     );
     const unref = unwrap(
       await createTableOwnerRaw(token, restaurantId, {
@@ -528,7 +537,19 @@ test.describe("POS — Table Management (floor, tables, sections, combinations)"
     const ref = unwrap(
       await createTableOwnerRaw(token, restaurantId, { name: `Ref ${runId}` })
     );
-    softDeletedOrderId = await openCheckOnTable(ref.id, staffSession);
+    const orderId = await openCheckOnTable(ref.id, staffSession);
+
+    const delOpen = await deleteTableOwnerRaw(token, restaurantId, ref.id);
+    expect(delOpen.status, msg(delOpen.data)).toBe(409);
+    expect(errorCode(delOpen.data)).toBe("TABLE_HAS_OPEN_CHECK");
+
+    const cancel = await cancelTabletOrderRaw(
+      tabletToken,
+      staffSession,
+      orderId,
+      "TC-389: free the table for the delete"
+    );
+    expect(cancel.ok, msg(cancel.data)).toBe(true);
 
     const delRef = await deleteTableOwnerRaw(token, restaurantId, ref.id);
     expect(delRef.status, msg(delRef.data)).toBe(200);
@@ -546,8 +567,9 @@ test.describe("POS — Table Management (floor, tables, sections, combinations)"
     await allure.description(
       "The live hardware bug (2026-08-26): computeTableStates only reads " +
         "isActive:true tables for the floor payload, so a hard-deleted OR " +
-        "soft-deactivated table must never leak into GET /api/tablet/floor " +
-        "— even one still holding an open check."
+        "soft-deactivated table must never leak into GET /api/tablet/floor. " +
+        "(A table with an open check can no longer be deactivated at all — " +
+        "TC-389 — so the soft-deleted table here carries history only.)"
     );
     const floor = await getFloorRaw(tabletToken);
     expect(floor.status, msg(floor.data)).toBe(200);
@@ -560,16 +582,8 @@ test.describe("POS — Table Management (floor, tables, sections, combinations)"
     ).toBe(false);
     expect(
       floorTables.some((t) => t.table.id === softDeletedTableId),
-      "soft-deactivated table (with an open check) must not appear on the floor"
+      "soft-deactivated table must not appear on the floor"
     ).toBe(false);
-
-    const cancel = await cancelTabletOrderRaw(
-      tabletToken,
-      staffSession,
-      softDeletedOrderId,
-      "TC-390 cleanup"
-    );
-    expect(cancel.ok, msg(cancel.data)).toBe(true);
   });
 
   // ── Combinations (entitlement-gated) ───────────────────────────────────

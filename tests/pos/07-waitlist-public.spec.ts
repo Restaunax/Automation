@@ -41,7 +41,7 @@
 
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../fixtures/base";
-import { generateRunId } from "../../utils/testData";
+import { generateRunId, generateGuestPhone } from "../../utils/testData";
 import {
   apiLogin,
   createSecondOwner,
@@ -67,7 +67,10 @@ import {
   reservationStatusTabletRaw,
   seatReservationTabletRaw,
   getPublicAvailabilityRaw,
+  getPublicAvailabilityDaysRaw,
   createPublicReservationRaw,
+  listReservationsOwnerRaw,
+  getTurnInsightsOwnerRaw,
   getManagedReservationRaw,
   cancelManagedReservationRaw,
   setRestaurantPublishedApi,
@@ -140,12 +143,11 @@ test.describe("POS — Waitlist & Public Reservation Booking", () => {
   };
 
   let phoneSeq = 1000;
-  const runFrag = parseInt(runId.slice(0, 4), 16) % 1000;
   /** Unique 10-digit guest phone per call — SMS throttle 5/hr/phone + a
    *  per-phone open-reservations cap. */
   const nextGuestPhone = (): string => {
     phoneSeq += 1;
-    return `555${String(runFrag).padStart(3, "0")}${String(phoneSeq).padStart(4, "0")}`;
+    return generateGuestPhone(runId, phoneSeq);
   };
 
   /** A fresh bookable slot's exact scheduledAt for `date`, pulled from the
@@ -262,19 +264,24 @@ test.describe("POS — Waitlist & Public Reservation Booking", () => {
     // SAME dayOfWeek and both fall inside this one period.
     expect(dayOfWeekOf(availDate)).toBe(dayOfWeekOf(closedDate));
 
-    // getAvailability's feasibility step (5) needs at least one bookable
-    // table whose capacity fits partySize=2 — capacity is nullable and
-    // NULL never matches its `gte` filter, so it must be set explicitly.
-    // Without ANY feasible table/combination, every slot is skipped and
-    // availability is unconditionally empty regardless of periods/pacing.
-    const bookable = await createTableOwnerRaw(token, restaurantId, {
-      name: `Public Bookable ${runId}`,
-      capacity: 4,
-    });
-    if (!bookable.ok)
-      throw new Error(
-        `[waitlist-public] could not create the bookable table: ${msg(bookable.data)}`
-      );
+    // getAvailability's feasibility step needs a bookable table whose
+    // capacity fits the party — capacity is nullable and NULL never matches,
+    // so it must be set explicitly. Since 2026-10-07 every OVERLAPPING
+    // booking without a table also claims one free table ("unit"), and the
+    // 12:00-14:00 window with a 90-min duration only offers 12:00/12:15/12:30
+    // — all overlapping. One table made the date "full" after the first
+    // public booking, so give the floor room for every booking this file
+    // makes on availDate (up to 5 live at once by TC-744).
+    for (let i = 1; i <= 6; i++) {
+      const bookable = await createTableOwnerRaw(token, restaurantId, {
+        name: `Public Bookable ${i} ${runId}`,
+        capacity: 4,
+      });
+      if (!bookable.ok)
+        throw new Error(
+          `[waitlist-public] could not create bookable table ${i}: ${msg(bookable.data)}`
+        );
+    }
 
     const online = await putReservationSettingsOwnerRaw(token, restaurantId, {
       onlineBookingEnabled: true,
@@ -577,5 +584,118 @@ test.describe("POS — Waitlist & Public Reservation Booking", () => {
         console.warn("[TC-425] could not restore onlineBookingEnabled:", err)
       );
     }
+  });
+
+  // ── Date strip + booking source (2026-10) ───────────────────────────────
+
+  test("TC-742: date strip — available on the booking-window weekday, closed on the override, no_service on other weekdays, passed in the past", async () => {
+    await allure.description(
+      "GET .../reservation-availability/days?from=availDate&to=closedDate" +
+        "&partySize=2 → one entry per date in order (8 days): availDate " +
+        "'available', closedDate 'closed' (TC-420's override), every other " +
+        "weekday 'no_service' (the only period is availDate's weekday). " +
+        "`today` and `lastBookableDate` are YYYY-MM-DD. Two and three days " +
+        "ago → 'passed' (a past date is passed even with no service)."
+    );
+    const res = await getPublicAvailabilityDaysRaw(restaurantId, {
+      from: availDate,
+      to: closedDate,
+      partySize: 2,
+    });
+    expect(res.status, msg(res.data)).toBe(200);
+    const strip = unwrap(res);
+    expect(strip.today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(strip.lastBookableDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    const days = strip.days as { date: string; status: string }[];
+    expect(days.map((d) => d.date)).toEqual(
+      Array.from({ length: 8 }, (_, i) => addDaysISO(3 + i))
+    );
+    for (const day of days) {
+      const expected =
+        day.date === availDate
+          ? "available"
+          : day.date === closedDate
+            ? "closed"
+            : "no_service";
+      expect(day.status, day.date).toBe(expected);
+    }
+
+    const past = await getPublicAvailabilityDaysRaw(restaurantId, {
+      from: addDaysISO(-3),
+      to: addDaysISO(-2),
+      partySize: 2,
+    });
+    expect(past.status, msg(past.data)).toBe(200);
+    for (const day of unwrap(past).days as { status: string }[])
+      expect(day.status).toBe("passed");
+  });
+
+  test("TC-743: date strip validation — to before from, more than 31 days, an impossible date and party size 0 are all 400", async () => {
+    await allure.description(
+      "Every malformed query → 400 SYSTEM_VALIDATION_ERROR: to < from, a " +
+        "32-day range (max 31), 2026-02-30, and partySize 0. A 31-day range " +
+        "is fine (200, 31 entries)."
+    );
+    const bad = [
+      { from: closedDate, to: availDate, partySize: 2 },
+      { from: addDaysISO(1), to: addDaysISO(32), partySize: 2 },
+      { from: "2026-02-30", to: "2026-03-02", partySize: 2 },
+      { from: availDate, to: closedDate, partySize: 0 },
+    ];
+    for (const query of bad) {
+      const res = await getPublicAvailabilityDaysRaw(restaurantId, query);
+      expect(res.status, JSON.stringify(query)).toBe(400);
+      expect(errorCode(res.data)).toBe("SYSTEM_VALIDATION_ERROR");
+    }
+    const max = await getPublicAvailabilityDaysRaw(restaurantId, {
+      from: addDaysISO(1),
+      to: addDaysISO(31),
+      partySize: 2,
+    });
+    expect(max.status, msg(max.data)).toBe(200);
+    expect((unwrap(max).days as unknown[]).length).toBe(31);
+  });
+
+  test("TC-744: booking source — the customer app's MOBILE is recorded, anything else from a public booking lands as WEB, and insights count them", async () => {
+    await allure.description(
+      "Public create with `source: 'MOBILE'` → the owner's list shows " +
+        "source MOBILE; with `source: 'PHONE'` (staff-only, never accepted " +
+        "publicly) → WEB; with no source → WEB. The owner's turn insights " +
+        "`bookingSources` count MOBILE ≥ 1 and WEB ≥ 2."
+    );
+    const cases = [
+      { label: "Mobile", source: "MOBILE", expected: "MOBILE" },
+      { label: "Spoofed", source: "PHONE", expected: "WEB" },
+      { label: "Website", source: undefined, expected: "WEB" },
+    ];
+    for (const c of cases) {
+      const created = await createPublicReservationRaw(restaurantId, {
+        guestName: `Source ${c.label} ${runId}`,
+        guestPhone: nextGuestPhone(),
+        partySize: 2,
+        scheduledAt: await freshSlot(availDate),
+        ...(c.source ? { source: c.source } : {}),
+      });
+      expect(created.status, msg(created.data)).toBe(201);
+    }
+
+    const list = await listReservationsOwnerRaw(token, restaurantId, {
+      date: availDate,
+    });
+    expect(list.status, msg(list.data)).toBe(200);
+    const rows = unwrap(list) as { guestName: string; source: string }[];
+    for (const c of cases) {
+      const row = rows.find(
+        (r) => r.guestName === `Source ${c.label} ${runId}`
+      );
+      expect(row, `${c.label} booking should be listed`).toBeTruthy();
+      expect(row!.source, c.label).toBe(c.expected);
+    }
+
+    const insights = await getTurnInsightsOwnerRaw(token, restaurantId, 7);
+    expect(insights.status, msg(insights.data)).toBe(200);
+    const sources = unwrap(insights).bookingSources;
+    expect(sources.MOBILE).toBeGreaterThanOrEqual(1);
+    expect(sources.WEB).toBeGreaterThanOrEqual(2);
   });
 });

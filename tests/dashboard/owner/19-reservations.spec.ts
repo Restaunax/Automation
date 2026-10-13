@@ -23,7 +23,7 @@ import {
   createOwnerReservationsPage,
   type OwnerReservationsPage,
 } from "../../../pages/dashboard/owner/OwnerReservationsPage";
-import { generateRunId } from "../../../utils/testData";
+import { generateRunId, generateGuestPhone } from "../../../utils/testData";
 import { loginViaUi, type UiLoginSession } from "../../../utils/auth";
 import {
   apiLogin,
@@ -90,12 +90,11 @@ test.describe("Owner — Reservations", () => {
   let reservationsPage: OwnerReservationsPage;
 
   let phoneSeq = 1000;
-  const runFrag = parseInt(runId.slice(0, 4), 16) % 1000;
   /** Unique 10-digit guest phone per call — SMS throttle 5/hr/phone + a
    *  per-phone open-reservations cap (mirrors the pos specs' nextGuestPhone). */
   const nextGuestPhone = (): string => {
     phoneSeq += 1;
-    return `555${String(runFrag).padStart(3, "0")}${String(phoneSeq).padStart(4, "0")}`;
+    return generateGuestPhone(runId, phoneSeq);
   };
 
   test.beforeAll(async ({ browser }) => {
@@ -199,7 +198,7 @@ test.describe("Owner — Reservations", () => {
         "RESERVATION_PACING_REQUIRED) until at least one active service " +
         "period has a pacing cap — this fresh tenant has zero periods. The " +
         "resolved English message renders inline next to the toggle with a " +
-        '"Go to Service periods" link; the server value stays false.'
+        '"Go to Booking hours" link; the server value stays false.'
     );
     await reservationsPage.gotoSettingsSubTab(restaurantId);
     await reservationsPage.onlineBookingToggle().check();
@@ -231,9 +230,10 @@ test.describe("Owner — Reservations", () => {
     const periodName = `Lunch ${runId}`;
     await reservationsPage.openCreatePeriod();
     await reservationsPage.periodNameInput().fill(periodName);
-    await reservationsPage.selectMuiOption(
-      reservationsPage.periodDaySelect(),
-      "Monday"
+    await reservationsPage.periodDayChip("Monday").click();
+    await expect(reservationsPage.periodDayChip("Monday")).toHaveAttribute(
+      "aria-pressed",
+      "true"
     );
     await reservationsPage.periodStartTimeInput().fill("11:00");
     await reservationsPage.periodEndTimeInput().fill("14:00");

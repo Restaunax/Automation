@@ -72,7 +72,7 @@ export const createOwnerReservationsPage = (page: Page) => {
       "Online booking can't be enabled until pacing limits are configured for this restaurant."
     );
   const pacingRequiredLink = () =>
-    page.getByRole("button", { name: "Go to Service periods" });
+    page.getByRole("button", { name: "Go to Booking hours" });
   const numericSettingInput = (
     key:
       | "graceMinutes"
@@ -83,6 +83,8 @@ export const createOwnerReservationsPage = (page: Page) => {
       | "minNoticeMinutes"
       | "advanceBookingDays"
       | "maxOpenReservationsPerPhone"
+      | "autoClearMinutes"
+      | "doubleSeatWarnMinutes"
   ) => page.locator(`#reservation-settings-${key}`);
   const saveSettingsButton = () => page.getByTestId("unsaved-changes-save");
 
@@ -99,12 +101,18 @@ export const createOwnerReservationsPage = (page: Page) => {
     return res;
   };
 
-  // ── Service periods panel ──────────────────────────────────────────────────
+  // ── Service periods panel ("Booking hours" in the UI since 2026-10-08) ──────
   const addPeriodButton = () =>
-    main().getByRole("button", { name: "Add Period", exact: true });
+    main().getByRole("button", { name: "Add Window", exact: true });
   const periodNameInput = () =>
     page.getByTestId("period-form-name").locator("input");
-  const periodDaySelect = () => page.locator("#period-day-select");
+  /** One weekday toggle chip in the period form (aria-label = full day
+   * name). A new window starts with NO day selected; several selected days
+   * save as one POST .../reservation-service-periods/bulk. */
+  const periodDayChip = (dayName: string) =>
+    page
+      .getByTestId("period-form-days")
+      .getByRole("button", { name: dayName, exact: true });
   const periodStartTimeInput = () => page.locator("#period-start-time");
   const periodEndTimeInput = () => page.locator("#period-end-time");
   const periodSlotIntervalInput = () => page.locator("#period-slot-interval");
@@ -320,10 +328,66 @@ export const createOwnerReservationsPage = (page: Page) => {
   };
 
   // ── Snackbars ──────────────────────────────────────────────────────────────
+  // ── Booking hours from business hours (2026-10-08) ─────────────────────────
+  // The "Use my business hours" button only renders while the restaurant has
+  // NO booking windows yet (ServicePeriodsPanel's empty state).
+  const useBusinessHoursButton = () =>
+    page.getByTestId("booking-hours-use-business-hours");
+  const suggestionTable = () => page.getByTestId("booking-hours-suggestion");
+  /** One day's row in the suggestion table, by full day name ("Monday"). */
+  const suggestionRow = (dayName: string) =>
+    suggestionTable()
+      .getByRole("row")
+      .filter({ has: page.getByRole("cell", { name: dayName, exact: true }) });
+  const suggestNameInput = () => page.locator("#suggest-name");
+  const suggestMaxPartiesInput = () => page.locator("#suggest-max-parties");
+  const suggestSaveButton = () =>
+    page.getByTestId("booking-hours-suggest-save");
+  /** The form's advisory "outside your business hours" alert. */
+  const periodHoursWarning = () =>
+    page.getByTestId("period-form-hours-warning");
+
+  // ── After a check is paid (2026-10-07) ─────────────────────────────────────
+  /** A policy radio, by the start of its visible label (the accessible name
+   *  also carries the help text). */
+  const afterPaymentRadio = (labelStart: string) =>
+    page.getByRole("radio", {
+      name: new RegExp(`^${escapeRegExp(labelStart)}`),
+    });
+
+  // ── Insights sub-tab ───────────────────────────────────────────────────────
+  const insightsSubTab = () =>
+    page.getByRole("tab", { name: "Insights", exact: true });
+  const insightsHeading = () =>
+    page.getByRole("heading", { name: "How your tables turn" });
+  const insightsRangeButton = (days: 7 | 30 | 90) =>
+    page.getByRole("button", { name: `Last ${days} days`, exact: true });
+  const bookingSourcesBlock = () => page.getByTestId("booking-sources");
+
+  const gotoInsightsSubTab = async (restaurantId: string) => {
+    await gotoTab(restaurantId);
+    await assertLoaded();
+    await insightsSubTab().click();
+    await insightsHeading().waitFor({ state: "visible", timeout: 10_000 });
+  };
+
   const snackbar = (text: string | RegExp) =>
     page.getByRole("alert").filter({ hasText: text });
 
   return {
+    useBusinessHoursButton,
+    suggestionTable,
+    suggestionRow,
+    suggestNameInput,
+    suggestMaxPartiesInput,
+    suggestSaveButton,
+    periodHoursWarning,
+    afterPaymentRadio,
+    insightsSubTab,
+    insightsHeading,
+    insightsRangeButton,
+    bookingSourcesBlock,
+    gotoInsightsSubTab,
     gotoTab,
     assertLoaded,
     bookingsSubTab,
@@ -339,7 +403,7 @@ export const createOwnerReservationsPage = (page: Page) => {
     saveReservationSettings,
     addPeriodButton,
     periodNameInput,
-    periodDaySelect,
+    periodDayChip,
     periodStartTimeInput,
     periodEndTimeInput,
     periodSlotIntervalInput,
@@ -399,3 +463,5 @@ export const createOwnerReservationsPage = (page: Page) => {
 export type OwnerReservationsPage = ReturnType<
   typeof createOwnerReservationsPage
 >;
+
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

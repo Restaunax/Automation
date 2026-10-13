@@ -38,23 +38,24 @@
  *   - TC-407: `canOverrideConflict` (OVERRIDE_RESERVATION_CONFLICT) BYPASSES
  *     the 409 conflict check entirely for its holder — a MANAGER seating over
  *     a conflict never sees 409, it just succeeds and steals the table's
- *     assignment. The 409 is visible only from the STAFF-role side.
+ *     assignment. The 409 is visible only from the STAFF-role side. Since
+ *     2026-10-12 the conflict is only "a party is SEATED / a check is open
+ *     there" — an upcoming booking no longer blocks a table.
  *   - TC-415: cancelling a linked order only UNLINKS (Reservation.orderId =
  *     null) — the reservation's `status` never reverts on cancel (controller
  *     comment: "the reservation is the party's real state, the order is just
  *     this attempt at collecting money for it"). A SEATED reservation stays
  *     SEATED after its order is cancelled.
- *   - TC-417: RESERVED_SOON requires a `ReservationTable` row assigned to a
- *     BOOKED/CONFIRMED/ARRIVED reservation — but the ONLY write path to
- *     `ReservationTable` is `seatReservation`, which always transitions to
- *     SEATED in the same transaction. There is no API-reachable way to
- *     assign a table without seating, so RESERVED_SOON is unobservable from
- *     this surface — `test.fixme`d with the reasoning inline.
+ *   - TC-417: the RESERVED_SOON floor state was REMOVED (backend
+ *     2026-10-12). Its successor is the manual table hold (POST
+ *     /reservations/:id/tables, `reservationHold.ts`): the floor row keeps
+ *     its real state and carries a `reservedSoon` annotation, and every
+ *     other party is refused with 409 TABLE_HELD — no manager override.
  */
 
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../fixtures/base";
-import { generateRunId } from "../../utils/testData";
+import { generateRunId, generateGuestPhone } from "../../utils/testData";
 import {
   apiLogin,
   createSecondOwner,
@@ -77,6 +78,7 @@ import {
   deleteFeatureOverrideAdminRaw,
   createTableOwnerRaw,
   getFloorRaw,
+  setTableStateTabletRaw,
   putReservationSettingsOwnerRaw,
   createReservationServicePeriodOwnerRaw,
   createReservationOwnerRaw,
@@ -85,6 +87,8 @@ import {
   getHostRaw,
   reservationStatusTabletRaw,
   seatReservationTabletRaw,
+  holdReservationTablesTabletRaw,
+  keepReservationHoldTabletRaw,
   transferTabTableRaw,
   openRegisterSessionPos,
   settleTabCashRaw,
@@ -165,12 +169,11 @@ test.describe("POS — Reservation Lifecycle (tablet host stand)", () => {
   };
 
   let phoneSeq = 1000;
-  const runFrag = parseInt(runId.slice(0, 4), 16) % 1000;
   /** Unique 10-digit guest phone per call — SMS throttle 5/hr/phone + a
    *  per-phone open-reservations cap. */
   const nextGuestPhone = (): string => {
     phoneSeq += 1;
-    return `555${String(runFrag).padStart(3, "0")}${String(phoneSeq).padStart(4, "0")}`;
+    return generateGuestPhone(runId, phoneSeq);
   };
 
   /** Open a table-service check and track it for the afterAll sweep. */
@@ -397,7 +400,8 @@ test.describe("POS — Reservation Lifecycle (tablet host stand)", () => {
         "SEATED, floor flips to OCCUPIED — precedence order) → open the " +
         "register → settle in full cash → order COMPLETED, reservation " +
         "COMPLETED (maybeCloseTab's atomic reservation-complete side effect), " +
-        "and the floor returns to AVAILABLE."
+        "and the floor reads PAID (party may still be seated) until a host CLEAR " +
+        "tap returns it to AVAILABLE."
     );
     const table = unwrap(
       await createTableOwnerRaw(token, restaurantId, {
@@ -492,11 +496,29 @@ test.describe("POS — Reservation Lifecycle (tablet host stand)", () => {
     );
     expect(unwrap(finalReservation).status).toBe("COMPLETED");
 
+    // "Paid is not free" (2026-10-07 table-turn lifecycle): under the default
+    // afterPaymentPolicy HOLD_UNTIL_CLEARED the table reads PAID — the party
+    // may still be sitting — until a host taps Clear, which closes the turn.
+    const floorPaid = await getFloorRaw(tabletToken);
+    const rowPaid = (unwrap(floorPaid).tables as any[]).find(
+      (t) => t.table.id === table.id
+    );
+    expect(rowPaid?.state).toBe("PAID");
+    expect(rowPaid?.paidTurn?.paidAt).toBeTruthy();
+
+    const cleared = await setTableStateTabletRaw(
+      tabletToken,
+      staffSession,
+      table.id,
+      "CLEAR"
+    );
+    expect(cleared.status, msg(cleared.data)).toBe(200);
     const floorAvailable = await getFloorRaw(tabletToken);
     const rowAvailable = (unwrap(floorAvailable).tables as any[]).find(
       (t) => t.table.id === table.id
     );
     expect(rowAvailable?.state).toBe("AVAILABLE");
+    expect(rowAvailable?.paidTurn).toBeFalsy();
 
     const orderTotal = Number(finalOrder.data.total);
     const closed = await closeRegisterSessionPosRaw(tabletToken, staffSession, {
@@ -974,20 +996,116 @@ test.describe("POS — Reservation Lifecycle (tablet host stand)", () => {
     expect(errorCode(attempt.data)).toBe("RESERVATION_INVALID_TRANSITION");
   });
 
-  test.fixme("TC-417: floor RESERVED_SOON is unobservable via the API — no path assigns a table without seating", async () => {
-    // PROBED against reservationSeatService.ts and tableStateService.ts:
-    // RESERVED_SOON requires a ReservationTable row on a reservation whose
-    // status is still BOOKED/CONFIRMED/ARRIVED (tableStateService.ts's
-    // RESERVED_SOON_STATUSES). The ONLY write path to ReservationTable is
-    // seatReservation, and it ALWAYS transitions the reservation to SEATED
-    // in the same transaction — `partially_seat` (the other status this
-    // file's brief hoped might assign a table) only flips `status`, per
-    // reservationTransitionService.ts's TIMESTAMP_COLUMN comment: "no
-    // dedicated timestamp column... only status and updatedAt change for
-    // that move." There is no API-reachable way to have an assigned table
-    // AND a non-SEATED status at the same time, so this floor state can
-    // never be produced from outside the process (only a direct DB write
-    // could fake it) — marking fixme rather than asserting a state the
-    // server can never actually reach through its own API.
+  test("TC-417: manual table hold — too early 409, held table annotated not blocked-state, refuses another booking even for a MANAGER, keep stamps, release clears", async () => {
+    await allure.description(
+      "Replaces the retired RESERVED_SOON floor state (2026-10-12): a booking " +
+        "never blocks a table on its own; a host HOLDS one by hand via POST " +
+        "/reservations/:id/tables. A booking ~3h out is outside the default " +
+        "30-min hold window → 409 RESERVATION_HOLD_TOO_EARLY. A booking ~20 " +
+        "min out holds the table: the floor row stays AVAILABLE and carries " +
+        "the `reservedSoon` annotation (the holder). Seating a DIFFERENT " +
+        "booking there → 409 TABLE_HELD even as the MANAGER (a hold is not " +
+        "overridable). `keep` stamps holdKeptAt; `tableIds: []` releases and " +
+        "the annotation disappears."
+    );
+    const table = unwrap(
+      await createTableOwnerRaw(token, restaurantId, {
+        name: `Hold ${runId}`,
+        capacity: 4,
+      })
+    );
+    // Arbitrary instants (not the 15-min grid): owner phone bookings are
+    // ADVISORY, and TC-413 already books "now + 20 min" the same way.
+    const soon = unwrap(
+      await createReservationOwnerRaw(token, restaurantId, {
+        partySize: 2,
+        scheduledAt: new Date(Date.now() + 20 * 60 * 1000).toISOString(),
+        guestName: `Hold Soon ${runId}`,
+        guestPhone: nextGuestPhone(),
+      })
+    );
+    const later = unwrap(
+      await createReservationOwnerRaw(token, restaurantId, {
+        partySize: 2,
+        scheduledAt: new Date(Date.now() + 3 * 3600 * 1000).toISOString(),
+        guestName: `Hold Later ${runId}`,
+        guestPhone: nextGuestPhone(),
+      })
+    );
+
+    const tooEarly = await holdReservationTablesTabletRaw(
+      tabletToken,
+      staffSession,
+      later.id,
+      [table.id]
+    );
+    expect(tooEarly.status, msg(tooEarly.data)).toBe(409);
+    expect(errorCode(tooEarly.data)).toBe("RESERVATION_HOLD_TOO_EARLY");
+
+    const held = await holdReservationTablesTabletRaw(
+      tabletToken,
+      staffSession,
+      soon.id,
+      [table.id]
+    );
+    expect(held.status, msg(held.data)).toBe(200);
+    expect(
+      (unwrap(held).tables as any[]).map((t) => t.id),
+      "the hold answers with the held table"
+    ).toEqual([table.id]);
+
+    const floorRow = async () =>
+      (unwrap(await getFloorRaw(tabletToken)).tables as any[]).find(
+        (t) => t.table.id === table.id
+      );
+    const heldRow = await floorRow();
+    // An annotation, never a state — RESERVED_SOON no longer exists.
+    expect(heldRow?.state).toBe("AVAILABLE");
+    expect(heldRow?.reservedSoon?.id).toBe(soon.id);
+    expect(heldRow?.reservedSoon?.lateAt).toBeTruthy();
+    expect(heldRow?.reservedSoon?.holdKeptAt ?? null).toBeNull();
+
+    // staffSession is the MANAGER here (holds OVERRIDE_RESERVATION_CONFLICT)
+    // — the hold is checked before the override on purpose.
+    const managerSess = await tabletStaffSignIn(
+      tabletToken,
+      managerStaffMemberId,
+      managerPin
+    );
+    staffSession = managerSess;
+    const refused = await seatReservationTabletRaw(
+      tabletToken,
+      managerSess,
+      later.id,
+      { tableIds: [table.id] }
+    );
+    expect(refused.status, msg(refused.data)).toBe(409);
+    expect(errorCode(refused.data)).toBe("TABLE_HELD");
+
+    const kept = await keepReservationHoldTabletRaw(
+      tabletToken,
+      staffSession,
+      soon.id
+    );
+    expect(kept.status, msg(kept.data)).toBe(200);
+    expect(unwrap(kept).tableHoldKeptAt).toBeTruthy();
+    expect((await floorRow())?.reservedSoon?.holdKeptAt).toBeTruthy();
+
+    const released = await holdReservationTablesTabletRaw(
+      tabletToken,
+      staffSession,
+      soon.id,
+      []
+    );
+    expect(released.status, msg(released.data)).toBe(200);
+    expect(unwrap(released).tables).toEqual([]);
+    const releasedRow = await floorRow();
+    expect(releasedRow?.reservedSoon).toBeFalsy();
+    expect(releasedRow?.state).toBe("AVAILABLE");
+
+    // Free the per-phone open-booking slots for the rest of the run.
+    for (const id of [soon.id, later.id]) {
+      await reservationStatusTabletRaw(tabletToken, staffSession, id, "cancel");
+    }
   });
 });

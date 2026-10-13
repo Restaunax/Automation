@@ -15,39 +15,15 @@ import { createOwnerRestaurantManagementPage } from "./OwnerRestaurantManagement
  * NOT (bare "Edit"/"Delete" aria-labelled IconButtons), so those are scoped
  * per-row via role=row.
  *
- * Floor canvas: react-konva renders to plain <canvas> elements with no per-
- * shape DOM nodes, so a placed table can only be selected by clicking at its
- * ACTUAL rendered screen position. `canvasPointToScreen` reimplements
- * FloorCanvas's own fit-to-screen math (computeFitScale/centerStagePosition,
- * see floorGeometry.ts) against the live canvas element's bounding box so a
- * test can click a table by its known canvas-space geometry after a fresh
- * page load (no lingering `selectedIds` state to rely on).
+ * Floor editor (reworked 2026-10-07): react-konva renders to plain <canvas>
+ * elements with no per-shape DOM nodes, and the editor now places a table at
+ * the nearest FREE spot to the visible centre (not a fixed cascade), with
+ * zoom/pan state of its own. So placement and selection both go through the
+ * DOM "All tables" browser (`floor-browser-open` → `floor-browser-row`):
+ * clicking an unplaced row places it on the current section's floor, clicking
+ * a placed row selects it and opens the inspector. Tests read the resulting
+ * geometry back from the API rather than predicting pixels.
  */
-
-// Mirrors restaunax-frontend's floorGeometry.ts constants — the floor canvas
-// is a fixed logical 2000x1200 stage regardless of viewport.
-const CANVAS_WIDTH = 2000;
-const CANVAS_HEIGHT = 1200;
-const ZOOM_MIN = 0.2;
-const ZOOM_MAX = 3;
-const FIT_PADDING = 48;
-
-const computeFitScale = (containerWidth: number, containerHeight: number) => {
-  if (containerWidth <= 0 || containerHeight <= 0) return 1;
-  const scaleX = (containerWidth - FIT_PADDING * 2) / CANVAS_WIDTH;
-  const scaleY = (containerHeight - FIT_PADDING * 2) / CANVAS_HEIGHT;
-  const scale = Math.min(scaleX, scaleY);
-  return Math.min(Math.max(scale, ZOOM_MIN), ZOOM_MAX);
-};
-
-const centerStagePosition = (
-  containerWidth: number,
-  containerHeight: number,
-  scale: number
-) => ({
-  x: (containerWidth - CANVAS_WIDTH * scale) / 2,
-  y: (containerHeight - CANVAS_HEIGHT * scale) / 2,
-});
 
 export const createOwnerTablesFloorPage = (page: Page) => {
   const mgmtPage = createOwnerRestaurantManagementPage(page);
@@ -265,118 +241,51 @@ export const createOwnerTablesFloorPage = (page: Page) => {
   const floorCanvas = () => page.locator("canvas").first();
   const sectionTab = (sectionName: string) =>
     page.getByRole("tab", { name: sectionName, exact: true });
-  const unplacedTrayChip = (name: string) =>
-    page.getByTestId("unplaced-tray-chip").filter({ hasText: name });
-  const saveLayoutButton = () => page.getByTestId("unsaved-changes-save");
+  const tablesBrowserButton = () => page.getByTestId("floor-browser-open");
+  const tablesBrowserRow = (name: string) =>
+    page.getByTestId("floor-browser-row").filter({ hasText: name });
+  // FloorSaveControl — shown only while the layout has unsaved changes.
+  const saveLayoutButton = () =>
+    page.getByRole("button", { name: "Save layout", exact: true });
 
   const floorTableNameInput = () => page.locator("#floor-table-name");
   const floorTableCapacityInput = () => page.locator("#floor-table-capacity");
   const floorTableBookableSwitch = () => page.locator("#floor-table-bookable");
   const floorDetailsSaveButton = () => page.getByTestId("floor-details-save");
-  const floorSelectionEmpty = () =>
-    page.getByText("Select a table on the floor to edit its details.");
 
-  /** Screen (viewport) coordinates for a point in the floor canvas's own
-   * 2000x1200 logical coordinate space, given the canvas element's CURRENT
-   * bounding box — reimplements FloorCanvas's fit-to-screen transform. */
-  const canvasPointToScreen = async (cx: number, cy: number) => {
-    const box = await floorCanvas().boundingBox();
-    if (!box)
-      throw new Error("[OwnerTablesFloorPage] floor canvas not visible");
-    const scale = computeFitScale(box.width, box.height);
-    const view = centerStagePosition(box.width, box.height, scale);
-    return { x: box.x + view.x + cx * scale, y: box.y + view.y + cy * scale };
+  // Add panel presets: floor-preset-<id> (square2, round2, rect4, round4,
+  // rect6, round6, rect8, round8 — floorPresets.ts). A click creates the
+  // table on the server and places it locally (unsaved).
+  const presetTile = (presetId: string) =>
+    page.getByTestId(`floor-preset-${presetId}`);
+  // Toolbar — the labels carry the platform's key combo ("Undo (Ctrl+Z)").
+  const undoButton = () => page.getByRole("button", { name: /^Undo\b/ });
+  const redoButton = () => page.getByRole("button", { name: /^Redo\b/ });
+  const discardLayoutButton = () =>
+    page.getByRole("button", { name: "Discard changes", exact: true });
+  const shortcutsButton = () =>
+    page.getByRole("button", { name: "Keyboard shortcuts", exact: true });
+  const shortcutsDialog = () =>
+    page.getByRole("dialog").filter({ hasText: "Floor editor shortcuts" });
+  // Canvas empty state for a section with no placed tables.
+  const floorEmptyState = () => page.getByTestId("floor-empty-state");
+  const floorEmptyPrimaryButton = () => page.getByTestId("floor-empty-primary");
+
+  /** Opens the "All tables" browser (if it isn't already) and returns the
+   * row for `name`. The popper closes itself after every pick. */
+  const openTablesBrowserRow = async (name: string) => {
+    const row = tablesBrowserRow(name);
+    if (!(await row.isVisible())) await tablesBrowserButton().click();
+    await row.waitFor({ state: "visible", timeout: 10_000 });
+    return row;
   };
 
-  /**
-   * Places an unplaced table from the tray onto the canvas via a real
-   * mouse-driven HTML5 drag (mousedown on the chip, moved onto the canvas at
-   * `targetCanvasPoint`, mouseup) — the chip is native `draggable`, so
-   * Chromium's own drag-threshold detection fires `dragstart`/`dragover`/
-   * `drop` from plain mouse events. Falls back to a plain click on the chip
-   * (also a first-class, code-supported placement path — see UnplacedTray.tsx
-   * — landing at the deterministic cascade position) if the drag doesn't
-   * register within a short window. Returns which path actually ran and the
-   * canvas-space point the table should now sit at (top-left corner), so the
-   * caller can assert exact geometry via the API.
-   */
-  const placeTableFromTray = async (
-    name: string,
-    targetCanvasPoint: { x: number; y: number },
-    tableWidthHeight: { width: number; height: number }
-  ): Promise<{
-    method: "drag" | "click";
-    expected: { x: number; y: number };
-  }> => {
-    const chip = unplacedTrayChip(name);
-    await chip.waitFor({ state: "visible", timeout: 10_000 });
-    const chipBox = await chip.boundingBox();
-    if (!chipBox)
-      throw new Error(`[OwnerTablesFloorPage] tray chip "${name}" not visible`);
-    const start = {
-      x: chipBox.x + chipBox.width / 2,
-      y: chipBox.y + chipBox.height / 2,
-    };
-    const target = await canvasPointToScreen(
-      targetCanvasPoint.x,
-      targetCanvasPoint.y
-    );
-
-    await page.mouse.move(start.x, start.y);
-    await page.mouse.down();
-    // Small intermediate move past Chromium's drag threshold before the long
-    // move onto the canvas — a single big jump can be swallowed as a plain
-    // click instead of a drag.
-    await page.mouse.move(start.x + 10, start.y + 10, { steps: 3 });
-    await page.mouse.move(target.x, target.y, { steps: 10 });
-    await page.mouse.up();
-
-    const dragWorked = await chip
-      .waitFor({ state: "hidden", timeout: 3_000 })
-      .then(() => true)
-      .catch(() => false);
-    if (!dragWorked) {
-      // Observed consistently (headless AND headed) against live QA: CDP's
-      // synthetic mouse events don't initiate Chromium's native HTML5 drag
-      // negotiation (no `dragstart` fires) for a plain `draggable` element —
-      // a Playwright/CDP limitation, not a portal bug. Falling back to the
-      // click-to-place path, which is equally first-class per UnplacedTray.tsx.
-      console.warn(
-        `[placeTableFromTray] native drag did not register for "${name}" — falling back to click-to-place.`
-      );
-    }
-
-    if (dragWorked) {
-      return {
-        method: "drag",
-        expected: {
-          x: targetCanvasPoint.x - tableWidthHeight.width / 2,
-          y: targetCanvasPoint.y - tableWidthHeight.height / 2,
-        },
-      };
-    }
-
-    // Fall back to the click-to-place path — deterministic cascade position
-    // (cascadePosition(0, size) === {x:80, y:80} for the first table placed
-    // in an otherwise-empty section canvas).
-    await chip.click();
-    await chip.waitFor({ state: "hidden", timeout: 5_000 });
-    return { method: "click", expected: { x: 80, y: 80 } };
-  };
-
-  /** Clicks the floor canvas at the screen position of a table's known
-   * (server) top-left geometry + size, selecting it in TableEditPanel. */
-  const selectPlacedTable = async (geometry: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  }) => {
-    const center = await canvasPointToScreen(
-      geometry.x + geometry.width / 2,
-      geometry.y + geometry.height / 2
-    );
-    await page.mouse.click(center.x, center.y);
+  /** Clicks a table in the "All tables" browser: an unplaced table of this
+   * section is placed on the floor (free spot near the view centre) and
+   * selected; a placed one is selected. Either way the inspector opens. */
+  const pickTableInBrowser = async (name: string) => {
+    await (await openTablesBrowserRow(name)).click();
+    await expect(floorTableNameInput()).toHaveValue(name, { timeout: 10_000 });
   };
 
   // ── Snackbars ──────────────────────────────────────────────────────────────
@@ -425,16 +334,23 @@ export const createOwnerTablesFloorPage = (page: Page) => {
     deleteTableViaMenu,
     floorCanvas,
     sectionTab,
-    unplacedTrayChip,
+    tablesBrowserButton,
+    tablesBrowserRow,
+    presetTile,
+    undoButton,
+    redoButton,
+    discardLayoutButton,
+    shortcutsButton,
+    shortcutsDialog,
+    floorEmptyState,
+    floorEmptyPrimaryButton,
+    openTablesBrowserRow,
+    pickTableInBrowser,
     saveLayoutButton,
     floorTableNameInput,
     floorTableCapacityInput,
     floorTableBookableSwitch,
     floorDetailsSaveButton,
-    floorSelectionEmpty,
-    canvasPointToScreen,
-    placeTableFromTray,
-    selectPlacedTable,
     snackbar,
   };
 };
