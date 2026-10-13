@@ -3572,6 +3572,39 @@ export function listReservationServicePeriodsOwnerRaw(
   );
 }
 
+/** GET /restaurant/:rid/reservation-service-periods/suggested — booking
+ *  windows suggested from the restaurant's business hours (2026-10-08).
+ *  Data: {hasBusinessHours, windows: [{dayOfWeek, startTime, endTime}],
+ *  skipped: [{dayOfWeek, reason: "CLOSED"|"OPEN_24_HOURS"|"TOO_SHORT"}]}. */
+export function suggestReservationServicePeriodsOwnerRaw(
+  ownerToken: string,
+  restaurantId: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "GET",
+    `/restaurant/${restaurantId}/reservation-service-periods/suggested`,
+    undefined,
+    ownerToken
+  );
+}
+
+/** POST /restaurant/:rid/reservation-service-periods/bulk {periods: [...]}
+ *  — 1..50 periods in one all-or-nothing transaction (400
+ *  RESERVATION_PERIOD_BATCH_INVALID for an empty/oversized batch). 201;
+ *  data: the created periods. */
+export function createReservationServicePeriodsBulkOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  periods: Record<string, unknown>[]
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/restaurant/${restaurantId}/reservation-service-periods/bulk`,
+    { periods },
+    ownerToken
+  );
+}
+
 /** POST /restaurant/:rid/reservation-service-periods {name, dayOfWeek,
  *  startTime, endTime, slotIntervalMinutes, maxCoversPerSlot?,
  *  maxPartiesPerSlot?, minPartySize?, maxPartySize?, isActive?} */
@@ -4341,6 +4374,217 @@ export function seatReservationTabletRaw(
   );
 }
 
+/** POST /api/tablet/reservations/:id/tables {tableIds} — manually HOLD a
+ *  table for an upcoming booking (2026-10-12). Holds open at
+ *  scheduledAt − reservedSoonLeadMinutes (earlier → 409
+ *  RESERVATION_HOLD_TOO_EARLY); `tableIds: []` releases and is always
+ *  allowed. Data: {tables}. */
+export function holdReservationTablesTabletRaw(
+  tabletToken: string,
+  staffSession: string,
+  reservationId: string,
+  tableIds: string[]
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/tablet/reservations/${reservationId}/tables`,
+    { tableIds },
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** PATCH /api/tablet/reservations/:id {guestName?, guestPhone?, partySize?,
+ *  scheduledAt?, guestNotes?, internalNotes?} — the host stand edits a
+ *  booking that hasn't arrived (BOOKED/CONFIRMED RESERVATION only, else 409
+ *  RESERVATION_NOT_EDITABLE). A move into the past → 400
+ *  RESERVATION_IN_PAST; moving the time releases a held table (2026-10-12).
+ *  Data: the serialized reservation. */
+export function updateReservationTabletRaw(
+  tabletToken: string,
+  staffSession: string,
+  reservationId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "PATCH",
+    `/api/tablet/reservations/${reservationId}`,
+    body,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** POST /api/tablet/orders/:orderId/tab/check-presented — the guest check
+ *  printed; stamps Order.checkPresentedAt on the FIRST call only (a reprint
+ *  answers the original stamp). Data: {checkPresentedAt}. */
+export function markCheckPresentedTabletRaw(
+  tabletToken: string,
+  staffSession: string,
+  orderId: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/tablet/orders/${orderId}/tab/check-presented`,
+    undefined,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** GET /api/tablet/waitlist/quote?partySize= — advisory wait quote. Data:
+ *  {quotedMinutes, lowMinutes, highMinutes, partiesAhead, fittingTables,
+ *  expectedTableName, reason: "LIVE"|"NO_TABLE_FITS"|"JOIN_TABLES",
+ *  joinTableIds?}. */
+export function getWaitlistQuoteTabletRaw(
+  tabletToken: string,
+  staffSession: string,
+  partySize: number
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/tablet/waitlist/quote${toQuery({ partySize })}`,
+    undefined,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** GET /restaurant/:rid/reservation-turn-times/insights?days=7|30|90 — the
+ *  dashboard's turn insights (any other `days` falls back to 30). Data:
+ *  {days, totalTurns, clearedManually, clearedAutomatically,
+ *  clearedBySeating, stillOpen, bands[], waitlist{...}, bookingSources}. */
+export function getTurnInsightsOwnerRaw(
+  ownerToken: string,
+  restaurantId: string,
+  days?: number
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "GET",
+    `/restaurant/${restaurantId}/reservation-turn-times/insights${toQuery({ days })}`,
+    undefined,
+    ownerToken
+  );
+}
+
+/** POST /api/tablet/tables/:tableId/seat {guestCount} — seat a walk-in
+ *  party before any order (the table reads SEATED). Data: {tableId,
+ *  tableName, guestCount, seatedAt}. */
+export function seatWalkInTabletRaw(
+  tabletToken: string,
+  staffSession: string,
+  tableId: string,
+  guestCount: number
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/tablet/tables/${tableId}/seat`,
+    { guestCount },
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** POST /api/tablet/tables/:tableId/unseat — the walk-in party left before
+ *  ordering. Idempotent. Data: {tableId, reservationId}. */
+export function unseatWalkInTabletRaw(
+  tabletToken: string,
+  staffSession: string,
+  tableId: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/tablet/tables/${tableId}/unseat`,
+    undefined,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** POST /api/tablet/tables/seat-party {tableIds, guestCount, guestName?,
+ *  guestPhone?, guestNotes?, clientRequestId?} — seat a walk-in party across
+ *  joined tables. 201 (200 on replay); data: the party's reservation row +
+ *  `prefill`. */
+export function seatPartyTabletRaw(
+  tabletToken: string,
+  staffSession: string,
+  body: { tableIds: string[]; guestCount: number } & Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    "/api/tablet/tables/seat-party",
+    body,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** GET /api/tablet/tables/join-suggestions?partySize=&purpose=seat|hold
+ *  &tableId= — tables to push together for a big party. Data:
+ *  {suggestions: [{tableIds, tableNames, totalCapacity, source:
+ *  "SAVED"|"ADJACENT", combinationName?}]}. */
+export function getJoinSuggestionsTabletRaw(
+  tabletToken: string,
+  staffSession: string,
+  query: { partySize: number; purpose?: "seat" | "hold"; tableId?: string }
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/tablet/tables/join-suggestions${toQuery(query)}`,
+    undefined,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
+/** PUT /api/owner-app/me/push-token {token, platform?, locale?} — the Owner
+ *  app registers its device for push (arrival alerts, 2026-10-12). Any
+ *  signed-in user; 400 OWNER_APP_FAILED without a token. Pass `null` as the
+ *  access token to probe the unauthenticated refusal. */
+export function putOwnerPushTokenRaw(
+  accessToken: string | null,
+  body: Record<string, unknown>
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "PUT",
+    "/api/owner-app/me/push-token",
+    body,
+    accessToken ?? undefined
+  );
+}
+
+/** DELETE /api/owner-app/me/push-token {token} — sign-out on this device.
+ *  Idempotent (deleteMany scoped to the caller). */
+export function deleteOwnerPushTokenRaw(
+  accessToken: string,
+  token: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "DELETE",
+    "/api/owner-app/me/push-token",
+    { token },
+    accessToken
+  );
+}
+
+/** POST /api/tablet/reservations/:id/tables/keep — the host answers "keep
+ *  holding" past the late mark; stamps Reservation.tableHoldKeptAt
+ *  (409 RESERVATION_NOT_HOLDING when it holds nothing). Data:
+ *  {tableHoldKeptAt}. */
+export function keepReservationHoldTabletRaw(
+  tabletToken: string,
+  staffSession: string,
+  reservationId: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/tablet/reservations/${reservationId}/tables/keep`,
+    undefined,
+    tabletToken,
+    staffHeaders(staffSession)
+  );
+}
+
 // ── Public reservations (no auth) ────────────────────────────────────────────
 
 /** GET /api/public/restaurants/:rid/reservation-availability?date=&partySize=
@@ -4356,6 +4600,22 @@ export function getPublicAvailabilityRaw(
       date,
       partySize,
     })}`,
+    undefined
+  );
+}
+
+/** GET /api/public/restaurants/:rid/reservation-availability/days?from=&to=
+ *  &partySize= — the booking widget's date strip (2026-10): restaurant-local
+ *  dates, inclusive, at most 31 days. Data: {today, lastBookableDate, days:
+ *  [{date, status: available|closed|no_service|party_out_of_range|full|
+ *  passed|outside_window}]}. */
+export function getPublicAvailabilityDaysRaw(
+  restaurantId: string,
+  query: { from: string; to: string; partySize: number }
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/public/restaurants/${restaurantId}/reservation-availability/days${toQuery(query)}`,
     undefined
   );
 }

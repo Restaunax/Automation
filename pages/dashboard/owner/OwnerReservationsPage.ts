@@ -83,6 +83,8 @@ export const createOwnerReservationsPage = (page: Page) => {
       | "minNoticeMinutes"
       | "advanceBookingDays"
       | "maxOpenReservationsPerPhone"
+      | "autoClearMinutes"
+      | "doubleSeatWarnMinutes"
   ) => page.locator(`#reservation-settings-${key}`);
   const saveSettingsButton = () => page.getByTestId("unsaved-changes-save");
 
@@ -331,10 +333,66 @@ export const createOwnerReservationsPage = (page: Page) => {
   };
 
   // ── Snackbars ──────────────────────────────────────────────────────────────
+  // ── Booking hours from business hours (2026-10-08) ─────────────────────────
+  // The "Use my business hours" button only renders while the restaurant has
+  // NO booking windows yet (ServicePeriodsPanel's empty state).
+  const useBusinessHoursButton = () =>
+    page.getByTestId("booking-hours-use-business-hours");
+  const suggestionTable = () => page.getByTestId("booking-hours-suggestion");
+  /** One day's row in the suggestion table, by full day name ("Monday"). */
+  const suggestionRow = (dayName: string) =>
+    suggestionTable()
+      .getByRole("row")
+      .filter({ has: page.getByRole("cell", { name: dayName, exact: true }) });
+  const suggestNameInput = () => page.locator("#suggest-name");
+  const suggestMaxPartiesInput = () => page.locator("#suggest-max-parties");
+  const suggestSaveButton = () =>
+    page.getByTestId("booking-hours-suggest-save");
+  /** The form's advisory "outside your business hours" alert. */
+  const periodHoursWarning = () =>
+    page.getByTestId("period-form-hours-warning");
+
+  // ── After a check is paid (2026-10-07) ─────────────────────────────────────
+  /** A policy radio, by the start of its visible label (the accessible name
+   *  also carries the help text). */
+  const afterPaymentRadio = (labelStart: string) =>
+    page.getByRole("radio", {
+      name: new RegExp(`^${escapeRegExp(labelStart)}`),
+    });
+
+  // ── Insights sub-tab ───────────────────────────────────────────────────────
+  const insightsSubTab = () =>
+    page.getByRole("tab", { name: "Insights", exact: true });
+  const insightsHeading = () =>
+    page.getByRole("heading", { name: "How your tables turn" });
+  const insightsRangeButton = (days: 7 | 30 | 90) =>
+    page.getByRole("button", { name: `Last ${days} days`, exact: true });
+  const bookingSourcesBlock = () => page.getByTestId("booking-sources");
+
+  const gotoInsightsSubTab = async (restaurantId: string) => {
+    await gotoTab(restaurantId);
+    await assertLoaded();
+    await insightsSubTab().click();
+    await insightsHeading().waitFor({ state: "visible", timeout: 10_000 });
+  };
+
   const snackbar = (text: string | RegExp) =>
     page.getByRole("alert").filter({ hasText: text });
 
   return {
+    useBusinessHoursButton,
+    suggestionTable,
+    suggestionRow,
+    suggestNameInput,
+    suggestMaxPartiesInput,
+    suggestSaveButton,
+    periodHoursWarning,
+    afterPaymentRadio,
+    insightsSubTab,
+    insightsHeading,
+    insightsRangeButton,
+    bookingSourcesBlock,
+    gotoInsightsSubTab,
     gotoTab,
     assertLoaded,
     bookingsSubTab,
@@ -411,3 +469,5 @@ export const createOwnerReservationsPage = (page: Page) => {
 export type OwnerReservationsPage = ReturnType<
   typeof createOwnerReservationsPage
 >;
+
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

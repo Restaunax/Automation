@@ -52,6 +52,11 @@ import {
   createReservationDateOverrideOwnerRaw,
   deleteReservationDateOverrideOwnerRaw,
   createReservationOwnerRaw,
+  suggestReservationServicePeriodsOwnerRaw,
+  createReservationServicePeriodsBulkOwnerRaw,
+  getBusinessHoursRaw,
+  setBusinessHoursApi,
+  type BusinessHoursRow,
 } from "../../utils/apiHelper";
 
 const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
@@ -552,5 +557,215 @@ test.describe("POS — Reservation Configuration (settings, periods, turn times,
     });
     expect(second.status, msg(second.data)).toBe(201);
     expect(unwrap(second).pacingExceeded).toBe(true);
+  });
+  // ── Booking hours vs business hours (2026-10-08) ────────────────────────
+
+  /** Mon 11–22, Tue 11–12 (shorter than a 90-min turn), Wed closed, Thu 24h,
+   *  Fri 17:00–01:00 (overnight); Sat/Sun have no row (= closed). */
+  const BOOKING_TEST_HOURS: BusinessHoursRow[] = [
+    {
+      day: "MONDAY",
+      openingTime: "11:00:00",
+      closingTime: "22:00:00",
+      isClosed: false,
+      is24Hours: false,
+    },
+    {
+      day: "TUESDAY",
+      openingTime: "11:00:00",
+      closingTime: "12:00:00",
+      isClosed: false,
+      is24Hours: false,
+    },
+    {
+      day: "WEDNESDAY",
+      openingTime: null,
+      closingTime: null,
+      isClosed: true,
+      is24Hours: false,
+    },
+    {
+      day: "THURSDAY",
+      openingTime: null,
+      closingTime: null,
+      isClosed: false,
+      is24Hours: true,
+    },
+    {
+      day: "FRIDAY",
+      openingTime: "17:00:00",
+      closingTime: "01:00:00",
+      isClosed: false,
+      is24Hours: false,
+    },
+  ];
+
+  /** Run `body` with BOOKING_TEST_HOURS on the tenant, restoring its rows. */
+  const withBookingTestHours = async (body: () => Promise<void>) => {
+    const original =
+      (await getBusinessHoursRaw(token, restaurantId)).data.businessHours ?? [];
+    await setBusinessHoursApi(token, restaurantId, BOOKING_TEST_HOURS);
+    try {
+      await body();
+    } finally {
+      await setBusinessHoursApi(
+        await freshOwnerToken(),
+        restaurantId,
+        original
+      );
+    }
+  };
+
+  test("TC-739: suggested booking hours — one window per open day from opening to closing; closed, 24-hour and too-short days are skipped with a reason", async () => {
+    await allure.description(
+      "GET .../reservation-service-periods/suggested with no business " +
+        "hours → hasBusinessHours:false and no windows. With the test week " +
+        "(and defaultDurationMinutes 90): Monday 11:00–22:00 and Friday " +
+        "17:00–23:59 (an overnight close is capped at 23:59); skipped: " +
+        "Sun/Wed/Sat CLOSED, Tue TOO_SHORT (1 h < 90 min), Thu OPEN_24_HOURS."
+    );
+    const put = await putReservationSettingsOwnerRaw(token, restaurantId, {
+      defaultDurationMinutes: 90,
+    });
+    expect(put.status, msg(put.data)).toBe(200);
+
+    const original =
+      (await getBusinessHoursRaw(token, restaurantId)).data.businessHours ?? [];
+    if (original.length === 0) {
+      const none = await suggestReservationServicePeriodsOwnerRaw(
+        token,
+        restaurantId
+      );
+      expect(none.status, msg(none.data)).toBe(200);
+      expect(unwrap(none).hasBusinessHours).toBe(false);
+      expect(unwrap(none).windows).toEqual([]);
+    }
+
+    await withBookingTestHours(async () => {
+      const res = await suggestReservationServicePeriodsOwnerRaw(
+        token,
+        restaurantId
+      );
+      expect(res.status, msg(res.data)).toBe(200);
+      const suggestion = unwrap(res);
+      expect(suggestion.hasBusinessHours).toBe(true);
+      expect(suggestion.windows).toEqual([
+        { dayOfWeek: 1, startTime: "11:00", endTime: "22:00" },
+        { dayOfWeek: 5, startTime: "17:00", endTime: "23:59" },
+      ]);
+      expect(suggestion.skipped).toEqual([
+        { dayOfWeek: 0, reason: "CLOSED" },
+        { dayOfWeek: 2, reason: "TOO_SHORT" },
+        { dayOfWeek: 3, reason: "CLOSED" },
+        { dayOfWeek: 4, reason: "OPEN_24_HOURS" },
+        { dayOfWeek: 6, reason: "CLOSED" },
+      ]);
+    });
+  });
+
+  test("TC-740: bulk create — several days in one save; an empty batch 400; a duplicate anywhere in the batch refuses the whole batch", async () => {
+    await allure.description(
+      "POST .../reservation-service-periods/bulk {periods} creates Tue/Wed/" +
+        "Thu 'Dinner' windows in one transaction (201, 3 rows, listed " +
+        "after). `periods: []` → 400 RESERVATION_PERIOD_BATCH_INVALID. A " +
+        "batch of a NEW window plus one identical to a saved row → 409 " +
+        "RESERVATION_PERIOD_DUPLICATE and the new window is NOT created " +
+        "(all-or-nothing)."
+    );
+    const dinner = (dayOfWeek: number, name = `Dinner ${runId}`) => ({
+      name,
+      dayOfWeek,
+      startTime: "17:30",
+      endTime: "21:30",
+      slotIntervalMinutes: 15,
+      maxPartiesPerSlot: 3,
+    });
+
+    const created = await createReservationServicePeriodsBulkOwnerRaw(
+      token,
+      restaurantId,
+      [dinner(2), dinner(3), dinner(4)]
+    );
+    expect(created.status, msg(created.data)).toBe(201);
+    const rows = unwrap(created) as { id: string; dayOfWeek: number }[];
+    expect(rows.map((r) => r.dayOfWeek).sort()).toEqual([2, 3, 4]);
+
+    const empty = await createReservationServicePeriodsBulkOwnerRaw(
+      token,
+      restaurantId,
+      []
+    );
+    expect(empty.status, msg(empty.data)).toBe(400);
+    expect(errorCode(empty.data)).toBe("RESERVATION_PERIOD_BATCH_INVALID");
+
+    const lateName = `Late Dinner ${runId}`;
+    const mixed = await createReservationServicePeriodsBulkOwnerRaw(
+      token,
+      restaurantId,
+      [
+        { ...dinner(5, lateName), startTime: "21:00", endTime: "23:00" },
+        dinner(2),
+      ]
+    );
+    expect(mixed.status, msg(mixed.data)).toBe(409);
+    expect(errorCode(mixed.data)).toBe("RESERVATION_PERIOD_DUPLICATE");
+
+    const list = unwrap(
+      await listReservationServicePeriodsOwnerRaw(token, restaurantId)
+    ) as { name: string }[];
+    expect(list.filter((p) => p.name === `Dinner ${runId}`)).toHaveLength(3);
+    expect(list.some((p) => p.name === lateName)).toBe(false);
+  });
+
+  test("TC-741: listed periods carry hoursConflict — CLOSED_DAY on a closed day, OUTSIDE_HOURS past closing, null inside hours or on a 24-hour day", async () => {
+    await allure.description(
+      "With the test week, GET .../reservation-service-periods marks each " +
+        "row: TC-740's Wednesday dinner (closed day) → CLOSED_DAY; its " +
+        "Thursday dinner (24-hour day) → null; a Monday 12:00–21:00 window " +
+        "→ null; a Monday 20:00–23:30 window (closes 22:00) → " +
+        "OUTSIDE_HOURS. A warning only — every row saved (201)."
+    );
+    const inside = await createReservationServicePeriodOwnerRaw(
+      token,
+      restaurantId,
+      {
+        name: `Mon Inside ${runId}`,
+        dayOfWeek: 1,
+        startTime: "12:00",
+        endTime: "21:00",
+      }
+    );
+    expect(inside.status, msg(inside.data)).toBe(201);
+    const outside = await createReservationServicePeriodOwnerRaw(
+      token,
+      restaurantId,
+      {
+        name: `Mon Late ${runId}`,
+        dayOfWeek: 1,
+        startTime: "20:00",
+        endTime: "23:30",
+      }
+    );
+    expect(outside.status, msg(outside.data)).toBe(201);
+
+    await withBookingTestHours(async () => {
+      const list = unwrap(
+        await listReservationServicePeriodsOwnerRaw(token, restaurantId)
+      ) as {
+        name: string;
+        dayOfWeek: number;
+        hoursConflict: string | null;
+      }[];
+      const find = (name: string, dayOfWeek?: number) =>
+        list.find(
+          (p) =>
+            p.name === name &&
+            (dayOfWeek === undefined || p.dayOfWeek === dayOfWeek)
+        );
+      expect(find(`Dinner ${runId}`, 3)?.hoursConflict).toBe("CLOSED_DAY");
+      expect(find(`Dinner ${runId}`, 4)?.hoursConflict ?? null).toBeNull();
+      expect(find(`Mon Inside ${runId}`)?.hoursConflict ?? null).toBeNull();
+      expect(find(`Mon Late ${runId}`)?.hoursConflict).toBe("OUTSIDE_HOURS");
+    });
   });
 });

@@ -73,6 +73,9 @@ import {
   setRestaurantPublishedApi,
   type TabletDevice,
   type ApiMenuItem,
+  getPublicAvailabilityDaysRaw,
+  listReservationsOwnerRaw,
+  getTurnInsightsOwnerRaw,
 } from "../../utils/apiHelper";
 
 const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
@@ -585,5 +588,117 @@ test.describe("POS — Waitlist & Public Reservation Booking", () => {
         console.warn("[TC-425] could not restore onlineBookingEnabled:", err)
       );
     }
+  });
+  // ── Date strip + booking source (2026-10) ───────────────────────────────
+
+  test("TC-742: date strip — available on the booking-window weekday, closed on the override, no_service on other weekdays, passed in the past", async () => {
+    await allure.description(
+      "GET .../reservation-availability/days?from=availDate&to=closedDate" +
+        "&partySize=2 → one entry per date in order (8 days): availDate " +
+        "'available', closedDate 'closed' (TC-420's override), every other " +
+        "weekday 'no_service' (the only period is availDate's weekday). " +
+        "`today` and `lastBookableDate` are YYYY-MM-DD. Two and three days " +
+        "ago → 'passed' (a past date is passed even with no service)."
+    );
+    const res = await getPublicAvailabilityDaysRaw(restaurantId, {
+      from: availDate,
+      to: closedDate,
+      partySize: 2,
+    });
+    expect(res.status, msg(res.data)).toBe(200);
+    const strip = unwrap(res);
+    expect(strip.today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(strip.lastBookableDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    const days = strip.days as { date: string; status: string }[];
+    expect(days.map((d) => d.date)).toEqual(
+      Array.from({ length: 8 }, (_, i) => addDaysISO(3 + i))
+    );
+    for (const day of days) {
+      const expected =
+        day.date === availDate
+          ? "available"
+          : day.date === closedDate
+            ? "closed"
+            : "no_service";
+      expect(day.status, day.date).toBe(expected);
+    }
+
+    const past = await getPublicAvailabilityDaysRaw(restaurantId, {
+      from: addDaysISO(-3),
+      to: addDaysISO(-2),
+      partySize: 2,
+    });
+    expect(past.status, msg(past.data)).toBe(200);
+    for (const day of unwrap(past).days as { status: string }[])
+      expect(day.status).toBe("passed");
+  });
+
+  test("TC-743: date strip validation — to before from, more than 31 days, an impossible date and party size 0 are all 400", async () => {
+    await allure.description(
+      "Every malformed query → 400 SYSTEM_VALIDATION_ERROR: to < from, a " +
+        "32-day range (max 31), 2026-02-30, and partySize 0. A 31-day range " +
+        "is fine (200, 31 entries)."
+    );
+    const bad = [
+      { from: closedDate, to: availDate, partySize: 2 },
+      { from: addDaysISO(1), to: addDaysISO(32), partySize: 2 },
+      { from: "2026-02-30", to: "2026-03-02", partySize: 2 },
+      { from: availDate, to: closedDate, partySize: 0 },
+    ];
+    for (const query of bad) {
+      const res = await getPublicAvailabilityDaysRaw(restaurantId, query);
+      expect(res.status, JSON.stringify(query)).toBe(400);
+      expect(errorCode(res.data)).toBe("SYSTEM_VALIDATION_ERROR");
+    }
+    const max = await getPublicAvailabilityDaysRaw(restaurantId, {
+      from: addDaysISO(1),
+      to: addDaysISO(31),
+      partySize: 2,
+    });
+    expect(max.status, msg(max.data)).toBe(200);
+    expect((unwrap(max).days as unknown[]).length).toBe(31);
+  });
+
+  test("TC-744: booking source — the customer app's MOBILE is recorded, anything else from a public booking lands as WEB, and insights count them", async () => {
+    await allure.description(
+      "Public create with `source: 'MOBILE'` → the owner's list shows " +
+        "source MOBILE; with `source: 'PHONE'` (staff-only, never accepted " +
+        "publicly) → WEB; with no source → WEB. The owner's turn insights " +
+        "`bookingSources` count MOBILE ≥ 1 and WEB ≥ 2."
+    );
+    const cases = [
+      { label: "Mobile", source: "MOBILE", expected: "MOBILE" },
+      { label: "Spoofed", source: "PHONE", expected: "WEB" },
+      { label: "Website", source: undefined, expected: "WEB" },
+    ];
+    for (const c of cases) {
+      const created = await createPublicReservationRaw(restaurantId, {
+        guestName: `Source ${c.label} ${runId}`,
+        guestPhone: nextGuestPhone(),
+        partySize: 2,
+        scheduledAt: await freshSlot(availDate),
+        ...(c.source ? { source: c.source } : {}),
+      });
+      expect(created.status, msg(created.data)).toBe(201);
+    }
+
+    const list = await listReservationsOwnerRaw(token, restaurantId, {
+      date: availDate,
+    });
+    expect(list.status, msg(list.data)).toBe(200);
+    const rows = unwrap(list) as { guestName: string; source: string }[];
+    for (const c of cases) {
+      const row = rows.find(
+        (r) => r.guestName === `Source ${c.label} ${runId}`
+      );
+      expect(row, `${c.label} booking should be listed`).toBeTruthy();
+      expect(row!.source, c.label).toBe(c.expected);
+    }
+
+    const insights = await getTurnInsightsOwnerRaw(token, restaurantId, 7);
+    expect(insights.status, msg(insights.data)).toBe(200);
+    const sources = unwrap(insights).bookingSources;
+    expect(sources.MOBILE).toBeGreaterThanOrEqual(1);
+    expect(sources.WEB).toBeGreaterThanOrEqual(2);
   });
 });

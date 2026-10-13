@@ -83,6 +83,17 @@ export const generateSeedPhone = () =>
     .padStart(6, "0")}`;
 export const generateSeedSurname = (runId: string) => `Seed${runId}`;
 
+/**
+ * Run-unique, NANP-valid guest phone for reservation specs: "555" + a
+ * 3-digit run fragment + a 4-digit per-call sequence. The fragment is kept in
+ * 200..999 because the exchange (digit[3]) must be 2-9 — the backend's
+ * normalizeGuestPhone (public booking, 2026-10-07) refuses "555 0xx…"/"555
+ * 1xx…" as RESERVATION_PHONE_REQUIRED. Unique per call so the SMS throttle
+ * and the per-phone open-reservations cap never trip across tests.
+ */
+export const generateGuestPhone = (runId: string, seq: number) =>
+  `555${200 + (parseInt(runId.slice(0, 4), 16) % 800)}${String(seq).padStart(4, "0")}`;
+
 // Coupon codes created by automation. The shared prefix is the sweep marker
 // globalTeardown uses to delete this run's coupons AND leftovers from
 // interrupted runs — see apiHelper.deleteAutomationCoupons.
