@@ -20,15 +20,11 @@
  * mirroring how 04-floor-tables.spec.ts (POS/API level) shares state across
  * its tests.
  *
- * Konva canvas (TC-436): outcomes are asserted via the owner API
- * (`listTablesOwnerRaw`), never pixels/screenshots. `placeTableFromTray`
- * (OwnerTablesFloorPage.ts) attempts a REAL mouse-driven HTML5 drag from the
- * Unplaced tray onto the canvas first (the tray chip is native `draggable`,
- * and Chromium's own drag-threshold detection fires off plain mouse events),
- * falling back to a plain click on the chip — also a first-class,
- * code-supported placement path (UnplacedTray.tsx: "Click a table to place
- * it... or drag it"), landing at the deterministic cascade position — if the
- * drag doesn't visibly register within a few seconds.
+ * Konva canvas (TC-436/437): outcomes are asserted via the owner API
+ * (`listTablesOwnerRaw`), never pixels/screenshots. The reworked editor
+ * zooms and pans (RestauNax 85fbccfc6), so tables are placed and selected
+ * through its own "All tables" browser (`pickTableInBrowser`) — the same
+ * click path an owner uses — not by computed canvas coordinates.
  */
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
@@ -80,7 +76,6 @@ test.describe("Owner — Tables & Floor", () => {
   const table2 = `T2 ${runId}`;
   /** Set once TC-436 places + saves T1's geometry — TC-437 re-selects it
    * after a fresh page load using this. */
-  let t1Geometry = { x: 0, y: 0, width: 0, height: 0 };
 
   test.beforeAll(async ({ browser }) => {
     if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return;
@@ -212,9 +207,11 @@ test.describe("Owner — Tables & Floor", () => {
     await expect(floorPage.tableRow(table1)).toBeVisible({ timeout: 10_000 });
     await expect(floorPage.tableRow(table2)).toBeVisible();
     // TablesListPanel groups by section — its own subtitle heading for the
-    // group repeats the section's name above that section's table.
+    // group repeats the section's name above that section's table. Match the
+    // heading, not bare text: the floor view stays mounted (display:none)
+    // with a section TAB of the same name earlier in the DOM.
     await expect(
-      session.page.getByText(sectionName, { exact: true }).first()
+      session.page.getByRole("heading", { name: sectionName, exact: true })
     ).toBeVisible();
 
     const list = unwrap(await listTablesOwnerRaw(ownerToken, restaurantId)) as {
@@ -228,21 +225,14 @@ test.describe("Owner — Tables & Floor", () => {
 
   // ── Floor editor (Konva canvas) ──────────────────────────────────────────
 
-  test("TC-436: floor editor — place T1 from the Unplaced tray onto the canvas, Save layout, reload → still placed", async () => {
-    await floorPage.gotoTab(restaurantId);
+  test("TC-436: floor editor — place T1 from the All tables browser, Save layout, reload → still placed", async () => {
+    await floorPage.gotoTab(restaurantId, "floor");
     await floorPage.assertLoaded();
     await floorPage.sectionTab(sectionName).click();
-    await expect(floorPage.unplacedTrayChip(table1)).toBeVisible({
-      timeout: 10_000,
-    });
+    await floorPage.openTablesBrowser();
+    await expect(floorPage.browserRowStatus(table1)).toHaveText("Not placed");
 
-    const RECT = { width: 160, height: 100 }; // TableFormSheet default shape = RECTANGLE
-    const placement = await floorPage.placeTableFromTray(
-      table1,
-      { x: 500, y: 300 },
-      RECT
-    );
-    await allure.parameter("placement method", placement.method);
+    await floorPage.pickTableInBrowser(table1);
 
     await expect(floorPage.saveLayoutButton()).toBeVisible({ timeout: 5_000 });
     const [saveRes] = await Promise.all([
@@ -258,7 +248,8 @@ test.describe("Owner — Tables & Floor", () => {
     await session.page.reload({ waitUntil: "domcontentloaded" });
     await floorPage.assertLoaded();
     await floorPage.sectionTab(sectionName).click();
-    await expect(floorPage.unplacedTrayChip(table1)).toHaveCount(0);
+    await floorPage.openTablesBrowser();
+    await expect(floorPage.browserRowStatus(table1)).toHaveText("On floor");
 
     const list = unwrap(await listTablesOwnerRaw(ownerToken, restaurantId)) as {
       tables: Record<string, unknown>[];
@@ -266,30 +257,23 @@ test.describe("Owner — Tables & Floor", () => {
     const row = list.tables.find((t) => t.name === table1) as
       | { geometry?: Record<string, unknown>; shape?: string }
       | undefined;
-    expect(row?.geometry).toEqual({
-      posX: placement.expected.x,
-      posY: placement.expected.y,
-      width: RECT.width,
-      height: RECT.height,
-      rotation: 0,
-    });
+    // Click-to-place lands at the editor's own free spot — assert it was
+    // placed with the RECTANGLE default size (floorGeometry DEFAULT_RECT_SIZE),
+    // not a pixel position.
+    expect(typeof row?.geometry?.posX).toBe("number");
+    expect(typeof row?.geometry?.posY).toBe("number");
+    expect(row?.geometry).toMatchObject({ width: 160, height: 100 });
     expect(row?.shape).toBe("RECTANGLE");
-
-    t1Geometry = {
-      x: placement.expected.x,
-      y: placement.expected.y,
-      width: RECT.width,
-      height: RECT.height,
-    };
   });
 
   test("TC-437: edit panel — select the placed table on a fresh load, change capacity + bookable, Save details; API confirms", async () => {
-    await floorPage.gotoTab(restaurantId);
+    await floorPage.gotoTab(restaurantId, "floor");
     await floorPage.assertLoaded();
     await floorPage.sectionTab(sectionName).click();
     await expect(floorPage.floorCanvas()).toBeVisible({ timeout: 10_000 });
 
-    await floorPage.selectPlacedTable(t1Geometry);
+    // A placed table's browser row selects it into the details panel.
+    await floorPage.pickTableInBrowser(table1);
     await expect(floorPage.floorTableNameInput()).toHaveValue(table1, {
       timeout: 10_000,
     });

@@ -95,7 +95,9 @@ test.describe("Owner — Reservations", () => {
    *  per-phone open-reservations cap (mirrors the pos specs' nextGuestPhone). */
   const nextGuestPhone = (): string => {
     phoneSeq += 1;
-    return `555${String(runFrag).padStart(3, "0")}${String(phoneSeq).padStart(4, "0")}`;
+    // The exchange (digits 4-6) must not start with 0/1 — the backend's
+    // normalizeGuestPhone rejects a non-NANP number as "phone required".
+    return `555${200 + (runFrag % 800)}${String(phoneSeq).padStart(4, "0")}`;
   };
 
   test.beforeAll(async ({ browser }) => {
@@ -231,10 +233,7 @@ test.describe("Owner — Reservations", () => {
     const periodName = `Lunch ${runId}`;
     await reservationsPage.openCreatePeriod();
     await reservationsPage.periodNameInput().fill(periodName);
-    await reservationsPage.selectMuiOption(
-      reservationsPage.periodDaySelect(),
-      "Monday"
-    );
+    await reservationsPage.periodDayChip("Monday").click();
     await reservationsPage.periodStartTimeInput().fill("11:00");
     await reservationsPage.periodEndTimeInput().fill("14:00");
     await reservationsPage.periodMaxPartiesInput().fill("5");
@@ -339,12 +338,16 @@ test.describe("Owner — Reservations", () => {
   test("TC-445: phone-booking dialog — fill party/date+time/name/phone → confirmation code; appears in the day view with the right status chip; cancel updates it", async () => {
     await allure.description(
       "Owner phone bookings are always ADVISORY (mode:'staff') — no min-" +
-        "notice/advance-window enforcement, so any date/time works. Submitting " +
+        "notice/advance-window enforcement, but a time that has already " +
+        "passed is refused, so the list is stepped to TOMORROW first (the " +
+        "dialog prefills the date with the day being viewed). Submitting " +
         "returns a confirmationCode and refreshes the day list (shared " +
         "refresh), so the row is visible without a manual reload; cancelling " +
         "via the row's kebab menu PATCHes status to CANCELLED."
     );
     await reservationsPage.gotoBookingsSubTab(restaurantId);
+    // Today at 18:00 is in the past after 6 PM restaurant time — book tomorrow.
+    await reservationsPage.nextDayButton().click();
     await reservationsPage.addBookingButton().click();
     await expect(reservationsPage.phoneBookingDialog()).toBeVisible({
       timeout: 10_000,
