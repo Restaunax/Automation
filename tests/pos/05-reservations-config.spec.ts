@@ -185,12 +185,14 @@ test.describe("POS — Reservation Configuration (settings, periods, turn times,
     token = await freshOwnerToken();
   });
 
-  test("TC-396: everything 403 before the entitlement — settings GET and service-period POST both refuse", async () => {
+  test("TC-396: before the entitlement, owner reads answer readOnly and every write is 403", async () => {
     await allure.description(
-      "A SECOND throwaway restaurant that never receives TABLE_RESERVATIONS: " +
-        "GET reservation-settings and POST a service period both → 403 " +
-        "RESERVATIONS_NOT_ENABLED. The file's main tenant (granted in " +
-        "beforeAll) is left untouched by this test."
+      "A SECOND throwaway restaurant that never receives TABLE_RESERVATIONS. " +
+        "Since 2026-10-07 owner READS stay open so a lapsed plan can still " +
+        "see its bookings: GET reservation-settings → 200 with the defaults " +
+        "and `readOnly: true`. WRITES are gated: PUT settings and POST a " +
+        "service period both → 403 RESERVATIONS_NOT_ENABLED. The file's main " +
+        "tenant (granted in beforeAll) is left untouched by this test."
     );
     const ungated = await createSecondOwner(adminToken, `${runId}-ungated`);
     if (!ungated.restaurantId)
@@ -201,8 +203,17 @@ test.describe("POS — Reservation Configuration (settings, periods, turn times,
       ungated.accessToken,
       ungated.restaurantId
     );
-    expect(settings.status, msg(settings.data)).toBe(403);
-    expect(errorCode(settings.data)).toBe("RESERVATIONS_NOT_ENABLED");
+    expect(settings.status, msg(settings.data)).toBe(200);
+    expect((settings.data as any).readOnly).toBe(true);
+    expect(unwrap(settings).onlineBookingEnabled).toBe(false);
+
+    const write = await putReservationSettingsOwnerRaw(
+      ungated.accessToken,
+      ungated.restaurantId,
+      { graceMinutes: 20 }
+    );
+    expect(write.status, msg(write.data)).toBe(403);
+    expect(errorCode(write.data)).toBe("RESERVATIONS_NOT_ENABLED");
 
     const period = await createReservationServicePeriodOwnerRaw(
       ungated.accessToken,

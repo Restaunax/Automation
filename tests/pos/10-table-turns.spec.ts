@@ -44,7 +44,6 @@ import {
   createTabletOrderRaw,
   cancelTabletOrderRaw,
   getOrderFullRaw,
-  createPinStaffTabletRaw,
   setFeatureOverrideAdminRaw,
   deleteFeatureOverrideAdminRaw,
   createTableOwnerRaw,
@@ -104,8 +103,6 @@ test.describe("POS — Table Turns, Walk-in Seating & Waitlist Quote", () => {
   let managerSession = "";
   let managerStaffMemberId = "";
   const managerPin = "8462";
-  let staffMemberId = "";
-  const staffPin = "1357";
   let registerOpened = false;
   /** Cash taken this run — the register closes against float + this. */
   let cashTaken = 0;
@@ -238,21 +235,6 @@ test.describe("POS — Table Turns, Walk-in Seating & Waitlist Quote", () => {
       managerStaffMemberId,
       managerPin
     );
-    const staffCreate = await createPinStaffTabletRaw(
-      tabletToken,
-      managerSession,
-      {
-        firstName: "Auto",
-        lastName: `Busser${runId}`,
-        pin: staffPin,
-        staffRole: "STAFF",
-      }
-    );
-    if (!staffCreate.ok)
-      throw new Error(
-        `[table-turns] could not mint STAFF member: ${msg(staffCreate.data)}`
-      );
-    staffMemberId = unwrap(staffCreate).id;
 
     await openRegisterSessionPos(tabletToken, managerSession, 100);
     registerOpened = true;
@@ -341,11 +323,13 @@ test.describe("POS — Table Turns, Walk-in Seating & Waitlist Quote", () => {
     expect(next?.paidTurn).toBeFalsy();
   });
 
-  test("TC-728: MARK_DIRTY — a paid table reads DIRTY; a STAFF host's Clear makes it AVAILABLE", async () => {
+  test("TC-728: MARK_DIRTY — a paid table reads DIRTY; a host's Clear makes it AVAILABLE", async () => {
     await allure.description(
       "afterPaymentPolicy MARK_DIRTY: paying the last check → floor DIRTY " +
-        "(not PAID). A STAFF-role member (HOST_MANAGE_RESERVATIONS — any " +
-        "host can bus) taps Clear → AVAILABLE, turn closed MANUAL."
+        "(not PAID). A host taps Clear → AVAILABLE, turn closed MANUAL. " +
+        "(The register this file keeps open locks the device to the " +
+        "manager — STAFF_TERMINAL_LOCKED — so the manager taps; that a " +
+        "STAFF host may Clear is 04's TC-394.)"
     );
     await setPolicy("MARK_DIRTY");
     try {
@@ -353,14 +337,9 @@ test.describe("POS — Table Turns, Walk-in Seating & Waitlist Quote", () => {
       await payInFull(await openCheck(table.id));
       expect((await floorRow(table.id))?.state).toBe("DIRTY");
 
-      const staffSession = await tabletStaffSignIn(
-        tabletToken,
-        staffMemberId,
-        staffPin
-      );
       const cleared = await setTableStateTabletRaw(
         tabletToken,
-        staffSession,
+        managerSession,
         table.id,
         "CLEAR"
       );

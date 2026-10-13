@@ -373,6 +373,10 @@ test.describe("Owner — Reservations", () => {
     await expect(reservationsPage.bookingRowStatusChip(guestName)).toHaveText(
       "Booked"
     );
+    // Booked from the dashboard's phone-booking dialog → source PHONE.
+    await expect(reservationsPage.bookingRowSourceChip(guestName)).toHaveText(
+      "Phone"
+    );
 
     const cancelRes = await reservationsPage.cancelBookingViaMenu(guestName);
     expect(cancelRes.status()).toBe(200);

@@ -42,6 +42,24 @@ export const createOwnerTablesFloorPage = (page: Page) => {
       page.getByRole("heading", { name: "Tables & Floor", level: 1 })
     ).toBeVisible({ timeout: 15_000 });
 
+  // ── View switch (2026-10-07) ───────────────────────────────────────────────
+  // The tab has two views: "Floor plan" (the canvas, default) and "Sections &
+  // tables" (sections, the table list with its row menus, combinations). The
+  // choice is remembered in localStorage, so every test picks its view
+  // explicitly instead of relying on what the last test left behind.
+  const viewButton = (view: "floor" | "manage") =>
+    page.getByRole("button", {
+      name: view === "floor" ? "Floor plan" : "Sections & tables",
+      exact: true,
+    });
+  const showView = async (view: "floor" | "manage") => {
+    const button = viewButton(view);
+    await button.waitFor({ state: "visible", timeout: 15_000 });
+    if ((await button.getAttribute("aria-pressed")) !== "true")
+      await button.click();
+    await expect(button).toHaveAttribute("aria-pressed", "true");
+  };
+
   // ── Sidebar navigation (Store Operations flyout) ──────────────────────────
   const storeOpsHeader = () =>
     mgmtPage
@@ -295,6 +313,8 @@ export const createOwnerTablesFloorPage = (page: Page) => {
   return {
     gotoTab,
     assertLoaded,
+    viewButton,
+    showView,
     storeOpsHeader,
     tablesFloorNavItem,
     reservationsNavItem,

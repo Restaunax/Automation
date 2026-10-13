@@ -193,6 +193,7 @@ test.describe("Owner — Tables & Floor", () => {
   test("TC-435: create a section and two tables through the UI forms; the list groups them under the section", async () => {
     await floorPage.gotoTab(restaurantId);
     await floorPage.assertLoaded();
+    await floorPage.showView("manage");
 
     const sectionRes = await floorPage.createSection(sectionName);
     expect(sectionRes.status()).toBe(201);
@@ -235,6 +236,7 @@ test.describe("Owner — Tables & Floor", () => {
     );
     await floorPage.gotoTab(restaurantId);
     await floorPage.assertLoaded();
+    await floorPage.showView("floor");
     await floorPage.sectionTab(sectionName).click();
     await expect(await floorPage.openTablesBrowserRow(table1)).toContainText(
       "Not placed"
@@ -297,6 +299,7 @@ test.describe("Owner — Tables & Floor", () => {
   test("TC-437: inspector — select the placed table on a fresh load, change capacity + bookable, Save details; API confirms", async () => {
     await floorPage.gotoTab(restaurantId);
     await floorPage.assertLoaded();
+    await floorPage.showView("floor");
     await floorPage.sectionTab(sectionName).click();
     await expect(floorPage.floorCanvas()).toBeVisible({ timeout: 10_000 });
 
@@ -339,6 +342,7 @@ test.describe("Owner — Tables & Floor", () => {
 
     await floorPage.gotoTab(restaurantId);
     await floorPage.assertLoaded();
+    await floorPage.showView("manage");
     await expect(floorPage.tableRow(junkName)).toBeVisible({ timeout: 10_000 });
 
     const mergeRes = await floorPage.mergeTableInto(junkName, table2);
@@ -364,6 +368,7 @@ test.describe("Owner — Tables & Floor", () => {
 
     await floorPage.gotoTab(restaurantId);
     await floorPage.assertLoaded();
+    await floorPage.showView("manage");
     await expect(floorPage.tableRow(t4Name)).toBeVisible({ timeout: 10_000 });
 
     const deactivateRes = await floorPage.deactivateTableViaMenu(t4Name);
@@ -423,6 +428,7 @@ test.describe("Owner — Tables & Floor", () => {
   const openSectionFloor = async (sectionLabel: string) => {
     await floorPage.gotoTab(restaurantId);
     await floorPage.assertLoaded();
+    await floorPage.showView("floor");
     await floorPage.sectionTab(sectionLabel).click();
   };
 

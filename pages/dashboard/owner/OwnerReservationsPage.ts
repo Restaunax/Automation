@@ -264,8 +264,13 @@ export const createOwnerReservationsPage = (page: Page) => {
     page.getByRole("row").filter({ hasText: guestName });
   const bookingRowMenuButton = (guestName: string) =>
     bookingRow(guestName).getByTestId("booking-row-menu");
+  // A row carries up to three kinds of chip since 2026-10-08: the booking
+  // source ("Phone"/"Website"/"App", testid booking-row-source), held-table
+  // names, and the status — always the LAST chip in the row (status column).
   const bookingRowStatusChip = (guestName: string) =>
-    bookingRow(guestName).locator(".MuiChip-label");
+    bookingRow(guestName).locator(".MuiChip-label").last();
+  const bookingRowSourceChip = (guestName: string) =>
+    bookingRow(guestName).getByTestId("booking-row-source");
 
   const openBookingRowMenu = async (guestName: string) => {
     await bookingRowMenuButton(guestName).click();
@@ -440,6 +445,7 @@ export const createOwnerReservationsPage = (page: Page) => {
     bookingRow,
     bookingRowMenuButton,
     bookingRowStatusChip,
+    bookingRowSourceChip,
     openBookingRowMenu,
     cancelBookingMenuItem,
     cancelBookingViaMenu,
