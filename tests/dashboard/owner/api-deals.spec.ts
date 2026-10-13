@@ -22,11 +22,42 @@
  * were fixed in RestauNax #618/#619 and are LIVE on QA — the tests that pinned
  * them as test.fail() now assert the FIXED behaviour (TC-334, 335b, 336, 341,
  * 343, 347..350). See docs/DEALS_TAB_TEST_STRATEGY.md §1.
+ *
+ * Guided deal types (restaunax DEAL_TYPES.md, TC-691..677): every write now
+ * runs the type rules — a COMBO needs >= 2 unit rows priced below the items'
+ * regular price; BOGO / % off prices are computed. The legacy fixtures here
+ * already satisfy both (two real items, deal prices below 16.50); the new
+ * cases cover the guided deal types (DEAL_TYPES.md).
+ *
+ * Slot matching + "buy any X, get one free" (DEAL_TYPES.md, TC-705..687):
+ * every pick must fit one of the deal's slots on /quote, placeOrder and
+ * /validate; a BOGO with a category line is priced from the picks (equal or
+ * lesser value) and the order stores the server's price.
+ * Every fixture above already picks exactly its slots' items.
  */
 
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
-import { readSharedState, generateRunId } from "../../../utils/testData";
+import {
+  readSharedState,
+  generateRunId,
+  generateSeedPhone,
+} from "../../../utils/testData";
+import { requireScheduling } from "../../../utils/dealScheduleGate";
+import {
+  addDaysToKey,
+  atLocal,
+  dayNameOfKey,
+  formatClockEn,
+  formatDateKeyEn,
+  hhmm,
+  laterTodayWindow,
+  localDateKey,
+  localParts,
+  normalizeSpaces,
+  shortDayEn,
+} from "../../../utils/dealSchedule";
+
 import {
   apiLogin,
   createMenuGroupNamed,
@@ -50,6 +81,15 @@ import {
   getDealMenuItemsRaw,
   bulkCreateDealsRaw,
   getActiveDealsPublic,
+  getRestaurantTimeZonePublic,
+  getMealPeriodsPublic,
+  getDealScheduleCheckRaw,
+  getBusinessHoursRaw,
+  setBusinessHoursApi,
+  placeOrderRaw,
+  getOrderByIdRaw,
+  setRestaurantPublishedApi,
+  updateRestaurantSettingsApi,
   validateDealPublic,
   getAiDealQuestionsPublic,
   createChainDealRaw,
@@ -61,6 +101,7 @@ import {
   deleteTestRestaurant,
   ensureTaxRate,
   type ApiDeal,
+  type BusinessHoursRow,
   type ApiMenuItem,
 } from "../../../utils/apiHelper";
 
@@ -88,11 +129,6 @@ const DAY_NAMES = [
 ];
 /** A weekday that is NOT today in any timezone within ±24h of UTC (UTC + 3 days). */
 const farDay = () => DAY_NAMES[(new Date().getUTCDay() + 3) % 7]!;
-/** "HH:MM" twelve hours away from UTC-now — a 1-minute window that is never "now" on a UTC server. */
-const farHHMM = () => {
-  const d = new Date(Date.now() + 12 * 60 * 60 * 1000);
-  return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
-};
 
 test.describe("Owner — Deals API contract", () => {
   test.skip(
@@ -111,7 +147,20 @@ test.describe("Owner — Deals API contract", () => {
   let adminToken = "";
   /** The throwaway restaurant every deal in this file lives on. */
   let restaurantId = "";
+  /** The throwaway tenant's IANA zone as the backend resolves it; "" before Plan 1. */
+  let tz = "";
+  const twoItems = () =>
+    [itemA, itemB].map((i) => ({ id: i.id, name: i.name, price: i.price }));
+  const twoBody = () =>
+    [itemA, itemB].map((i) => ({
+      menuItemId: i.id,
+      quantity: 1,
+      itemName: i.name,
+      itemPrice: i.price,
+    }));
   let groupId = "";
+  /** Extra per-run categories (the "any pizza" group); deleted after their items. */
+  const extraGroupIds: string[] = [];
   const createdItemIds: string[] = [];
   const createdDealIds: string[] = [];
   // Deals created during the CURRENT test — deleted in afterEach so the
@@ -231,6 +280,7 @@ test.describe("Owner — Deals API contract", () => {
         },
       ],
     });
+    tz = await getRestaurantTimeZonePublic(restaurantId);
   });
 
   test.afterAll(async () => {
@@ -240,6 +290,8 @@ test.describe("Owner — Deals API contract", () => {
     for (const id of createdItemIds)
       await permanentlyDeleteMenuItemApi(adminToken, id).catch(() => {});
     if (groupId) await deleteTestMenuGroup(t, groupId).catch(() => {});
+    for (const id of extraGroupIds)
+      await deleteTestMenuGroup(t, id).catch(() => {});
     // Admin DELETE archives the throwaway restaurant (never a hard delete).
     if (restaurantId && !process.env.OWNER2_EMAIL)
       await deleteTestRestaurant(adminToken, restaurantId).catch(() => {});
@@ -427,7 +479,9 @@ test.describe("Owner — Deals API contract", () => {
       "Expired",
       8,
       [itemA, itemB].map((i) => ({ id: i.id, name: i.name, price: i.price })),
-      { endDate: daysFromNowIso(-1) }
+      // -2 days, not -1: since deal scheduling (Plan 1) "ended" means before the
+      // RESTAURANT's today; UTC-yesterday is still today in New York for ~4 h a day.
+      { endDate: daysFromNowIso(-2) }
     );
     const live = await seedDeal("Live", 8, [
       { id: itemA.id, name: itemA.name, price: itemA.price },
@@ -565,53 +619,39 @@ test.describe("Owner — Deals API contract", () => {
 
   // ── Public availability ────────────────────────────────────────────────────
 
-  test("TC-331: public /active lists only deals that are ACTIVE and inside every window (status, dates, weekday, HH:MM); unknown restaurant → 200 []", async () => {
+  test("TC-331: public /active lists only deals that are ACTIVE and inside their dates and weekday on the restaurant's calendar; unknown restaurant → 200 []", async () => {
     await allure.description(
-      "GET /api/deals/restaurant/:id/active is what the storefront renders. Six seeded deals: one plain " +
-        "(listed, with dealPrice/originalPrice/savings and slot items), one INACTIVE, one endDate yesterday, " +
-        "one startDate in 3 days, one validDays = a weekday 3 days from now, one 1-minute validTimeStart=End " +
-        "window 12 h away (server-local time) — the five restricted ones are absent. Empty validDays = all " +
-        "days; a single-sided time bound is ignored (validTimeStart only → still listed)."
+      "GET /api/deals/restaurant/:id/active is what the storefronts render. Rewritten for deal scheduling " +
+        "(restaunax Plan 1): each restricted deal is placed by a DATE or WEEKDAY that is wrong in every " +
+        "timezone (UTC ±2 days / UTC weekday +3), never by an HH:MM from the runner's clock — QA now judges " +
+        "windows on the restaurant clock and rejects start == end. HH:mm windows, overnight and date edges " +
+        "are TC-509..512."
     );
-    const two = [itemA, itemB].map((i) => ({
-      id: i.id,
-      name: i.name,
-      price: i.price,
-    }));
+    const two = twoItems();
     const plain = await seedDeal("Plain", 12, two);
     const inactive = await seedDeal("Inactive", 12, two);
     expect(
       (await setDealStatusRaw(token, inactive.id, "INACTIVE")).status
     ).toBe(200);
     const ended = await seedDeal("Ended", 12, two, {
-      endDate: daysFromNowIso(-1),
+      endDate: daysFromNowIso(-2).slice(0, 10),
     });
     const notYet = await seedDeal("NotYet", 12, two, {
-      startDate: daysFromNowIso(3),
+      startDate: daysFromNowIso(3).slice(0, 10),
     });
     const wrongDay = await seedDeal("WrongDay", 12, two, {
       validDays: [farDay()],
-    });
-    const hhmm = farHHMM();
-    const wrongTime = await seedDeal("WrongTime", 12, two, {
-      validTimeStart: hhmm,
-      validTimeEnd: hhmm,
-    });
-    const halfWindow = await seedDeal("HalfWindow", 12, two, {
-      validTimeStart: hhmm,
     });
 
     const res = await getActiveDealsPublic(restaurantId);
     expect(res.status).toBe(200);
     const ids = (res.data.deals ?? []).map((d) => d.id);
     expect(ids).toContain(plain.id);
-    expect(ids).toContain(halfWindow.id);
     for (const [label, d] of [
       ["INACTIVE", inactive],
-      ["endDate past", ended],
-      ["startDate future", notYet],
+      ["endDate before the restaurant's today", ended],
+      ["startDate after the restaurant's today", notYet],
       ["validDays other weekday", wrongDay],
-      ["1-minute window 12h away", wrongTime],
     ] as const) {
       expect(ids, `${label} must be hidden`).not.toContain(d.id);
     }
@@ -621,28 +661,30 @@ test.describe("Owner — Deals API contract", () => {
     expect(shown.savingsAmount).toBe(4.5);
     expect(shown.savingsPercentage).toBe(27.3);
     expect(shown.items).toHaveLength(2);
-    expect(shown.items!.map((i) => i.menuItemId).sort()).toEqual(
-      [itemA.id, itemB.id].sort()
-    );
-    // /validate explains WHY the restricted ones are hidden — this is the
-    // timezone-independent cross-check for the time-window case.
-    const v = await validateDealPublic({ dealId: wrongTime.id, restaurantId });
-    expect(v.status).toBe(200);
-    expect(v.data.isValid).toBe(false);
-    expect(v.data.issues).toContain(
-      `Deal is only available between ${hhmm} and ${hhmm}`
-    );
     const vd = await validateDealPublic({ dealId: wrongDay.id, restaurantId });
+    expect(vd.status).toBe(200);
     expect(vd.data.isValid).toBe(false);
-    expect(
-      vd.data.issues?.some((s) => /^Deal is not available on /.test(s))
-    ).toBe(true);
 
     const none = await getActiveDealsPublic(
       "00000000-0000-4000-8000-000000000000"
     );
     expect(none.status).toBe(200);
     expect(none.data.deals).toEqual([]);
+  });
+
+  test("TC-542: public /active carries the restaurant's timeZone and null schedule text for an unrestricted deal (deal scheduling, Plan 1)", async () => {
+    requireScheduling("backend", Boolean(tz));
+    const plain = await seedDeal("PlainTz", 12, twoItems());
+    const res = await getActiveDealsPublic(restaurantId);
+    expect(res.status).toBe(200);
+    expect(res.data.timeZone).toBe(tz);
+    expect(res.data.deals!.find((d) => d.id === plain.id)).toMatchObject({
+      availableNow: true,
+      scheduleSummary: null,
+      availabilityLabel: null,
+      startDate: null,
+      endDate: null,
+    });
   });
 
   test("TC-332: 86'ing a required slot item hides the deal from /active; restoring brings it back", async () => {
@@ -726,7 +768,797 @@ test.describe("Owner — Deals API contract", () => {
     });
     expect(inactive.status).toBe(200);
     expect(inactive.data.isValid).toBe(false);
-    expect(inactive.data.issues).toContain("Deal is not active");
+    expect(inactive.data.issues).toContain("This deal is not currently active");
+  });
+
+  // ── Deal scheduling: /active judged at ?at= on the restaurant clock ──────────
+  //
+  // D = the restaurant-local date two days out: never "today" in any zone,
+  // well inside the 30-day `at` horizon, and D-1 is still in the future. Every
+  // instant is built with atLocal(tz, …) — the restaurant's wall clock.
+  test.describe("schedule — public /active at ?at= (restaunax Plan 1)", () => {
+    let D = "";
+    const at = (dateKey: string, time: string) => atLocal(tz, dateKey, time);
+    const listAt = async (when: string, lang?: "en" | "es") => {
+      const res = await getActiveDealsPublic(restaurantId, { at: when, lang });
+      expect(res.status, JSON.stringify(res.data)).toBe(200);
+      return res.data.deals ?? [];
+    };
+    const find = (deals: ApiDeal[], id: string) =>
+      deals.find((d) => d.id === id);
+    const text = (s: string | null | undefined) => normalizeSpaces(s ?? "");
+
+    test.beforeEach(() => {
+      requireScheduling("backend", Boolean(tz));
+      D = localDateKey(tz, 2);
+    });
+
+    test("TC-508: GET /api/deals/meal-periods lists the five meal periods with their hours, in order", async () => {
+      const res = await getMealPeriodsPublic();
+      expect(res.status).toBe(200);
+      expect(res.data.success).toBe(true);
+      expect(res.data.data).toEqual([
+        { value: "Breakfast", start: "05:00", end: "11:00" },
+        { value: "Lunch", start: "11:00", end: "14:00" },
+        { value: "Dinner", start: "17:00", end: "22:00" },
+        { value: "Late Night", start: "22:00", end: "05:00" },
+        { value: "All Day", start: null, end: null },
+      ]);
+    });
+
+    test("TC-509: a 15:00–17:00 window is listed earlier that day with availableNow false and its next start, is live from 15:00 (inclusive) to 17:00 (exclusive); a start-only window runs to end of day", async () => {
+      await allure.description(
+        "Window deal at D 14:00 → listed, availableNow false, nextAvailableAt = D 15:00 local, label " +
+          "'Available from 3:00 PM', summary '3:00 PM–5:00 PM'. D 15:00 and 16:59 → availableNow true. D 17:00 → " +
+          "omitted (end exclusive; next window is another local day). validTimeStart 21:00 alone = 21:00 → midnight."
+      );
+      const deal = await seedDeal("Window", 12, twoItems(), {
+        validTimeStart: "15:00",
+        validTimeEnd: "17:00",
+      });
+      const before = find(await listAt(at(D, "14:00")), deal.id);
+      expect(
+        before,
+        "a window later the same local day keeps the deal listed"
+      ).toBeTruthy();
+      expect(before!.availableNow).toBe(false);
+      expect(before!.nextAvailableAt).toBe(at(D, "15:00"));
+      expect(text(before!.availabilityLabel)).toBe("Available from 3:00 PM");
+      expect(text(before!.scheduleSummary)).toBe("3:00 PM–5:00 PM");
+      const opening = find(await listAt(at(D, "15:00")), deal.id);
+      expect(opening?.availableNow, "start is inclusive").toBe(true);
+      expect(opening?.availabilityLabel ?? null).toBeNull();
+      expect(find(await listAt(at(D, "16:59")), deal.id)?.availableNow).toBe(
+        true
+      );
+      expect(
+        find(await listAt(at(D, "17:00")), deal.id),
+        "end is exclusive → omitted"
+      ).toBeUndefined();
+
+      const evening = await seedDeal("FromNine", 12, twoItems(), {
+        validTimeStart: "21:00",
+      });
+      const early = find(await listAt(at(D, "20:00")), evening.id);
+      expect(early?.availableNow).toBe(false);
+      expect(text(early?.availabilityLabel)).toBe("Available from 9:00 PM");
+      expect(text(early?.scheduleSummary)).toBe("From 9:00 PM");
+      expect(find(await listAt(at(D, "23:59")), evening.id)?.availableNow).toBe(
+        true
+      );
+    });
+
+    test("TC-510: an overnight window (22:00–02:00 on one weekday) belongs to the day it STARTS — live after midnight on the next day, gone at 02:00, and not on the previous night", async () => {
+      const day = dayNameOfKey(D);
+      const nextDay = addDaysToKey(D, 1);
+      const deal = await seedDeal("Overnight", 12, twoItems(), {
+        validDays: [day],
+        validTimeStart: "22:00",
+        validTimeEnd: "02:00",
+      });
+      const evening = find(await listAt(at(D, "21:00")), deal.id);
+      expect(evening?.availableNow).toBe(false);
+      expect(text(evening?.availabilityLabel)).toBe("Available from 10:00 PM");
+      expect(text(evening?.scheduleSummary)).toBe(
+        `${shortDayEn(day)} · 10:00 PM–2:00 AM`
+      );
+      expect(find(await listAt(at(D, "23:30")), deal.id)?.availableNow).toBe(
+        true
+      );
+      expect(
+        find(await listAt(at(nextDay, "01:30")), deal.id)?.availableNow,
+        "the tail after midnight belongs to the start day"
+      ).toBe(true);
+      expect(find(await listAt(at(nextDay, "02:00")), deal.id)).toBeUndefined();
+      expect(
+        find(await listAt(at(addDaysToKey(D, -1), "23:30")), deal.id),
+        "the night before is not a start day"
+      ).toBeUndefined();
+    });
+
+    test("TC-511: start/end dates are restaurant-local calendar days, inclusive — live from 00:00 on the start date through 23:59 on the end date; dates come back as YYYY-MM-DD", async () => {
+      const end = addDaysToKey(D, 1);
+      const deal = await seedDeal("Dated", 12, twoItems(), {
+        startDate: D,
+        endDate: end,
+      });
+      expect(
+        find(await listAt(at(addDaysToKey(D, -1), "23:59")), deal.id),
+        "not started, and it starts on another local day"
+      ).toBeUndefined();
+      const first = find(await listAt(at(D, "00:00")), deal.id);
+      expect(first?.availableNow).toBe(true);
+      expect(first?.startDate).toBe(D);
+      expect(first?.endDate).toBe(end);
+      expect(text(first?.scheduleSummary)).toBe(
+        `${formatDateKeyEn(D)} – ${formatDateKeyEn(end)}`
+      );
+      expect(find(await listAt(at(end, "23:59")), deal.id)?.availableNow).toBe(
+        true
+      );
+      expect(
+        find(await listAt(at(addDaysToKey(D, 2), "00:00")), deal.id),
+        "ended after the end date"
+      ).toBeUndefined();
+    });
+
+    test("TC-512: a deal that is off for the whole local day is omitted (and listed on its day); schedule text follows Accept-Language", async () => {
+      const otherDay = await seedDeal("OtherDay", 12, twoItems(), {
+        validDays: [dayNameOfKey(addDaysToKey(D, 1))],
+      });
+      expect(find(await listAt(at(D, "12:00")), otherDay.id)).toBeUndefined();
+      expect(
+        find(await listAt(at(addDaysToKey(D, 1), "12:00")), otherDay.id)
+          ?.availableNow
+      ).toBe(true);
+
+      const window = await seedDeal("Spanish", 12, twoItems(), {
+        validTimeStart: "15:00",
+        validTimeEnd: "17:00",
+      });
+      const es = find(await listAt(at(D, "14:00"), "es"), window.id);
+      expect(text(es?.scheduleSummary)).toBe("15:00–17:00");
+      expect(text(es?.availabilityLabel)).toBe("Disponible desde las 15:00");
+    });
+
+    test("TC-539: includeUnavailable=1 (the POS list) adds a deal that is off for the whole day — availableNow false, its next start and schedule — but never an ended deal; without the flag the day-off deal stays omitted", async () => {
+      await allure.description(
+        "GET /active?channel=in_person&includeUnavailable=1 is what the POS lists (it shows unavailable deals and " +
+          "explains their hours on tap; the kiosk hides them and calls without the flag). Deal A is valid only on " +
+          "the restaurant-local weekday three days out (never today's), deal B ended two local days ago."
+      );
+      const offDayKey = localDateKey(tz, 3);
+      const offDay = dayNameOfKey(offDayKey);
+      const dayOff = await seedDeal("DayOff", 12, twoItems(), {
+        validDays: [offDay],
+      });
+      const ended = await seedDeal("EndedFlag", 12, twoItems(), {
+        endDate: localDateKey(tz, -2),
+      });
+      const without = await getActiveDealsPublic(restaurantId, {
+        channel: "in_person",
+      });
+      expect(without.status).toBe(200);
+      const withoutIds = (without.data.deals ?? []).map((d) => d.id);
+      expect(
+        withoutIds,
+        "off all day → omitted without the flag"
+      ).not.toContain(dayOff.id);
+      expect(withoutIds).not.toContain(ended.id);
+
+      const withFlag = await getActiveDealsPublic(restaurantId, {
+        channel: "in_person",
+        includeUnavailable: true,
+      });
+      expect(withFlag.status).toBe(200);
+      const listed = find(withFlag.data.deals ?? [], dayOff.id);
+      expect(listed, "off all day → listed with the flag").toBeTruthy();
+      expect(listed!.availableNow).toBe(false);
+      expect(listed!.nextAvailableAt).toBe(atLocal(tz, offDayKey, "00:00"));
+      expect(text(listed!.scheduleSummary)).toBe(shortDayEn(offDay));
+      expect(
+        find(withFlag.data.deals ?? [], ended.id),
+        "ended deals never come back"
+      ).toBeUndefined();
+    });
+
+    test("TC-513: ?at= more than 5 minutes in the past, more than 30 days ahead, or unparsable → 400; small clock skew and 29 days ahead are fine", async () => {
+      const bad = async (value: string, label: string) => {
+        const r = await getActiveDealsPublic(restaurantId, { at: value });
+        expect(r.status, `${label}: ${JSON.stringify(r.data)}`).toBe(400);
+        expect(r.data.message).toBe(
+          "That pickup time can't be used to check deals."
+        );
+      };
+      await bad(
+        new Date(Date.now() - 60 * 60_000).toISOString(),
+        "an hour ago"
+      );
+      await bad(
+        new Date(Date.now() + 31 * 86_400_000).toISOString(),
+        "31 days ahead"
+      );
+      await bad("not-a-date", "garbage");
+      const skew = await getActiveDealsPublic(restaurantId, {
+        at: new Date(Date.now() - 2 * 60_000).toISOString(),
+      });
+      expect(skew.status, "a 2-minute clock skew is tolerated").toBe(200);
+      const far = await getActiveDealsPublic(restaurantId, {
+        at: new Date(Date.now() + 29 * 86_400_000).toISOString(),
+      });
+      expect(far.status).toBe(200);
+    });
+
+    test("TC-514: /quote judges a deal at scheduledFor — 400 DEAL_NOT_AVAILABLE_AT_TIME with the deal, its schedule and next start before the window, 200 inside it; ASAP is judged now", async () => {
+      await allure.description(
+        "Deal = D's weekday only, 15:00–17:00. scheduledFor D 12:00 → 400 errorCode DEAL_NOT_AVAILABLE_AT_TIME, " +
+          "details {dealId, dealName, scheduleSummary '<Day> · 3:00 PM–5:00 PM', nextAvailableAt D 15:00}. " +
+          "scheduledFor D 15:30 → 200 at the deal price. No scheduledFor (ASAP) → judged now; D is never today → 400."
+      );
+      const day = dayNameOfKey(D);
+      const deal = await seedDeal("HappyHour", 12, twoItems(), {
+        validDays: [day],
+        validTimeStart: "15:00",
+        validTimeEnd: "17:00",
+      });
+      const body = {
+        orderItems: [],
+        orderDeals: [
+          {
+            dealId: deal.id,
+            quantity: 1,
+            items: [
+              { menuItemId: itemA.id, quantity: 1 },
+              { menuItemId: itemB.id, quantity: 1 },
+            ],
+          },
+        ],
+      };
+      const summary = `${shortDayEn(day)} · 3:00 PM–5:00 PM`;
+      const early = await quoteOrderRaw(restaurantId, {
+        ...body,
+        scheduledFor: at(D, "12:00"),
+      });
+      expect(early.status, JSON.stringify(early.data)).toBe(400);
+      expect(early.data.errorCode).toBe("DEAL_NOT_AVAILABLE_AT_TIME");
+      expect(early.data.details).toEqual({
+        dealId: deal.id,
+        dealName: deal.name,
+        scheduleSummary: summary,
+        nextAvailableAt: at(D, "15:00"),
+      });
+      const message = normalizeSpaces(early.data.message ?? "");
+      expect(message).toContain(deal.name);
+      expect(message).toContain(summary);
+
+      const inside = await quoteOrderRaw(restaurantId, {
+        ...body,
+        scheduledFor: at(D, "15:30"),
+      });
+      expect(inside.status, JSON.stringify(inside.data)).toBe(200);
+      expect(inside.data.quote?.deals?.[0]).toMatchObject({
+        dealId: deal.id,
+        dealPrice: 12,
+        lineTotal: 12,
+      });
+
+      const asap = await quoteOrderRaw(restaurantId, body);
+      expect(
+        asap.status,
+        "ASAP is judged now — D is never the restaurant's today"
+      ).toBe(400);
+      expect(asap.data.errorCode).toBe("DEAL_NOT_AVAILABLE_AT_TIME");
+    });
+
+    test("TC-515: placing a scheduled order with a deal outside its window is refused with DEAL_NOT_AVAILABLE_AT_TIME; the same order inside the window is accepted", async () => {
+      await allure.description(
+        "POST /api/order/new/restaurantId/:id (the storefront checkout) with scheduledFor. The tenant is published " +
+          "and accepting orders for this test only (unpublished stores refuse every order) and has no business " +
+          "hours (= always open). The accepted control leaves one INITIALIZED (unpaid) order on the throwaway tenant."
+      );
+      const day = dayNameOfKey(D);
+      const deal = await seedDeal("Scheduled", 12, twoItems(), {
+        validDays: [day],
+        validTimeStart: "15:00",
+        validTimeEnd: "17:00",
+      });
+      adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
+      const { previous } = await setRestaurantPublishedApi(
+        adminToken,
+        restaurantId,
+        true
+      );
+      await updateRestaurantSettingsApi(token, restaurantId, {
+        acceptingOrders: true,
+      });
+      const orderBody = (scheduledFor: string) => ({
+        orderType: "PICKUP",
+        subtotal: 12,
+        tax: 0.96,
+        deliveryFee: 0,
+        tip: 0,
+        total: 12.96,
+        customerEmail: `deal-sched-${runId}@restaunax-test.com`,
+        customerPhone: generateSeedPhone(),
+        firstName: "Deal",
+        lastName: "Schedule",
+        orderItems: [],
+        orderDeals: [
+          {
+            dealId: deal.id,
+            dealName: deal.name,
+            dealPrice: 12,
+            quantity: 1,
+            items: [itemA, itemB].map((i) => ({
+              menuItemId: i.id,
+              menuItemName: i.name,
+              menuItemPrice: i.price,
+              quantity: 1,
+            })),
+          },
+        ],
+        scheduledFor,
+      });
+      try {
+        const refused = await placeOrderRaw(
+          restaurantId,
+          orderBody(at(D, "12:00"))
+        );
+        expect(refused.status, JSON.stringify(refused.data)).toBe(400);
+        expect(refused.data.errorCode).toBe("DEAL_NOT_AVAILABLE_AT_TIME");
+        expect(refused.data.details).toMatchObject({
+          dealId: deal.id,
+          nextAvailableAt: at(D, "15:00"),
+        });
+        const placed = await placeOrderRaw(
+          restaurantId,
+          orderBody(at(D, "15:30"))
+        );
+        expect(placed.ok, JSON.stringify(placed.data)).toBe(true);
+      } finally {
+        if (!previous)
+          await setRestaurantPublishedApi(adminToken, restaurantId, false);
+      }
+    });
+  });
+
+  test.describe("schedule — owner list, cap and ended deals (restaunax Plan 1)", () => {
+    test.beforeEach(() => {
+      requireScheduling("backend", Boolean(tz));
+    });
+
+    test("TC-516: the owner list reports each deal's live status on the restaurant clock — LIVE, LATER_TODAY (with its start), SCHEDULED, ENDED, OFF — plus timeZone/timeZoneLabel and YYYY-MM-DD dates", async () => {
+      const live = await seedDeal("Live", 12, twoItems());
+      const later = laterTodayWindow(tz);
+      const laterDeal = later
+        ? await seedDeal("Later", 12, twoItems(), {
+            validTimeStart: later.start,
+            validTimeEnd: later.end,
+          })
+        : null;
+      const startKey = localDateKey(tz, 3);
+      const scheduled = await seedDeal("Scheduled", 12, twoItems(), {
+        startDate: startKey,
+      });
+      const endedKey = localDateKey(tz, -2);
+      const ended = await seedDeal("Ended", 12, twoItems(), {
+        endDate: endedKey,
+      });
+      const off = await seedDeal("Off", 12, twoItems());
+      expect((await setDealStatusRaw(token, off.id, "INACTIVE")).status).toBe(
+        200
+      );
+
+      const res = await getRestaurantDealsRaw(token, restaurantId);
+      expect(res.status).toBe(200);
+      expect(res.data.timeZone).toBe(tz);
+      expect((res.data.timeZoneLabel ?? "").length).toBeGreaterThan(0);
+      const byId = (id: string) => res.data.deals!.find((d) => d.id === id)!;
+      expect(byId(live.id)).toMatchObject({
+        liveStatus: "LIVE",
+        scheduleSummary: null,
+        availabilityLabel: null,
+      });
+      if (laterDeal && later) {
+        const l = byId(laterDeal.id);
+        expect(l.liveStatus).toBe("LATER_TODAY");
+        expect(l.nextAvailableAt).toBe(atLocal(tz, later.dateKey, later.start));
+        expect(normalizeSpaces(l.availabilityLabel ?? "")).toBe(
+          `Available from ${formatClockEn(later.start)}`
+        );
+      } else {
+        test.info().annotations.push({
+          type: "note",
+          description:
+            "LATER_TODAY not asserted — less than an hour left in the restaurant's day",
+        });
+      }
+      expect(byId(scheduled.id)).toMatchObject({
+        liveStatus: "SCHEDULED",
+        startDate: startKey,
+      });
+      expect(normalizeSpaces(byId(scheduled.id).scheduleSummary ?? "")).toBe(
+        `From ${formatDateKeyEn(startKey)}`
+      );
+      expect(byId(ended.id)).toMatchObject({
+        liveStatus: "ENDED",
+        computedStatus: "EXPIRED",
+        status: "ACTIVE",
+        endDate: endedKey,
+      });
+      expect(byId(off.id).liveStatus).toBe("OFF");
+    });
+
+    test("TC-517: a deal whose end date has passed does not take one of the 10 active slots — ten live deals still fit beside it, the eleventh is refused; a deal on its last day whose window is over is ENDED but still holds a slot", async () => {
+      const activeCount = async () =>
+        (await getActiveDealsCountRaw(token, restaurantId)).data
+          .activeDealsCount ?? 0;
+      const ended = await seedDeal("CapEnded", 9, twoItems(), {
+        endDate: localDateKey(tz, -2),
+      });
+      expect(ended.status).toBe("ACTIVE");
+      expect(await activeCount(), "a date-ended deal frees its slot").toBe(0);
+
+      await allure.step(
+        "last day, window already over → ENDED, but the slot frees only after the date (DEAL_SCHEDULING.md rule 4)",
+        async () => {
+          const now = localParts(tz);
+          const endMinute = Math.floor((now.minuteOfDay - 15) / 15) * 15;
+          const startMinute = endMinute - 60;
+          if (startMinute < 0) {
+            test.info().annotations.push({
+              type: "note",
+              description:
+                "too early in the restaurant's day for a window that is already over",
+            });
+            return;
+          }
+          const lastDay = await seedDeal("LastDayOver", 9, twoItems(), {
+            endDate: now.dateKey,
+            validTimeStart: hhmm(startMinute),
+            validTimeEnd: hhmm(endMinute),
+          });
+          const row = (
+            await getRestaurantDealsRaw(token, restaurantId)
+          ).data.deals!.find((d) => d.id === lastDay.id)!;
+          expect(row.liveStatus).toBe("ENDED");
+          expect(
+            await activeCount(),
+            "still holds a slot until its local end date passes"
+          ).toBe(1);
+          expect((await deleteDealRaw(token, lastDay.id)).status).toBe(200);
+        }
+      );
+
+      for (let i = 0; i < 10; i++)
+        await seedDeal(`Cap live #${i + 1}`, 9, twoItems());
+      const over = await createDealRaw(token, restaurantId, {
+        name: `AUTO Cap overflow ${runId}`,
+        dealPrice: 9,
+        items: twoBody(),
+      });
+      if (over.data?.deal?.id) track(over.data.deal.id);
+      expect(over.status, JSON.stringify(over.data)).toBe(400);
+      expect(over.data as { error?: string }).toMatchObject({
+        error: "MAX_ACTIVE_DEALS_REACHED",
+      });
+    });
+
+    test("TC-518: an ended deal cannot be switched back on (PATCH or PUT → 400 DEAL_ENDED) until its end date moves", async () => {
+      const deal = await seedDeal("EndedOff", 9, twoItems(), {
+        endDate: localDateKey(tz, -2),
+      });
+      expect((await setDealStatusRaw(token, deal.id, "INACTIVE")).status).toBe(
+        200
+      );
+      const on = await setDealStatusRaw(token, deal.id, "ACTIVE");
+      expect(on.status).toBe(400);
+      expect((on.data as { errorCode?: string }).errorCode).toBe("DEAL_ENDED");
+      expect(msg(on.data)).toBe(
+        "This deal has ended. Change its end date to turn it back on."
+      );
+      const put = await updateDealRaw(token, deal.id, { status: "ACTIVE" });
+      expect(put.status).toBe(400);
+      expect((put.data as { errorCode?: string }).errorCode).toBe("DEAL_ENDED");
+      expect(msg(put.data)).toBe(
+        "This deal has ended. Change its end date to turn it back on."
+      );
+      const moved = await updateDealRaw(token, deal.id, {
+        endDate: localDateKey(tz, 5),
+      });
+      expect(moved.status, JSON.stringify(moved.data)).toBe(200);
+      expect((await setDealStatusRaw(token, deal.id, "ACTIVE")).status).toBe(
+        200
+      );
+    });
+
+    const SCHEDULE_ERRORS = {
+      dateOrder: "The end date must be on or after the start date.",
+      sameStartEnd: "The start and end time can't be the same.",
+      invalidDays: "Choose valid days of the week.",
+      invalidDate: "Enter dates as YYYY-MM-DD.",
+      invalidOption:
+        "Choose an option from the list for audience, meal type and occasion.",
+    } as const;
+
+    test("TC-519: create and PUT reject bad schedules with plain messages and normalize good ones (all seven days → [], ISO date → its date, overnight + options kept)", async () => {
+      const k5 = localDateKey(tz, 5);
+      const k10 = localDateKey(tz, 10);
+      const cases: [string, Record<string, unknown>, string][] = [
+        [
+          "end before start",
+          { startDate: k10, endDate: k5 },
+          SCHEDULE_ERRORS.dateOrder,
+        ],
+        [
+          "start equals end",
+          { validTimeStart: "15:00", validTimeEnd: "15:00" },
+          SCHEDULE_ERRORS.sameStartEnd,
+        ],
+        [
+          "unknown weekday",
+          { validDays: ["FUNDAY"] },
+          SCHEDULE_ERRORS.invalidDays,
+        ],
+        ["US date", { startDate: "10/10/2026" }, SCHEDULE_ERRORS.invalidDate],
+        [
+          "impossible date",
+          { endDate: "2026-02-30" },
+          SCHEDULE_ERRORS.invalidDate,
+        ],
+        ["meal type", { mealType: "Brunch" }, SCHEDULE_ERRORS.invalidOption],
+        ["audience", { targetAudience: "Kids" }, SCHEDULE_ERRORS.invalidOption],
+        ["occasion", { occasion: "Birthday" }, SCHEDULE_ERRORS.invalidOption],
+      ];
+      for (const [label, extra, message] of cases) {
+        const res = await createDealRaw(token, restaurantId, {
+          name: `AUTO Invalid ${runId}`,
+          dealPrice: 9,
+          items: twoBody(),
+          ...extra,
+        });
+        if (res.data?.deal?.id) track(res.data.deal.id);
+        expect(res.status, `${label}: ${JSON.stringify(res.data)}`).toBe(400);
+        expect(msg(res.data), label).toBe(message);
+      }
+
+      const deal = await seedDeal("Patchable", 9, twoItems());
+      const badPut = await updateDealRaw(token, deal.id, {
+        startDate: k10,
+        endDate: k5,
+      });
+      expect(badPut.status).toBe(400);
+      expect(msg(badPut.data)).toBe(SCHEDULE_ERRORS.dateOrder);
+      const badOption = await updateDealRaw(token, deal.id, {
+        mealType: "Brunch",
+      });
+      expect(badOption.status).toBe(400);
+      expect(msg(badOption.data)).toBe(SCHEDULE_ERRORS.invalidOption);
+
+      const k3 = localDateKey(tz, 3);
+      const good = await createDealRaw(token, restaurantId, {
+        name: `AUTO Normalized ${runId}`,
+        dealPrice: 9,
+        items: twoBody(),
+        validDays: [
+          "SUNDAY",
+          "MONDAY",
+          "TUESDAY",
+          "WEDNESDAY",
+          "THURSDAY",
+          "FRIDAY",
+          "SATURDAY",
+        ],
+        validTimeStart: "22:00",
+        validTimeEnd: "02:00",
+        startDate: `${k3}T04:00:00.000Z`,
+        endDate: k10,
+        targetAudience: "Couples",
+        mealType: "Late Night",
+        occasion: "Weekend",
+      });
+      expect(good.status, JSON.stringify(good.data)).toBe(201);
+      track(good.data.deal!.id);
+      const row = (await getRestaurantDeals(token, restaurantId)).find(
+        (d) => d.id === good.data.deal!.id
+      )!;
+      expect(row).toMatchObject({
+        validDays: [],
+        validTimeStart: "22:00",
+        validTimeEnd: "02:00",
+        startDate: k3,
+        endDate: k10,
+        targetAudience: "Couples",
+        mealType: "Late Night",
+        occasion: "Weekend",
+      });
+    });
+
+    test("TC-520: bulk create (the AI generator's path) runs the same validation before writing anything, and keeps schedule + occasion on a valid deal", async () => {
+      const before = (await getRestaurantDeals(token, restaurantId)).length;
+      const bad = await bulkCreateDealsRaw(token, restaurantId, [
+        { name: `AUTO BulkOk ${runId}`, dealPrice: 9, items: twoBody() },
+        {
+          name: `AUTO BulkBad ${runId}`,
+          dealPrice: 9,
+          items: twoBody(),
+          mealType: "Brunch",
+        },
+      ]);
+      for (const d of bad.data.deals ?? []) track(d.id);
+      expect(bad.status, JSON.stringify(bad.data)).toBe(400);
+      expect(msg(bad.data)).toBe(SCHEDULE_ERRORS.invalidOption);
+      expect(
+        (await getRestaurantDeals(token, restaurantId)).length,
+        "nothing was written"
+      ).toBe(before);
+
+      const reversed = await bulkCreateDealsRaw(token, restaurantId, [
+        {
+          name: `AUTO BulkDates ${runId}`,
+          dealPrice: 9,
+          items: twoBody(),
+          startDate: localDateKey(tz, 10),
+          endDate: localDateKey(tz, 5),
+        },
+      ]);
+      for (const d of reversed.data.deals ?? []) track(d.id);
+      expect(reversed.status).toBe(400);
+      expect(msg(reversed.data)).toBe(SCHEDULE_ERRORS.dateOrder);
+
+      const good = await bulkCreateDealsRaw(token, restaurantId, [
+        {
+          name: `AUTO BulkSched ${runId}`,
+          dealPrice: 9,
+          items: twoBody(),
+          validDays: ["SATURDAY", "SUNDAY"],
+          validTimeStart: "11:00",
+          validTimeEnd: "14:00",
+          targetAudience: "Family",
+          mealType: "Lunch",
+          occasion: "Weekend",
+        },
+      ]);
+      expect(good.status, JSON.stringify(good.data)).toBe(201);
+      for (const d of good.data.deals ?? []) track(d.id);
+      const row = (await getRestaurantDeals(token, restaurantId)).find(
+        (d) => d.name === `AUTO BulkSched ${runId}`
+      )!;
+      expect([...(row.validDays ?? [])].sort()).toEqual(["SATURDAY", "SUNDAY"]);
+      expect(row).toMatchObject({
+        validTimeStart: "11:00",
+        validTimeEnd: "14:00",
+        mealType: "Lunch",
+        occasion: "Weekend",
+      });
+    });
+
+    /** Mon–Sat 11:00–21:00, Friday until 02:00 (overnight), Sunday closed. */
+    const WEEK_HOURS: BusinessHoursRow[] = [
+      ...(
+        ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "SATURDAY"] as const
+      ).map((day) => ({
+        day,
+        openingTime: "11:00:00",
+        closingTime: "21:00:00",
+        isClosed: false,
+        is24Hours: false,
+      })),
+      {
+        day: "FRIDAY",
+        openingTime: "11:00:00",
+        closingTime: "02:00:00",
+        isClosed: false,
+        is24Hours: false,
+      },
+      {
+        day: "SUNDAY",
+        openingTime: null,
+        closingTime: null,
+        isClosed: true,
+        is24Hours: false,
+      },
+    ];
+
+    /** Run `body` with WEEK_HOURS set on the tenant; restore the rows it had (normally none). */
+    const withWeekHours = async (body: () => Promise<void>) => {
+      const original =
+        (await getBusinessHoursRaw(token, restaurantId)).data.businessHours ??
+        [];
+      await setBusinessHoursApi(token, restaurantId, WEEK_HOURS);
+      try {
+        await body();
+      } finally {
+        await setBusinessHoursApi(await freshToken(), restaurantId, original);
+      }
+    };
+    const check = async (q: Parameters<typeof getDealScheduleCheckRaw>[2]) => {
+      const res = await getDealScheduleCheckRaw(token, restaurantId, q);
+      expect(res.status, JSON.stringify(res.data)).toBe(200);
+      return res.data.data!;
+    };
+
+    test("TC-521: schedule-check warns about closed days and windows that START outside business hours, names the restaurant, and is quiet when no hours are set; bad days → 400", async () => {
+      await allure.description(
+        "GET /api/deals/restaurant/:id/schedule-check (warning-only; the owner may still save). Throwaway " +
+          "tenant: no hours → no warnings; with Mon–Sat 11–21 / Sun closed: Sun+Mon → one 'closed on Sun' warning, " +
+          "Mon 09:00–12:00 → one warning naming Mon, Any time → the Sunday warning. Hours restored in finally."
+      );
+      const original =
+        (await getBusinessHoursRaw(token, restaurantId)).data.businessHours ??
+        [];
+      if (original.length === 0) {
+        const none = await check({
+          validDays: ["SUNDAY"],
+          validTimeStart: "05:00",
+          validTimeEnd: "06:00",
+        });
+        expect(none.timeZone).toBe(tz);
+        expect(none.timeZoneLabel.length).toBeGreaterThan(0);
+        expect(none.warnings).toEqual([]);
+      }
+      await withWeekHours(async () => {
+        const closed = await check({ validDays: ["SUNDAY", "MONDAY"] });
+        expect(closed.warnings).toHaveLength(1);
+        expect(closed.warnings[0]!.restaurantId).toBe(restaurantId);
+        expect(closed.warnings[0]!.restaurantName.length).toBeGreaterThan(0);
+        expect(closed.warnings[0]!.message).toMatch(/closed/i);
+        expect(closed.warnings[0]!.message).toContain("Sun");
+
+        const early = await check({
+          validDays: ["MONDAY"],
+          validTimeStart: "09:00",
+          validTimeEnd: "12:00",
+        });
+        expect(early.warnings).toHaveLength(1);
+        expect(early.warnings[0]!.message).toContain("Mon");
+
+        const anyTime = await check({});
+        expect(anyTime.warnings.map((w) => w.message).join(" ")).toContain(
+          "Sun"
+        );
+
+        const bad = await getDealScheduleCheckRaw(token, restaurantId, {
+          validDays: ["FUNDAY"],
+        });
+        expect(bad.status).toBe(400);
+        expect(msg(bad.data)).toBe("Choose valid days of the week.");
+      });
+    });
+
+    test("TC-522: schedule-check does NOT warn when a window starts inside business hours — even when it runs past closing, or is an overnight window inside an overnight day", async () => {
+      await withWeekHours(async () => {
+        expect(
+          (
+            await check({
+              validDays: ["MONDAY"],
+              validTimeStart: "20:00",
+              validTimeEnd: "23:00",
+            })
+          ).warnings,
+          "runs past the 21:00 close but starts while open"
+        ).toEqual([]);
+        expect(
+          (
+            await check({
+              validDays: ["FRIDAY"],
+              validTimeStart: "22:00",
+              validTimeEnd: "01:00",
+            })
+          ).warnings,
+          "overnight inside Friday's 11:00–02:00"
+        ).toEqual([]);
+        expect(
+          (
+            await check({
+              validDays: ["MONDAY", "TUESDAY"],
+              validTimeStart: "12:00",
+              validTimeEnd: "14:00",
+            })
+          ).warnings
+        ).toEqual([]);
+      });
+    });
   });
 
   // ── The 10-active cap (RestauNax #618: also enforced on create + PUT) ────────
@@ -1026,7 +1858,9 @@ test.describe("Owner — Deals API contract", () => {
         "(not just template-wind): /quote with a deal + a % coupon returns couponDiscount 0 and a " +
         "coupon_deal_exclusive ERROR issue."
     );
-    const deal = await seedDeal("CouponStack", 20, [
+    // 12 < 16.50 regular: since guided deal types (RestauNax #927) a combo
+    // priced at or above its items' regular price is refused at create.
+    const deal = await seedDeal("CouponStack", 12, [
       { id: itemA.id, name: itemA.name, price: itemA.price },
       { id: itemB.id, name: itemB.name, price: itemB.price },
     ]);
@@ -1057,12 +1891,17 @@ test.describe("Owner — Deals API contract", () => {
         couponId,
       });
       expect(q.status, JSON.stringify(q.data)).toBe(200);
-      const hasErrorIssue = (q.data.issues ?? []).some(
-        (i) => i.severity === "ERROR"
-      );
+      const detail = `couponDiscount=${q.data.quote?.couponDiscount} issues=${JSON.stringify(q.data.issues)}`;
+      // Both halves of the contract (pricingEngine.ts "Coupon ⊥ deal"): the
+      // coupon is priced at 0 AND the quote says why.
+      expect(q.data.quote?.couponDiscount ?? 0, detail).toBe(0);
       expect(
-        (q.data.quote?.couponDiscount ?? 0) === 0 || hasErrorIssue,
-        `couponDiscount=${q.data.quote?.couponDiscount} issues=${JSON.stringify(q.data.issues)}`
+        (q.data.issues ?? []).some(
+          (i) =>
+            (i as { code?: string }).code === "coupon_deal_exclusive" &&
+            i.severity === "ERROR"
+        ),
+        detail
       ).toBe(true);
     } finally {
       if (couponId) await deleteCouponApi(token, couponId).catch(() => {});
@@ -1172,6 +2011,1007 @@ test.describe("Owner — Deals API contract", () => {
       expect(typeof q.question).toBe("string");
       expect((q.options ?? []).length).toBeGreaterThan(0);
     }
+  });
+
+  // ── Guided deal types (restaunax DEAL_TYPES.md) ────────────────────────────
+  //
+  // Prices: itemA 10.00, itemB 6.50, itemC 4.00 — every expected dealPrice is
+  // what Service/deal/dealTypePricing.ts computes from the MENU's prices.
+
+  test.describe("guided deal types", () => {
+    /** EN text of error:deal.type.* (restaunax-backend/src/locales/en/error.json). */
+    const TYPE_ERRORS = {
+      invalidType: "Choose a valid deal type.",
+      invalidRole:
+        "Each item must be marked as something the customer buys or something they get.",
+      comboNeedsTwoItems:
+        "A combo needs at least 2 items. You can add the same item twice.",
+      bogoNeedsBuyAndGet:
+        "Add at least one item the customer buys and one item they get.",
+      discountPercentRange: "Enter a discount between 1% and 99%.",
+      priceMustBeBelowRegular:
+        "The deal price must be lower than the items' regular price.",
+    };
+    /** One unit row of a real seed item (price = its real price). */
+    const row = (
+      item: ApiMenuItem,
+      role?: "INCLUDED" | "BUY" | "GET",
+      itemPrice = item.price
+    ) => ({
+      menuItemId: item.id,
+      quantity: 1,
+      itemName: item.name,
+      itemPrice,
+      ...(role ? { role } : {}),
+    });
+    /** Create, track for cleanup, assert 201 and return the deal. */
+    const create = async (body: Record<string, unknown>): Promise<ApiDeal> => {
+      const res = await createDealRaw(token, restaurantId, body);
+      if (res.data?.deal?.id) track(res.data.deal.id);
+      expect(res.status, JSON.stringify(res.data)).toBe(201);
+      return res.data.deal!;
+    };
+    const roles = (d: ApiDeal) =>
+      (d.items ?? [])
+        .slice()
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .map((i) => i.role);
+
+    test.beforeEach(async () => {
+      await allure.label("feature", "Deals API Contract — guided deal types");
+    });
+
+    test("TC-691: BOGO_FREE of one item — no dealPrice needed; the server prices it at 1× the item and stores a BUY and a GET row", async () => {
+      await allure.description(
+        "POST {dealType BOGO_FREE, items [Burger BUY, Burger GET]} with NO dealPrice → 201, dealPrice 10 " +
+          "(sum of BUY rows; GET free), originalPrice 20, savings 10 (50%), discountPercent null, two qty-1 rows " +
+          "with roles BUY then GET — and the GET /:id read-back carries the same type and roles."
+      );
+      const deal = await create({
+        name: `AUTO BOGO Free ${runId}`,
+        dealType: "BOGO_FREE",
+        items: [row(itemA, "BUY"), row(itemA, "GET")],
+      });
+      expect(deal).toMatchObject({
+        dealType: "BOGO_FREE",
+        discountPercent: null,
+        dealPrice: 10,
+        originalPrice: 20,
+        savingsAmount: 10,
+        savingsPercentage: 50,
+      });
+      expect(deal.items).toHaveLength(2);
+      expect(deal.items!.every((i) => i.menuItemId === itemA.id)).toBe(true);
+      expect(deal.items!.every((i) => i.quantity === 1)).toBe(true);
+      expect(roles(deal)).toEqual(["BUY", "GET"]);
+      const back = await getDealApi(token, deal.id);
+      expect(back.dealType).toBe("BOGO_FREE");
+      expect(roles(back)).toEqual(["BUY", "GET"]);
+    });
+
+    test("TC-692: BOGO_PERCENT_OFF 50% — BUY full price + GET at half; discountPercent persisted", async () => {
+      await allure.description(
+        "Buy a Burger (10), get Fries (6.50) at 50% off → dealPrice 10 + 3.25 = 13.25, originalPrice 16.50, " +
+          "savings 3.25, discountPercent 50, roles [BUY, GET]."
+      );
+      const deal = await create({
+        name: `AUTO BOGO Half ${runId}`,
+        dealType: "BOGO_PERCENT_OFF",
+        discountPercent: 50,
+        items: [row(itemA, "BUY"), row(itemB, "GET")],
+      });
+      expect(deal).toMatchObject({
+        dealType: "BOGO_PERCENT_OFF",
+        discountPercent: 50,
+        dealPrice: 13.25,
+        originalPrice: 16.5,
+        savingsAmount: 3.25,
+      });
+      expect(roles(deal)).toEqual(["BUY", "GET"]);
+    });
+
+    test("TC-693: PERCENT_OFF on a single item is a valid deal — 25% off the Burger costs 7.50, one INCLUDED row", async () => {
+      await allure.description(
+        "PERCENT_OFF needs one item or more (a COMBO needs two). Burger 10 at 25% off → dealPrice 7.50, " +
+          "originalPrice 10, savings 2.50, discountPercent 25, a single INCLUDED row."
+      );
+      const deal = await create({
+        name: `AUTO Pct Single ${runId}`,
+        dealType: "PERCENT_OFF",
+        discountPercent: 25,
+        items: [row(itemA)],
+      });
+      expect(deal).toMatchObject({
+        dealType: "PERCENT_OFF",
+        discountPercent: 25,
+        dealPrice: 7.5,
+        originalPrice: 10,
+        savingsAmount: 2.5,
+      });
+      expect(roles(deal)).toEqual(["INCLUDED"]);
+    });
+
+    test("TC-694: the client's dealPrice is ignored for computed types, and a client itemPrice never reaches originalPrice (re-read from the menu)", async () => {
+      await allure.description(
+        "Server-authoritative money: BOGO_FREE sent with dealPrice 1 is stored at 10; PERCENT_OFF 10% sent with " +
+          "dealPrice 999 is stored at 9. A COMBO whose rows claim itemPrice 99 / 50 is snapshotted at the menu's " +
+          "10 / 6.50 — originalPrice 16.50, not 149 — so the advertised savings can't be inflated. "
+      );
+      const bogo = await create({
+        name: `AUTO BOGO Tamper ${runId}`,
+        dealType: "BOGO_FREE",
+        dealPrice: 1,
+        items: [row(itemA, "BUY"), row(itemA, "GET")],
+      });
+      expect(bogo.dealPrice).toBe(10);
+      const pct = await create({
+        name: `AUTO Pct Tamper ${runId}`,
+        dealType: "PERCENT_OFF",
+        discountPercent: 10,
+        dealPrice: 999,
+        items: [row(itemA)],
+      });
+      expect(pct.dealPrice).toBe(9);
+      const combo = await create({
+        name: `AUTO Combo Snapshot ${runId}`,
+        dealPrice: 12,
+        items: [row(itemA, undefined, 99), row(itemB, undefined, 50)],
+      });
+      expect(combo.originalPrice).toBe(16.5);
+      expect(combo.savingsAmount).toBe(4.5);
+      expect(
+        Object.fromEntries(
+          (combo.items ?? []).map((i) => [i.menuItemId, i.itemPrice])
+        )
+      ).toEqual({ [itemA.id]: 10, [itemB.id]: 6.5 });
+    });
+
+    test("TC-695: shapes that don't fit their type are 400 with the deal.type.* messages, and nothing is written", async () => {
+      await allure.description(
+        "invalidType (dealType 'BUNDLE'); invalidRole (a BOGO row without a role / a COMBO row marked BUY); " +
+          "bogoNeedsBuyAndGet (BUY only); discountPercentRange (missing, 0, 100, 12.5); comboNeedsTwoItems " +
+          "(ONE unit — previously accepted by the API); priceMustBeBelowRegular (combo at exactly and above " +
+          "16.50)."
+      );
+      const before = (await getRestaurantDeals(token, restaurantId)).length;
+      const cases: [string, Record<string, unknown>, string][] = [
+        [
+          "unknown type",
+          { dealType: "BUNDLE", dealPrice: 9, items: [row(itemA), row(itemB)] },
+          TYPE_ERRORS.invalidType,
+        ],
+        [
+          "BOGO row without a role",
+          { dealType: "BOGO_FREE", items: [row(itemA, "BUY"), row(itemA)] },
+          TYPE_ERRORS.invalidRole,
+        ],
+        [
+          "COMBO row marked BUY",
+          { dealPrice: 9, items: [row(itemA, "BUY"), row(itemB)] },
+          TYPE_ERRORS.invalidRole,
+        ],
+        [
+          "BOGO with only BUY rows",
+          {
+            dealType: "BOGO_FREE",
+            items: [row(itemA, "BUY"), row(itemB, "BUY")],
+          },
+          TYPE_ERRORS.bogoNeedsBuyAndGet,
+        ],
+        [
+          "percent missing",
+          { dealType: "PERCENT_OFF", items: [row(itemA)] },
+          TYPE_ERRORS.discountPercentRange,
+        ],
+        [
+          "percent 0",
+          { dealType: "PERCENT_OFF", discountPercent: 0, items: [row(itemA)] },
+          TYPE_ERRORS.discountPercentRange,
+        ],
+        [
+          "percent 100",
+          {
+            dealType: "BOGO_PERCENT_OFF",
+            discountPercent: 100,
+            items: [row(itemA, "BUY"), row(itemB, "GET")],
+          },
+          TYPE_ERRORS.discountPercentRange,
+        ],
+        [
+          "percent 12.5",
+          {
+            dealType: "PERCENT_OFF",
+            discountPercent: 12.5,
+            items: [row(itemA)],
+          },
+          TYPE_ERRORS.discountPercentRange,
+        ],
+        [
+          "combo of one unit",
+          { dealPrice: 8, items: [row(itemA)] },
+          TYPE_ERRORS.comboNeedsTwoItems,
+        ],
+        [
+          "combo at the regular price",
+          { dealPrice: 16.5, items: [row(itemA), row(itemB)] },
+          TYPE_ERRORS.priceMustBeBelowRegular,
+        ],
+        [
+          "combo above the regular price",
+          { dealPrice: 20, items: [row(itemA), row(itemB)] },
+          TYPE_ERRORS.priceMustBeBelowRegular,
+        ],
+      ];
+      for (const [label, body, message] of cases) {
+        await allure.step(label, async () => {
+          const res = await createDealRaw(token, restaurantId, {
+            name: `AUTO Bad Type ${runId}`,
+            ...body,
+          });
+          if (res.data?.deal?.id) track(res.data.deal.id);
+          expect(res.status, `${label}: ${JSON.stringify(res.data)}`).toBe(400);
+          expect(msg(res.data), label).toBe(message);
+        });
+      }
+      expect(
+        (await getRestaurantDeals(token, restaurantId)).length,
+        "nothing was written"
+      ).toBe(before);
+    });
+
+    test("TC-696: a COMBO of the same item twice is accepted — as two rows or as quantity 2 — and stored as two unit rows", async () => {
+      await allure.description(
+        "'2 burgers for $15': two rows of the Burger, or one row with quantity 2 (split server-side), both " +
+          "count as two items → 201, two qty-1 INCLUDED rows, originalPrice 20, savings 5."
+      );
+      for (const [label, items] of [
+        ["two rows", [row(itemA), row(itemA)]],
+        ["quantity 2", [{ ...row(itemA), quantity: 2 }]],
+      ] as const) {
+        await allure.step(label, async () => {
+          const deal = await create({
+            name: `AUTO Two Burgers ${label} ${runId}`,
+            dealPrice: 15,
+            items,
+          });
+          expect(deal.dealType).toBe("COMBO");
+          expect(deal.items).toHaveLength(2);
+          expect(deal.items!.every((i) => i.menuItemId === itemA.id)).toBe(
+            true
+          );
+          expect(deal.items!.every((i) => i.quantity === 1)).toBe(true);
+          expect(roles(deal)).toEqual(["INCLUDED", "INCLUDED"]);
+          expect(deal.originalPrice).toBe(20);
+          expect(deal.savingsAmount).toBe(5);
+        });
+      }
+    });
+
+    test("TC-697: a price-only PUT is re-validated against the stored rows without rewriting them — at/above regular is 400; a valid one keeps every row id; a percent-only PUT reprices a BOGO in place", async () => {
+      await allure.description(
+        "COMBO Burger + Fries at 12. PUT {dealPrice 16.5} → 400 priceMustBeBelowRegular, price still 12. " +
+          "PUT {dealPrice 11} → 200, savings 5.50, and the DealItem ids are UNCHANGED (they are the checkout " +
+          "slots open carts point at). BOGO_PERCENT_OFF 50% (Burger BUY, Fries GET) → PUT {discountPercent 20} " +
+          "→ dealPrice 10 + 5.20 = 15.20, discountPercent 20, row ids and roles unchanged."
+      );
+      const combo = await create({
+        name: `AUTO Put Combo ${runId}`,
+        dealPrice: 12,
+        items: [row(itemA), row(itemB)],
+      });
+      const ids = (d: ApiDeal) => (d.items ?? []).map((i) => i.id).sort();
+      const comboIds = ids(await getDealApi(token, combo.id));
+
+      const tooHigh = await updateDealRaw(token, combo.id, { dealPrice: 16.5 });
+      expect(tooHigh.status, JSON.stringify(tooHigh.data)).toBe(400);
+      expect(msg(tooHigh.data)).toBe(TYPE_ERRORS.priceMustBeBelowRegular);
+      expect((await getDealApi(token, combo.id)).dealPrice).toBe(12);
+
+      const ok = await updateDealRaw(token, combo.id, { dealPrice: 11 });
+      expect(ok.status, JSON.stringify(ok.data)).toBe(200);
+      const after = await getDealApi(token, combo.id);
+      expect(after.dealPrice).toBe(11);
+      expect(after.savingsAmount).toBe(5.5);
+      expect(ids(after), "a price-only PUT never rewrites the rows").toEqual(
+        comboIds
+      );
+
+      const bogo = await create({
+        name: `AUTO Put BOGO ${runId}`,
+        dealType: "BOGO_PERCENT_OFF",
+        discountPercent: 50,
+        items: [row(itemA, "BUY"), row(itemB, "GET")],
+      });
+      const bogoIds = ids(await getDealApi(token, bogo.id));
+      const pct = await updateDealRaw(token, bogo.id, { discountPercent: 20 });
+      expect(pct.status, JSON.stringify(pct.data)).toBe(200);
+      const repriced = await getDealApi(token, bogo.id);
+      expect(repriced).toMatchObject({
+        dealType: "BOGO_PERCENT_OFF",
+        discountPercent: 20,
+        dealPrice: 15.2,
+      });
+      expect(ids(repriced)).toEqual(bogoIds);
+      expect(roles(repriced)).toEqual(["BUY", "GET"]);
+    });
+
+    test("TC-698: a legacy create (no dealType, no roles) reads back as a COMBO of INCLUDED rows with no percent", async () => {
+      await allure.description(
+        "Every client that predates guided deal types (ordering apps, POS, older dashboards) sends no dealType " +
+          "and no item roles. That body still creates a deal: dealType COMBO, discountPercent null, every row " +
+          "INCLUDED, the owner's dealPrice kept."
+      );
+      const deal = await create({
+        name: `AUTO Legacy ${runId}`,
+        dealPrice: 12,
+        items: twoBody(),
+      });
+      expect(deal).toMatchObject({
+        dealType: "COMBO",
+        discountPercent: null,
+        dealPrice: 12,
+        originalPrice: 16.5,
+      });
+      expect(roles(deal)).toEqual(["INCLUDED", "INCLUDED"]);
+      const listed = (await getRestaurantDeals(token, restaurantId)).find(
+        (d) => d.id === deal.id
+      )!;
+      expect(listed.dealType).toBe("COMBO");
+    });
+
+    test("TC-699: /quote charges a BOGO deal its computed dealPrice — buy a Burger, get a Burger is 10.00, not 20.00", async () => {
+      await allure.description(
+        "The guided type is still a plain fixed-price deal for checkout: /quote with the BOGO_FREE deal and " +
+          "both slots filled with the Burger → quote.deals[0] {dealPrice 10, quantity 1, lineTotal 10, savings 10}, " +
+          "dealsSubtotal 10. A client dealPrice (0.01) is ignored."
+      );
+      const deal = await create({
+        name: `AUTO BOGO Quote ${runId}`,
+        dealType: "BOGO_FREE",
+        items: [row(itemA, "BUY"), row(itemA, "GET")],
+      });
+      const q = await quoteOrderRaw(restaurantId, {
+        orderItems: [],
+        orderDeals: [
+          {
+            dealId: deal.id,
+            dealPrice: 0.01,
+            quantity: 1,
+            items: [
+              { menuItemId: itemA.id, quantity: 1 },
+              { menuItemId: itemA.id, quantity: 1 },
+            ],
+          },
+        ],
+      });
+      expect(q.status, JSON.stringify(q.data)).toBe(200);
+      expect(q.data.quote?.deals?.[0]).toMatchObject({
+        dealId: deal.id,
+        dealPrice: 10,
+        quantity: 1,
+        lineTotal: 10,
+        savings: 10,
+      });
+      expect(q.data.quote?.dealsSubtotal).toBe(10);
+    });
+
+    test("TC-700: bulk create (the AI path) prices computed types and reports a type-invalid deal in errors[] without failing the batch", async () => {
+      await allure.description(
+        "POST /bulk with a BOGO_FREE deal (no dealPrice) and a one-unit COMBO: 201, createdCount 1 — the BOGO " +
+          "stored at 10 with BUY/GET rows — and errors [{index 1, error comboNeedsTwoItems}]."
+      );
+      const res = await bulkCreateDealsRaw(token, restaurantId, [
+        {
+          name: `AUTO Bulk BOGO ${runId}`,
+          dealType: "BOGO_FREE",
+          items: [row(itemA, "BUY"), row(itemA, "GET")],
+        },
+        {
+          name: `AUTO Bulk Solo ${runId}`,
+          dealPrice: 8,
+          items: [row(itemA)],
+        },
+      ]);
+      for (const d of res.data.deals ?? []) track(d.id);
+      expect(res.status, JSON.stringify(res.data)).toBe(201);
+      expect(res.data.createdCount).toBe(1);
+      expect(res.data.errors).toEqual([
+        { index: 1, error: TYPE_ERRORS.comboNeedsTwoItems },
+      ]);
+      const bogo = (await getRestaurantDeals(token, restaurantId)).find(
+        (d) => d.name === `AUTO Bulk BOGO ${runId}`
+      )!;
+      expect(bogo).toMatchObject({ dealType: "BOGO_FREE", dealPrice: 10 });
+      expect(roles(bogo)).toEqual(["BUY", "GET"]);
+    });
+
+    test("TC-701: public GET /ai/questions adds the optional multi-select 'dealTypes' question with the four types", async () => {
+      await allure.description(
+        "The AI generator's questionnaire grows a 5th question, id 'dealTypes', type 'multiple', whose option " +
+          "values are exactly COMBO / BOGO_FREE / BOGO_PERCENT_OFF / PERCENT_OFF, each with a label and a plain " +
+          "description. The four original ids are still there."
+      );
+      const res = await getAiDealQuestionsPublic();
+      expect(res.status).toBe(200);
+      const questions = res.data.questions ?? [];
+      expect(questions.map((q) => q.id)).toEqual(
+        expect.arrayContaining([
+          "targetAudience",
+          "priceRange",
+          "mealType",
+          "occasion",
+          "dealTypes",
+        ])
+      );
+      const q = questions.find((x) => x.id === "dealTypes")!;
+      expect(q.type).toBe("multiple");
+      expect(typeof q.question).toBe("string");
+      expect((q.options ?? []).map((o) => o.value)).toEqual([
+        "COMBO",
+        "BOGO_FREE",
+        "BOGO_PERCENT_OFF",
+        "PERCENT_OFF",
+      ]);
+      for (const o of q.options ?? []) {
+        expect(o.label, o.value).toBeTruthy();
+        expect(o.description, o.value).toBeTruthy();
+      }
+    });
+
+    // ── Slot matching + "buy any X, get one free" (TC-705..687) ─────────────
+    test.describe("deal picks must match their slots; buy any pizza, get one free", () => {
+      /** EN text — restaunax-backend/src/locales/en/api.json + error.json. */
+      const NOT_IN_DEAL =
+        "One of the items you picked isn't part of this deal. Please choose from the deal's options.";
+      const SLOT_UNFILLED =
+        "Please choose all of the items your deal requires.";
+      const CATEGORY_NOT_FOR_PERCENT_OFF =
+        "Percent off works with specific items. For “any item from a category”, use a combo or buy one get one.";
+
+      // "Any pizza": Small 8 and Large 14 in stock, plus a Slice 5 that is
+      // 86'd — the category's "from" price is its cheapest IN-STOCK item (8).
+      let pizzaGroupId = "";
+      let small: ApiMenuItem;
+      let large: ApiMenuItem;
+      let slice: ApiMenuItem;
+
+      type Pick = { menuItemId: string; dealItemId?: string };
+      /** A category line ("Any pizza") with a BOGO role. */
+      const anyPizza = (role: "BUY" | "GET") => ({
+        menuGroupId: pizzaGroupId,
+        quantity: 1,
+        itemName: "Any pizza",
+        role,
+      });
+      /** The deal's stored rows (= the checkout slots). */
+      const slotsOf = async (dealId: string) =>
+        (await getDealApi(token, dealId)).items ?? [];
+      /** /quote ONE bundle of the deal with these picks (one unit each). */
+      const quoteDeal = (dealId: string, picks: Pick[], dealPrice?: number) =>
+        quoteOrderRaw(restaurantId, {
+          orderItems: [],
+          orderDeals: [
+            {
+              dealId,
+              quantity: 1,
+              ...(dealPrice !== undefined ? { dealPrice } : {}),
+              items: picks.map((p) => ({ ...p, quantity: 1 })),
+            },
+          ],
+        });
+      /** The storefront checkout body (template-wind shape) for one bundle. */
+      const orderBody = (
+        deal: ApiDeal,
+        picks: { item: ApiMenuItem; dealItemId?: string }[],
+        money: { subtotal: number; tax: number; total: number },
+        tamper: { dealPrice: number; itemPrice?: number }
+      ) => ({
+        orderType: "PICKUP",
+        ...money,
+        deliveryFee: 0,
+        tip: 0,
+        customerEmail: `deal-slots-${runId}@restaunax-test.com`,
+        customerPhone: generateSeedPhone(),
+        firstName: "Deal",
+        lastName: "Slots",
+        orderItems: [],
+        orderDeals: [
+          {
+            dealId: deal.id,
+            dealName: deal.name,
+            dealPrice: tamper.dealPrice,
+            quantity: 1,
+            items: picks.map((p) => ({
+              ...(p.dealItemId ? { dealItemId: p.dealItemId } : {}),
+              menuItemId: p.item.id,
+              menuItemName: p.item.name,
+              menuItemPrice: tamper.itemPrice ?? p.item.price,
+              quantity: 1,
+            })),
+          },
+        ],
+      });
+      /** Publish + accept orders for the duration of `fn` (unpublished stores refuse every order). */
+      const withOpenStore = async (fn: () => Promise<void>) => {
+        adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
+        const { previous } = await setRestaurantPublishedApi(
+          adminToken,
+          restaurantId,
+          true
+        );
+        await updateRestaurantSettingsApi(token, restaurantId, {
+          acceptingOrders: true,
+        });
+        try {
+          await fn();
+        } finally {
+          if (!previous)
+            await setRestaurantPublishedApi(adminToken, restaurantId, false);
+        }
+      };
+
+      test.beforeAll(async () => {
+        if (!token) return;
+        const t = await freshToken();
+        pizzaGroupId = (
+          await createMenuGroupNamed(t, `Automation Pizza ${runId}`, {
+            restaurantId,
+          })
+        ).id;
+        extraGroupIds.push(pizzaGroupId);
+        const add = async (name: string, price: number) => {
+          const item = await createMenuItemFull(
+            t,
+            pizzaGroupId,
+            `${name} ${runId}`,
+            price
+          );
+          createdItemIds.push(item.id);
+          return item;
+        };
+        small = await add("Small Pizza", 8);
+        large = await add("Large Pizza", 14);
+        slice = await add("Pizza Slice", 5);
+        await setAvailability(t, slice.id, true);
+      });
+
+      test.beforeEach(async () => {
+        await allure.label(
+          "feature",
+          "Deals API Contract — slot matching & category BOGO"
+        );
+      });
+
+      test("TC-705: /quote refuses a pick that isn't its slot's item and a missing pick — with or without dealItemId — and /validate flags the wrong pick", async () => {
+        await allure.description(
+          "COMBO Burger + Fries at 12. The right picks quote 200 at 12, with slot ids or without (any order). " +
+            "Refused with 400 + api:error.pricingDealSelectionNotInDeal: a Drink instead of the Fries (no ids), the " +
+            "Drink named into the Fries slot, Burger and Fries named into each other's slots, a third item beside a " +
+            "full deal. Refused with 400 + pricingDealSlotUnfilled: the Fries slot empty (with and without ids), no " +
+            "picks at all. Public /validate with the Drink in the Fries slot → isValid false with the same sentence. "
+        );
+        const deal = await create({
+          name: `AUTO Slots ${runId}`,
+          dealPrice: 12,
+          items: [row(itemA), row(itemB)],
+        });
+        const slots = await slotsOf(deal.id);
+        const burgerSlot = slots.find((s) => s.menuItemId === itemA.id)!.id;
+        const friesSlot = slots.find((s) => s.menuItemId === itemB.id)!.id;
+
+        for (const [label, picks] of [
+          [
+            "slot ids",
+            [
+              { dealItemId: burgerSlot, menuItemId: itemA.id },
+              { dealItemId: friesSlot, menuItemId: itemB.id },
+            ],
+          ],
+          [
+            "no slot ids, any order",
+            [{ menuItemId: itemB.id }, { menuItemId: itemA.id }],
+          ],
+        ] as [string, Pick[]][]) {
+          await allure.step(`accepted: ${label}`, async () => {
+            const q = await quoteDeal(deal.id, picks);
+            expect(q.status, `${label}: ${JSON.stringify(q.data)}`).toBe(200);
+            expect(q.data.quote?.deals?.[0]?.lineTotal).toBe(12);
+          });
+        }
+
+        const refused: [string, Pick[], string][] = [
+          [
+            "a Drink instead of the Fries (no slot ids)",
+            [{ menuItemId: itemA.id }, { menuItemId: itemC.id }],
+            NOT_IN_DEAL,
+          ],
+          [
+            "the Drink named into the Fries slot",
+            [
+              { dealItemId: burgerSlot, menuItemId: itemA.id },
+              { dealItemId: friesSlot, menuItemId: itemC.id },
+            ],
+            NOT_IN_DEAL,
+          ],
+          [
+            "Burger and Fries in each other's slots",
+            [
+              { dealItemId: friesSlot, menuItemId: itemA.id },
+              { dealItemId: burgerSlot, menuItemId: itemB.id },
+            ],
+            NOT_IN_DEAL,
+          ],
+          [
+            "a third item beside a full deal",
+            [
+              { menuItemId: itemA.id },
+              { menuItemId: itemB.id },
+              { menuItemId: itemC.id },
+            ],
+            NOT_IN_DEAL,
+          ],
+          [
+            "the Fries slot empty (no slot ids)",
+            [{ menuItemId: itemA.id }],
+            SLOT_UNFILLED,
+          ],
+          [
+            "the Fries slot empty (slot ids)",
+            [{ dealItemId: burgerSlot, menuItemId: itemA.id }],
+            SLOT_UNFILLED,
+          ],
+          ["no picks at all", [], SLOT_UNFILLED],
+        ];
+        for (const [label, picks, message] of refused) {
+          await allure.step(`refused: ${label}`, async () => {
+            const q = await quoteDeal(deal.id, picks);
+            expect(q.status, `${label}: ${JSON.stringify(q.data)}`).toBe(400);
+            expect(msg(q.data), label).toBe(message);
+          });
+        }
+
+        const v = await validateDealPublic({
+          dealId: deal.id,
+          restaurantId,
+          selectedItems: [
+            { dealItemId: burgerSlot, menuItemId: itemA.id, quantity: 1 },
+            { dealItemId: friesSlot, menuItemId: itemC.id, quantity: 1 },
+          ],
+        });
+        expect(v.data.isValid, JSON.stringify(v.data)).toBe(false);
+        expect(v.data.issues).toContain(NOT_IN_DEAL);
+      });
+
+      test("TC-706: placing an order refuses a pick that isn't its slot's item and a missing pick, with the same messages as /quote", async () => {
+        await allure.description(
+          "POST /api/order/new/restaurantId/:id (the storefront checkout) for a Burger + Fries combo at 12, the " +
+            "tenant published + accepting orders for this test only. A Drink in the Fries slot (without and with " +
+            "dealItemId) → 400 pricingDealSelectionNotInDeal; the Fries slot empty → 400 pricingDealSlotUnfilled. " +
+            "No order is created."
+        );
+        const deal = await create({
+          name: `AUTO Slots Order ${runId}`,
+          dealPrice: 12,
+          items: [row(itemA), row(itemB)],
+        });
+        const slots = await slotsOf(deal.id);
+        const burgerSlot = slots.find((s) => s.menuItemId === itemA.id)!.id;
+        const friesSlot = slots.find((s) => s.menuItemId === itemB.id)!.id;
+        const money = { subtotal: 12, tax: 0.96, total: 12.96 };
+        const cases: [
+          string,
+          { item: ApiMenuItem; dealItemId?: string }[],
+          string,
+        ][] = [
+          [
+            "a Drink instead of the Fries (no slot ids)",
+            [{ item: itemA }, { item: itemC }],
+            NOT_IN_DEAL,
+          ],
+          [
+            "the Drink named into the Fries slot",
+            [
+              { item: itemA, dealItemId: burgerSlot },
+              { item: itemC, dealItemId: friesSlot },
+            ],
+            NOT_IN_DEAL,
+          ],
+          [
+            "the Fries slot empty",
+            [{ item: itemA, dealItemId: burgerSlot }],
+            SLOT_UNFILLED,
+          ],
+        ];
+        await withOpenStore(async () => {
+          for (const [label, picks, message] of cases) {
+            await allure.step(label, async () => {
+              const res = await placeOrderRaw(
+                restaurantId,
+                orderBody(deal, picks, money, { dealPrice: 12 })
+              );
+              expect(res.status, `${label}: ${JSON.stringify(res.data)}`).toBe(
+                400
+              );
+              expect(msg(res.data), label).toBe(message);
+            });
+          }
+        });
+      });
+
+      test("TC-707: a BOGO_FREE deal may use a category line for BUY and GET — its stored dealPrice is the 'from' price, the cheapest in-stock item of the category", async () => {
+        await allure.description(
+          "'Buy any pizza, get one free': BUY = Any pizza, GET = Any pizza (menuGroupId, no menuItemId). The " +
+            "category holds Small 8, Large 14 and an 86'd Slice 5 → 201, dealPrice 8 (the cheapest IN-STOCK item — " +
+            "the honest 'from' price), originalPrice 16, savings 8; both rows are category rows (menuGroupId set, " +
+            "menuItemId null) snapshotted at 8, roles BUY then GET."
+        );
+        const deal = await create({
+          name: `AUTO Any Pizza BOGO ${runId}`,
+          dealType: "BOGO_FREE",
+          items: [anyPizza("BUY"), anyPizza("GET")],
+        });
+        expect(deal).toMatchObject({
+          dealType: "BOGO_FREE",
+          dealPrice: 8,
+          originalPrice: 16,
+          savingsAmount: 8,
+        });
+        const rows = await slotsOf(deal.id);
+        expect(rows).toHaveLength(2);
+        for (const r of rows) {
+          expect(r.menuGroupId, "a category row").toBe(pizzaGroupId);
+          expect(r.menuItemId ?? null, "no fixed item").toBeNull();
+          expect(r.itemPrice, "snapshot = cheapest in-stock pizza").toBe(8);
+        }
+        expect(roles(deal)).toEqual(["BUY", "GET"]);
+      });
+
+      test("TC-708: /quote prices 'buy any pizza, get one free' from the picks — the cheaper pizza is free whichever slot holds it; a pick from another category is refused", async () => {
+        await allure.description(
+          "Equal-or-lesser-value rule (DEAL_TYPES.md): the GET discount lands on the CHEAPEST pick. Small 8 + " +
+            "Large 14 → dealPrice/lineTotal 14, savings 8 — with no slot ids, Large in BUY + Small in GET, AND " +
+            "Small in BUY + Large in GET (nobody takes the large pizza free). Two Larges → 14 (savings 14); two " +
+            "Smalls → 8. A client dealPrice 0.01 is ignored. A Burger (another category) in the GET slot, or " +
+            "beside a Large without ids → 400 pricingDealSelectionNotInDeal."
+        );
+        const deal = await create({
+          name: `AUTO Any Pizza Quote ${runId}`,
+          dealType: "BOGO_FREE",
+          items: [anyPizza("BUY"), anyPizza("GET")],
+        });
+        const rows = await slotsOf(deal.id);
+        const buy = rows.find((r) => r.role === "BUY")!.id;
+        const get = rows.find((r) => r.role === "GET")!.id;
+        const charged: [string, Pick[], number, number][] = [
+          [
+            "Small + Large, no slot ids",
+            [{ menuItemId: small.id }, { menuItemId: large.id }],
+            14,
+            8,
+          ],
+          [
+            "Large bought, Small free",
+            [
+              { dealItemId: buy, menuItemId: large.id },
+              { dealItemId: get, menuItemId: small.id },
+            ],
+            14,
+            8,
+          ],
+          [
+            "Small bought, Large in the free slot — still the Small is free",
+            [
+              { dealItemId: buy, menuItemId: small.id },
+              { dealItemId: get, menuItemId: large.id },
+            ],
+            14,
+            8,
+          ],
+          [
+            "two Larges",
+            [
+              { dealItemId: buy, menuItemId: large.id },
+              { dealItemId: get, menuItemId: large.id },
+            ],
+            14,
+            14,
+          ],
+          [
+            "two Smalls",
+            [
+              { dealItemId: buy, menuItemId: small.id },
+              { dealItemId: get, menuItemId: small.id },
+            ],
+            8,
+            8,
+          ],
+        ];
+        for (const [label, picks, price, savings] of charged) {
+          await allure.step(`${label} → ${price}`, async () => {
+            const q = await quoteDeal(deal.id, picks, 0.01);
+            expect(q.status, `${label}: ${JSON.stringify(q.data)}`).toBe(200);
+            expect(q.data.quote?.deals?.[0], label).toMatchObject({
+              dealId: deal.id,
+              dealPrice: price,
+              quantity: 1,
+              lineTotal: price,
+              savings,
+            });
+            expect(q.data.quote?.dealsSubtotal, label).toBe(price);
+          });
+        }
+        for (const [label, picks] of [
+          [
+            "a Burger in the free slot",
+            [
+              { dealItemId: buy, menuItemId: large.id },
+              { dealItemId: get, menuItemId: itemA.id },
+            ],
+          ],
+          [
+            "a Burger beside a Large (no slot ids)",
+            [{ menuItemId: large.id }, { menuItemId: itemA.id }],
+          ],
+        ] as [string, Pick[]][]) {
+          await allure.step(`refused: ${label}`, async () => {
+            const q = await quoteDeal(deal.id, picks);
+            expect(q.status, `${label}: ${JSON.stringify(q.data)}`).toBe(400);
+            expect(msg(q.data), label).toBe(NOT_IN_DEAL);
+          });
+        }
+      });
+
+      test("TC-709: 'buy any pizza, get one 50% off' — stored at the 'from' price 12; /quote charges the dearer pick + half the cheaper", async () => {
+        await allure.description(
+          "BOGO_PERCENT_OFF 50 with Any pizza BUY + Any pizza GET → 201, discountPercent 50, dealPrice 8 + 4 = 12 " +
+            "(from the cheapest in-stock pizza). /quote: Small in BUY + Large in GET → 14 + 4 = 18 (savings 4, the " +
+            "discount lands on the cheaper pizza); two Larges → 14 + 7 = 21."
+        );
+        const deal = await create({
+          name: `AUTO Any Pizza Half ${runId}`,
+          dealType: "BOGO_PERCENT_OFF",
+          discountPercent: 50,
+          items: [anyPizza("BUY"), anyPizza("GET")],
+        });
+        expect(deal).toMatchObject({
+          dealType: "BOGO_PERCENT_OFF",
+          discountPercent: 50,
+          dealPrice: 12,
+          originalPrice: 16,
+        });
+        const rows = await slotsOf(deal.id);
+        const buy = rows.find((r) => r.role === "BUY")!.id;
+        const get = rows.find((r) => r.role === "GET")!.id;
+        const mixed = await quoteDeal(deal.id, [
+          { dealItemId: buy, menuItemId: small.id },
+          { dealItemId: get, menuItemId: large.id },
+        ]);
+        expect(mixed.status, JSON.stringify(mixed.data)).toBe(200);
+        expect(mixed.data.quote?.deals?.[0]).toMatchObject({
+          dealPrice: 18,
+          lineTotal: 18,
+          savings: 4,
+        });
+        const twoLarge = await quoteDeal(deal.id, [
+          { dealItemId: buy, menuItemId: large.id },
+          { dealItemId: get, menuItemId: large.id },
+        ]);
+        expect(twoLarge.status, JSON.stringify(twoLarge.data)).toBe(200);
+        expect(twoLarge.data.quote?.deals?.[0]).toMatchObject({
+          dealPrice: 21,
+          lineTotal: 21,
+          savings: 7,
+        });
+      });
+
+      test("TC-710: PERCENT_OFF refuses a category line (deal.type.categoryNotAllowedForPercentOff) and writes nothing; a COMBO with a category line keeps its set price", async () => {
+        await allure.description(
+          "PERCENT_OFF 20% on [Any pizza] or on [Burger + Any pizza] → 400 with the EN categoryNotAllowedForPercentOff " +
+            "sentence, deal count unchanged. Control: a COMBO of Burger + Any pizza at 15 is still accepted " +
+            "(dealType COMBO, dealPrice 15 — the owner's set price)."
+        );
+        const before = (await getRestaurantDeals(token, restaurantId)).length;
+        const pizzaLine = {
+          menuGroupId: pizzaGroupId,
+          quantity: 1,
+          itemName: "Any pizza",
+        };
+        for (const [label, items] of [
+          ["a category line alone", [pizzaLine]],
+          ["a fixed item + a category line", [row(itemA), pizzaLine]],
+        ] as const) {
+          await allure.step(label, async () => {
+            const res = await createDealRaw(token, restaurantId, {
+              name: `AUTO Pct Category ${runId}`,
+              dealType: "PERCENT_OFF",
+              discountPercent: 20,
+              items,
+            });
+            if (res.data?.deal?.id) track(res.data.deal.id);
+            expect(res.status, `${label}: ${JSON.stringify(res.data)}`).toBe(
+              400
+            );
+            expect(msg(res.data), label).toBe(CATEGORY_NOT_FOR_PERCENT_OFF);
+          });
+        }
+        expect(
+          (await getRestaurantDeals(token, restaurantId)).length,
+          "nothing was written"
+        ).toBe(before);
+        const combo = await create({
+          name: `AUTO Combo Any Pizza ${runId}`,
+          dealPrice: 15,
+          items: [row(itemA), pizzaLine],
+        });
+        expect(combo).toMatchObject({ dealType: "COMBO", dealPrice: 15 });
+      });
+
+      test("TC-711: a placed order stores the price the server charged — 'buy any pizza, get one free' with Small + Large is OrderDeal.dealPrice 14, not the client's tampered price or the 'from' price", async () => {
+        await allure.description(
+          "Orders store what the server charged (DEAL_TYPES.md): the storefront body claims dealPrice 0.01 and " +
+            "menuItemPrice 0.01 per pick. Placed (tenant published for this test only; money claims = the /quote) → " +
+            "owner GET /api/order/:id: orderDeals[0] {dealId, dealPrice 14, quantity 1}, upcharge 0, and the picks' " +
+            "menuItemPrice re-read from the menu (Small 8, Large 14). Leaves one INITIALIZED (unpaid) order on the " +
+            "throwaway tenant."
+        );
+        const deal = await create({
+          name: `AUTO Any Pizza Order ${runId}`,
+          dealType: "BOGO_FREE",
+          items: [anyPizza("BUY"), anyPizza("GET")],
+        });
+        const rows = await slotsOf(deal.id);
+        const picks = [
+          { item: small, dealItemId: rows.find((r) => r.role === "BUY")!.id },
+          { item: large, dealItemId: rows.find((r) => r.role === "GET")!.id },
+        ];
+        const q = await quoteDeal(
+          deal.id,
+          picks.map((p) => ({
+            dealItemId: p.dealItemId,
+            menuItemId: p.item.id,
+          }))
+        );
+        expect(q.status, JSON.stringify(q.data)).toBe(200);
+        const quote = q.data.quote!;
+        expect(quote.dealsSubtotal).toBe(14);
+        await withOpenStore(async () => {
+          const placed = await placeOrderRaw(
+            restaurantId,
+            orderBody(
+              deal,
+              picks,
+              {
+                subtotal: quote.subtotal ?? 14,
+                tax: quote.tax ?? 0,
+                total: quote.total ?? quote.amountToCharge ?? 14,
+              },
+              { dealPrice: 0.01, itemPrice: 0.01 }
+            )
+          );
+          expect(placed.ok, JSON.stringify(placed.data)).toBe(true);
+          const orderId = placed.data.order?.id ?? placed.data.id;
+          expect(orderId, JSON.stringify(placed.data)).toBeTruthy();
+          const order = await getOrderByIdRaw(token, orderId!);
+          expect(order.status, JSON.stringify(order.data)).toBe(200);
+          const od = order.data.orderDeals ?? [];
+          expect(od).toHaveLength(1);
+          expect(od[0]).toMatchObject({
+            dealId: deal.id,
+            dealPrice: 14,
+            quantity: 1,
+          });
+          expect(od[0]!.upchargeAmount ?? 0).toBe(0);
+          expect(
+            Object.fromEntries(
+              (od[0]!.orderDealItems ?? []).map((i) => [
+                i.menuItemId,
+                i.menuItemPrice,
+              ])
+            )
+          ).toEqual({ [small.id]: 8, [large.id]: 14 });
+        });
+      });
+    });
   });
 
   // ── Chain scope ────────────────────────────────────────────────────────────

@@ -145,7 +145,9 @@ test.describe("POS — Waitlist & Public Reservation Booking", () => {
    *  per-phone open-reservations cap. */
   const nextGuestPhone = (): string => {
     phoneSeq += 1;
-    return `555${String(runFrag).padStart(3, "0")}${String(phoneSeq).padStart(4, "0")}`;
+    // The exchange (digits 4-6) must not start with 0/1 — the backend's
+    // normalizeGuestPhone rejects a non-NANP number as "phone required".
+    return `555${200 + (runFrag % 800)}${String(phoneSeq).padStart(4, "0")}`;
   };
 
   /** A fresh bookable slot's exact scheduledAt for `date`, pulled from the
@@ -267,14 +269,20 @@ test.describe("POS — Waitlist & Public Reservation Booking", () => {
     // NULL never matches its `gte` filter, so it must be set explicitly.
     // Without ANY feasible table/combination, every slot is skipped and
     // availability is unconditionally empty regardless of periods/pacing.
-    const bookable = await createTableOwnerRaw(token, restaurantId, {
-      name: `Public Bookable ${runId}`,
-      capacity: 4,
-    });
-    if (!bookable.ok)
-      throw new Error(
-        `[waitlist-public] could not create the bookable table: ${msg(bookable.data)}`
-      );
+    // Since RestauNax 7b539a43e every active booking also HOLDS a table for
+    // its whole duration, so one table is gone after the first booking —
+    // seed one per pacing seat (maxPartiesPerSlot: 5) so the file's ~5
+    // public bookings never run the floor dry.
+    for (let i = 1; i <= 5; i++) {
+      const bookable = await createTableOwnerRaw(token, restaurantId, {
+        name: `Public Bookable ${i} ${runId}`,
+        capacity: 4,
+      });
+      if (!bookable.ok)
+        throw new Error(
+          `[waitlist-public] could not create bookable table ${i}: ${msg(bookable.data)}`
+        );
+    }
 
     const online = await putReservationSettingsOwnerRaw(token, restaurantId, {
       onlineBookingEnabled: true,

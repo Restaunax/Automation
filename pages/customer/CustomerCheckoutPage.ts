@@ -396,9 +396,164 @@ export const createCustomerCheckoutPage = (page: Page) => {
         .first()
     ).toBeVisible({ timeout: 20_000 });
 
+  /**
+   * Seed a COMPLETE deal (+ optional plain items) into the cart and land on
+   * /checkout — the cart shape template-wind persists (src/types/cart.ts:
+   * CartItem.dealItemId links a line to its slot; CartDeal.selectedItems). Used
+   * when the builder can't add the deal (it isn't available now). Callers
+   * prove the seed was understood: N× "Part of deal" and no "Complete Deals
+   * to Continue".
+   */
+  const seedCartWithDeal = async (
+    restaurantId: string,
+    deal: {
+      id: string;
+      name: string;
+      dealPrice: number;
+      originalPrice: number;
+      slots: {
+        dealItemId: string;
+        menuItemId: string;
+        name: string;
+        price: number;
+      }[];
+    },
+    extras: { menuItemId: string; name: string; price: number }[] = []
+  ) => {
+    await page.addInitScript(
+      ({ rid, d, plain }) => {
+        const items = [
+          ...d.slots.map((s, i) => ({
+            cartId: `auto-deal-${i + 1}`,
+            menuItemId: s.menuItemId,
+            name: s.name,
+            price: s.price,
+            quantity: 1,
+            selectedModifiers: [],
+            modifiersPrice: 0,
+            dealItemId: s.dealItemId,
+          })),
+          ...plain.map((p, i) => ({
+            cartId: `auto-extra-${i + 1}`,
+            menuItemId: p.menuItemId,
+            name: p.name,
+            price: p.price,
+            quantity: 1,
+            selectedModifiers: [],
+            modifiersPrice: 0,
+          })),
+        ];
+        const subtotal = d.dealPrice + plain.reduce((s, p) => s + p.price, 0);
+        sessionStorage.setItem(
+          "cart",
+          JSON.stringify({
+            items,
+            deals: [
+              {
+                cartId: "auto-deal",
+                dealId: d.id,
+                name: d.name,
+                dealPrice: d.dealPrice,
+                originalPrice: d.originalPrice,
+                quantity: 1,
+                selectedItems: d.slots.map((s) => ({
+                  dealItemId: s.dealItemId,
+                  menuItemId: s.menuItemId,
+                  menuItemName: s.name,
+                  menuItemPrice: s.price,
+                  quantity: 1,
+                })),
+              },
+            ],
+            subtotal,
+            tax: 0,
+            total: subtotal,
+            deliveryFee: 0,
+            tip: 0,
+            coupon: null,
+            restaurantId: rid,
+          })
+        );
+      },
+      { rid: restaurantId, d: deal, plain: extras }
+    );
+    await page.goto(`${TEMPLATE_WIND_URL}/menu?restaurantId=${restaurantId}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.goto(
+      `${TEMPLATE_WIND_URL}/checkout?restaurantId=${restaurantId}`,
+      {
+        waitUntil: "domcontentloaded",
+      }
+    );
+    await firstNameInput().waitFor({ state: "visible", timeout: 15_000 });
+  };
+
+  // ── Order time (ASAP vs scheduled; option values are the exact ISO instants) ─
+  const asapOption = () =>
+    page.locator('input[name="orderTimeType"][value="asap"]');
+  const scheduledOption = () =>
+    page.locator('input[name="orderTimeType"][value="scheduled"]');
+  const scheduleDateSelect = () =>
+    page.locator("select").filter({
+      has: page.locator("option", { hasText: "Choose a date..." }),
+    });
+  const scheduleTimeSelect = () =>
+    page.locator("select").filter({
+      has: page.locator("option", {
+        hasText: /^(Choose a time|Select date first)\.\.\.$/,
+      }),
+    });
+  const optionValues = (select: ReturnType<typeof page.locator>) =>
+    select
+      .locator("option")
+      .evaluateAll((os) =>
+        os.map((o) => (o as HTMLOptionElement).value).filter(Boolean)
+      );
+
+  /** Pick the first offered slot (over the first `maxDates` dates) that `accept`s; returns its instant or null. */
+  const chooseScheduledSlot = async (
+    accept: (instantIso: string) => boolean,
+    maxDates = 3
+  ): Promise<string | null> => {
+    if (!(await scheduledOption().isChecked())) await scheduledOption().check();
+    const dates = (await optionValues(scheduleDateSelect())).slice(0, maxDates);
+    for (const date of dates) {
+      await scheduleDateSelect().selectOption(date);
+      await expect(scheduleTimeSelect()).toBeEnabled();
+      const hit = (await optionValues(scheduleTimeSelect())).find(accept);
+      if (hit) {
+        await scheduleTimeSelect().selectOption(hit);
+        return hit;
+      }
+    }
+    return null;
+  };
+
+  /** Checkout's DEAL_NOT_AVAILABLE_AT_TIME panel (Plan 4). */
+  const dealTimeError = () => page.getByTestId("deal-time-error");
+  const removeDealButton = () =>
+    dealTimeError().getByRole("button", { name: "Remove deal" });
+  const changeTimeButton = () =>
+    dealTimeError().getByRole("button", { name: "Change time" });
+  /** The page's own POST /quote. */
+  const isQuote = (r: { url(): string; request(): { method(): string } }) =>
+    /\/api\/order\/[^/]+\/quote$/.test(r.url()) &&
+    r.request().method() === "POST";
+
   return {
     seedCart,
     seedCartItems,
+    seedCartWithDeal,
+    asapOption,
+    scheduledOption,
+    scheduleDateSelect,
+    scheduleTimeSelect,
+    chooseScheduledSlot,
+    dealTimeError,
+    removeDealButton,
+    changeTimeButton,
+    isQuote,
     gotoCheckoutEmpty,
     assertEmptyCart,
     selectTipPreset,

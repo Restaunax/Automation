@@ -917,6 +917,8 @@ export interface QuoteDeal {
   quantity?: number;
   /** template-wind sends `orderDealItems`; the backend treats it as `items`. */
   items?: {
+    /** The deal slot (DealItem.id) this pick fills — optional (older clients, voice). */
+    dealItemId?: string;
     menuItemId: string;
     quantity?: number;
     selectedModifiers?: { modifierId: string; quantity?: number }[];
@@ -940,6 +942,11 @@ export interface QuoteResponse {
     tax?: number;
     amountToCharge?: number;
     total?: number;
+    /** S1 service fee (excl. its tax) and its tax, both inside tax/total. */
+    serviceFee?: number;
+    serviceFeeTax?: number;
+    serviceFeeLabel?: string | null;
+    serviceFeeNotice?: string | null;
     deals?: {
       dealId: string;
       dealName: string;
@@ -952,6 +959,8 @@ export interface QuoteResponse {
   };
   issues?: { code: string; severity: string; message: string }[];
   message?: string;
+  errorCode?: string;
+  details?: Record<string, unknown>;
 }
 
 /**
@@ -972,12 +981,35 @@ export function quoteOrderRaw(
     couponId?: string | null;
     couponCodeId?: string | null;
     orderType?: "PICKUP" | "DELIVERY";
+    scheduledFor?: string;
   }
 ): Promise<RawResponse<QuoteResponse>> {
   return apiRequestRaw("POST", `/api/order/${restaurantId}/quote`, {
     orderType: "PICKUP",
     ...body,
   });
+}
+
+/**
+ * PUBLIC POST /api/order/new/restaurantId/:id — RAW order placement for
+ * contract tests (refusals are the assertion). The restaurant must be
+ * published and accepting orders. A success leaves an INITIALIZED order
+ * (pre-payment placeholder, no Stripe) — there is no order-delete API, so only
+ * use it on a throwaway tenant. createSeededOrder is the seeding path.
+ */
+export function placeOrderRaw(
+  restaurantId: string,
+  body: Record<string, unknown>
+): Promise<
+  RawResponse<
+    { order?: { id: string; status?: string }; id?: string } & ApiErrorBody
+  >
+> {
+  return apiRequestRaw(
+    "POST",
+    `/api/order/new/restaurantId/${restaurantId}`,
+    body
+  );
 }
 
 // ── Chains (RestaurantGroup) ─────────────────────────────────────────────────
@@ -1066,6 +1098,54 @@ export async function ensureBusinessHours(
     "POST",
     `/restaurant/hours?restaurantId=${restaurantId}`,
     { hoursOfOperation: days.map((day) => ({ day, is24Hours: true })) },
+    accessToken
+  );
+}
+
+/** A BusinessHours row (times "HH:MM:SS"; closed rows carry nulls). */
+export interface BusinessHoursRow {
+  day: string;
+  openingTime: string | null;
+  closingTime: string | null;
+  isClosed: boolean;
+  is24Hours: boolean;
+}
+
+/** GET /restaurant/:id/hours (owner/admin) → {businessHours}. */
+export function getBusinessHoursRaw(
+  accessToken: string,
+  restaurantId: string
+): Promise<RawResponse<{ businessHours?: BusinessHoursRow[] }>> {
+  return apiRequestRaw(
+    "GET",
+    `/restaurant/${restaurantId}/hours`,
+    undefined,
+    accessToken
+  );
+}
+
+/**
+ * PUT /restaurant/:id/hours — REPLACES every row (delete + create). `[]`
+ * clears the hours (= open at all times for ordering). Callers that touch a
+ * restaurant they don't own for the run must restore the rows they read.
+ */
+export async function setBusinessHoursApi(
+  accessToken: string,
+  restaurantId: string,
+  rows: BusinessHoursRow[]
+): Promise<void> {
+  await apiRequest<unknown>(
+    "PUT",
+    `/restaurant/${restaurantId}/hours`,
+    {
+      hoursOfOperation: rows.map((r) => ({
+        day: r.day,
+        openingTime: r.openingTime,
+        closingTime: r.closingTime,
+        isClosed: r.isClosed,
+        is24Hours: r.is24Hours,
+      })),
+    },
     accessToken
   );
 }
@@ -1402,11 +1482,29 @@ export async function deleteAutomationCoupons(
 // ── Deals ────────────────────────────────────────────────────────────────────
 //
 // POST /api/deals/restaurant/:id (MODIFY_RESTAURANT — the owner token has it).
-// Body contract (backend CreateDealBody): {name, dealPrice, items:
-// [{menuItemId, quantity, itemName, itemPrice, isRequired?, sortOrder?}],
-// validDays?/validTimeStart?/validTimeEnd? ...} — omit the restrictions so a
-// seeded deal is always active. AUTO-prefixed names get swept by
-// deleteAutomationDeals in globalTeardown, mirroring the coupon sweep.
+// Body contract (backend CreateDealBody): {name, dealType?, discountPercent?,
+// dealPrice?, items: [{menuItemId, quantity, itemName, itemPrice, role?,
+// isRequired?, sortOrder?}], validDays?/validTimeStart?/validTimeEnd? ...} —
+// omit the restrictions so a seeded deal is always active. AUTO-prefixed names
+// get swept by deleteAutomationDeals in globalTeardown, mirroring the coupon
+// sweep.
+//
+// Guided deal types (restaunax docs/features/DEAL_TYPES.md): every write runs
+// the type rules — a COMBO (the default) needs >= 2 UNIT rows (quantity 2 of
+// one item counts as two) priced BELOW the items' regular price; BOGO_FREE /
+// BOGO_PERCENT_OFF / PERCENT_OFF have their dealPrice COMPUTED server-side (a
+// sent one is ignored). Item name/price snapshots are re-read from the menu, so
+// a seed's itemPrice must be the item's real price for any savings assertion
+// to hold — never a made-up number.
+
+/** Guided deal type (DEAL_TYPES.md); absent on a write = COMBO. */
+export type DealType =
+  | "COMBO"
+  | "BOGO_FREE"
+  | "BOGO_PERCENT_OFF"
+  | "PERCENT_OFF";
+/** Per-row role: BUY / GET on the two BOGO types, INCLUDED otherwise. */
+export type DealItemRole = "INCLUDED" | "BUY" | "GET";
 
 export interface ApiDealItem {
   id: string;
@@ -1417,6 +1515,8 @@ export interface ApiDealItem {
   itemPrice: number;
   isRequired: boolean;
   sortOrder: number;
+  /** Guided deal types — absent on a pre-deploy backend. */
+  role?: DealItemRole;
   menuItem?: {
     id: string;
     name: string;
@@ -1425,10 +1525,28 @@ export interface ApiDealItem {
   } | null;
 }
 
+/** Owner-list live status (deal scheduling, restaunax Plan 1). */
+export type DealLiveStatus =
+  | "LIVE"
+  | "LATER_TODAY"
+  | "SCHEDULED"
+  | "ENDED"
+  | "OFF";
+
+/** The body every logAndRespond error sends: {success:false, message, errorCode, details?}. */
+export interface ApiErrorBody {
+  success?: boolean;
+  message?: string;
+  errorCode?: string;
+  error?: string;
+  details?: Record<string, unknown>;
+}
+
 /**
  * A deal as the owner routes return it (create/get/list). Money fields are
- * SERVER-computed (originalPrice = Σ itemPrice, savingsAmount = max(0, orig −
- * deal), savingsPercentage 1 dp) — assert against them, never a hand sum.
+ * SERVER-computed (originalPrice = Σ itemPrice — the MENU's price, re-read on
+ * every write since guided deal types — savingsAmount = max(0, orig − deal),
+ * savingsPercentage 1 dp) — assert against them, never a hand sum.
  * `computedStatus` / `hasOutOfStockItem` / `isAvailable` are list-only
  * projections (GET /restaurant/:id) — see docs/DEALS_TAB_TEST_STRATEGY.md §3.6.
  */
@@ -1436,6 +1554,9 @@ export interface ApiDeal {
   id: string;
   name: string;
   description?: string | null;
+  /** Guided deal types — absent on a pre-deploy backend. */
+  dealType?: DealType;
+  discountPercent?: number | null;
   dealPrice?: number;
   originalPrice?: number;
   savingsAmount?: number;
@@ -1457,6 +1578,20 @@ export interface ApiDeal {
   restaurantId?: string | null;
   restaurantGroupId?: string | null;
   createdAt?: string;
+  targetAudience?: string | null;
+  mealType?: string | null;
+  occasion?: string | null;
+  /** [] = every surface; ["ONLINE"] / ["IN_PERSON"] = one surface (DEAL_CHANNELS.md). */
+  availableChannels?: string[];
+  /** Public /active only (deal scheduling, Plan 1) — judged at `?at=` (default now). */
+  availableNow?: boolean;
+  nextAvailableAt?: string | null;
+  /** Server-resolved text, e.g. "Mon–Fri · 3:00 PM–5:00 PM"; null = unrestricted. */
+  scheduleSummary?: string | null;
+  /** "Available from 3:00 PM" / "Starts Oct 10"; null when available now or never. */
+  availabilityLabel?: string | null;
+  /** Owner list only (Plan 1). */
+  liveStatus?: DealLiveStatus;
   items?: ApiDealItem[];
 }
 
@@ -1464,6 +1599,11 @@ export interface ApiDeal {
 export interface DealBody {
   name?: string;
   description?: string;
+  /** Absent = COMBO. */
+  dealType?: DealType;
+  /** Whole percent 1–99 — BOGO_PERCENT_OFF / PERCENT_OFF only. */
+  discountPercent?: number | null;
+  /** Required for COMBO; ignored (server-computed) for every other type. */
   dealPrice?: number;
   items?: {
     menuItemId?: string;
@@ -1471,6 +1611,8 @@ export interface DealBody {
     quantity: number;
     itemName?: string;
     itemPrice?: number;
+    /** BUY / GET on BOGO types; absent = INCLUDED. */
+    role?: DealItemRole;
     isRequired?: boolean;
     sortOrder?: number;
   }[];
@@ -1484,6 +1626,31 @@ export interface DealBody {
   occasion?: string;
   aiGenerated?: boolean;
   status?: string;
+  availableChannels?: ("ONLINE" | "IN_PERSON")[];
+}
+
+/** A seed slot: a real menu item (`price` = its real price) + optional qty / role. */
+export interface DealSeedItem {
+  id: string;
+  name: string;
+  price: number;
+  quantity?: number;
+  role?: DealItemRole;
+}
+
+/** DealSeedItem[] → the API's items[] (role omitted when unset = legacy body). */
+export function dealSeedRows(
+  items: DealSeedItem[]
+): NonNullable<DealBody["items"]> {
+  return items.map((it, i) => ({
+    menuItemId: it.id,
+    quantity: it.quantity ?? 1,
+    itemName: it.name,
+    itemPrice: it.price,
+    ...(it.role ? { role: it.role } : {}),
+    isRequired: true,
+    sortOrder: i,
+  }));
 }
 
 /** Raw deal create — create response is { success, message, deal }. */
@@ -1511,21 +1678,14 @@ export async function createDealApi(
   restaurantId: string,
   name: string,
   dealPrice: number,
-  items: { id: string; name: string; price: number; quantity?: number }[],
+  items: DealSeedItem[],
   extra: Partial<DealBody> = {}
 ): Promise<ApiDeal> {
   const res = await createDealRaw(accessToken, restaurantId, {
     name,
     description: "Automation deal — safe to delete",
     dealPrice,
-    items: items.map((it, i) => ({
-      menuItemId: it.id,
-      quantity: it.quantity ?? 1,
-      itemName: it.name,
-      itemPrice: it.price,
-      isRequired: true,
-      sortOrder: i,
-    })),
+    items: dealSeedRows(items),
     ...extra,
   });
   if (!res.ok || !res.data?.deal) {
@@ -1542,14 +1702,50 @@ export async function createDealApi(
  * the restaurant at 10 active deals, retry until a slot frees. Use on the
  * SHARED seed restaurant; the throwaway-tenant specs don't need it.
  */
+/**
+ * How long a seed-restaurant deal create waits for a cap slot. The longest
+ * hold is 11-deals TC-359, which tops the shared restaurant up to 10 ACTIVE
+ * deals and keeps them through several page loads, toggles and a retry loop
+ * (up to about a minute on QA). The old 45 s was shorter than that, so a
+ * concurrent file timed out waiting. 150 s clears it; a genuine leak still
+ * fails, just later.
+ */
+export const CAP_WAIT_MS = 150_000;
+
+/**
+ * Wait until the restaurant has a free ACTIVE-deal slot (GET /active-count),
+ * polling like createDealApiCapSafe does. Call before a UI submit that creates
+ * an ACTIVE deal on the shared seed restaurant: the form can't retry for us.
+ * It narrows the race, it can't close it (another worker may take the slot
+ * between this check and the click) — callers keep their own footprint small.
+ */
+export async function waitForFreeDealSlot(
+  accessToken: string,
+  restaurantId: string,
+  timeoutMs = CAP_WAIT_MS
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const res = await getActiveDealsCountRaw(accessToken, restaurantId);
+    const used = res.data?.activeDealsCount ?? 0;
+    const max = res.data?.maxActiveDeals ?? 10;
+    if (res.ok && used < max) return;
+    if (Date.now() > deadline)
+      throw new Error(
+        `[apiHelper] no free deal slot after ${timeoutMs} ms: ${res.status} ${JSON.stringify(res.data)}`
+      );
+    await new Promise((r) => setTimeout(r, 3_000));
+  }
+}
+
 export async function createDealApiCapSafe(
   accessToken: string,
   restaurantId: string,
   name: string,
   dealPrice: number,
-  items: { id: string; name: string; price: number; quantity?: number }[],
+  items: DealSeedItem[],
   extra: Partial<DealBody> = {},
-  timeoutMs = 45_000
+  timeoutMs = CAP_WAIT_MS
 ): Promise<ApiDeal> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
@@ -1557,14 +1753,7 @@ export async function createDealApiCapSafe(
       name,
       description: "Automation deal — safe to delete",
       dealPrice,
-      items: items.map((it, i) => ({
-        menuItemId: it.id,
-        quantity: it.quantity ?? 1,
-        itemName: it.name,
-        itemPrice: it.price,
-        isRequired: true,
-        sortOrder: i,
-      })),
+      items: dealSeedRows(items),
       ...extra,
     });
     if (res.ok && res.data?.deal) return res.data.deal;
@@ -1644,11 +1833,18 @@ export function deleteDealRaw(
   );
 }
 
+/** Owner deal list (restaurant or chain). timeZone / timeZoneLabel since Plan 1. */
+export interface OwnerDealsResponse {
+  deals?: ApiDeal[];
+  timeZone?: string;
+  timeZoneLabel?: string;
+}
+
 /** GET /api/deals/restaurant/:id — raw (authz pins need the status). */
 export function getRestaurantDealsRaw(
   accessToken: string | undefined,
   restaurantId: string
-): Promise<RawResponse<{ deals?: ApiDeal[] }>> {
+): Promise<RawResponse<OwnerDealsResponse>> {
   return apiRequestRaw(
     "GET",
     `/api/deals/restaurant/${restaurantId}`,
@@ -1758,11 +1954,194 @@ export function bulkCreateDealsRaw(
   );
 }
 
-/** PUBLIC GET /api/deals/restaurant/:id/active — what the storefront lists. */
+export interface ActiveDealsResponse {
+  success?: boolean;
+  /** Restaurant IANA zone the deals were judged in (Plan 1). */
+  timeZone?: string;
+  deals?: ApiDeal[];
+  message?: string;
+  errorCode?: string;
+}
+
+/**
+ * PUBLIC GET /api/deals/restaurant/:id/active — what the storefronts (and,
+ * with channel=in_person, the POS) list. `at` = the scheduled pickup instant
+ * (ISO); `lang` sets Accept-Language (the backend resolves schedule text
+ * server-side, EN fallback) — API tests only, the apps never send one;
+ * `includeUnavailable` = the POS's `includeUnavailable=1` (also lists not-ended
+ * deals that are off for the whole day). Existing one-argument calls are
+ * unchanged.
+ */
 export function getActiveDealsPublic(
+  restaurantId: string,
+  opts: {
+    channel?: "online" | "in_person";
+    at?: string;
+    lang?: "en" | "es";
+    includeUnavailable?: boolean;
+  } = {}
+): Promise<RawResponse<ActiveDealsResponse>> {
+  const q = new URLSearchParams();
+  if (opts.channel) q.set("channel", opts.channel);
+  if (opts.at) q.set("at", opts.at);
+  if (opts.includeUnavailable) q.set("includeUnavailable", "1");
+  const qs = q.toString();
+  return apiRequestRaw(
+    "GET",
+    `/api/deals/restaurant/${restaurantId}/active${qs ? `?${qs}` : ""}`,
+    undefined,
+    undefined,
+    opts.lang ? { "Accept-Language": opts.lang } : undefined
+  );
+}
+
+/**
+ * The restaurant's IANA timezone as the backend resolves it (Plan 1's
+ * top-level `timeZone` on /active). "" when the deployed backend predates
+ * deal scheduling — callers gate on that (utils/dealScheduleGate.ts).
+ */
+export async function getRestaurantTimeZonePublic(
   restaurantId: string
-): Promise<RawResponse<{ deals?: ApiDeal[] }>> {
-  return apiRequestRaw("GET", `/api/deals/restaurant/${restaurantId}/active`);
+): Promise<string> {
+  const res = await getActiveDealsPublic(restaurantId);
+  // A transport failure or 5xx is NOT "not deployed" — fail loudly so a QA
+  // outage can't hide as a wall of gated skips.
+  if (res.status >= 500 || res.status === 0)
+    throw new Error(
+      `[apiHelper] cannot read the restaurant timezone: GET /active answered ${res.status} ${JSON.stringify(res.data)}`
+    );
+  return res.ok && typeof res.data?.timeZone === "string"
+    ? res.data.timeZone
+    : "";
+}
+
+export interface MealPeriod {
+  value: string;
+  start: string | null;
+  end: string | null;
+}
+
+/** PUBLIC GET /api/deals/meal-periods — Breakfast/Lunch/Dinner/Late Night/All Day hours. */
+export function getMealPeriodsPublic(): Promise<
+  RawResponse<{ success?: boolean; data?: MealPeriod[] }>
+> {
+  return apiRequestRaw("GET", "/api/deals/meal-periods");
+}
+
+export interface ScheduleCheckQuery {
+  validDays?: string[];
+  validTimeStart?: string;
+  validTimeEnd?: string;
+}
+export interface ScheduleWarning {
+  restaurantId: string;
+  restaurantName: string;
+  message: string;
+}
+export interface ScheduleCheckResponse extends ApiErrorBody {
+  data?: {
+    timeZone: string;
+    timeZoneLabel: string;
+    warnings: ScheduleWarning[];
+  };
+}
+
+const scheduleCheckQs = (q: ScheduleCheckQuery): string => {
+  const p = new URLSearchParams();
+  if (q.validDays?.length) p.set("validDays", q.validDays.join(","));
+  if (q.validTimeStart) p.set("validTimeStart", q.validTimeStart);
+  if (q.validTimeEnd) p.set("validTimeEnd", q.validTimeEnd);
+  const s = p.toString();
+  return s ? `?${s}` : "";
+};
+
+/** GET /api/deals/restaurant/:id/schedule-check — business-hours warnings (owner). */
+export function getDealScheduleCheckRaw(
+  accessToken: string | undefined,
+  restaurantId: string,
+  q: ScheduleCheckQuery = {}
+): Promise<RawResponse<ScheduleCheckResponse>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/deals/restaurant/${restaurantId}/schedule-check${scheduleCheckQs(q)}`,
+    undefined,
+    accessToken
+  );
+}
+
+/** GET /api/chains/:groupId/deals/schedule-check — per-location warnings (chain owner). */
+export function getChainDealScheduleCheckRaw(
+  accessToken: string | undefined,
+  groupId: string,
+  q: ScheduleCheckQuery = {}
+): Promise<RawResponse<ScheduleCheckResponse>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/chains/${groupId}/deals/schedule-check${scheduleCheckQs(q)}`,
+    undefined,
+    accessToken
+  );
+}
+
+export interface BrandingConfigResponse {
+  success?: boolean;
+  scope?: "restaurant" | "chain";
+  data?:
+    | ({ restaurantPages?: Record<string, unknown> | null } & Record<
+        string,
+        unknown
+      >)
+    | null;
+}
+
+/** GET /api/admin/restaurants/:id/branding (ADMIN/EMPLOYEE) — {data, scope}. */
+export function getBrandingAdminRaw(
+  adminToken: string,
+  restaurantId: string
+): Promise<RawResponse<BrandingConfigResponse>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/admin/restaurants/${restaurantId}/branding`,
+    undefined,
+    adminToken
+  );
+}
+
+/**
+ * PUT /api/admin/restaurants/:id/branding with ONLY `restaurantPages` — a
+ * partial upsert: that JSON column is replaced, every other column is kept.
+ * Never send `features` from a test: turning a feature on runs side effects
+ * (gift-card config, permissions). `null` is ignored by the backend, so a
+ * restore of an originally-null column sends `{}` (wind reads both as "no
+ * page config").
+ */
+export function putBrandingAdminRaw(
+  adminToken: string,
+  restaurantId: string,
+  body: { restaurantPages: Record<string, unknown> }
+): Promise<RawResponse<ApiErrorBody>> {
+  return apiRequestRaw(
+    "PUT",
+    `/api/admin/restaurants/${restaurantId}/branding`,
+    body,
+    adminToken
+  );
+}
+
+/** POST /api/chains/:groupId/deals/bulk {deals} — the chain AI generator's create path. */
+export function bulkCreateChainDealsRaw(
+  accessToken: string | undefined,
+  groupId: string,
+  deals: DealBody[]
+): Promise<
+  RawResponse<{ deals?: ApiDeal[]; createdCount?: number } & ApiErrorBody>
+> {
+  return apiRequestRaw(
+    "POST",
+    `/api/chains/${groupId}/deals/bulk`,
+    { deals },
+    accessToken
+  );
 }
 
 /** PUBLIC POST /api/deals/validate {dealId, restaurantId, selectedItems?}. */
@@ -1793,7 +2172,9 @@ export function getAiDealQuestionsPublic(): Promise<
     questions?: {
       id: string;
       question: string;
-      options?: { value: string; label: string }[];
+      /** "single" (radio) or "multiple" (dealTypes, guided deal types). */
+      type?: string;
+      options?: { value: string; label: string; description?: string }[];
     }[];
   }>
 > {
@@ -1840,6 +2221,8 @@ export function getOrderByIdRaw(
       orderDealItems?: {
         menuItemId: string;
         menuItemName: string;
+        /** Regular unit price the server priced the pick at (since slot matching). */
+        menuItemPrice?: number;
         quantity: number;
       }[];
     }[];
@@ -1853,7 +2236,7 @@ export function getOrderByIdRaw(
 export function getChainDealsRaw(
   accessToken: string | undefined,
   groupId: string
-): Promise<RawResponse<{ deals?: ApiDeal[] }>> {
+): Promise<RawResponse<OwnerDealsResponse>> {
   return apiRequestRaw(
     "GET",
     `/api/chains/${groupId}/deals`,
@@ -2289,6 +2672,21 @@ export async function updateOrderStatus(
     `/api/order/orderId/${orderId}/status`,
     { status },
     accessToken
+  );
+}
+
+/**
+ * No-auth variant of getCurrentOrders — for TC-179's unauthenticated-access
+ * check. Confirmed live on QA 2026-09-22: 401 NO_ACCESS_TOKEN with no
+ * token — the requireTabletOrPermission fix has landed. See
+ * TEST_COVERAGE.md Known Technical Debt.
+ */
+export function getCurrentOrdersRaw(
+  restaurantId: string
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "GET",
+    `/api/order/restaurants/${restaurantId}/orders/current`
   );
 }
 
@@ -5958,14 +6356,36 @@ export function getRestaurantDetailsPublicRaw(
 /** GET /api/restaurantId/:id/settings — the owner/admin settings row. */
 export function getRestaurantSettingsRaw(
   accessToken: string,
-  restaurantId: string
+  restaurantId: string,
+  /** e.g. { "Accept-Language": "es" } — server-resolved text follows it. */
+  headers?: Record<string, string>
 ): Promise<RawResponse<Record<string, unknown>>> {
   return apiRequestRaw(
     "GET",
     `/api/restaurantId/${restaurantId}/settings`,
     undefined,
-    accessToken
+    accessToken,
+    headers
   );
+}
+
+/** POST /login — RAW: the whole sign-in payload (locale, permissions…). */
+export function loginRaw(
+  email: string,
+  password: string
+): Promise<RawResponse<{ locale?: string; accessToken?: string }>> {
+  return apiRequestRaw("POST", "/login", { email, password });
+}
+
+/** Any signed-in user's own account: `/api/users{path}` (e.g. /me,
+ *  PATCH /me/locale { locale }). */
+export function usersRaw<T = { data?: LooseJson; message?: string }>(
+  token: string,
+  method: "GET" | "PATCH" | "PUT",
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(method, `/api/users${path}`, body, token);
 }
 
 /** PUT /api/restaurantId/:id/settings — RAW (asserts refusals: 400 on the
@@ -5981,4 +6401,633 @@ export function updateRestaurantSettingsRaw(
     patch,
     accessToken
   );
+}
+
+// ── Back office: staff, jobs, scheduling, Restaunax Staff (T1) ───────────────
+//
+// Helpers for tests/dashboard/owner/api-staff-*.spec.ts. All raw (status +
+// body) so specs can assert refusals as well as successes. Owner routes are
+// gated by TIMECARDS (jobs) and SCHEDULING (shifts, requests) — grant them
+// with setFeatureOverrideAdminRaw first. Staff-app routes use the STAFF
+// member's own token (their RestauNax account, claimed from the invite).
+
+/** Owner invites a staff member by email (creates the staff row + sends the
+ *  "added to the team" email with the claim token). */
+export function inviteStaffRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: {
+    email: string;
+    firstName: string;
+    lastName: string;
+    staffRole?: string;
+    /** The restaurant role (S3) — from GET /restaurant/:rid/staff/roles. */
+    roleId?: string;
+    /** The invite email's (and later staff emails') language. */
+    language?: "en" | "es";
+  }
+): Promise<RawResponse<{ data?: { staffMemberId: string } }>> {
+  return apiRequestRaw(
+    "POST",
+    `/restaurant/${restaurantId}/staff/invite`,
+    body,
+    ownerToken
+  );
+}
+
+export function createStaffJobRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: {
+    name: string;
+    defaultHourlyRateCents: number;
+    isTipped?: boolean;
+    /** P2: a manager/supervisor job never receives pooled tips. */
+    isManagerial?: boolean;
+  }
+): Promise<RawResponse<{ data?: { id: string } }>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/staff/payroll/${restaurantId}/jobs`,
+    body,
+    ownerToken
+  );
+}
+
+export function setMemberJobsRaw(
+  ownerToken: string,
+  restaurantId: string,
+  staffMemberId: string,
+  jobs: { jobId: string; hourlyRateCents?: number; isPrimary?: boolean }[]
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "PUT",
+    `/api/staff/payroll/${restaurantId}/members/${staffMemberId}/jobs`,
+    { jobs },
+    ownerToken
+  );
+}
+
+export function getPayrollSettingsRaw(
+  ownerToken: string,
+  restaurantId: string
+): Promise<RawResponse<{ data?: Record<string, unknown> }>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/staff/payroll/${restaurantId}/settings`,
+    undefined,
+    ownerToken
+  );
+}
+
+export function putPayrollSettingsRaw(
+  ownerToken: string,
+  restaurantId: string,
+  patch: Record<string, unknown>
+): Promise<RawResponse<{ data?: Record<string, unknown> }>> {
+  return apiRequestRaw(
+    "PUT",
+    `/api/staff/payroll/${restaurantId}/settings`,
+    patch,
+    ownerToken
+  );
+}
+
+const scheduling = (restaurantId: string) =>
+  `/api/staff/scheduling/${restaurantId}`;
+
+export function createShiftRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: {
+    staffMemberId: string | null;
+    jobId: string;
+    startAt: string;
+    endAt: string;
+    breakMinutes?: number;
+    notes?: string;
+  }
+): Promise<RawResponse<{ data?: { shift: { id: string } } }>> {
+  return apiRequestRaw(
+    "POST",
+    `${scheduling(restaurantId)}/shifts`,
+    body,
+    ownerToken
+  );
+}
+
+export function publishScheduleRaw(
+  ownerToken: string,
+  restaurantId: string,
+  date: string,
+  notifyMode: "CHANGED" | "ALL" | "NONE" = "NONE"
+): Promise<
+  RawResponse<{
+    data?: { published: number; notified: number; publicationId: string };
+  }>
+> {
+  return apiRequestRaw(
+    "POST",
+    `${scheduling(restaurantId)}/publish`,
+    { date, notifyMode },
+    ownerToken
+  );
+}
+
+/** The week containing `date`: shifts, availability, time off, warnings. */
+export function getScheduleWeekRaw(
+  ownerToken: string,
+  restaurantId: string,
+  date: string
+): Promise<RawResponse<{ data?: Record<string, unknown> }>> {
+  return apiRequestRaw(
+    "GET",
+    `${scheduling(restaurantId)}?date=${date}`,
+    undefined,
+    ownerToken
+  );
+}
+
+/** The manager's Requests inbox (time off, availability, shift changes). */
+export function getRequestsRaw(
+  token: string,
+  restaurantId: string,
+  status: "PENDING" | "DECIDED" = "PENDING"
+): Promise<RawResponse<{ data?: Record<string, unknown> }>> {
+  return apiRequestRaw(
+    "GET",
+    `${scheduling(restaurantId)}/requests?status=${status}`,
+    undefined,
+    token
+  );
+}
+
+export function decideRequestRaw(
+  ownerToken: string,
+  restaurantId: string,
+  kind: "time-off" | "availability" | "shift-change",
+  requestId: string,
+  approve: boolean,
+  note?: string
+): Promise<RawResponse<{ data?: Record<string, unknown> }>> {
+  return apiRequestRaw(
+    "POST",
+    `${scheduling(restaurantId)}/requests/${kind}/${requestId}/decide`,
+    { approve, note },
+    ownerToken
+  );
+}
+
+/** Any Restaunax Staff call, as the staff member (`/api/staff-app/...`). */
+export function staffAppRaw<T = { data?: unknown }>(
+  staffToken: string,
+  method: "GET" | "POST" | "PUT" | "DELETE",
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(method, `/api/staff-app${path}`, body, staffToken);
+}
+
+// ── Back office: route-family wrappers (hiring, gating, timecards, tips) ────
+//
+// Same shape as staffAppRaw: one raw wrapper per mounted router, the spec
+// names the sub-path. Keeps each spec readable without a helper per endpoint.
+
+type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+
+/** Response bodies these specs read deeply; the assertions are the types. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type LooseJson = any;
+
+/** Owner staff routes: `/restaurant/:rid/staff{path}` (list, invite, roles,
+ *  PATCH/DELETE a person, PIN). */
+export function ownerStaffRaw<T = { data?: LooseJson; message?: string }>(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  path = "",
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/restaurant/${restaurantId}/staff${path}`,
+    body,
+    ownerToken
+  );
+}
+
+/** P1/P3 payroll routes: `/api/staff/payroll/:rid{path}` (TIMECARDS). */
+export function payrollRaw<T = { data?: LooseJson; message?: string }>(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/api/staff/payroll/${restaurantId}${path}`,
+    body,
+    ownerToken
+  );
+}
+
+/** L1 scheduling routes: `/api/staff/scheduling/:rid{path}` (SCHEDULING). */
+export function schedulingRaw<T = { data?: LooseJson; message?: string }>(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/api/staff/scheduling/${restaurantId}${path}`,
+    body,
+    ownerToken
+  );
+}
+
+/** P2 tip routes: `/api/staff/tips/:rid{path}` (TIP_MANAGEMENT). */
+export function tipsRaw<T = { data?: LooseJson; message?: string }>(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  path: string,
+  body?: unknown,
+  /** e.g. { "Accept-Language": "es" } for messages in Spanish. */
+  headers?: Record<string, string>
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/api/staff/tips/${restaurantId}${path}`,
+    body,
+    ownerToken,
+    headers
+  );
+}
+
+/** P4/P5 payroll-provider routes: `/api/staff/payroll-provider/:rid{path}`. */
+export function payrollProviderRaw<T = { data?: LooseJson; message?: string }>(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/api/staff/payroll-provider/${restaurantId}${path}`,
+    body,
+    ownerToken
+  );
+}
+
+/** R2 sales tax routes: `/api/tax/:rid{path}` (core — no add-on). */
+export function taxRaw<T = { data?: LooseJson; message?: string }>(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/api/tax/${restaurantId}${path}`,
+    body,
+    ownerToken
+  );
+}
+
+/** A1 accounting routes: `/api/accounting/:rid{path}` (ACCOUNTING_SYNC). */
+export function accountingRaw<T = { data?: LooseJson; message?: string }>(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/api/accounting/${restaurantId}${path}`,
+    body,
+    ownerToken
+  );
+}
+
+/** R1 report routes: `/api/reports/:rid{path}` (core — no add-on). CSV
+ *  endpoints answer text, which arrives as the raw body string. */
+export function reportsRaw<T = LooseJson>(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/api/reports/${restaurantId}${path}`,
+    body,
+    ownerToken
+  );
+}
+
+/** GET /restaurant/:rid/approval-logs/summary?from&to — S2 exceptions:
+ *  discounts, comps, price changes, voids, refunds by employee/approver. */
+export function approvalLogSummaryRaw(
+  ownerToken: string,
+  restaurantId: string,
+  from: string,
+  to: string
+): Promise<RawResponse<{ data?: LooseJson; message?: string }>> {
+  return apiRequestRaw(
+    "GET",
+    `/restaurant/${restaurantId}/approval-logs/summary?from=${from}&to=${to}`,
+    undefined,
+    ownerToken
+  );
+}
+
+/** Owner self-serve add-ons: GET `/restaurant/:rid/addons` (data.addons[])
+ *  and POST { addonId, billingInterval? } to buy one. */
+export function ownerAddonsRaw(
+  token: string,
+  restaurantId: string,
+  method: "GET" | "POST",
+  body?: unknown
+): Promise<RawResponse<{ data?: LooseJson; message?: string }>> {
+  return apiRequestRaw(
+    method,
+    `/restaurant/${restaurantId}/addons`,
+    body,
+    token
+  );
+}
+
+/**
+ * A fixed-offset IANA zone where it is about 12:00 right now (Etc/GMT-N is
+ * UTC+N — the sign is inverted by the IANA convention). Specs that need
+ * "today" to hold hours already worked, or a shift later today, move their
+ * throwaway restaurant there (restaurantBasicInfoRaw {timezone}) so they run
+ * at any hour, nightly included.
+ */
+export const zoneAtMidday = (now = new Date(), localHour = 12): string => {
+  let offset = localHour - now.getUTCHours();
+  if (offset < -12) offset += 24;
+  if (offset > 14) offset -= 24;
+  if (offset === 0) return "Etc/GMT";
+  return `Etc/GMT${offset > 0 ? "-" : "+"}${Math.abs(offset)}`;
+};
+
+/** PUT /restaurant/:rid/basic-info — owner basic info, incl. the `timezone`
+ *  override (an IANA zone; null clears it back to the address's zone). */
+export function restaurantBasicInfoRaw(
+  ownerToken: string,
+  restaurantId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse<{ data?: LooseJson; message?: string }>> {
+  return apiRequestRaw(
+    "PUT",
+    `/restaurant/${restaurantId}/basic-info`,
+    body,
+    ownerToken
+  );
+}
+
+/** Any POS call: `/api/tablet{path}` with the device token, plus the
+ *  X-Staff-Session header when a staff session is given. */
+export function tabletRaw<T = LooseJson>(
+  tabletToken: string,
+  method: Method,
+  path: string,
+  body?: unknown,
+  staffSession?: string,
+  /** e.g. { "x-approval-token": token } for a manager-approved read. */
+  extraHeaders?: Record<string, string>
+): Promise<RawResponse<T>> {
+  const headers = {
+    ...(staffSession ? staffHeaders(staffSession) : {}),
+    ...(extraHeaders ?? {}),
+  };
+  return apiRequestRaw(
+    method,
+    `/api/tablet${path}`,
+    body,
+    tabletToken,
+    Object.keys(headers).length ? headers : undefined
+  );
+}
+
+/** GET /restaurant/restaurantId/:rid/features — the entitlement set the
+ *  dashboard gates on: data.features[]. */
+export function getRestaurantFeaturesRaw(
+  token: string,
+  restaurantId: string
+): Promise<RawResponse<{ data?: { features?: string[] } }>> {
+  return apiRequestRaw(
+    "GET",
+    `/restaurant/restaurantId/${restaurantId}/features`,
+    undefined,
+    token
+  );
+}
+
+/** POST /api/auth/staff/claim-while-signed-in {token} — a signed-in account
+ *  claims a staff invite (InvitationLanding's path). */
+export function claimStaffInviteSignedInRaw(
+  userToken: string,
+  inviteToken: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw(
+    "POST",
+    "/api/auth/staff/claim-while-signed-in",
+    { token: inviteToken },
+    userToken
+  );
+}
+
+/** POST /api/auth/staff/set-invitation-pin {token, pin} — public, from the
+ *  invite link; single use. */
+export function setInvitationPinRaw(
+  inviteToken: string,
+  pin: string
+): Promise<RawResponse<Record<string, unknown>>> {
+  return apiRequestRaw("POST", "/api/auth/staff/set-invitation-pin", {
+    token: inviteToken,
+    pin,
+  });
+}
+
+// ── Pay at the table (restaunax #926, PAY_AT_TABLE.md) ──────────────────────
+
+/** Public guest endpoints: `/api/public/check-pay/:token{path}` — no auth;
+ *  the 22-char QR token or the typed code is the only key. */
+export function checkPayRaw<
+  T = {
+    data?: LooseJson;
+    code?: string;
+    error?: string;
+    message?: string;
+    bill?: LooseJson;
+    released?: string;
+  },
+>(
+  method: Method,
+  token: string,
+  path = "",
+  body?: unknown,
+  headers?: Record<string, string>
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/api/public/check-pay/${encodeURIComponent(token)}${path}`,
+    body,
+    undefined,
+    headers
+  );
+}
+
+/** GET /api/public/check-pay/code/:displayCode — a typed code → its token. */
+export function checkPayCodeRaw(
+  displayCode: string
+): Promise<
+  RawResponse<{ data?: { token: string; displayCode: string }; code?: string }>
+> {
+  return apiRequestRaw(
+    "GET",
+    `/api/public/check-pay/code/${encodeURIComponent(displayCode)}`
+  );
+}
+
+/** GET|PUT /api/restaurantId/:rid/pay-at-table ({settings}). */
+export function payAtTableSettingsRaw(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  body?: unknown
+): Promise<
+  RawResponse<{ data?: LooseJson; message?: string; error?: string }>
+> {
+  return apiRequestRaw(
+    method,
+    `/api/restaurantId/${restaurantId}/pay-at-table`,
+    body,
+    ownerToken
+  );
+}
+
+/** GET|PUT /api/restaurantId/:rid/receipt-qr-codes ({codes, links}). */
+export function receiptQrCodesRaw(
+  ownerToken: string,
+  restaurantId: string,
+  method: Method,
+  body?: unknown,
+  headers?: Record<string, string>
+): Promise<
+  RawResponse<{
+    data?: LooseJson;
+    code?: string;
+    error?: string;
+    details?: LooseJson;
+  }>
+> {
+  return apiRequestRaw(
+    method,
+    `/api/restaurantId/${restaurantId}/receipt-qr-codes`,
+    body,
+    ownerToken,
+    headers
+  );
+}
+
+/** POST /api/tablet/orders/:orderId/receipt-qrs {receiptType, orderPaymentId?}
+ *  — the ordered QR codes for one print (tablet auth, no staff session). */
+export function tabletReceiptQrsRaw(
+  tabletToken: string,
+  orderId: string,
+  body: { receiptType: string; orderPaymentId?: string }
+): Promise<
+  RawResponse<{
+    data?: {
+      codes: {
+        kind: string;
+        label: string;
+        url: string;
+        displayCode: string | null;
+      }[];
+    };
+    code?: string;
+  }>
+> {
+  return apiRequestRaw(
+    "POST",
+    `/api/tablet/orders/${orderId}/receipt-qrs`,
+    body,
+    tabletToken
+  );
+}
+
+/** POST /api/stripe/restaurant/:rid/stripe/test-onboarding — QA-only dummy
+ *  Connect onboarding (creates the account when there is none). Primary owner. */
+export function stripeTestOnboardingRaw(
+  ownerToken: string,
+  restaurantId: string
+): Promise<RawResponse<{ stripeAccountId?: string; error?: string }>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/stripe/restaurant/${restaurantId}/stripe/test-onboarding`,
+    { scenario: "ready" },
+    ownerToken
+  );
+}
+
+/** GET /api/stripe/config — the publishable key every client initialises with. */
+export function stripeConfigRaw(): Promise<
+  RawResponse<{ data?: { publishableKey?: string } }>
+> {
+  return apiRequestRaw("GET", "/api/stripe/config");
+}
+
+/** POST /api/rewards/programs (company admin) — a reward program. */
+export function createRewardProgramRaw(
+  adminToken: string,
+  body: Record<string, unknown>
+): Promise<
+  RawResponse<{ data?: LooseJson; message?: string; error?: string }>
+> {
+  return apiRequestRaw("POST", "/api/rewards/programs", body, adminToken);
+}
+
+/**
+ * A call to Stripe's own API with the PUBLISHABLE key — exactly what a
+ * guest's browser can do (create a card PaymentMethod from a test token,
+ * confirm or read a PaymentIntent with its client secret). Never a secret key.
+ */
+export async function stripePublicRaw(
+  publishableKey: string,
+  method: "GET" | "POST",
+  path: string,
+  form: Record<string, string> = {}
+): Promise<RawResponse<Record<string, LooseJson>>> {
+  const qs = new URLSearchParams(form).toString();
+  const url =
+    method === "GET" && qs
+      ? `https://api.stripe.com/v1${path}?${qs}`
+      : `https://api.stripe.com/v1${path}`;
+  const res = await fetch(url, {
+    method,
+    headers: {
+      Authorization: `Bearer ${publishableKey}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: method === "POST" ? qs : undefined,
+  });
+  const text = await res.text();
+  let data: Record<string, LooseJson>;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = { raw: text };
+  }
+  return { status: res.status, ok: res.ok, data };
 }

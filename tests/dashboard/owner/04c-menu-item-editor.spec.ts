@@ -612,7 +612,9 @@ test.describe("Owner — Menu builder, item wizard & item detail", () => {
       items: [
         {
           menuItemId: item.id,
-          quantity: 1,
+          // Two units: a one-item COMBO is refused since guided deal types
+          // (comboNeedsTwoItems); quantity 2 of one item counts as two.
+          quantity: 2,
           itemName: item.name,
           itemPrice: 9,
           isRequired: true,

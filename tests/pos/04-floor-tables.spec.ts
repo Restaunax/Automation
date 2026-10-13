@@ -452,12 +452,14 @@ test.describe("POS — Table Management (floor, tables, sections, combinations)"
     expect(rowB?.shape).toBe("RECTANGLE");
   });
 
-  test("TC-388: merge repoints the open check and cleans up the source table", async () => {
+  test("TC-388: merge refuses a table in service, then repoints its history and cleans up the source", async () => {
     await allure.description(
-      "Open a check on table A (explicit tableId), merge A into B — A's " +
-        "order is repointed onto B (Order.tableId updates) and, once nothing " +
-        "else references A, A is hard-deleted (gone) rather than merely " +
-        "deactivated; B keeps the live open-check count."
+      "Open a check on table A (explicit tableId): merging A into B is " +
+        "refused 409 TABLE_IN_USE while the check is open — merge is the " +
+        "duplicate-cleanup tool and never repoints a live party (RestauNax " +
+        "7b539a43e). Once the check is closed, the merge succeeds: A's order " +
+        "is repointed onto B (Order.tableId updates) and A is gone or " +
+        "deactivated."
     );
     const tA = unwrap(
       await createTableOwnerRaw(token, restaurantId, {
@@ -472,6 +474,18 @@ test.describe("POS — Table Management (floor, tables, sections, combinations)"
 
     const orderId = await openCheckOnTable(tA.id, staffSession);
 
+    const refused = await mergeTableOwnerRaw(token, restaurantId, tA.id, tB.id);
+    expect(refused.status, msg(refused.data)).toBe(409);
+    expect(errorCode(refused.data)).toBe("TABLE_IN_USE");
+
+    const cancel = await cancelTabletOrderRaw(
+      tabletToken,
+      staffSession,
+      orderId,
+      "TC-388 close before merge"
+    );
+    expect(cancel.ok, msg(cancel.data)).toBe(true);
+
     const merge = await mergeTableOwnerRaw(token, restaurantId, tA.id, tB.id);
     expect(merge.status, msg(merge.data)).toBe(200);
 
@@ -485,30 +499,23 @@ test.describe("POS — Table Management (floor, tables, sections, combinations)"
     ).toBe(true);
     const rowB = list.tables.find((t) => t.id === tB.id);
     expect(rowB, "target table should remain").toBeTruthy();
-    expect(rowB!.openCheckCount).toBeGreaterThanOrEqual(1);
 
     const full = await getOrderFullRaw(token, orderId);
     expect(full.data.tableId).toBe(tB.id);
-
-    const cancel = await cancelTabletOrderRaw(
-      tabletToken,
-      staffSession,
-      orderId,
-      "TC-388 cleanup"
-    );
-    expect(cancel.ok, msg(cancel.data)).toBe(true);
   });
 
   let softDeletedTableId = "";
-  let softDeletedOrderId = "";
   let hardDeletedTableId = "";
 
-  test("TC-389: delete semantics — unreferenced hard-deletes, referenced soft-deactivates", async () => {
+  test("TC-389: delete semantics — unreferenced hard-deletes, open check refuses, referenced soft-deactivates", async () => {
     await allure.description(
       "DELETE .../tables/:id on a table nothing references → " +
         "data.deleted:true and the row disappears from the owner list; on a " +
-        "table with a live order → data.deleted:false and isActive:false " +
-        "(history keeps a row to point at)."
+        "table with an OPEN check → 409 TABLE_HAS_OPEN_CHECK (the check would " +
+        "drop off the floor with money owed — RestauNax 7b539a43e); once " +
+        "that check is closed the table still has order history → " +
+        "data.deleted:false and isActive:false (history keeps a row to " +
+        "point at)."
     );
     const unref = unwrap(
       await createTableOwnerRaw(token, restaurantId, {
@@ -528,7 +535,19 @@ test.describe("POS — Table Management (floor, tables, sections, combinations)"
     const ref = unwrap(
       await createTableOwnerRaw(token, restaurantId, { name: `Ref ${runId}` })
     );
-    softDeletedOrderId = await openCheckOnTable(ref.id, staffSession);
+    const refOrderId = await openCheckOnTable(ref.id, staffSession);
+
+    const delOpen = await deleteTableOwnerRaw(token, restaurantId, ref.id);
+    expect(delOpen.status, msg(delOpen.data)).toBe(409);
+    expect(errorCode(delOpen.data)).toBe("TABLE_HAS_OPEN_CHECK");
+
+    const cancel = await cancelTabletOrderRaw(
+      tabletToken,
+      staffSession,
+      refOrderId,
+      "TC-389 close before delete"
+    );
+    expect(cancel.ok, msg(cancel.data)).toBe(true);
 
     const delRef = await deleteTableOwnerRaw(token, restaurantId, ref.id);
     expect(delRef.status, msg(delRef.data)).toBe(200);
@@ -546,8 +565,7 @@ test.describe("POS — Table Management (floor, tables, sections, combinations)"
     await allure.description(
       "The live hardware bug (2026-08-26): computeTableStates only reads " +
         "isActive:true tables for the floor payload, so a hard-deleted OR " +
-        "soft-deactivated table must never leak into GET /api/tablet/floor " +
-        "— even one still holding an open check."
+        "soft-deactivated table must never leak into GET /api/tablet/floor."
     );
     const floor = await getFloorRaw(tabletToken);
     expect(floor.status, msg(floor.data)).toBe(200);
@@ -560,16 +578,8 @@ test.describe("POS — Table Management (floor, tables, sections, combinations)"
     ).toBe(false);
     expect(
       floorTables.some((t) => t.table.id === softDeletedTableId),
-      "soft-deactivated table (with an open check) must not appear on the floor"
+      "soft-deactivated table must not appear on the floor"
     ).toBe(false);
-
-    const cancel = await cancelTabletOrderRaw(
-      tabletToken,
-      staffSession,
-      softDeletedOrderId,
-      "TC-390 cleanup"
-    );
-    expect(cancel.ok, msg(cancel.data)).toBe(true);
   });
 
   // ── Combinations (entitlement-gated) ───────────────────────────────────

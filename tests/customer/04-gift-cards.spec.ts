@@ -24,7 +24,7 @@ test.describe("Customer — Gift Cards", () => {
   // fires HCaptchaInvisible network calls (checksiteconfig, getcaptcha) tied
   // to the Payment Element's Link-enrollment fields; the PaymentIntent then
   // never confirms (no subsequent .../confirm call) and the flow hangs at
-  // that step, so the 20s wait for "Gift Card Sent!" times out. Reproduced
+  // that step, so the 20s wait for "Gift card sent" times out. Reproduced
   // deterministically across repeated runs; a real Chrome channel (vs.
   // bundled Chromium headless shell) was tried as a possible fix and did NOT
   // reliably avoid the challenge (passed twice, failed on a third run with

@@ -85,6 +85,7 @@ import {
   getHostRaw,
   reservationStatusTabletRaw,
   seatReservationTabletRaw,
+  setTableStateTabletRaw,
   transferTabTableRaw,
   openRegisterSessionPos,
   settleTabCashRaw,
@@ -170,7 +171,9 @@ test.describe("POS — Reservation Lifecycle (tablet host stand)", () => {
    *  per-phone open-reservations cap. */
   const nextGuestPhone = (): string => {
     phoneSeq += 1;
-    return `555${String(runFrag).padStart(3, "0")}${String(phoneSeq).padStart(4, "0")}`;
+    // The exchange (digits 4-6) must not start with 0/1 — the backend's
+    // normalizeGuestPhone rejects a non-NANP number as "phone required".
+    return `555${200 + (runFrag % 800)}${String(phoneSeq).padStart(4, "0")}`;
   };
 
   /** Open a table-service check and track it for the afterAll sweep. */
@@ -397,7 +400,9 @@ test.describe("POS — Reservation Lifecycle (tablet host stand)", () => {
         "SEATED, floor flips to OCCUPIED — precedence order) → open the " +
         "register → settle in full cash → order COMPLETED, reservation " +
         "COMPLETED (maybeCloseTab's atomic reservation-complete side effect), " +
-        "and the floor returns to AVAILABLE."
+        "the floor reads PAID (an open TableTurn under the default " +
+        "HOLD_UNTIL_CLEARED policy — RestauNax #912), and the host's CLEAR " +
+        "tap closes the turn and returns it to AVAILABLE."
     );
     const table = unwrap(
       await createTableOwnerRaw(token, restaurantId, {
@@ -491,6 +496,23 @@ test.describe("POS — Reservation Lifecycle (tablet host stand)", () => {
       {}
     );
     expect(unwrap(finalReservation).status).toBe("COMPLETED");
+
+    // Table turn lifecycle (RestauNax #912): a paid check leaves the table
+    // PAID until someone clears it — the default afterPaymentPolicy is
+    // HOLD_UNTIL_CLEARED, so it never reads AVAILABLE on its own here.
+    const floorPaid = await getFloorRaw(tabletToken);
+    const rowPaid = (unwrap(floorPaid).tables as any[]).find(
+      (t) => t.table.id === table.id
+    );
+    expect(rowPaid?.state).toBe("PAID");
+
+    const cleared = await setTableStateTabletRaw(
+      tabletToken,
+      staffSession,
+      table.id,
+      "CLEAR"
+    );
+    expect(cleared.status, msg(cleared.data)).toBe(200);
 
     const floorAvailable = await getFloorRaw(tabletToken);
     const rowAvailable = (unwrap(floorAvailable).tables as any[]).find(

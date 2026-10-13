@@ -18,8 +18,10 @@ import { TEMPLATE_WIND_URL } from "../../utils/testData";
  *   "Added - Click to customize"); DealProgress ("X of N items added" /
  *   "Deal Complete!", "View Cart" → /checkout). Clicking a card opens the
  *   ItemModal in deal mode whose confirm reads "Add to Deal — $x" (same
- *   data-testid="add-to-cart"). An inactive / deleted / out-of-schedule / 86'd
- *   deal → "Deal not found" + "Return to Menu".
+ *   data-testid="add-to-cart"). An inactive / deleted / 86'd
+ *   deal → "Deal not found" + "Return to Menu". Since deal scheduling (Plan 4) a
+ *   deal that is off for now but on later today stays listed with
+ *   deal-availability-label and disabled slots.
  * - `/checkout` OrderSummary: claimed items say "Part of deal"; deal rows read
  *   "<qty>x <deal name>" (expandable to "1x <item> (+$x.xx)"); "You're saving
  *   $X.XX"; "Modifiers/Upgrades +$X.XX"; the proceed button turns into
@@ -39,8 +41,11 @@ export const createCustomerDealPage = (page: Page) => {
     page.getByRole("heading", { name: "Today's Deals" });
   /**
    * The DealCard for a deal name — the innermost container that holds the
-   * name, the "View Deal" button AND the "Save X%" badge (the badge sits in
-   * the image header, above the p-5 body, so the body div alone is too small).
+   * name AND the "Save X%" badge (the badge sits in the image header, above
+   * the p-5 body, so the body div alone is too small). Do NOT also require the
+   * "View Deal" button: a deal that is not available now shows its
+   * availability label instead of the button, and requiring it widens the
+   * match to the whole grid (every deal's label and button).
    */
   const dealCard = (dealName: string) =>
     page
@@ -48,11 +53,19 @@ export const createCustomerDealPage = (page: Page) => {
       .filter({
         has: page.getByRole("heading", { name: dealName, exact: true }),
       })
-      .filter({ has: page.getByRole("button", { name: "View Deal" }) })
       .filter({ hasText: /Save \d+%/ })
       .last();
-  const viewDeal = (dealName: string) =>
-    dealCard(dealName).getByRole("button", { name: "View Deal" }).click();
+  /** Open the deal: its "View Deal" button, or — when the deal is not orderable now and has no button — the card itself. */
+  const viewDeal = async (dealName: string) => {
+    const button = dealCard(dealName).getByRole("button", {
+      name: "View Deal",
+    });
+    if ((await button.count()) > 0) await button.click();
+    else
+      await dealCard(dealName)
+        .getByRole("heading", { name: dealName, exact: true })
+        .click();
+  };
 
   // ── Builder ────────────────────────────────────────────────────────────────
   const builderHeading = (dealName: string) =>
@@ -127,6 +140,46 @@ export const createCustomerDealPage = (page: Page) => {
   const completeDealsToContinueButton = () =>
     page.getByRole("button", { name: "Complete Deals to Continue" });
 
+  // ── Deal scheduling (Plan 4 hooks) ─────────────────────────────────────────
+  const cardScheduleSummary = (dealName: string) =>
+    dealCard(dealName).getByTestId("deal-schedule-summary");
+  const cardAvailabilityLabel = (dealName: string) =>
+    dealCard(dealName).getByTestId("deal-availability-label");
+  const builderAvailabilityLabel = () =>
+    page.getByTestId("deal-availability-label").first();
+  /** Builder slot cards by testid (aria-disabled="true" while the deal isn't available). */
+  const slotCardHooks = () => page.getByTestId("deal-slot-card");
+
+  // ── DealsGridBlock (block type "deals_grid", placed on a restaurant page) ───
+  /** /catering renders brandingConfig.restaurantPages.catering.blocks whether or not the nav links it. */
+  const gotoCateringPage = async (restaurantId: string) => {
+    await page.goto(
+      `${TEMPLATE_WIND_URL}/catering?restaurantId=${restaurantId}`,
+      { waitUntil: "domcontentloaded" }
+    );
+  };
+  const dealsGridHeading = (title: string) =>
+    page.getByRole("heading", { name: title, exact: true, level: 2 });
+  /** One grid card: testid first (Plan 4), else the card div holding the deal's h3 inside the block's section. */
+  const dealsGridCard = (title: string, dealName: string) => {
+    const nameH3 = page.getByRole("heading", {
+      name: dealName,
+      exact: true,
+      level: 3,
+    });
+    return page
+      .getByTestId("deals-grid-card")
+      .filter({ has: nameH3 })
+      .or(
+        page
+          .locator("section")
+          .filter({ has: dealsGridHeading(title) })
+          .locator("div.rounded-xl")
+          .filter({ has: nameH3 })
+      )
+      .first();
+  };
+
   return {
     gotoBuilder,
     dealsSectionHeading,
@@ -153,6 +206,13 @@ export const createCustomerDealPage = (page: Page) => {
     modifiersUpgradesRow,
     dealItemUpchargeLine,
     completeDealsToContinueButton,
+    cardScheduleSummary,
+    cardAvailabilityLabel,
+    builderAvailabilityLabel,
+    slotCardHooks,
+    gotoCateringPage,
+    dealsGridHeading,
+    dealsGridCard,
   };
 };
 
