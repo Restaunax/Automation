@@ -146,9 +146,10 @@ test.describe("Owner — Tables & Floor", () => {
     await expect(session.page).toHaveURL(/tab=tables/);
     await floorPage.assertLoaded();
 
-    await floorPage.openStoreOpsFlyout();
-    await floorPage.reservationsNavItem().click();
-    await session.page.waitForURL(/tab=reservations/, { timeout: 10_000 });
+    await floorPage.clickStoreOpsItem(
+      floorPage.reservationsNavItem(),
+      /tab=reservations/
+    );
     await expect(
       session.page.getByRole("heading", { name: "Reservations", level: 1 })
     ).toBeVisible({ timeout: 15_000 });

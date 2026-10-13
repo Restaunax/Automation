@@ -77,12 +77,26 @@ export const createOwnerTablesFloorPage = (page: Page) => {
     await storeOpsHeader().click();
   };
 
+  /**
+   * Opens the Store Operations flyout and clicks `item`, retrying the WHOLE
+   * open-then-click until the URL matches. The flyout is hover-driven (opens
+   * on mouseenter, closes 80 ms after mouseleave, animates in with Grow), and
+   * right after a page load the sidebar can still be settling — a single
+   * attempt intermittently timed out with "element is not stable" (TC-434,
+   * 2026-10-13 QA run). Each attempt is short so a stuck one is abandoned
+   * and the menu reopened, rather than waiting out one long click.
+   */
+  const clickStoreOpsItem = async (item: Locator, url: RegExp) => {
+    await expect(async () => {
+      await openStoreOpsFlyout();
+      await item.click({ timeout: 3_000 });
+      await page.waitForURL(url, { timeout: 5_000 });
+    }).toPass({ timeout: 30_000 });
+  };
+
   const navigateViaSidebar = async (restaurantId: string) => {
     await mgmtPage.goto(restaurantId);
-    await openStoreOpsFlyout();
-    await tablesFloorNavItem().waitFor({ state: "visible", timeout: 5_000 });
-    await tablesFloorNavItem().click();
-    await page.waitForURL(/tab=tables/, { timeout: 10_000 });
+    await clickStoreOpsItem(tablesFloorNavItem(), /tab=tables/);
     await assertLoaded();
   };
 
@@ -319,6 +333,7 @@ export const createOwnerTablesFloorPage = (page: Page) => {
     tablesFloorNavItem,
     reservationsNavItem,
     openStoreOpsFlyout,
+    clickStoreOpsItem,
     navigateViaSidebar,
     addSectionButton,
     sectionNameInput,
