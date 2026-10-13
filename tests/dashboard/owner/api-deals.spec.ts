@@ -1858,7 +1858,9 @@ test.describe("Owner — Deals API contract", () => {
         "(not just template-wind): /quote with a deal + a % coupon returns couponDiscount 0 and a " +
         "coupon_deal_exclusive ERROR issue."
     );
-    const deal = await seedDeal("CouponStack", 20, [
+    // 12 < 16.50 regular: since guided deal types (RestauNax #927) a combo
+    // priced at or above its items' regular price is refused at create.
+    const deal = await seedDeal("CouponStack", 12, [
       { id: itemA.id, name: itemA.name, price: itemA.price },
       { id: itemB.id, name: itemB.name, price: itemB.price },
     ]);
@@ -1889,12 +1891,17 @@ test.describe("Owner — Deals API contract", () => {
         couponId,
       });
       expect(q.status, JSON.stringify(q.data)).toBe(200);
-      const hasErrorIssue = (q.data.issues ?? []).some(
-        (i) => i.severity === "ERROR"
-      );
+      const detail = `couponDiscount=${q.data.quote?.couponDiscount} issues=${JSON.stringify(q.data.issues)}`;
+      // Both halves of the contract (pricingEngine.ts "Coupon ⊥ deal"): the
+      // coupon is priced at 0 AND the quote says why.
+      expect(q.data.quote?.couponDiscount ?? 0, detail).toBe(0);
       expect(
-        (q.data.quote?.couponDiscount ?? 0) === 0 || hasErrorIssue,
-        `couponDiscount=${q.data.quote?.couponDiscount} issues=${JSON.stringify(q.data.issues)}`
+        (q.data.issues ?? []).some(
+          (i) =>
+            (i as { code?: string }).code === "coupon_deal_exclusive" &&
+            i.severity === "ERROR"
+        ),
+        detail
       ).toBe(true);
     } finally {
       if (couponId) await deleteCouponApi(token, couponId).catch(() => {});

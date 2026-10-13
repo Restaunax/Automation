@@ -443,7 +443,7 @@ test.describe("Owner — Deals", () => {
     await expectOrder(N.cheap, N.plain);
   });
 
-  test("TC-355: expanding a row lists its slots as '1x <item> ($price)' chips", async ({
+  test("TC-355: expanding a row lists its slots as '<item> ($price)' chips (a quantity prefix only above 1)", async ({
     ownerPage,
   }) => {
     const dealsPage = createOwnerDealsPage(ownerPage);
@@ -452,12 +452,15 @@ test.describe("Owner — Deals", () => {
     await dealsPage.expandRow(N.pricey);
     const chips = dealsPage.expandedItemChips();
     await expect(chips).toHaveCount(3);
+    // Every unit is its own slot row (quantity 1), so no "1x " prefix — the
+    // dashboard only prints "<n>x " when a row's quantity is above 1.
     await expect(
-      chips.filter({ hasText: `1x ${itemA.name} ($10.00)` })
+      chips.filter({ hasText: `${itemA.name} ($10.00)` })
     ).toHaveCount(2);
     await expect(
-      chips.filter({ hasText: `1x ${itemC.name} ($4.00)` })
+      chips.filter({ hasText: `${itemC.name} ($4.00)` })
     ).toHaveCount(1);
+    await expect(chips.filter({ hasText: /^1x / })).toHaveCount(0);
   });
 
   test("TC-356: the status switch deactivates and re-activates a deal (PATCH 200 + snackbar + badge)", async ({
@@ -1065,6 +1068,9 @@ test.describe("Owner — Deals", () => {
       requireScheduling("backend", Boolean(tz));
       await dealsPage.gotoTab(restaurantId, "create-deal");
       await form.assertCreateMode();
+      // Guided deal types: the form asks "What kind of deal?" first and only
+      // renders the rest (schedule included) once a type is picked.
+      await form.chooseType("COMBO");
       requireScheduling("dashboard", await form.hasScheduleSection());
       return { dealsPage, form };
     };
