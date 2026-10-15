@@ -201,15 +201,34 @@ export const createCustomerCheckoutPage = (page: Page) => {
     await applyCouponButton().click();
   };
 
-  // Success swaps the input for a green applied-coupon block ("Saving $X.XX")
-  // and OrderSummary shows a "Coupon (CODE)" discount line. Codes uppercase in
-  // the UI, so match case-insensitively on the code.
-  const assertCouponApplied = async (code: string) => {
-    await expect(page.getByText(/Saving \$\d/)).toBeVisible({
-      timeout: 15_000,
-    });
+  // Success swaps the input for a green applied-code pill (the code) with
+  // "Saving $X.XX" under it, and OrderSummary shows the server's promotion
+  // line: `appliedPromotion.title` from /quote and "-$X.XX".
+  // spec: PROMOTIONS.md "Clients as built (plan 3)" → Storefronts — the old
+  // client-built "Coupon (CODE)" line is gone; promotion lines come from
+  // /quote, and the code box shows a saving only for the code's own line.
+  // So: the pill proves the code was taken, "Saving" proves the code is the
+  // promotion the server applied, and the summary row with the same amount
+  // ties the summary discount to that code (what "Coupon (CODE)" proved).
+  const assertCouponApplied = async (code: string, promotionTitle: string) => {
+    const saving = page.getByText(/^Saving \$\d+\.\d{2}$/);
+    await expect(saving).toBeVisible({ timeout: 15_000 });
+    const amount = /\$(\d+\.\d{2})/.exec(
+      (await saving.textContent()) ?? ""
+    )?.[1];
+    expect(amount, "Saving line carries an amount").toBeTruthy();
     await expect(
-      page.getByText(new RegExp(`Coupon\\s*\\(${code}\\)`, "i"))
+      page.getByText(new RegExp(`^${escapeRegExp(code)}$`, "i"))
+    ).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page
+        .locator("div")
+        .filter({
+          hasText: new RegExp(
+            `^${escapeRegExp(promotionTitle)}-\\$${escapeRegExp(amount!)}$`
+          ),
+        })
+        .last()
     ).toBeVisible({ timeout: 10_000 });
   };
 
@@ -594,3 +613,5 @@ export const createCustomerCheckoutPage = (page: Page) => {
     assertDeliveryQuoteResolved,
   };
 };
+
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

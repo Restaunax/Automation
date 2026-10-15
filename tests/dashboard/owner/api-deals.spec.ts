@@ -2425,11 +2425,11 @@ test.describe("Owner — Deals API contract", () => {
       expect(roles(bogo)).toEqual(["BUY", "GET"]);
     });
 
-    test("TC-701: public GET /ai/questions adds the optional multi-select 'dealTypes' question with the four types", async () => {
+    test("TC-701: public GET /ai/questions adds the optional multi-select 'dealTypes' question with the bundle types", async () => {
       await allure.description(
         "The AI generator's questionnaire grows a 5th question, id 'dealTypes', type 'multiple', whose option " +
-          "values are exactly COMBO / BOGO_FREE / BOGO_PERCENT_OFF / PERCENT_OFF, each with a label and a plain " +
-          "description. The four original ids are still there."
+          "values are exactly COMBO / BOGO_FREE / BOGO_PERCENT_OFF / BOGO_FIXED_PRICE / PERCENT_OFF, each with a " +
+          "label and a plain description. The four original ids are still there."
       );
       const res = await getAiDealQuestionsPublic();
       expect(res.status).toBe(200);
@@ -2446,10 +2446,13 @@ test.describe("Owner — Deals API contract", () => {
       const q = questions.find((x) => x.id === "dealTypes")!;
       expect(q.type).toBe("multiple");
       expect(typeof q.question).toBe("string");
+      // spec: PROMOTIONS.md "Create promotion" (AI suggestions keep producing
+      // bundle types) + "New mechanics" → BOGO_FIXED_PRICE, a new bundle type.
       expect((q.options ?? []).map((o) => o.value)).toEqual([
         "COMBO",
         "BOGO_FREE",
         "BOGO_PERCENT_OFF",
+        "BOGO_FIXED_PRICE",
         "PERCENT_OFF",
       ]);
       for (const o of q.options ?? []) {

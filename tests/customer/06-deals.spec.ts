@@ -6,10 +6,12 @@ import {
   readSharedState,
   readRestaurantId,
   generateRunId,
+  generateCouponCode,
 } from "../../utils/testData";
 import {
   apiLogin,
   createDealRaw,
+  createCouponRaw,
   deleteDealApi,
   type ApiDeal,
 } from "../../utils/apiHelper";
@@ -142,23 +144,54 @@ test.describe("Customer — Deals", () => {
     page,
   }) => {
     await allure.description(
-      "With a deal in the cart, attempting to apply any coupon code is blocked client-side with " +
-        "'Cannot combine coupons with deals' — the check fires before validation, so no seeded " +
-        "coupon is needed."
+      "With a completed deal in the cart, applying a real, valid order-level coupon is refused by " +
+        "the server's pricing ('Coupons can't be combined with deals…'), shown next to the code, " +
+        "and no saving is applied. (Before Promotions the storefront blocked any code client-side " +
+        "with 'Cannot combine coupons with deals'; the server is now the one that refuses it.)"
     );
 
     const restaurantId = readRestaurantId();
+    const { menuItemName } = readSharedState();
     const dealPage = createCustomerDealPage(page);
     const checkoutPage = createCustomerCheckoutPage(page);
+    const couponCode = generateCouponCode();
 
-    await dealPage.gotoBuilder(restaurantId, dealId);
-    await dealPage.assertProgress(0, 1);
+    // A real code: the refusal must come from the coupon⊥deal rule, not from
+    // "code not found" (the old client-side check needed no coupon at all).
+    await allure.step("Seed a valid AUTO percentage coupon", async () => {
+      const res = await createCouponRaw(ownerToken, restaurantId, {
+        code: couponCode,
+        type: "PERCENTAGE",
+        value: 10,
+        startDate: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        status: "ACTIVE",
+      });
+      expect(res.ok, `coupon seed failed: ${JSON.stringify(res.data)}`).toBe(
+        true
+      );
+      await allure.parameter("Coupon", couponCode);
+    });
 
-    await checkoutPage.gotoCheckoutEmpty(restaurantId);
-    await checkoutPage.applyCoupon(`AUTOX${Date.now()}`);
-    await expect(
-      page.getByText(/Cannot combine coupons with deals/i)
-    ).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText(/Saving \$\d/)).toHaveCount(0);
+    await allure.step("Put a completed deal in the cart", async () => {
+      await dealPage.gotoBuilder(restaurantId, dealId);
+      await dealPage.assertProgress(0, 1);
+      await dealPage.openSlot(menuItemName);
+      await dealPage.clickAddToDeal();
+      await dealPage.assertDealComplete();
+    });
+
+    await allure.step("Apply the coupon at checkout — refused", async () => {
+      await checkoutPage.gotoCheckoutEmpty(restaurantId);
+      await checkoutPage.applyCoupon(couponCode);
+      // spec: PROMOTIONS.md "Which promotion wins (money rules)" rule 3 — a
+      // bundle in the cart is the customer's promotion, order-level food
+      // promotions do not apply; "Clients as built (plan 3)" → Storefronts —
+      // the entered code's blocking sentence sits next to the code.
+      await expect(
+        page.getByText(/Coupons can't be combined with deals/i).first()
+      ).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByText(/Saving \$\d/)).toHaveCount(0);
+    });
   });
 });
