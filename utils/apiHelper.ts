@@ -2240,6 +2240,10 @@ export function getOrderByIdRaw(
     status?: string;
     subtotal?: number;
     total?: number;
+    /** The order-level promotion stored on the order (Coupon id). */
+    couponId?: string | null;
+    /** Order-level promotion discount the server stored. */
+    discountAmount?: number | null;
     dealDiscountAmount?: number | null;
     dealUpchargeAmount?: number | null;
     orderDeals?: {

@@ -11,6 +11,9 @@ import { type Locator, type Page, expect } from "@playwright/test";
  * "Paused" / "Ended" (not "Active"), and the "How customers get it" chip reads
  * "Menu", "Code <CODE>", "Menu + code <CODE>" or "One-time codes".
  *
+ * Cells: 0 promotion · 1 type · 2 how customers get it · 3 status · 4 uses ·
+ * 5 savings given · 6 actions.
+ *
  * Locator strategy: the section ships no test ids. Rows are table rows found
  * by their title cell; the filters are found by their stable ids
  * (#promotions-status-filter); the row menu by its aria-label
@@ -120,6 +123,33 @@ export const createOwnerPromotionsPage = (page: Page) => {
   };
 
   /**
+   * Pause / Turn on from the row menu; resolves with the status write's
+   * response (deal: PATCH /api/deals/:id/status, coupon: PUT /api/coupons/:id).
+   * A deal refused at the 10-active cap answers 400 MAX_ACTIVE_DEALS_REACHED
+   * and opens the "Too many promotions on" dialog (close it with
+   * `confirmDialog("OK")`).
+   */
+  const setStatusFromMenu = async (
+    name: string,
+    action: "Pause" | "Turn on"
+  ): Promise<{ status: number; body: { error?: string } | null }> => {
+    const [res] = await Promise.all([
+      page.waitForResponse(
+        (r) =>
+          /\/api\/(deals\/[^/]+\/status|coupons\/[^/]+)$/.test(
+            new URL(r.url()).pathname
+          ) && ["PATCH", "PUT"].includes(r.request().method())
+      ),
+      openRowAction(name, action),
+    ]);
+    return {
+      status: res.status(),
+      // A non-JSON error body leaves only the status to assert on.
+      body: (await res.json().catch(() => null)) as { error?: string } | null,
+    };
+  };
+
+  /**
    * Confirms the open dialog (delete confirm, chain fan-out confirm). The
    * confirm button is the last action; pass `name` to pin its label.
    */
@@ -147,6 +177,12 @@ export const createOwnerPromotionsPage = (page: Page) => {
   /** `status` is the chip copy: "Live", "Scheduled", "Paused" or "Ended". */
   const expectRowStatus = (name: string, status: string) =>
     expect(cell(name, 3)).toHaveText(status);
+
+  /** Cells 4 and 5: "Uses" (a plain count) and "Savings given" ("$5.50"). */
+  const expectRowUses = (name: string, uses: number) =>
+    expect(cell(name, 4)).toHaveText(String(uses));
+  const expectRowSavings = (name: string, savings: string) =>
+    expect(cell(name, 5)).toHaveText(savings);
 
   /** null = the promotion shows no code ("Menu" — applies by itself). */
   const expectRowCode = async (name: string, code: string | null) => {
@@ -178,11 +214,14 @@ export const createOwnerPromotionsPage = (page: Page) => {
     row,
     filterStatus,
     openRowAction,
+    setStatusFromMenu,
     confirmDialog,
     cancelDialog,
     expectRow,
     expectNoRow,
     expectRowStatus,
+    expectRowUses,
+    expectRowSavings,
     expectRowCode,
     expectSectionDisabled,
   };

@@ -24,16 +24,23 @@ import { TEMPLATE_WIND_URL } from "../../utils/testData";
  *   deal-availability-label and disabled slots.
  * - `/checkout` OrderSummary: claimed items say "Part of deal"; deal rows read
  *   "<qty>x <deal name>" (expandable to "1x <item> (+$x.xx)"); "You're saving
- *   $X.XX"; "Modifiers/Upgrades +$X.XX"; the proceed button turns into
- *   "Complete Deals to Continue" while a deal is incomplete.
+ *   $X.XX"; an "Items / Upgrades +$X.XX / Subtotal" build-up when a deal
+ *   carries upgrades (CustomerCheckoutPage summary*Row); the proceed button
+ *   turns into "Complete Deals to Continue" while a deal is incomplete.
  */
 export const createCustomerDealPage = (page: Page) => {
   // Same ?restaurantId= QA override as every other customer route.
-  const gotoBuilder = async (restaurantId: string, dealId: string) => {
-    await page.goto(
-      `${TEMPLATE_WIND_URL}/deals/${dealId}?restaurantId=${restaurantId}`,
-      { waitUntil: "domcontentloaded" }
-    );
+  // `code`: a CODE-only deal loads only with its code (?code=), the way the
+  // redeem-code BUNDLE result opens it.
+  const gotoBuilder = async (
+    restaurantId: string,
+    dealId: string,
+    code?: string
+  ) => {
+    const q = new URLSearchParams({ restaurantId, ...(code ? { code } : {}) });
+    await page.goto(`${TEMPLATE_WIND_URL}/deals/${dealId}?${q.toString()}`, {
+      waitUntil: "domcontentloaded",
+    });
   };
 
   // ── /menu "Today's Deals" ──────────────────────────────────────────────────
@@ -123,6 +130,30 @@ export const createCustomerDealPage = (page: Page) => {
   const viewCartButton = () =>
     page.getByRole("button", { name: "View Cart", exact: true });
 
+  // ── Pick slots ("one of these items" / category lines, promotions v2):
+  // one data-testid="deal-choice-slot" per line, headed "Choose one", with a
+  // data-testid="deal-slot-card" per option ("Choose this one" → "Your pick").
+  const choiceSlots = () => page.getByTestId("deal-choice-slot");
+  const choiceCard = (slotIndex: number, itemName: string) =>
+    choiceSlots()
+      .nth(slotIndex)
+      .getByTestId("deal-slot-card")
+      .filter({
+        has: page.getByRole("heading", { name: itemName, exact: true }),
+      });
+  /** Pick `itemName` for the slot and confirm the modal's "Add to Deal". */
+  const pickChoice = async (slotIndex: number, itemName: string) => {
+    await choiceCard(slotIndex, itemName).click();
+    await clickAddToDeal();
+  };
+
+  // ── DealProgress (sticky bar): Keep shopping (complete deals only) sits
+  // in the same action group as the deal price and View Cart.
+  const keepShoppingButton = () => page.getByTestId("deal-keep-shopping");
+  /** The bar's deal price ("$14.99") — the bold primary price in the action group. */
+  const progressDealPrice = () =>
+    keepShoppingButton().locator("xpath=..").locator("p.text-xl");
+
   // ── Checkout OrderSummary ──────────────────────────────────────────────────
   const partOfDealLabels = () =>
     page.getByText("Part of deal", { exact: true });
@@ -131,8 +162,6 @@ export const createCustomerDealPage = (page: Page) => {
       name: new RegExp(`^\\d+x ${escapeRe(dealName)}$`),
     });
   const youAreSavingRow = () => page.getByText(/You're saving/).locator("..");
-  const modifiersUpgradesRow = () =>
-    page.getByText("Modifiers/Upgrades", { exact: true }).locator("..");
   const dealItemUpchargeLine = (itemName: string) =>
     page.getByText(
       new RegExp(`^1x ${escapeRe(itemName)} \\(\\+\\$\\d+\\.\\d{2}\\)$`)
@@ -200,10 +229,14 @@ export const createCustomerDealPage = (page: Page) => {
     addToDealButton,
     clickAddToDeal,
     viewCartButton,
+    choiceSlots,
+    choiceCard,
+    pickChoice,
+    keepShoppingButton,
+    progressDealPrice,
     partOfDealLabels,
     dealSummaryRow,
     youAreSavingRow,
-    modifiersUpgradesRow,
     dealItemUpchargeLine,
     completeDealsToContinueButton,
     cardScheduleSummary,

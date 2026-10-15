@@ -562,7 +562,47 @@ export const createCustomerCheckoutPage = (page: Page) => {
     /\/api\/order\/[^/]+\/quote$/.test(r.url()) &&
     r.request().method() === "POST";
 
+  // ── Promotions in the OrderSummary (spec: PROMOTIONS.md "Clients as built
+  // (plan 3)" → Storefronts). All server money: from the page's /quote.
+  /** "You've earned a free <item> — Add it" (quote.freeItemOffer). */
+  const freeItemOfferButton = () =>
+    page.getByRole("button", { name: /^You've earned a free / });
+  /** The summary row for a promotion (its title + "-$X.XX"). */
+  const promotionLine = (title: string) =>
+    page
+      .locator("div")
+      .filter({
+        hasText: new RegExp(`^${escapeRegExp(title)}-\\$\\d+\\.\\d{2}$`),
+      })
+      .last();
+  /** Deal upgrades build-up: Items / Upgrades / itemised detail (summary-* testids). */
+  const summaryItemsRow = () => page.getByTestId("summary-items");
+  const summaryUpgradesRow = () => page.getByTestId("summary-upgrades");
+  const summaryUpgradeDetails = () =>
+    page.getByTestId("summary-upgrade-details");
+  const subtotalRow = () =>
+    page.getByText("Subtotal", { exact: true }).locator("..");
+  /** The first "$X.XX" in a row, as a number (NaN when absent). */
+  const readMoney = async (row: ReturnType<typeof page.locator>) => {
+    const m = /\$(\d+(?:,\d{3})*\.\d{2})/.exec((await row.textContent()) ?? "");
+    return m ? parseFloat(m[1]!.replace(/,/g, "")) : NaN;
+  };
+  /** The CODE-only-deal refusal sentence (backend api.json codeRequired). */
+  const dealNeedsCodeMessage = () => page.getByText(/This deal needs its code/);
+  /** Pay blocked by a quote ERROR issue. */
+  const reviewYourOrderButton = () =>
+    page.getByRole("button", { name: "Review your order", exact: true });
+
   return {
+    freeItemOfferButton,
+    promotionLine,
+    summaryItemsRow,
+    summaryUpgradesRow,
+    summaryUpgradeDetails,
+    subtotalRow,
+    readMoney,
+    dealNeedsCodeMessage,
+    reviewYourOrderButton,
     seedCart,
     seedCartItems,
     seedCartWithDeal,

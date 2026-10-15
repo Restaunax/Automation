@@ -5,7 +5,8 @@ import { type Page, expect } from "@playwright/test";
  *
  * Five KPI cards, then either the day-by-day trend ("Day by day, last N
  * days") or — when nothing was used in the range — the "No results yet"
- * empty state; a 30 / 60 / 90 days toggle in the header. Copy:
+ * empty state; a 30 / 60 / 90 days toggle in the header; then "Top
+ * promotions" when anything was used. Copy:
  * restaunax-frontend/public/locales/en/promotions.json → results.
  */
 export const createOwnerPromotionResultsPage = (page: Page) => {
@@ -18,6 +19,19 @@ export const createOwnerPromotionResultsPage = (page: Page) => {
   const trend = (days: number) =>
     page.getByRole("heading", { name: `Day by day, last ${days} days` });
   const empty = () => page.getByText("No results yet", { exact: true });
+  /**
+   * A row of "Top promotions" (the 10 most used in the range): title ·
+   * kind · how customers get it · times used · savings given. The table has
+   * no name of its own, so it is reached from its section heading.
+   */
+  const topRow = (title: string) =>
+    page
+      .locator(".MuiPaper-root")
+      .filter({
+        has: page.getByRole("heading", { name: "Top promotions", exact: true }),
+      })
+      .getByRole("row")
+      .filter({ has: page.getByRole("cell", { name: title, exact: true }) });
 
   const goto = async (restaurantId: string) => {
     await page.goto(
@@ -47,7 +61,7 @@ export const createOwnerPromotionResultsPage = (page: Page) => {
     await expect(rangeButton(days)).toHaveAttribute("aria-pressed", "true");
   };
 
-  return { heading, goto, expectLoaded, selectRange, trend, empty };
+  return { heading, goto, expectLoaded, selectRange, trend, empty, topRow };
 };
 
 export type OwnerPromotionResultsPage = ReturnType<

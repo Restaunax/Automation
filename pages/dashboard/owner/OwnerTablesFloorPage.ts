@@ -73,8 +73,8 @@ export const createOwnerTablesFloorPage = (page: Page) => {
   const reservationsNavItem = () =>
     page.getByRole("button", { name: "Reservations", exact: true });
 
-  /** Hovers + clicks the Store Operations flyout header — desktop hover
-   * flyout, mirrors OwnerDealsPage.navigateToManageDeals's Deals flyout. */
+  /** Hovers + clicks the Store Operations flyout header — the sidebar's
+   * desktop flyouts open on hover. */
   const openStoreOpsFlyout = async () => {
     await storeOpsHeader().hover();
     await storeOpsHeader().click();
