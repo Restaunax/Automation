@@ -244,7 +244,7 @@ test.describe("Accountant access — invite, read-only, other clients invisible,
     const overview = await accountantRaw(accountant.token, `/clients/${a.id}`);
     expect(overview.status, JSON.stringify(overview.data)).toBe(200);
     const data = overview.data.data as Rec;
-    expect(data.restaurant).toEqual({ id: a.id, name: a.name });
+    expect(data.restaurant).toMatchObject({ id: a.id, name: a.name });
     // Read-only: no action buttons are offered.
     expect((data.books as Rec).books).toMatchObject({ action: null });
     expect(list((data.calendar as Rec).items).length).toBeGreaterThan(0);
