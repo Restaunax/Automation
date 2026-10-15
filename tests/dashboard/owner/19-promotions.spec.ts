@@ -296,16 +296,188 @@ test.describe("Owner — Promotions", () => {
     }
   });
 
-  // The examples area of Create is being redesigned (filtered by type,
-  // grouped by goal, built from the restaurant's menu); this case is
-  // rewritten against the new gallery once it ships.
-  test.fixme("TC-825: create Combo price from an example — pending create-flow redesign — rewritten after it ships", async () => {});
+  test("TC-825: create Combo price from a menu example — goal chips, prefilled items and price, Turn on", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "No type picked: the gallery shows the six goal chips. 'Sell items together' lists a combo built from the restaurant's own menu (title = items + price, labelled From your menu); picking it selects Combo price, prefills those items and the price, and the preview shows the price. Turn on saves it and the server deal has the same items at that price."
+    );
+    const name = promoName("Example combo");
+    const create = createOwnerCreatePromotionPage(ownerPage);
+    try {
+      await create.goto(restaurantId);
+      await allure.step("goal chips before any type is chosen", async () => {
+        for (const goal of [
+          "Bigger orders",
+          "Sell items together",
+          "Fill slow hours",
+          "New customers",
+          "Bring customers back",
+          "Move a specific item",
+        ]) {
+          await expect(
+            ownerPage
+              .getByRole("group", { name: "Goal", exact: true })
+              .getByRole("button", { name: goal, exact: true })
+          ).toBeVisible();
+        }
+      });
+
+      let items: string[] = [];
+      let price = "";
+      await allure.step("pick the combo built from the menu", async () => {
+        await create.pickGoal("Sell items together");
+        const menuCard = create
+          .exampleCards()
+          .filter({ hasText: "From your menu" })
+          .filter({ hasText: "Combo price" })
+          .first();
+        // The menu loads after the page; wait for the menu-built card.
+        await expect(menuCard).toBeVisible({ timeout: 20_000 });
+        const title =
+          (await menuCard.getByRole("heading", { level: 6 }).textContent()) ??
+          "";
+        const m = /^(.+) for (\$[\d,]+\.\d{2})$/.exec(title);
+        expect(
+          m,
+          `combo title "${title}" is "<items> for $<price>"`
+        ).toBeTruthy();
+        items = (m?.[1] ?? "").split(" + ");
+        price = m?.[2] ?? "";
+        expect(items.length).toBeGreaterThanOrEqual(2);
+        await menuCard.click();
+      });
+
+      await allure.step("Combo is selected and prefilled", async () => {
+        await expect(create.card("Combo price")).toBeChecked();
+        await create.expectTypeHint("Next: pick the items in the combo");
+        const group = ownerPage.getByRole("group", {
+          name: "What's in the combo?",
+        });
+        for (const item of items) {
+          await expect(
+            group.getByRole("button", {
+              name: `Remove ${item}`,
+              exact: true,
+            })
+          ).toBeVisible();
+        }
+        await expect(create.amountField("Combo price")).toHaveValue(
+          price.replace("$", "")
+        );
+        await create.expectPreviewText(price);
+      });
+
+      await create.setName(name);
+      await waitForFreeDealSlot(token, restaurantId);
+      await create.turnOn();
+      await create.expectSaved();
+
+      await allure.step("the server deal matches the example", async () => {
+        const row = await serverRow(name);
+        expect(row, `listPromotions has ${name}`).toBeTruthy();
+        const deal = await getDealApi(token, row!.id);
+        expect(deal.dealType ?? "COMBO").toBe("COMBO");
+        expect(deal.dealPrice).toBeCloseTo(
+          Number(price.replace(/[$,]/g, "")),
+          2
+        );
+        expect((deal.items ?? []).map((i) => i.itemName).sort()).toEqual(
+          [...items].sort()
+        );
+      });
+    } finally {
+      await cleanup(name);
+    }
+  });
+
+  test("TC-859: picking a type first narrows the examples to that type and shows its hint", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Read-only. Pick the Buy one, get one card with nothing answered: the gallery drops its goal chips, every example card is a Buy one, get one card, and the 'Next: pick what customers buy, and what they get.' hint shows."
+    );
+    const create = createOwnerCreatePromotionPage(ownerPage);
+    await create.goto(restaurantId);
+    await create.pickCard("Buy one, get one");
+    await create.expectTypeHint(
+      "Next: pick what customers buy, and what they get."
+    );
+    await expect(
+      ownerPage.getByText("Ideas for Buy one, get one.", { exact: false })
+    ).toBeVisible();
+    await expect(
+      ownerPage.getByRole("group", { name: "Goal", exact: true })
+    ).toHaveCount(0);
+    const cards = create.exampleCards();
+    await expect(cards.first()).toBeVisible();
+    const n = await cards.count();
+    for (let i = 0; i < n; i++) {
+      await expect(cards.nth(i)).toContainText("Buy one, get one");
+    }
+    await expect(cards.filter({ hasNotText: "Buy one, get one" })).toHaveCount(
+      0
+    );
+  });
+
+  test("TC-860: changing the type after answers asks first — Keep leaves the form, Switch clears items and keeps days", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Start from a BOGO example (items prefilled), turn Sunday on under 'When?', then click the Combo price card: 'Switch to Combo price?' with the approved body. 'Keep Buy one, get one' leaves the prefilled BOGO; 'Switch' selects Combo with no items and Sunday still on. Read-only: nothing is saved."
+    );
+    const create = createOwnerCreatePromotionPage(ownerPage);
+    await create.goto(restaurantId);
+    await create.pickCard("Buy one, get one");
+    const bogo = create
+      .exampleCards()
+      .filter({ hasText: "From your menu" })
+      .first();
+    await expect(bogo).toBeVisible({ timeout: 20_000 });
+    await bogo.click();
+    const buy = ownerPage.getByRole("group", { name: "They buy" }).first();
+    await expect(buy.getByRole("button", { name: /^Remove / })).toHaveCount(1);
+
+    await create.openRule("When?");
+    const sunday = create.dayChip("SUNDAY");
+    await sunday.click();
+    await expect(sunday).toHaveAttribute("aria-pressed", "true");
+
+    await allure.step("Keep leaves the form as it was", async () => {
+      await create.card("Combo price").click();
+      await create.expectSwitchConfirm("Combo price", "Buy one, get one");
+      await create.keepType();
+      await expect(create.card("Buy one, get one")).toBeChecked();
+      await expect(buy.getByRole("button", { name: /^Remove / })).toHaveCount(
+        1
+      );
+    });
+
+    await allure.step("Switch clears items, keeps the days", async () => {
+      await create.card("Combo price").click();
+      await create.expectSwitchConfirm("Combo price", "Buy one, get one");
+      await create.confirmSwitch();
+      await expect(create.card("Combo price")).toBeChecked();
+      await expect(
+        ownerPage.getByText("No items yet. Search your menu below", {
+          exact: false,
+        })
+      ).toBeVisible();
+      await expect(
+        ownerPage.getByRole("button", { name: /^Remove / })
+      ).toHaveCount(0);
+      await expect(create.dayChip("SUNDAY")).toHaveAttribute(
+        "aria-pressed",
+        "true"
+      );
+    });
+  });
 
   test("TC-826: create Free item (spend $40), Free delivery ($15+, up to $8) and Combo price ($15, the same item twice)", async ({
     ownerPage,
   }) => {
     await allure.description(
-      "The remaining card types save and list as Live; the combo is built from its card with the same item on two lines (two wraps + a bowl) and the server deal keeps both (the from-an-example path is TC-825, pending the examples redesign)."
+      "The remaining card types save and list as Live; the combo is built from its card with the same item on two lines (two wraps + a bowl) and the server deal keeps both (the from-an-example path is TC-825)."
     );
     const freeItem = promoName("Free item");
     const freeDelivery = promoName("Free delivery");

@@ -5,8 +5,10 @@ import { type Locator, type Page, expect } from "@playwright/test";
  * page it doubles as (?tab=edit-promotion&source=…&id=…, reached from a row's
  * Edit).
  *
- * Three steps on one page: "What kind of promotion?" (six radio cards;
- * the examples area is being redesigned, so no example helpers yet),
+ * Three steps on one page: "What kind of promotion?" (six radio cards, then
+ * "Not sure? Start from an example": goal chips while no type is chosen, only
+ * the chosen type's cards after; example cards are buttons named by their
+ * title, with the type label and "From your menu" inside),
  * "Set it up" (the type's own questions, then the collapsible rule cards)
  * and "Name and code"; a live preview panel on the side; Turn on /
  * Save as paused in a sticky bar. English copy:
@@ -201,6 +203,62 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
       .click();
   };
 
+  /** Goal chip of the examples gallery ("Sell items together", …). */
+  const pickGoal = async (goal: string) => {
+    const chip = page
+      .getByRole("group", { name: "Goal", exact: true })
+      .getByRole("button", { name: goal, exact: true });
+    await chip.click();
+    await expect(chip).toHaveAttribute("aria-pressed", "true");
+  };
+
+  /** Every example card currently shown (a button with a title heading). */
+  const exampleCards = (): Locator =>
+    page.getByRole("button").filter({
+      has: page.getByRole("heading", { level: 6 }),
+    });
+
+  const useExample = async (title: string | RegExp) => {
+    await page.getByRole("button", { name: title }).click();
+  };
+
+  /** The one-line "Next: …" hint under the step 1 heading. */
+  const expectTypeHint = (text: string | RegExp) =>
+    expect(
+      page.getByRole("region", { name: "What kind of promotion?" })
+    ).toContainText(text);
+
+  const switchDialog = () =>
+    page.getByRole("dialog").filter({ hasText: /^Switch to / });
+
+  /** The "Switch to <new>?" confirm with its approved body. */
+  const expectSwitchConfirm = async (newType: string, oldType: string) => {
+    const dialog = switchDialog();
+    await expect(
+      dialog.getByRole("heading", { name: `Switch to ${newType}?` })
+    ).toBeVisible();
+    await expect(dialog).toContainText(
+      `The items and amounts you picked for ${oldType} will be cleared. Your days, times and limits stay.`
+    );
+    await expect(
+      dialog.getByRole("button", { name: `Keep ${oldType}`, exact: true })
+    ).toBeVisible();
+  };
+
+  const confirmSwitch = async () => {
+    await switchDialog()
+      .getByRole("button", { name: "Switch", exact: true })
+      .click();
+    await expect(switchDialog()).toBeHidden();
+  };
+
+  const keepType = async () => {
+    await switchDialog()
+      .getByRole("button", { name: /^Keep / })
+      .click();
+    await expect(switchDialog()).toBeHidden();
+  };
+
   /** The side panel headed "Preview" (desktop layout). */
   const previewPanel = () =>
     page
@@ -303,6 +361,13 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
     goto,
     card,
     pickCard,
+    pickGoal,
+    exampleCards,
+    useExample,
+    expectTypeHint,
+    expectSwitchConfirm,
+    confirmSwitch,
+    keepType,
     nameField,
     codeField,
     setName,
