@@ -253,6 +253,25 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
   /** The save went through and the page returned to the list. */
   const expectSaved = () => expect(listHeading()).toBeVisible();
 
+  // "When?" rule: the shared schedule section (test ids come from the deal
+  // schedule component the promotion form embeds).
+  const scheduleChip = (chip: "any" | "lunch" | "breakfast" | "dinner") =>
+    page.getByTestId(`deal-schedule-chip-${chip}`);
+  const dayChip = (day: string) => page.getByTestId(`deal-day-chip-${day}`);
+  const hoursWarning = () => page.getByTestId("deal-schedule-warning");
+  const waitForScheduleCheck = (match: (url: string) => boolean) =>
+    page.waitForResponse(
+      (r) =>
+        /\/schedule-check(\?|$)/.test(r.url()) &&
+        r.request().method() === "GET" &&
+        match(decodeURIComponent(r.url())),
+      { timeout: 20_000 }
+    );
+
+  /** "Applies to all N locations of <chain>." on the chain create page. */
+  const chainScopeLine = () =>
+    page.getByText(/^Applies to (all )?\d+ location/);
+
   const expectFieldError = (text: string | RegExp) =>
     expect(page.getByText(text).first()).toBeVisible();
 
@@ -299,9 +318,15 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
     repeatLine,
     previewPanel,
     expectPreviewText,
+    settle,
     turnOn,
     save,
     expectSaved,
+    scheduleChip,
+    dayChip,
+    hoursWarning,
+    waitForScheduleCheck,
+    chainScopeLine,
     expectFieldError,
     expectEditing,
     expectDuplicating,

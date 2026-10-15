@@ -189,6 +189,15 @@ interface PromotionRowWire {
   statusActive: boolean;
 }
 
+const toListRow = (r: PromotionRowWire): PromotionListRow => ({
+  id: r.id,
+  source: r.source,
+  name: r.title,
+  code: r.code ?? null,
+  status: r.statusActive ? "ACTIVE" : "INACTIVE",
+  type: r.type,
+});
+
 /** GET /api/promotions/restaurant/:id (owner token), normalised. */
 export async function listPromotions(
   token: string,
@@ -201,14 +210,25 @@ export async function listPromotions(
     token
   );
   if (!res.ok) throw failure("listPromotions", res);
-  return (res.data.data ?? []).map((r) => ({
-    id: r.id,
-    source: r.source,
-    name: r.title,
-    code: r.code ?? null,
-    status: r.statusActive ? "ACTIVE" : "INACTIVE",
-    type: r.type,
-  }));
+  return (res.data.data ?? []).map(toListRow);
+}
+
+/**
+ * GET /api/chains/:groupId/promotions (chain owner token), normalised: the
+ * chain's own promotions only (coupons + deals scoped to the group).
+ */
+export async function listChainPromotions(
+  token: string,
+  groupId: string
+): Promise<PromotionListRow[]> {
+  const res = await apiRequestRaw<{ data?: PromotionRowWire[] }>(
+    "GET",
+    `/api/chains/${groupId}/promotions`,
+    undefined,
+    token
+  );
+  if (!res.ok) throw failure("listChainPromotions", res);
+  return (res.data.data ?? []).map(toListRow);
 }
 
 interface QuoteWire {

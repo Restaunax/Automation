@@ -78,6 +78,13 @@ export const createOwnerPromotionsPage = (page: Page) => {
     await showAllRows();
   };
 
+  /** The header's "Create promotion" button (the empty state repeats it as a link). */
+  const clickCreate = () =>
+    page
+      .getByRole("button", { name: "Create promotion", exact: true })
+      .first()
+      .click();
+
   /** Opens an old bookmark (`?tab=coupons`, `?tab=ai-deals`, …) as-is. */
   const gotoLegacyTab = async (restaurantId: string, tab: string) => {
     await page.goto(
@@ -164,6 +171,7 @@ export const createOwnerPromotionsPage = (page: Page) => {
     emptyState,
     goto,
     gotoChain,
+    clickCreate,
     gotoLegacyTab,
     expectLoaded,
     showAllRows,
