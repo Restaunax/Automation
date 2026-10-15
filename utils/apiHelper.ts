@@ -1178,6 +1178,24 @@ export async function ensureTaxRate(
 }
 
 /**
+ * Turn delivery acceptance on for a restaurant — POST /restaurant/restaurantId/:id
+ * {payload:{canAcceptDeliveries}}. The field is server-owned: only an ADMIN
+ * token may write it (an owner's write is stripped). Throwaway tenants only.
+ */
+export async function setCanAcceptDeliveriesAdminApi(
+  adminToken: string,
+  restaurantId: string,
+  value = true
+): Promise<void> {
+  await apiRequest<unknown>(
+    "POST",
+    `/restaurant/restaurantId/${restaurantId}`,
+    { payload: { canAcceptDeliveries: value } },
+    adminToken
+  );
+}
+
+/**
  * Publish (or unpublish) a restaurant the way the dashboard's Publish page does
  * — POST /restaurant/restaurantId/:id {payload:{published}} (admin/employee
  * token, as in the UI). Since restaunax 04d3c8d0e (2026-09-11, "preview

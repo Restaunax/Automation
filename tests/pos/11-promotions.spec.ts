@@ -21,6 +21,7 @@ import {
   apiLogin,
   apiRequestRaw,
   createSecondOwner,
+  setCanAcceptDeliveriesAdminApi,
   ensureTaxRate,
   deleteTestRestaurant,
   createTabletDevice,
@@ -417,15 +418,81 @@ test.describe("POS — Promotions (price-preview + cash orders)", () => {
     expect(order.data.total).toBe(expectedTotal);
   });
 
-  test.fixme("TC-851: an old POS build's delivery order (no deliveryDiscount claim) waives only an entered, eligible free-delivery code — needs live Uber quote on QA", async () => {
-    // PROMOTIONS.md "Old clients" / tabletOrderController: a build that sends no
-    // `deliveryDiscount` waives only the entered FREE_DELIVERY code (rules
-    // checked), never an automatic one. Creating a DELIVERY ticket on the tablet
-    // requires restaurant.canAcceptDeliveries (admin-owned flag, no Automation
-    // helper, off on a fresh tenant: "restaurantNotEnabled" 400), the Uber org
-    // (or centralized billing) and a quoteDetails from POST /api/delivery/quote
-    // (live Uber quote). The backend contract is pinned by
-    // tabletDeliveryPromotion.test.ts.
+  test("TC-851: an old POS build's delivery ticket (no deliveryDiscount claim) waives the fee for an entered, eligible free-delivery code, never for an automatic one", async () => {
+    // Unpaid CARD tickets (requiresPaymentFirst -> INITIALIZED, no payment) so no
+    // courier is ever dispatched: dispatch runs only after payment
+    // (orderPostPaymentService.handleAutoDispatch) or on a staff dispatch call.
+    const FEE = 6;
+    await setCanAcceptDeliveriesAdminApi(adminToken, restaurantId, true);
+    const deliveryBody = (over: Record<string, unknown>) => ({
+      restaurantId,
+      orderType: "DELIVERY",
+      paymentMethod: "CARD",
+      requiresPaymentFirst: true,
+      subtotal: GYRO_SUBTOTAL,
+      deliveryFee: FEE,
+      tax: 0,
+      tip: 0,
+      processingFee: 0,
+      total: round2(GYRO_SUBTOTAL + FEE),
+      customerPhone: "",
+      deliveryAddress: {
+        street: "1 Main St",
+        city: "Austin",
+        state: "TX",
+        zipCode: "78701",
+        country: "US",
+      },
+      quoteDetails: {
+        id: `AUTO-synthetic-quote-${runId}`,
+        provider: "UBER",
+        fee: FEE * 100,
+        estimatedDropoffTime: new Date(Date.now() + 3_600_000).toISOString(),
+        duration: 1800,
+      },
+      orderItems: [
+        {
+          menuItemId: set.menu.gyroIds[0],
+          menuItemName: "Chicken Gyro",
+          quantity: GYROS,
+          price: MENU_PRICES.chickenGyro,
+        },
+      ],
+      ...over,
+    });
+
+    const code = await createCouponPromotion(token, restaurantId, {
+      name: `AUTO POS free delivery code ${runId}`,
+      code: generateCouponCode(),
+      type: "FREE_DELIVERY",
+      value: 0,
+      minOrderAmount: 1,
+      maxDiscount: 8,
+      applyMode: "CODE",
+    });
+    const withCode = await ring(
+      deliveryBody({ couponId: code.id, total: GYRO_SUBTOTAL })
+    );
+    expect(withCode.status, msg(withCode.data)).toBe(201);
+    const waived = await getOrderFullRaw(token, withCode.data.id!);
+    expect(waived.data.couponId).toBe(code.id);
+    expect(waived.data.deliveryDiscount).toBe(FEE);
+    expect(waived.data.total).toBe(GYRO_SUBTOTAL);
+
+    await createCouponPromotion(token, restaurantId, {
+      name: `AUTO POS automatic free delivery ${runId}`,
+      code: null,
+      type: "FREE_DELIVERY",
+      value: 0,
+      minOrderAmount: 1,
+      maxDiscount: 8,
+      applyMode: "AUTOMATIC",
+    });
+    const noCode = await ring(deliveryBody({}));
+    expect(noCode.status, msg(noCode.data)).toBe(201);
+    const full = await getOrderFullRaw(token, noCode.data.id!);
+    expect(full.data.deliveryDiscount ?? 0).toBe(0);
+    expect(full.data.total).toBe(round2(GYRO_SUBTOTAL + FEE));
   });
 
   test("TC-855: price-preview without a device token is refused (401)", async () => {
