@@ -205,7 +205,7 @@ the webhook against a Stripe fake.
 Merged to `qa` on 2026-10-13 (B2 card deposits, B3 partner API, B5
 accountant + tax calendar + year end, add-on billing G1/G4/G5/G6/G11). Same
 throwaway-tenant pattern; the Books & Taxes add-on (`ACCOUNTING_SYNC`) is
-granted by override. Status: **STATUS_PLACEHOLDER**
+granted by override. Status: **passing on QA** (2026-10-15: CI runs 38663159994 + 38663449414 — 37 passed, TC-768 an expected failure (F1), TC-773 skipped while no deposit is posted, TC-785..788 fixme).
 
 | Spec                              | TCs                               | What it proves                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | --------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -255,6 +255,15 @@ granted by override. Status: **STATUS_PLACEHOLDER**
   500 `PAYROLL_PROVIDER_FAILED` ("not connected") and a SystemError row
   (`adminAddonController.ts:909-945`, the catch-all `serverError`). Expected
   a 409/400 with the same sentence and no system log.
+- **F4 — Rehearsal Kitchen's deposits stay "Accounts needed"** (observation,
+  not a failing test). Its mapping has `deposit:bank` (Checking),
+  `deposit:card_fees` and `deposit:delivery_costs`, yet all 10 deposits read
+  `MAPPING_NEEDED` with those keys in `missingKeys`, and Books & taxes still
+  says "pick your bank account and the account for card fees" (seen
+  00:24–01:05 UTC, 2026-10-15). The hourly `sweepDeposits`
+  (`depositService.ts:527`) should rebuild them and auto-post. Either the
+  mapping was set within that hour or the sweep isn't reaching them — look
+  for `accounting_deposit_sweep_failed` in Loki before calling it a bug.
 - **F3 — gated deep link wording**: `?tab=books-taxes` without the add-on
   says "This feature isn't available for the selected restaurant's setup.
   Switch to a different restaurant…" — for an add-on, pointing at
