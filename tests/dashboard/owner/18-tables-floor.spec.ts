@@ -43,6 +43,7 @@ import {
   deleteFeatureOverrideAdminRaw,
   listTablesOwnerRaw,
   createTableOwnerRaw,
+  createTableSectionOwnerRaw,
 } from "../../../utils/apiHelper";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
@@ -145,9 +146,10 @@ test.describe("Owner — Tables & Floor", () => {
     await expect(session.page).toHaveURL(/tab=tables/);
     await floorPage.assertLoaded();
 
-    await floorPage.openStoreOpsFlyout();
-    await floorPage.reservationsNavItem().click();
-    await session.page.waitForURL(/tab=reservations/, { timeout: 10_000 });
+    await floorPage.clickStoreOpsItem(
+      floorPage.reservationsNavItem(),
+      /tab=reservations/
+    );
     await expect(
       session.page.getByRole("heading", { name: "Reservations", level: 1 })
     ).toBeVisible({ timeout: 15_000 });
@@ -361,5 +363,176 @@ test.describe("Owner — Tables & Floor", () => {
       tables: Record<string, unknown>[];
     };
     expect(list.tables.some((t) => t.id === t4.id)).toBe(false);
+  });
+  // ── Floor editor rework (2026-10-07) ─────────────────────────────────────
+
+  type OwnerTableRow = {
+    id: string;
+    name: string;
+    shape: string;
+    capacity: number | null;
+    sectionId: string | null;
+    geometry: {
+      posX: number | null;
+      posY: number | null;
+      width: number | null;
+      height: number | null;
+    };
+  };
+  const listTables = async () =>
+    (
+      unwrap(await listTablesOwnerRaw(ownerToken, restaurantId)) as {
+        tables: OwnerTableRow[];
+      }
+    ).tables;
+
+  /** A fresh section (API) whose floor tab the test then opens. */
+  const newSection = async (label: string) => {
+    const name = `${label} ${runId}`;
+    const res = await createTableSectionOwnerRaw(ownerToken, restaurantId, {
+      name,
+    });
+    expect(res.status, msg(res.data)).toBe(201);
+    return { id: unwrap(res).id as string, name };
+  };
+
+  const openSectionFloor = async (sectionLabel: string) => {
+    await floorPage.gotoTab(restaurantId, "floor");
+    await floorPage.assertLoaded();
+    await floorPage.sectionTab(sectionLabel).click();
+  };
+
+  const saveLayout = async () => {
+    const [res] = await Promise.all([
+      session.page.waitForResponse(
+        (r) =>
+          /\/tables\/layout$/.test(r.url()) && r.request().method() === "PATCH",
+        { timeout: 15_000 }
+      ),
+      floorPage.saveLayoutButton().click(),
+    ]);
+    expect(res.status()).toBe(200);
+    await expect(floorPage.saveLayoutButton()).toBeHidden({ timeout: 5_000 });
+  };
+
+  test("TC-750: add panel — a 'Round 6' preset creates a 6-seat round table in this section, placed and selected; Save layout keeps its 180×180 spot", async () => {
+    await allure.description(
+      "Clicking the round-6 tile in the 'Add table' panel sends POST " +
+        ".../tables (201, CIRCLE, capacity 6, this section, an auto 'Table " +
+        "N' name), places the new table on the floor (unsaved) and opens " +
+        "the inspector on it. Save layout persists a 180×180 geometry."
+    );
+    const section = await newSection("Presets");
+    await openSectionFloor(section.name);
+
+    const [created] = await Promise.all([
+      session.page.waitForResponse(
+        (r) => /\/tables$/.test(r.url()) && r.request().method() === "POST",
+        { timeout: 15_000 }
+      ),
+      floorPage.presetTile("round6").click(),
+    ]);
+    expect(created.status()).toBe(201);
+    const createdId = ((await created.json()) as any)?.data?.id as string;
+    expect(createdId).toBeTruthy();
+    await expect(floorPage.floorTableNameInput()).toHaveValue(/^Table \d+$/, {
+      timeout: 10_000,
+    });
+    await expect(floorPage.floorTableCapacityInput()).toHaveValue("6");
+
+    await saveLayout();
+    const row = (await listTables()).find((t) => t.id === createdId);
+    expect(row?.shape).toBe("CIRCLE");
+    expect(row?.capacity).toBe(6);
+    expect(row?.sectionId).toBe(section.id);
+    expect(row?.geometry).toMatchObject({ width: 180, height: 180 });
+    expect(typeof row?.geometry.posX).toBe("number");
+  });
+
+  test("TC-751: undo / redo / discard — a placement can be undone and redone, and Discard changes leaves the table unplaced on the server", async () => {
+    await allure.description(
+      "Place an API-seeded table from 'All tables' (unsaved: Save layout " +
+        "shows). Undo → no unsaved change left and the browser lists it " +
+        "'Not placed'; Redo → the change is back. Discard changes → the " +
+        "save control goes away and the API still has no position for it."
+    );
+    const section = await newSection("Undo");
+    const name = `Undo T ${runId}`;
+    const seeded = await createTableOwnerRaw(ownerToken, restaurantId, {
+      name,
+      sectionId: section.id,
+      capacity: 4,
+    });
+    expect(seeded.status, msg(seeded.data)).toBe(201);
+    await openSectionFloor(section.name);
+
+    await floorPage.pickTableInBrowser(name);
+    await expect(floorPage.saveLayoutButton()).toBeVisible({ timeout: 5_000 });
+
+    await floorPage.undoButton().click();
+    await expect(floorPage.saveLayoutButton()).toBeHidden({ timeout: 5_000 });
+    await floorPage.openTablesBrowser();
+    await expect(floorPage.browserRowStatus(name)).toHaveText("Not placed");
+    await session.page.keyboard.press("Escape");
+
+    await floorPage.redoButton().click();
+    await expect(floorPage.saveLayoutButton()).toBeVisible({ timeout: 5_000 });
+
+    await floorPage.discardLayoutButton().click();
+    await expect(floorPage.saveLayoutButton()).toBeHidden({ timeout: 5_000 });
+    const row = (await listTables()).find((t) => t.name === name);
+    expect(row?.geometry.posX ?? null).toBeNull();
+  });
+
+  test("TC-752: empty section — the canvas says the section has no tables yet; 'Add a 4-seat table' adds one there", async () => {
+    await allure.description(
+      "A brand-new section's floor shows the empty state ('<section> has " +
+        "no tables yet'). Its primary button 'Add a 4-seat table' creates a " +
+        "4-seat rectangle in that section (POST .../tables 201) and the " +
+        "empty state disappears; Save layout keeps it placed."
+    );
+    const section = await newSection("Empty Room");
+    await openSectionFloor(section.name);
+
+    await expect(floorPage.floorEmptyState()).toContainText(
+      `${section.name} has no tables yet`,
+      { timeout: 10_000 }
+    );
+    await expect(floorPage.floorEmptyPrimaryButton()).toHaveText(
+      "Add a 4-seat table"
+    );
+    const [created] = await Promise.all([
+      session.page.waitForResponse(
+        (r) => /\/tables$/.test(r.url()) && r.request().method() === "POST",
+        { timeout: 15_000 }
+      ),
+      floorPage.floorEmptyPrimaryButton().click(),
+    ]);
+    expect(created.status()).toBe(201);
+    await expect(floorPage.floorEmptyState()).toBeHidden({ timeout: 10_000 });
+
+    await saveLayout();
+    const inSection = (await listTables()).filter(
+      (t) => t.sectionId === section.id
+    );
+    expect(inSection).toHaveLength(1);
+    expect(inSection[0]?.capacity).toBe(4);
+    expect(inSection[0]?.shape).toBe("RECTANGLE");
+    expect(typeof inSection[0]?.geometry.posX).toBe("number");
+  });
+
+  test("TC-753: the toolbar's Keyboard shortcuts button opens the shortcuts list, and Close dismisses it", async () => {
+    await allure.description(
+      "Toolbar → 'Keyboard shortcuts' opens the 'Floor editor shortcuts' " +
+        "dialog listing Undo, Redo and Save layout; Close hides it."
+    );
+    await openSectionFloor(sectionName);
+    await floorPage.shortcutsButton().click();
+    const dialog = floorPage.shortcutsDialog();
+    await expect(dialog).toBeVisible({ timeout: 5_000 });
+    for (const text of ["Undo", "Redo", "Save layout"])
+      await expect(dialog).toContainText(text);
+    await dialog.getByRole("button", { name: "Close" }).first().click();
+    await expect(dialog).toBeHidden({ timeout: 5_000 });
   });
 });

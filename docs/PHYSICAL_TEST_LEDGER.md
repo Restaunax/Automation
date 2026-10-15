@@ -193,28 +193,16 @@ then delete this entry (or mark it done with the date) rather than letting it go
 4. **Host-toggle tap target** — confirm the host-stand's mode/section toggle control has a
    comfortably tappable target on real hardware, not just a passing `minTouchTarget` token value.
 
-## 10. Owner portal Tables & Floor — native drag-and-drop placement
+## 10. Owner portal Tables & Floor — drag-and-drop placement (RETIRED as physical 2026-10-12)
 
-- **What**: dragging a table chip out of the "Unplaced" tray and dropping it onto the floor canvas
-  (`FloorCanvas`, react-konva) in the owner dashboard.
-- **Why it's physical/manual**: this is a browser test-infrastructure limitation, not a portal bug
-  — confirmed during Task 4 (`tests/dashboard/owner/18-tables-floor.spec.ts`, TC-436), both headless
-  and headed, against live QA. Chromium's CDP-driven synthetic mouse events don't initiate native
-  HTML5 drag negotiation (`dragstart` never fires) for a plain `draggable` element; this is a known
-  Playwright/CDP gap. `placeTableFromTray` makes a real, honest attempt at the native drag
-  (mousedown → move → mouseup) before falling back to the equally first-class click-to-place path
-  that `UnplacedTray.tsx` itself documents ("Click a table to place it on the floor, or drag it onto
-  the canvas") — every automated run exercises click-to-place, never the drag gesture itself, and
-  `console.warn`s on every fallback so a future Playwright/Chromium fix would be visible in CI logs.
-- **Manual procedure**: on a real desktop/laptop browser (not through CDP automation), open Tables &
-  Floor with at least one unplaced table, drag its tray chip onto the canvas with a real mouse, and
-  confirm it places at the drop point and persists on reload.
-- **When to re-run**: every production release touching `FloorCanvas.tsx`, `UnplacedTray.tsx`, or
-  the drag-and-drop wiring between them; re-check whether the Playwright/CDP gap has closed on any
-  Playwright/Chromium upgrade (if it has, TC-436 should be upgraded to assert the real drag and this
-  entry retired).
-
----
+- **Status**: the native-HTML5 "Unplaced" tray this entry was about is gone — the 2026-10-07 floor-editor
+  rework (`FloorEditor.tsx`, `FloorTablesBrowser.tsx`, `useExternalDrag.tsx`) replaced it with an
+  "All tables" browser whose drag is **pointer-event driven** (pointerdown + a 5 px threshold + a
+  DOM ghost), not native `draggable`. Pointer events are drivable from Playwright, so this is no
+  longer a CDP limitation.
+- **Today**: TC-436 places by clicking the browser row (the editor puts it at the nearest free spot
+  to the view centre) and asserts the saved geometry via the API. Driving the pointer drag to an
+  exact drop point is a candidate new test, not a manual check.
 
 ## 11. Physical gift cards — the print run and the card in hand
 
@@ -293,12 +281,8 @@ they don't show up in either this file's list or the obvious spec file:
   `GET /orders/current` after the day rolls over) — covered by backend Vitest in the `restaunax`
   repo, landing with RestauNax PR #672. Not physical: server-side state machine logic, no
   hardware involved.
-- **`RESERVED_SOON` floor-state derivation** — real, correct, derived code in
-  `tableStateService.ts`, confirmed by reading the source during Task 3 of this arc, but
-  **unreachable via the API** on this Phase A surface: every write path to `ReservationTable`
-  (`reservationSeatService.ts`'s `seatReservation`) always transitions the reservation to SEATED in
-  the same transaction, so there is no "assign without seating" verb to trigger the state from
-  outside the process. `pos/06-reservations-lifecycle.spec.ts`'s TC-417 is `test.fixme`d with the
-  full evidence chain rather than faked — listed here so the gap isn't silently rediscovered as
-  "we forgot to test RESERVED_SOON." A future admin/god-mode "block this table for an upcoming
-  party" verb would make this reachable and testable; nothing today does.
+- **`RESERVED_SOON` floor-state derivation** — RETIRED 2026-10-12. The backend removed the state
+  (a booking no longer blocks its table) and added the manual table hold (`POST
+/api/tablet/reservations/:id/tables`), which is exactly the "block this table for an upcoming
+  party" verb this entry was waiting for. `pos/06-reservations-lifecycle.spec.ts`'s TC-417 now
+  asserts the hold end-to-end through the API instead of being `test.fixme`d.
