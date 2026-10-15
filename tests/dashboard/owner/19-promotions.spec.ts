@@ -31,6 +31,7 @@ import {
   deleteMenuItemRaw,
   getActiveDealsPublic,
   getDealApi,
+  getMenuItemApi,
   getRestaurantCoupons,
   waitForFreeDealSlot,
 } from "../../../utils/apiHelper";
@@ -377,7 +378,7 @@ test.describe("Owner — Promotions", () => {
         const row = await serverRow(name);
         expect(row, `listPromotions has ${name}`).toBeTruthy();
         const deal = await getDealApi(token, row!.id);
-        expect(deal.dealType ?? "COMBO").toBe("COMBO");
+        expect(deal.dealType).toBe("COMBO");
         expect(deal.dealPrice).toBeCloseTo(
           Number(price.replace(/[$,]/g, "")),
           2
@@ -385,6 +386,18 @@ test.describe("Owner — Promotions", () => {
         expect((deal.items ?? []).map((i) => i.itemName).sort()).toEqual(
           [...items].sort()
         );
+        // Design rule: a menu-built combo saves 5%-20% against its parts.
+        let regular = 0;
+        for (const line of deal.items ?? []) {
+          const item = await getMenuItemApi(token, line.menuItemId ?? "");
+          regular += item.price * line.quantity;
+        }
+        const saving = 1 - (deal.dealPrice ?? 0) / regular;
+        expect(
+          saving,
+          `saving ${saving} on regular ${regular}`
+        ).toBeGreaterThanOrEqual(0.05);
+        expect(saving).toBeLessThanOrEqual(0.2);
       });
     } finally {
       await cleanup(name);
@@ -411,10 +424,6 @@ test.describe("Owner — Promotions", () => {
     ).toHaveCount(0);
     const cards = create.exampleCards();
     await expect(cards.first()).toBeVisible();
-    const n = await cards.count();
-    for (let i = 0; i < n; i++) {
-      await expect(cards.nth(i)).toContainText("Buy one, get one");
-    }
     await expect(cards.filter({ hasNotText: "Buy one, get one" })).toHaveCount(
       0
     );

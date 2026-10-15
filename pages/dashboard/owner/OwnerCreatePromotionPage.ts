@@ -294,9 +294,16 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
     }
   };
 
+  /**
+   * The create bar's primary button. QA is renaming it "Turn on" → "Save and
+   * turn on"; accept both until the rename is deployed, then drop "Turn on".
+   */
+  const turnOnButton = () =>
+    page.getByRole("button", { name: /^(Save and turn on|Turn on)$/ });
+
   /** Create mode: Turn on. Does not assert success — see expectSaved. */
   const turnOn = async () => {
-    await page.getByRole("button", { name: "Turn on", exact: true }).click();
+    await turnOnButton().click();
     await settle();
   };
 
@@ -385,6 +392,7 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
     expectPreviewText,
     settle,
     turnOn,
+    turnOnButton,
     save,
     expectSaved,
     scheduleChip,

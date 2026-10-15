@@ -232,9 +232,7 @@ test.describe("Owner — Chain promotions", () => {
       await create.setHowCustomersGetIt("Only with a code");
       await create.setName(name);
       await create.setCode(generateCouponCode());
-      await ownerPage
-        .getByRole("button", { name: "Turn on", exact: true })
-        .click();
+      await create.turnOnButton().click();
 
       const dialog = ownerPage
         .getByRole("dialog")
@@ -257,9 +255,7 @@ test.describe("Owner — Chain promotions", () => {
         ).toBe(false);
       });
 
-      await ownerPage
-        .getByRole("button", { name: "Turn on", exact: true })
-        .click();
+      await create.turnOnButton().click();
       await create.settle();
       await create.expectSaved();
       await promos.showAllRows();
