@@ -200,6 +200,75 @@ Not covered on QA: the Stripe webhook rung (a phone that authorizes and
 leaves) and wallets (Apple Pay / Google Pay) — #926's integration tests cover
 the webhook against a Stripe fake.
 
+## Books & Taxes, partner API, accountant, add-on billing (restaunax #943)
+
+Merged to `qa` on 2026-10-13 (B2 card deposits, B3 partner API, B5
+accountant + tax calendar + year end, add-on billing G1/G4/G5/G6/G11). Same
+throwaway-tenant pattern; the Books & Taxes add-on (`ACCOUNTING_SYNC`) is
+granted by override. Status: **passing on QA** (2026-10-15: CI runs 38663159994 + 38663449414 — 37 passed, TC-768 an expected failure (F1), TC-773 skipped while no deposit is posted, TC-785..788 fixme).
+
+| Spec                              | TCs                               | What it proves                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| --------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `api-partner-api.spec.ts`         | TC-754..762                       | Free (no add-on): Connected apps catalogue in words; API key shown once, never listed; `/me`, `/locations`, `/days` (cents, OPEN v0, balanced journal), `/tax`, `/orders` (no customer name/phone/email), payments, payouts, labor, menu; another location → 404 on every endpoint both ways (same body as a made-up id); missing scope → 403 naming it; webhook URL rules (https, public, no credentials), events need their scope, secret once; `webhook.test` and `day.closed` (from a real dashboard day close) in the delivery log with the receiver's status/body and the 1-minute retry; day CLOSED v1; audit rows are route patterns; staff view + revoke but can't mint; another owner 403; revoke → 401 at once, deliveries stop |
+| `api-books-taxes.spec.ts`         | TC-763..771                       | Every books route 403 without the add-on, 200 with it; tax calendar items in date order with who handles each; "quarterly" adds the sales tax returns on the 20th (weekend → Monday); estimated-tax reminders off; bad answers 400; Spanish; year-end summary, years, bad year 400; the ZIP (README, PDF, 9 CSVs, names exact), README + PDF text say "worksheets, not a tax filing"; single PDF/CSV downloads, bad part 400; card deposits with no connection (empty, "up to date", header-only CSV, overview OFF → SETTING_UP once a test Stripe account exists)                                                                                                                                                                         |
+| `api-books-deposits-live.spec.ts` | TC-772..773 (`@books-live`)       | Rehearsal Kitchen (QA) on the QuickBooks sandbox, **read-only**: each deposit's entry balances, bank line = payout, doc number = `RNXD-yymmdd-<payout>`, CSV lists them; "Post" on an already-posted deposit posts nothing new (skips while none is posted). Exclude with `--grep-invert @books-live`                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `api-accountant-access.spec.ts`   | TC-774..780 (`@email`)            | Invite validation; invite → PENDING + Mailpit email; claim → a plain `USER` (no restaurants owned) that lists exactly this client; the `/accountant` workspace in the browser with no 401/403; reads overview, sales tax + CSV, tips, year end + ZIP; 11 writes refused; another restaurant 404 like a made-up id; add-on off → list still 200 (`available: false`), numbers 403 with the reason; revoke → 404 on the next request                                                                                                                                                                                                                                                                                                         |
+| `api-addon-billing.spec.ts`       | TC-781..784 (+ TC-785..788 fixme) | Add-ons rows carry every G11 field, nothing locked (no offer → "talk to us"); purchase refusals (not self-serve, unknown, another owner 403), removing unknown 404; Team bundle grants Scheduling + Tip Management (+ Timecards), rows INCLUDED_WITH TEAM_BUNDLE, removing it closes both; HQ payroll headcount month view (owner 403)                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `24-books-gating-ui.spec.ts`      | TC-789..791                       | No Books & taxes sidebar item without the add-on (not a locked one), Connected apps loads; with it, all six sections open; removed → gone, deep link shows "Not available"; no 401/403 on any load                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+
+### Not covered on QA (and why)
+
+- **Trials, removal at the period end, "Keep it", the Team bundle swap, the
+  payroll card** (TC-785..788, `test.fixme`): (1) QA's add-on catalogue has
+  no self-serve back-office add-ons with trials —
+  `prisma/scripts/create-back-office-addons.ts --yes` (ADDON_BILLING.md §3)
+  hasn't been run in the QA backend container (no TEAM_BUNDLE or
+  TIP_MANAGEMENT add-on, `trialDays` null everywhere). The suite must not
+  create them: only one self-serve add-on per feature may exist, so a test
+  one would block the real catalogue. (2) A throwaway restaurant can't reach
+  an ACTIVE subscription by API — activation needs Connect charges enabled,
+  and Stripe won't let a platform accept the Express ToS
+  (`complete-assigned` → 400 `CONNECT_SETUP_REQUIRED`). restaunax
+  `addonBilling.int.test.ts` covers these against an in-memory Stripe.
+- **Webhook signature**: no request-capture service in the suite and no
+  third-party bin added; the receiver is an unrouted QA API path, so the
+  delivery log proves delivery but not the `RestauNax-Signature` header.
+  Verifying it needs a receiver that echoes headers (e.g. a tiny route on
+  QA, or httpbin.org/anything — a new third-party dependency).
+- **The OAuth consent flow** (HQ-registered partner, Allow/Deny, code
+  exchange, refresh rotation): not exercised; it would register a partner app
+  in HQ → Finance → Partners on every run. Integration-tested in restaunax.
+- **Posting a new deposit to QuickBooks**: Rehearsal Kitchen is read-only
+  here; posting would write to the sandbox company.
+- **Reminder emails** (tax calendar 7/1 days, Jan 10, trial reminder) run on
+  daily sweeps and can't be triggered by API.
+
+### Product findings (#943)
+
+- **F1 — the year-end CSVs don't say "not a tax filing"** (TC-768,
+  `test.fail`). The doc says every file does; README and PDF do, the nine
+  CSVs don't: `sectionCsv` is `toCsv(section.rows)`
+  (restaunax `yearEndPackage.ts:378`). Fix: append a last row with
+  `t("api:yearEnd.footer")` to each section (or in `sectionCsv`).
+- **F2 — HQ "Count again" answers 500 for a location without a payroll
+  connection.** `POST /api/admin/addons/payroll-headcount/:rid/refresh` →
+  500 `PAYROLL_PROVIDER_FAILED` ("not connected") and a SystemError row
+  (`adminAddonController.ts:909-945`, the catch-all `serverError`). Expected
+  a 409/400 with the same sentence and no system log.
+- **F4 — Rehearsal Kitchen's deposits stay "Accounts needed"** (observation,
+  not a failing test). Its mapping has `deposit:bank` (Checking),
+  `deposit:card_fees` and `deposit:delivery_costs`, yet all 10 deposits read
+  `MAPPING_NEEDED` with those keys in `missingKeys`, and Books & taxes still
+  says "pick your bank account and the account for card fees" (seen
+  00:24–01:05 UTC, 2026-10-15). The hourly `sweepDeposits`
+  (`depositService.ts:527`) should rebuild them and auto-post. Either the
+  mapping was set within that hour or the sweep isn't reaching them — look
+  for `accounting_deposit_sweep_failed` in Loki before calling it a bug.
+- **F3 — gated deep link wording**: `?tab=books-taxes` without the add-on
+  says "This feature isn't available for the selected restaurant's setup.
+  Switch to a different restaurant…" — for an add-on, pointing at
+  Billing → Add-ons would be the useful answer.
+
 ## Running
 
 ```bash
