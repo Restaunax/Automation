@@ -90,14 +90,17 @@ export interface PromotionQuote {
   }[];
   /**
    * Why the entered code was refused. The backend strips `codeIssue` from the
-   * response, so this is the first entry of `issues` that carries an
-   * IneligibleReason (`reason`, e.g. "first_order_needs_customer"); null when
-   * the code raised no issue.
+   * response, so this is the first `issues[]` entry whose `code` is a
+   * code-level one (coupon_not_found | coupon_expired | coupon_min_order_not_met
+   * | coupon_deal_exclusive | coupon_delivery_only | coupon_required_item_missing
+   * | promotion_not_eligible); deal issues (e.g. deal_not_eligible) never
+   * count. `reason` (IneligibleReason, e.g. "first_order_needs_customer") is
+   * set only on promotion_not_eligible, else null. Null = no code issue.
    */
   codeIssue: {
-    code?: string;
+    code: string;
     severity: "ERROR" | "WARNING";
-    reason: string;
+    reason: string | null;
     message?: string;
   } | null;
   /** Full response (status + body) for debugging. */
@@ -210,11 +213,29 @@ interface QuoteWire {
   issues?: PromotionQuote["issues"];
 }
 
-function codeIssueOf(
+/**
+ * Issue codes that describe the ENTERED code (backend enteredCodeIssue /
+ * COUPON_REASON_TO_CODE). Deliberately NOT keyed on `reason`: the backend
+ * copies context.reason onto every issue (deal_not_eligible carries one for a
+ * deal, not the code), and the coupon_* codes carry none.
+ */
+const CODE_ISSUE_CODES = new Set([
+  "coupon_not_found",
+  "coupon_expired",
+  "coupon_min_order_not_met",
+  "coupon_deal_exclusive",
+  "coupon_delivery_only",
+  "coupon_required_item_missing",
+  "promotion_not_eligible",
+]);
+
+export function codeIssueOf(
   issues: PromotionQuote["issues"]
 ): PromotionQuote["codeIssue"] {
-  const hit = issues?.find((i) => typeof i.reason === "string" && i.reason);
-  return hit ? { ...hit, reason: hit.reason as string } : null;
+  const hit = issues?.find((i) => i.code && CODE_ISSUE_CODES.has(i.code));
+  return hit
+    ? { ...hit, code: hit.code as string, reason: hit.reason ?? null }
+    : null;
 }
 
 /**
