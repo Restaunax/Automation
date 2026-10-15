@@ -10,8 +10,10 @@ import { type Locator, type Page, expect } from "@playwright/test";
  * the chosen type's cards after; example cards are buttons named by their
  * title, with the type label and "From your menu" inside),
  * "Set it up" (the type's own questions, then the collapsible rule cards)
- * and "Name and code"; a live preview panel on the side; Turn on /
- * Save as paused in a sticky bar. English copy:
+ * and "Name and code"; a live preview panel on the side; the primary save
+ * ("Turn on", being renamed "Save and turn on" — RestauNax #972) and the
+ * paused save ("Save as paused", being renamed "Save for later") in a sticky
+ * bar. Both old and new labels are accepted until #972 deploys. English copy:
  * restaunax-frontend/public/locales/en/promotions.json.
  *
  * Locator strategy: no test ids. Every amount field is a textbox whose
@@ -307,6 +309,60 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
     await settle();
   };
 
+  /**
+   * Create mode, for a deal-type promotion (combo / BOGO) on a restaurant
+   * whose 10-ACTIVE-deal cap other files share: `waitForSlot` runs before
+   * each click, and when the server still answers MAX_ACTIVE_DEALS_REACHED
+   * (another worker took the slot between the check and the click) it waits
+   * and clicks Turn on again. Any other answer settles exactly as turnOn
+   * does, so expectSaved still asserts the outcome; after `timeoutMs` the
+   * refusal is left on screen for expectSaved to fail on.
+   */
+  const turnOnDealWhenSlotFree = async (
+    waitForSlot: () => Promise<void>,
+    timeoutMs = 150_000
+  ) => {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      await waitForSlot();
+      const [res] = await Promise.all([
+        page.waitForResponse(
+          (r) =>
+            r.request().method() === "POST" &&
+            /^\/api\/deals\/restaurant\/[^/]+$/.test(new URL(r.url()).pathname),
+          { timeout: 30_000 }
+        ),
+        turnOnButton().click(),
+      ]);
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      const capped =
+        res.status() === 400 && body.error === "MAX_ACTIVE_DEALS_REACHED";
+      if (!capped || Date.now() > deadline) {
+        await settle();
+        return;
+      }
+      // The refusal is shown and the form keeps every answer: try again.
+      await expect(serverErrorAlert()).toBeVisible();
+      console.warn(
+        "[OwnerCreatePromotionPage] Turn on refused at the deal cap — waiting for a slot and retrying"
+      );
+    }
+  };
+
+  /**
+   * The create bar's paused save: the promotion is stored INACTIVE (no deal
+   * slot used). QA is renaming "Save as paused" → "Save for later"; accept
+   * both until the rename (RestauNax #972) is deployed, then drop the old one.
+   */
+  const saveForLaterButton = () =>
+    page.getByRole("button", { name: /^(Save for later|Save as paused)$/ });
+
+  /** Create mode: save paused. Does not assert success — see expectSaved. */
+  const saveForLater = async () => {
+    await saveForLaterButton().click();
+    await settle();
+  };
+
   /** Edit mode: Save changes. */
   const save = async () => {
     await page
@@ -393,6 +449,9 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
     settle,
     turnOn,
     turnOnButton,
+    turnOnDealWhenSlotFree,
+    saveForLater,
+    saveForLaterButton,
     save,
     expectSaved,
     scheduleChip,

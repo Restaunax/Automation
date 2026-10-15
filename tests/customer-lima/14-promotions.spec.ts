@@ -8,14 +8,15 @@
  * in beforeAll by the same seedStorefrontPromotions the wind spec uses
  * (tests/customer/10-promotions), labelled "Lima": a per-run
  * "Automation Menu Promo Lima <id>" category with six items, a 50% automatic
- * sale scoped to one of them, a 15%-off-$30+ order code, a "2nd gyro for
- * $1.99" BOGO with item options (menu + code) and a CODE-only combo. NO free
- * item: a spend-triggered gift offers itself to every cart over its threshold,
- * so only the wind file runs one (two would compete for each other's carts).
- * The two deals take two of the seed restaurant's 10 active slots for this
- * file's run (created cap-safe) — see TEST_PLAN.md's footprint table.
- * Everything is deleted in afterAll (each delete checked; a failed one fails
- * the hook), and globalTeardown's AUTO / "Automation Menu" sweeps backstop an
+ * sale scoped to one of them and a 15%-off-$30+ order code. NO free item: a
+ * spend-triggered gift offers itself to every cart over its threshold, so
+ * only the wind file runs one (two would compete for each other's carts).
+ * The two deals — a "2nd gyro for $1.99" BOGO with item options (menu + code)
+ * and a CODE-only combo — are created inside the tests that use them
+ * (cap-safe) and deleted in that test's finally, so the file holds at most one
+ * ACTIVE deal slot, and only while a test runs — see TEST_PLAN.md's footprint
+ * table. The rest is deleted in afterAll (each delete checked; a failed one
+ * fails the hook), and globalTeardown's AUTO / "Automation Menu" sweeps backstop an
  * interrupted run.
  *
  * Lima's code box is on the CART; the server quote, promotion line and Pay
@@ -36,7 +37,10 @@ import {
   publicMenuItem,
   seedStorefrontPromotions,
   STOREFRONT_PRICES,
+  withStorefrontBogo,
+  withStorefrontCombo,
   type SeededItem,
+  type StorefrontDealContext,
   type StorefrontPromotionSet,
 } from "../../utils/promotionFixtures";
 import { promotionQuote } from "../../utils/promotionsApi";
@@ -76,6 +80,12 @@ test.describe("Lima — Promotions", () => {
   let token = "";
   let set: StorefrontPromotionSet;
   const created: Parameters<typeof seedStorefrontPromotions>[3] = {};
+  const dealCtx = (): StorefrontDealContext => ({
+    token,
+    restaurantId,
+    set,
+    createdDeals: (created.createdDeals ??= []),
+  });
 
   test.beforeAll(async () => {
     if (!restaurantSlug || !OWNER_EMAIL || !OWNER_PASSWORD) return;
@@ -90,8 +100,9 @@ test.describe("Lima — Promotions", () => {
   test.afterAll(async () => {
     if (!token) return;
     const failures = await cleanupStorefrontPromotions(token, created);
-    // A leaked deal holds one of the seed restaurant's 10 active slots for
-    // every other file: fail loudly rather than log.
+    // Backstop for a per-test deal delete that never ran, plus the menu and
+    // coupons. A leaked deal holds one of the seed restaurant's 10 active
+    // slots for every other file: fail loudly rather than log.
     expect(failures, "storefront promotions cleanup").toEqual([]);
   });
 
@@ -197,82 +208,86 @@ test.describe("Lima — Promotions", () => {
   test("TC-L65: the Lima BOGO builder offers each slot's options as 'Pick 1' cards; two picks show the deal's server price, and checkout quotes the deal at it", async ({
     page,
   }) => {
-    const deals = createLimaDealPage(page);
-    const checkout = createLimaCheckoutPage(page);
-    const { gyroA, gyroB } = set.items;
-    const server = await allure.step(
-      "server price for these picks (/quote)",
-      () =>
-        promotionQuote(restaurantId, {
-          items: [],
-          orderDeals: [
-            {
-              dealId: set.bogo.dealId,
-              quantity: 1,
-              items: [
-                {
-                  dealItemId: set.bogo.buyItemId,
-                  menuItemId: gyroA.id,
-                  quantity: 1,
-                },
-                {
-                  dealItemId: set.bogo.getItemId,
-                  menuItemId: gyroB.id,
-                  quantity: 1,
-                },
-              ],
-            },
-          ],
-        })
-    );
-    const dealPrice = server.deals[0]?.dealPrice;
-    expect(dealPrice, JSON.stringify(server.raw)).toBeDefined();
+    await withStorefrontBogo(dealCtx(), async (bogo) => {
+      const deals = createLimaDealPage(page);
+      const checkout = createLimaCheckoutPage(page);
+      const { gyroA, gyroB } = set.items;
+      const server = await allure.step(
+        "server price for these picks (/quote)",
+        () =>
+          promotionQuote(restaurantId, {
+            items: [],
+            orderDeals: [
+              {
+                dealId: bogo.dealId,
+                quantity: 1,
+                items: [
+                  {
+                    dealItemId: bogo.buyItemId,
+                    menuItemId: gyroA.id,
+                    quantity: 1,
+                  },
+                  {
+                    dealItemId: bogo.getItemId,
+                    menuItemId: gyroB.id,
+                    quantity: 1,
+                  },
+                ],
+              },
+            ],
+          })
+      );
+      const dealPrice = server.deals[0]?.dealPrice;
+      expect(dealPrice, JSON.stringify(server.raw)).toBeDefined();
 
-    await allure.step("each slot lists both options", async () => {
-      await deals.gotoBuilder(restaurantSlug, set.bogo.dealId);
-      await expect(deals.builderHeading(set.bogo.name)).toBeVisible({
-        timeout: 20_000,
-      });
-      await expect(deals.choiceSlots()).toHaveCount(2);
-      for (const slot of [0, 1]) {
-        for (const item of [gyroA, gyroB]) {
-          const card = deals.choiceCard(slot, item.name);
-          await expect(card).toBeVisible();
-          await expect(card).toContainText(money(item.price));
-          await expect(card).toContainText("Pick 1");
+      await allure.step("each slot lists both options", async () => {
+        await deals.gotoBuilder(restaurantSlug, bogo.dealId);
+        await expect(deals.builderHeading(bogo.name)).toBeVisible({
+          timeout: 20_000,
+        });
+        await expect(deals.choiceSlots()).toHaveCount(2);
+        for (const slot of [0, 1]) {
+          for (const item of [gyroA, gyroB]) {
+            const card = deals.choiceCard(slot, item.name);
+            await expect(card).toBeVisible();
+            await expect(card).toContainText(money(item.price));
+            await expect(card).toContainText("Pick 1");
+          }
         }
-      }
-      await deals.assertProgress(0, 2);
-    });
-
-    await allure.step("pick one option per slot", async () => {
-      await deals.pickChoice(0, gyroA.name);
-      await deals.assertProgress(1, 2);
-      await expect(deals.choiceCard(0, gyroA.name)).toContainText("Your pick");
-      await deals.pickChoice(1, gyroB.name);
-      await deals.assertDealComplete();
-      await expect(deals.progressDealPrice()).toHaveText(money(dealPrice!));
-    });
-
-    await allure.step("checkout quotes the deal at that price", async () => {
-      await deals.viewCartButton().click();
-      await expect(page).toHaveURL(new RegExp(`/${restaurantSlug}/cart`), {
-        timeout: 15_000,
+        await deals.assertProgress(0, 2);
       });
-      await expect(page.getByText(set.bogo.name).first()).toBeVisible({
-        timeout: 15_000,
+
+      await allure.step("pick one option per slot", async () => {
+        await deals.pickChoice(0, gyroA.name);
+        await deals.assertProgress(1, 2);
+        await expect(deals.choiceCard(0, gyroA.name)).toContainText(
+          "Your pick"
+        );
+        await deals.pickChoice(1, gyroB.name);
+        await deals.assertDealComplete();
+        await expect(deals.progressDealPrice()).toHaveText(money(dealPrice!));
       });
-      const [quoteRes] = await Promise.all([
-        page.waitForResponse(quoteWithDeal(set.bogo.dealId), {
-          timeout: 30_000,
-        }),
-        checkout.goToCheckout(),
-      ]);
-      const quote = await readQuote(quoteRes);
-      expect(
-        quote.body.quote?.deals?.find((d) => d.dealId === set.bogo.dealId)
-          ?.dealPrice
-      ).toBe(dealPrice);
+
+      await allure.step("checkout quotes the deal at that price", async () => {
+        await deals.viewCartButton().click();
+        await expect(page).toHaveURL(new RegExp(`/${restaurantSlug}/cart`), {
+          timeout: 15_000,
+        });
+        await expect(page.getByText(bogo.name).first()).toBeVisible({
+          timeout: 15_000,
+        });
+        const [quoteRes] = await Promise.all([
+          page.waitForResponse(quoteWithDeal(bogo.dealId), {
+            timeout: 30_000,
+          }),
+          checkout.goToCheckout(),
+        ]);
+        const quote = await readQuote(quoteRes);
+        expect(
+          quote.body.quote?.deals?.find((d) => d.dealId === bogo.dealId)
+            ?.dealPrice
+        ).toBe(dealPrice);
+      });
     });
   });
 
@@ -322,26 +337,28 @@ test.describe("Lima — Promotions", () => {
   test("TC-L67: a bundle code opens its deal builder on Lima — from the cart's code box and from a ?promo= link", async ({
     page,
   }) => {
-    const lima = createLimaStorefrontPage(page);
-    const deals = createLimaDealPage(page);
-    const builderUrl = new RegExp(
-      `/${restaurantSlug}/deal/${set.bogo.dealId}\\?code=${escapeRegExp(set.bogo.code)}`
-    );
+    await withStorefrontBogo(dealCtx(), async (bogo) => {
+      const lima = createLimaStorefrontPage(page);
+      const deals = createLimaDealPage(page);
+      const builderUrl = new RegExp(
+        `/${restaurantSlug}/deal/${bogo.dealId}\\?code=${escapeRegExp(bogo.code)}`
+      );
 
-    await allure.step("cart code box", async () => {
-      await reachCartWith(page, [set.items.platter]);
-      expect(await applyCodeOnCart(page, set.bogo.code)).toBe(200);
-      await expect(page).toHaveURL(builderUrl, { timeout: 20_000 });
-      await expect(deals.builderHeading(set.bogo.name)).toBeVisible({
-        timeout: 20_000,
+      await allure.step("cart code box", async () => {
+        await reachCartWith(page, [set.items.platter]);
+        expect(await applyCodeOnCart(page, bogo.code)).toBe(200);
+        await expect(page).toHaveURL(builderUrl, { timeout: 20_000 });
+        await expect(deals.builderHeading(bogo.name)).toBeVisible({
+          timeout: 20_000,
+        });
       });
-    });
 
-    await allure.step("?promo= link", async () => {
-      await lima.gotoMenu(restaurantSlug, `?promo=${set.bogo.code}`);
-      await expect(page).toHaveURL(builderUrl, { timeout: 20_000 });
-      await expect(deals.builderHeading(set.bogo.name)).toBeVisible({
-        timeout: 20_000,
+      await allure.step("?promo= link", async () => {
+        await lima.gotoMenu(restaurantSlug, `?promo=${bogo.code}`);
+        await expect(page).toHaveURL(builderUrl, { timeout: 20_000 });
+        await expect(deals.builderHeading(bogo.name)).toBeVisible({
+          timeout: 20_000,
+        });
       });
     });
   });
@@ -349,45 +366,47 @@ test.describe("Lima — Promotions", () => {
   test("TC-L68: Keep shopping after completing a deal lands on the Lima menu with '<deal> added to your cart' — once — and the deal is in the cart", async ({
     page,
   }) => {
-    const lima = createLimaStorefrontPage(page);
-    const deals = createLimaDealPage(page);
-    const expected = `${set.bogo.name} added to your cart`;
+    await withStorefrontBogo(dealCtx(), async (bogo) => {
+      const lima = createLimaStorefrontPage(page);
+      const deals = createLimaDealPage(page);
+      const expected = `${bogo.name} added to your cart`;
 
-    await allure.step("complete the deal → Keep shopping", async () => {
-      await deals.gotoBuilder(restaurantSlug, set.bogo.dealId);
-      await expect(deals.builderHeading(set.bogo.name)).toBeVisible({
-        timeout: 20_000,
+      await allure.step("complete the deal → Keep shopping", async () => {
+        await deals.gotoBuilder(restaurantSlug, bogo.dealId);
+        await expect(deals.builderHeading(bogo.name)).toBeVisible({
+          timeout: 20_000,
+        });
+        // Only a complete deal offers it.
+        await expect(deals.keepShoppingButton()).toHaveCount(0);
+        await deals.pickChoice(0, set.items.gyroA.name);
+        await deals.pickChoice(1, set.items.gyroB.name);
+        await deals.assertDealComplete();
+        await deals.keepShoppingButton().click();
+        await expect(page).toHaveURL(new RegExp(`/${restaurantSlug}/menu`), {
+          timeout: 15_000,
+        });
+        // The Snackbar auto-hides after 3 s: assert it inside that window.
+        await expect(lima.dealAddedConfirmation()).toHaveText(expected, {
+          timeout: 2_500,
+        });
       });
-      // Only a complete deal offers it.
-      await expect(deals.keepShoppingButton()).toHaveCount(0);
-      await deals.pickChoice(0, set.items.gyroA.name);
-      await deals.pickChoice(1, set.items.gyroB.name);
-      await deals.assertDealComplete();
-      await deals.keepShoppingButton().click();
-      await expect(page).toHaveURL(new RegExp(`/${restaurantSlug}/menu`), {
-        timeout: 15_000,
-      });
-      // The Snackbar auto-hides after 3 s: assert it inside that window.
-      await expect(lima.dealAddedConfirmation()).toHaveText(expected, {
-        timeout: 2_500,
-      });
-    });
 
-    await allure.step("a refresh does not show it again", async () => {
-      await page.reload({ waitUntil: "domcontentloaded" });
-      await expect(lima.itemCard(set.items.platter.name)).toBeVisible({
-        timeout: 30_000,
+      await allure.step("a refresh does not show it again", async () => {
+        await page.reload({ waitUntil: "domcontentloaded" });
+        await expect(lima.itemCard(set.items.platter.name)).toBeVisible({
+          timeout: 30_000,
+        });
+        await expect(lima.dealAddedConfirmation()).toHaveCount(0);
       });
-      await expect(lima.dealAddedConfirmation()).toHaveCount(0);
-    });
 
-    await allure.step("the cart holds the deal", async () => {
-      await lima.cartButton().click();
-      await expect(page).toHaveURL(new RegExp(`/${restaurantSlug}/cart`), {
-        timeout: 15_000,
-      });
-      await expect(page.getByText(set.bogo.name).first()).toBeVisible({
-        timeout: 15_000,
+      await allure.step("the cart holds the deal", async () => {
+        await lima.cartButton().click();
+        await expect(page).toHaveURL(new RegExp(`/${restaurantSlug}/cart`), {
+          timeout: 15_000,
+        });
+        await expect(page.getByText(bogo.name).first()).toBeVisible({
+          timeout: 15_000,
+        });
       });
     });
   });
@@ -395,62 +414,64 @@ test.describe("Lima — Promotions", () => {
   test("TC-L69: a deal with upgrade picks shows Items, Upgrades (itemised, incl. the size choice) and Subtotal at Lima checkout — Items + Upgrades = Subtotal = the quote's", async ({
     page,
   }) => {
-    const lima = createLimaStorefrontPage(page);
-    const deals = createLimaDealPage(page);
-    const checkout = createLimaCheckoutPage(page);
-    const { platter, burger } = set.items;
-    const P = STOREFRONT_PRICES;
+    await withStorefrontCombo(dealCtx(), async (combo) => {
+      const lima = createLimaStorefrontPage(page);
+      const deals = createLimaDealPage(page);
+      const checkout = createLimaCheckoutPage(page);
+      const { platter, burger } = set.items;
+      const P = STOREFRONT_PRICES;
 
-    await deals.gotoBuilder(restaurantSlug, set.combo.dealId, set.combo.code);
-    await expect(deals.builderHeading(set.combo.name)).toBeVisible({
-      timeout: 20_000,
+      await deals.gotoBuilder(restaurantSlug, combo.dealId, combo.code);
+      await expect(deals.builderHeading(combo.name)).toBeVisible({
+        timeout: 20_000,
+      });
+      await deals.openIncompleteSlot(platter.name);
+      await deals.clickAddToDeal();
+      await deals.openIncompleteSlot(burger.name);
+      await lima.modifierOption(`Large ${runId}`).check();
+      await lima.modifierOption(`Bacon ${runId}`).check();
+      await deals.clickAddToDeal();
+      await deals.assertDealComplete();
+      await deals.viewCartButton().click();
+      await expect(page).toHaveURL(new RegExp(`/${restaurantSlug}/cart`), {
+        timeout: 15_000,
+      });
+
+      const [quoteRes] = await Promise.all([
+        page.waitForResponse(quoteWithDeal(combo.dealId), {
+          timeout: 30_000,
+        }),
+        checkout.goToCheckout(),
+      ]);
+      const quote = (await readQuote(quoteRes)).body.quote!;
+      const upcharge = quote.deals?.find(
+        (d) => d.dealId === combo.dealId
+      )?.upcharge;
+      // Large replaces Regular ($15 − $12) + Bacon $1.50.
+      expect(upcharge).toBe(P.burgerLarge - P.burger + P.bacon);
+
+      await expect(checkout.summaryItemsRow()).toBeVisible({ timeout: 15_000 });
+      const items = await checkout.readMoney(checkout.summaryItemsRow());
+      const upgrades = await checkout.readMoney(checkout.summaryUpgradesRow());
+      const subtotal = await checkout.readMoney(checkout.summarySubtotalRow());
+      await allure.parameter(
+        "items / upgrades / subtotal",
+        `${items} / ${upgrades} / ${subtotal}`
+      );
+      expect(Math.round((items + upgrades) * 100)).toBe(
+        Math.round(subtotal * 100)
+      );
+      expect(upgrades).toBe(upcharge);
+      expect(subtotal).toBe(quote.subtotal);
+      await expect(checkout.summaryUpgradesRow()).toContainText(
+        `+${money(upcharge!)}`
+      );
+      const details = checkout.summaryUpgradeDetails();
+      await expect(details).toContainText(
+        `Large ${runId} +${money(P.burgerLarge - P.burger)}`
+      );
+      await expect(details).toContainText(`Bacon ${runId} +${money(P.bacon)}`);
     });
-    await deals.openIncompleteSlot(platter.name);
-    await deals.clickAddToDeal();
-    await deals.openIncompleteSlot(burger.name);
-    await lima.modifierOption(`Large ${runId}`).check();
-    await lima.modifierOption(`Bacon ${runId}`).check();
-    await deals.clickAddToDeal();
-    await deals.assertDealComplete();
-    await deals.viewCartButton().click();
-    await expect(page).toHaveURL(new RegExp(`/${restaurantSlug}/cart`), {
-      timeout: 15_000,
-    });
-
-    const [quoteRes] = await Promise.all([
-      page.waitForResponse(quoteWithDeal(set.combo.dealId), {
-        timeout: 30_000,
-      }),
-      checkout.goToCheckout(),
-    ]);
-    const quote = (await readQuote(quoteRes)).body.quote!;
-    const upcharge = quote.deals?.find(
-      (d) => d.dealId === set.combo.dealId
-    )?.upcharge;
-    // Large replaces Regular ($15 − $12) + Bacon $1.50.
-    expect(upcharge).toBe(P.burgerLarge - P.burger + P.bacon);
-
-    await expect(checkout.summaryItemsRow()).toBeVisible({ timeout: 15_000 });
-    const items = await checkout.readMoney(checkout.summaryItemsRow());
-    const upgrades = await checkout.readMoney(checkout.summaryUpgradesRow());
-    const subtotal = await checkout.readMoney(checkout.summarySubtotalRow());
-    await allure.parameter(
-      "items / upgrades / subtotal",
-      `${items} / ${upgrades} / ${subtotal}`
-    );
-    expect(Math.round((items + upgrades) * 100)).toBe(
-      Math.round(subtotal * 100)
-    );
-    expect(upgrades).toBe(upcharge);
-    expect(subtotal).toBe(quote.subtotal);
-    await expect(checkout.summaryUpgradesRow()).toContainText(
-      `+${money(upcharge!)}`
-    );
-    const details = checkout.summaryUpgradeDetails();
-    await expect(details).toContainText(
-      `Large ${runId} +${money(P.burgerLarge - P.burger)}`
-    );
-    await expect(details).toContainText(`Bacon ${runId} +${money(P.bacon)}`);
   });
 
   test("TC-L70: paying on Lima with the order code records the code's promotion, the quoted savings and the Total shown before paying", async ({

@@ -14,7 +14,9 @@
  * deleted in its test's `finally`; the category goes in afterAll, and
  * globalTeardown's AUTO / "Automation Menu" sweeps backstop an interrupted run.
  * Deal-type promotions (TC-824, TC-826's combo) wait for a free slot under the
- * 10-active cap first — see TEST_PLAN.md's footprint table.
+ * 10-active cap first, and retry the Turn on when another worker took the slot
+ * in between (turnOnDealWhenSlotFree); TC-825's example combo is saved paused
+ * — see TEST_PLAN.md's footprint table.
  */
 
 import * as allure from "allure-js-commons";
@@ -26,7 +28,6 @@ import {
   apiLogin,
   createMenuGroupNamed,
   createMenuItemFull,
-  apiRequestRaw,
   deleteMenuGroupRaw,
   deleteMenuItemRaw,
   getActiveDealsPublic,
@@ -37,6 +38,7 @@ import {
 } from "../../../utils/apiHelper";
 import {
   createCouponPromotion,
+  deletePromotionRaw,
   listPromotions,
   type PromotionListRow,
 } from "../../../utils/promotionsApi";
@@ -94,12 +96,7 @@ test.describe("Owner — Promotions", () => {
         (r) => r.name === name
       );
       for (const r of rows) {
-        const res = await apiRequestRaw(
-          "DELETE",
-          r.source === "COUPON" ? `/api/coupons/${r.id}` : `/api/deals/${r.id}`,
-          undefined,
-          token
-        );
+        const res = await deletePromotionRaw(token, r);
         if (!res.ok) {
           console.warn(
             `[19-promotions] cleanup: deleting ${r.source} ${r.id} (${name}) → ${res.status} ${JSON.stringify(res.data)}`
@@ -274,8 +271,9 @@ test.describe("Owner — Promotions", () => {
       await create.setAmount("They pay", "1.99");
       await create.setName(name);
       await create.expectPreviewText(/\$1\.99/);
-      await waitForFreeDealSlot(token, restaurantId);
-      await create.turnOn();
+      await create.turnOnDealWhenSlotFree(() =>
+        waitForFreeDealSlot(token, restaurantId)
+      );
       await create.expectSaved();
 
       await list.showAllRows();
@@ -297,11 +295,11 @@ test.describe("Owner — Promotions", () => {
     }
   });
 
-  test("TC-825: create Combo price from a menu example — goal chips, prefilled items and price, Turn on", async ({
+  test("TC-825: create Combo price from a menu example — goal chips, prefilled items and price, Save for later", async ({
     ownerPage,
   }) => {
     await allure.description(
-      "No type picked: the gallery shows the six goal chips. 'Sell items together' lists a combo built from the restaurant's own menu (title = items + price, labelled From your menu); picking it selects Combo price, prefills those items and the price, and the preview shows the price. Turn on saves it and the server deal has the same items at that price."
+      "No type picked: the gallery shows the six goal chips. 'Sell items together' lists a combo built from the restaurant's own menu (title = items + price, labelled From your menu); picking it selects Combo price, prefills those items and the price, and the preview shows the price. Save for later stores it paused and the server deal has the same items at that price. Saved paused on purpose: the menu-built combo may use another file's per-run items, and an ACTIVE deal would block their delete (and take one of the seed restaurant's 10 slots)."
     );
     const name = promoName("Example combo");
     const create = createOwnerCreatePromotionPage(ownerPage);
@@ -370,13 +368,17 @@ test.describe("Owner — Promotions", () => {
       });
 
       await create.setName(name);
-      await waitForFreeDealSlot(token, restaurantId);
-      await create.turnOn();
+      // Paused, not turned on: the largest categories on the seed restaurant
+      // are often other files' per-run menus, and an ACTIVE deal on their
+      // items makes the backend refuse those items' deletes (409). A paused
+      // deal blocks nothing and takes no ACTIVE slot.
+      await create.saveForLater();
       await create.expectSaved();
 
       await allure.step("the server deal matches the example", async () => {
         const row = await serverRow(name);
         expect(row, `listPromotions has ${name}`).toBeTruthy();
+        expect(row!.status).toBe("INACTIVE");
         const deal = await getDealApi(token, row!.id);
         expect(deal.dealType).toBe("COMBO");
         expect(deal.dealPrice).toBeCloseTo(
@@ -482,13 +484,14 @@ test.describe("Owner — Promotions", () => {
     });
   });
 
-  test("TC-826: create Free item (spend $40), Free delivery ($15+, up to $8) and Combo price ($15, the same item twice)", async ({
+  test("TC-826: create Free item (spend $40, code only), Free delivery ($15+, up to $8) and Combo price ($15, the same item twice)", async ({
     ownerPage,
   }) => {
     await allure.description(
       "The remaining card types save and list as Live; the combo is built from its card with the same item on two lines (two wraps + a bowl) and the server deal keeps both (the from-an-example path is TC-825)."
     );
     const freeItem = promoName("Free item");
+    const freeItemCode = generateCouponCode();
     const freeDelivery = promoName("Free delivery");
     const combo = promoName("Combo");
     const create = createOwnerCreatePromotionPage(ownerPage);
@@ -500,11 +503,21 @@ test.describe("Owner — Promotions", () => {
         await create.pickItems("Which item is free?", [gift.name]);
         await create.chooseOption("When they spend");
         await create.setAmount("Order total of at least", "40");
+        // Code only, not the UI's "Applies by itself": a live automatic spend
+        // offer on the seed restaurant would offer its gift to every other
+        // file's cart over $40 (customer/10-promotions owns the one automatic
+        // free item — TEST_PLAN.md → "Seed-restaurant deal budget").
+        await create.setHowCustomersGetIt("Only with a code");
         await create.setName(freeItem);
+        await create.setCode(freeItemCode);
         await create.turnOn();
         await create.expectSaved();
         await list.showAllRows();
         await list.expectRowStatus(freeItem, "Live");
+        await list.expectRowCode(freeItem, freeItemCode);
+        const row = await serverRow(freeItem);
+        expect(row?.status).toBe("ACTIVE");
+        expect(row?.code).toBe(freeItemCode);
       });
       await allure.step("Free delivery", async () => {
         await create.goto(restaurantId);
@@ -530,8 +543,9 @@ test.describe("Owner — Promotions", () => {
         await create.setAmount("Combo price", "15");
         await create.setName(combo);
         await create.expectPreviewText(/\$15\.00/);
-        await waitForFreeDealSlot(token, restaurantId);
-        await create.turnOn();
+        await create.turnOnDealWhenSlotFree(() =>
+          waitForFreeDealSlot(token, restaurantId)
+        );
         await create.expectSaved();
         await list.showAllRows();
         await list.expectRowStatus(combo, "Live");

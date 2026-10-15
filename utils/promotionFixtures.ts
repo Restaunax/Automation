@@ -63,7 +63,11 @@ export const MENU_PRICES = {
 
 const DAY_MS = 86_400_000;
 
-/** Throwing deal create that returns the stored deal (with its slot ids). */
+/**
+ * Throwing deal create that returns the stored deal (with its slot ids).
+ * THROWAWAY TENANTS ONLY: it is not cap-safe (one refusal throws), so on the
+ * shared seed restaurant use createDealApiCapSafe / withStorefrontBogo.
+ */
 export async function createPromotionDeal(
   token: string,
   restaurantId: string,
@@ -316,6 +320,11 @@ export interface SeededItem {
  *   gift      $4   — the FREE_ITEM gift (spend ≥ FREE_ITEM_MIN, AUTOMATIC)
  *
  *   orderCode  — 15% off $30+, capped at $4.50 (CODE)
+ *
+ * The two deals are NOT part of the set: each test that needs one creates it
+ * for its own duration (withStorefrontBogo / withStorefrontCombo), so the
+ * seed restaurant's 10 ACTIVE slots are never held for a whole file:
+ *
  *   bogo       — buy a gyro, get the 2nd for $1.99, options A/B (BOTH + code)
  *   combo      — platter + burger for $25 (CODE only: hidden without its code)
  */
@@ -333,20 +342,30 @@ export interface StorefrontPromotionSet {
   /** Null when seeded with `withFreeItem: false`. */
   freeItem: { id: string; name: string } | null;
   orderCode: { id: string; name: string; code: string };
-  bogo: {
-    dealId: string;
-    name: string;
-    code: string;
-    buyItemId: string;
-    getItemId: string;
-  };
-  combo: {
-    dealId: string;
-    name: string;
-    code: string;
-    platterSlotId: string;
-    burgerSlotId: string;
-  };
+  /** Name prefix ("Wind" / "Lima") and run id, for the per-test deals. */
+  label: string;
+  runId: string;
+}
+
+/**
+ * The storefront BOGO — buy a gyro, get the 2nd for $1.99, options A/B
+ * (BOTH + code). `buyItemId` / `getItemId` = its BUY / GET slot ids.
+ */
+export interface StorefrontBogo {
+  dealId: string;
+  name: string;
+  code: string;
+  buyItemId: string;
+  getItemId: string;
+}
+
+/** The storefront combo — platter + burger for $25 (CODE only). */
+export interface StorefrontCombo {
+  dealId: string;
+  name: string;
+  code: string;
+  platterSlotId: string;
+  burgerSlotId: string;
 }
 
 export const STOREFRONT_PRICES = {
@@ -378,8 +397,7 @@ export interface StorefrontSeedOptions {
 }
 
 /**
- * Seeds the storefront set on the seed restaurant. Deals go through
- * createDealApiCapSafe (the seed restaurant's 10-active cap is shared).
+ * Seeds the storefront set (menu + coupons, no deals) on the seed restaurant.
  * Throws on any refusal; on a throw, whatever was created is returned via
  * `partial` so the caller's cleanup still removes it.
  */
@@ -390,6 +408,7 @@ export async function seedStorefrontPromotions(
   partial: Partial<StorefrontPromotionSet> & {
     createdItems?: SeededItem[];
     createdCoupons?: string[];
+    /** Filled by the per-test deal helpers (StorefrontDealContext). */
     createdDeals?: string[];
   } = {},
   { label = "Wind", withFreeItem = true }: StorefrontSeedOptions = {}
@@ -488,75 +507,166 @@ export async function seedStorefrontPromotions(
     applyMode: "CODE",
   });
 
-  const now = Date.now();
-  const dates = {
-    status: "ACTIVE",
-    startDate: new Date(now - DAY_MS).toISOString(),
-    endDate: new Date(now + 30 * DAY_MS).toISOString(),
-  };
-  const bogoName = `AUTO ${label} gyro 2nd $1.99 ${runId}`;
-  const bogoCode = generateCouponCode();
-  const optionLine = (role: "BUY" | "GET", sortOrder: number) => ({
-    optionMenuItemIds: [gyroA.id, gyroB.id],
-    quantity: 1,
-    role,
-    isRequired: true,
-    itemName: "",
-    itemPrice: 0,
-    sortOrder,
-  });
-  const bogo = await createDealApiCapSafe(
-    token,
-    restaurantId,
-    bogoName,
-    0,
-    [],
-    {
-      ...dates,
-      dealType: "BOGO_FIXED_PRICE",
-      getPrice: P.bogoGetPrice,
-      applyMode: "BOTH",
-      code: bogoCode,
-      items: [optionLine("BUY", 0), optionLine("GET", 1)],
-    }
-  );
-  partial.createdDeals!.push(bogo.id);
-  const comboName = `AUTO ${label} platter + burger ${runId}`;
-  const comboCode = generateCouponCode();
-  const combo = await createDealApiCapSafe(
-    token,
-    restaurantId,
-    comboName,
-    P.comboPrice,
-    [
-      { id: platter.id, name: platter.name, price: platter.price },
-      { id: burger.id, name: burger.name, price: burger.price },
-    ],
-    { ...dates, applyMode: "CODE", code: comboCode }
-  );
-  partial.createdDeals!.push(combo.id);
-
   return {
     groupId,
     items,
     sale: { id: sale.id, name: saleName },
     freeItem: freeItem ? { id: freeItem.id, name: freeName } : null,
     orderCode: { id: orderCode.id, name: orderCodeName, code: orderCodeValue },
-    bogo: {
-      dealId: bogo.id,
-      name: bogoName,
-      code: bogoCode,
-      buyItemId: slotId(bogo, 0),
-      getItemId: slotId(bogo, 1),
-    },
-    combo: {
-      dealId: combo.id,
-      name: comboName,
-      code: comboCode,
-      platterSlotId: slotId(combo, 0),
-      burgerSlotId: slotId(combo, 1),
-    },
+    label,
+    runId,
   };
+}
+
+/** Where a storefront deal is created, and the list its id is tracked in. */
+export interface StorefrontDealContext {
+  token: string;
+  restaurantId: string;
+  set: StorefrontPromotionSet;
+  /**
+   * Every created deal id is pushed here, so the file's afterAll cleanup
+   * (cleanupStorefrontPromotions) backstops a delete that never ran.
+   */
+  createdDeals: string[];
+}
+
+function dealDates() {
+  const now = Date.now();
+  return {
+    status: "ACTIVE",
+    startDate: new Date(now - DAY_MS).toISOString(),
+    endDate: new Date(now + 30 * DAY_MS).toISOString(),
+  };
+}
+
+/**
+ * Creates one storefront deal (cap-safe: it waits for one of the seed
+ * restaurant's 10 ACTIVE slots), runs `fn`, and deletes the deal in a
+ * `finally` so the slot is given back the moment the test is done — never
+ * held for the whole file (TEST_PLAN.md → "Seed-restaurant deal budget").
+ * A refused delete fails the test unless the test already failed (then it
+ * is logged and the original error wins; afterAll retries the delete).
+ */
+async function withStorefrontDeal<D extends { dealId: string }, T>(
+  ctx: StorefrontDealContext,
+  create: () => Promise<D>,
+  fn: (deal: D) => Promise<T>
+): Promise<T> {
+  const deal = await create();
+  ctx.createdDeals.push(deal.dealId);
+  // Resolves to why the delete was refused, or null when it went through.
+  const release = async (): Promise<string | null> => {
+    const res = await apiRequestRaw(
+      "DELETE",
+      `/api/deals/${deal.dealId}`,
+      undefined,
+      ctx.token
+    ).catch((err: unknown) => ({ ok: false, status: 0, data: String(err) }));
+    return res.ok || res.status === 404
+      ? null
+      : `storefront deal ${deal.dealId} delete → ${res.status} ${JSON.stringify(res.data)}`;
+  };
+  let result: T;
+  try {
+    result = await fn(deal);
+  } catch (err) {
+    // The test's own failure is the one to report; afterAll retries this.
+    const why = await release();
+    if (why) console.warn(`[promotionFixtures] ${why}`);
+    throw err;
+  }
+  const why = await release();
+  if (why) throw new Error(why);
+  return result;
+}
+
+/**
+ * The BOGO ("buy a gyro, get the 2nd for $1.99", options gyro A/B, menu +
+ * code) for the duration of `fn` — see withStorefrontDeal.
+ */
+export function withStorefrontBogo<T>(
+  ctx: StorefrontDealContext,
+  fn: (bogo: StorefrontBogo) => Promise<T>
+): Promise<T> {
+  return withStorefrontDeal(
+    ctx,
+    async () => {
+      const { set } = ctx;
+      const { gyroA, gyroB } = set.items;
+      const name = `AUTO ${set.label} gyro 2nd $1.99 ${set.runId}`;
+      const code = generateCouponCode();
+      const optionLine = (role: "BUY" | "GET", sortOrder: number) => ({
+        optionMenuItemIds: [gyroA.id, gyroB.id],
+        quantity: 1,
+        role,
+        isRequired: true,
+        itemName: "",
+        itemPrice: 0,
+        sortOrder,
+      });
+      const deal = await createDealApiCapSafe(
+        ctx.token,
+        ctx.restaurantId,
+        name,
+        0,
+        [],
+        {
+          ...dealDates(),
+          dealType: "BOGO_FIXED_PRICE",
+          getPrice: STOREFRONT_PRICES.bogoGetPrice,
+          applyMode: "BOTH",
+          code,
+          items: [optionLine("BUY", 0), optionLine("GET", 1)],
+        }
+      );
+      return {
+        dealId: deal.id,
+        name,
+        code,
+        buyItemId: slotId(deal, 0),
+        getItemId: slotId(deal, 1),
+      };
+    },
+    fn
+  );
+}
+
+/**
+ * The CODE-only combo (platter + burger for $25, hidden without its code)
+ * for the duration of `fn` — see withStorefrontDeal.
+ */
+export function withStorefrontCombo<T>(
+  ctx: StorefrontDealContext,
+  fn: (combo: StorefrontCombo) => Promise<T>
+): Promise<T> {
+  return withStorefrontDeal(
+    ctx,
+    async () => {
+      const { set } = ctx;
+      const { platter, burger } = set.items;
+      const name = `AUTO ${set.label} platter + burger ${set.runId}`;
+      const code = generateCouponCode();
+      const deal = await createDealApiCapSafe(
+        ctx.token,
+        ctx.restaurantId,
+        name,
+        STOREFRONT_PRICES.comboPrice,
+        [
+          { id: platter.id, name: platter.name, price: platter.price },
+          { id: burger.id, name: burger.name, price: burger.price },
+        ],
+        { ...dealDates(), applyMode: "CODE", code }
+      );
+      return {
+        dealId: deal.id,
+        name,
+        code,
+        platterSlotId: slotId(deal, 0),
+        burgerSlotId: slotId(deal, 1),
+      };
+    },
+    fn
+  );
 }
 
 /**

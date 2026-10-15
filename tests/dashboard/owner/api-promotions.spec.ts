@@ -21,6 +21,7 @@ import {
   createSecondOwner,
   createSeededOrder,
   deleteTestRestaurant,
+  getActiveDealsCountRaw,
   getActiveDealsPublic,
   getRestaurantTimeZonePublic,
   setRestaurantPublishedApi,
@@ -60,7 +61,6 @@ test.describe("Promotions — API contract", () => {
   let adminToken = "";
   let token = "";
   let restaurantId = "";
-  let ownsEnvTenant = false;
   let set: AcceptanceSet;
 
   /** 3 gyros: 12.99 + 13.99 + 14.99 = $41.97. */
@@ -70,14 +70,15 @@ test.describe("Promotions — API contract", () => {
   test.beforeAll(async () => {
     test.setTimeout(180_000);
     adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
-    const tenant = await createSecondOwner(adminToken, generateRunId());
+    // Always a fresh tenant (never OWNER2's persistent one): this file seeds
+    // the acceptance set and changes tax / publish settings.
+    const tenant = await createSecondOwner(adminToken, generateRunId(), {
+      alwaysFresh: true,
+    });
     if (!tenant.restaurantId)
       throw new Error("throwaway tenant has no restaurant");
     token = tenant.accessToken;
     restaurantId = tenant.restaurantId;
-    ownsEnvTenant = Boolean(
-      process.env.OWNER2_EMAIL && process.env.OWNER2_PASSWORD
-    );
     // A tax rate (0% keeps the money readable) or /quote refuses to price;
     // published + accepting orders or the seeded prior order (TC-808) is
     // refused.
@@ -90,7 +91,7 @@ test.describe("Promotions — API contract", () => {
   });
 
   test.afterAll(async () => {
-    if (restaurantId && !ownsEnvTenant) {
+    if (restaurantId) {
       await deleteTestRestaurant(adminToken, restaurantId).catch(() => {
         // Best-effort: the AUTO sweep in globalTeardown covers leftovers.
       });
@@ -367,6 +368,7 @@ test.describe("Promotions — API contract", () => {
     });
     expect(q.appliedPromotion, JSON.stringify(q.raw)).toBeNull();
     expect(q.codeIssue?.code).toBe("coupon_deal_exclusive");
+    expect(q.codeIssue?.message, JSON.stringify(q.codeIssue)).toBeTruthy();
     expect(q.codeIssue?.message ?? "").not.toMatch(I18N_KEY);
     expect(
       q.deals.find((d) => d.dealId === set.save3.dealId)?.dealPrice
@@ -679,6 +681,14 @@ test.describe("Promotions — API contract", () => {
     const rowStatus = async (id: string) =>
       (await listPromotions(token, restaurantId)).find((p) => p.id === id)
         ?.status;
+    // The 10-active cap counts the deal only while it is ACTIVE.
+    const activeDeals = async () => {
+      const r = await getActiveDealsCountRaw(token, restaurantId);
+      expect(r.ok, JSON.stringify(r.data)).toBe(true);
+      return r.data.activeDealsCount;
+    };
+    const activeBefore = await activeDeals();
+    expect(activeBefore).toBeGreaterThanOrEqual(1);
 
     await setPromotionStatus(token, "COUPON", set.save15.id, "INACTIVE");
     await setPromotionStatus(token, "DEAL", set.save3.dealId, "INACTIVE");
@@ -692,6 +702,7 @@ test.describe("Promotions — API contract", () => {
         expect(await dealListed()).toBe(false);
         expect(await rowStatus(set.save15.id)).toBe("INACTIVE");
         expect(await rowStatus(set.save3.dealId)).toBe("INACTIVE");
+        expect(await activeDeals()).toBe(activeBefore! - 1);
       });
     } finally {
       await setPromotionStatus(token, "COUPON", set.save15.id, "ACTIVE");
@@ -705,6 +716,7 @@ test.describe("Promotions — API contract", () => {
       expect(await dealListed()).toBe(true);
       expect(await rowStatus(set.save15.id)).toBe("ACTIVE");
       expect(await rowStatus(set.save3.dealId)).toBe("ACTIVE");
+      expect(await activeDeals()).toBe(activeBefore);
     });
   });
 

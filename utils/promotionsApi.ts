@@ -26,7 +26,10 @@ export interface CouponPromotionBody {
   value?: number;
   minOrderAmount?: number | null;
   maxDiscount?: number | null;
-  /** Default CODE. */
+  /**
+   * Default CODE (backend couponRules.ts + the Coupon.applyMode schema
+   * default) — so a code-less promotion must send AUTOMATIC explicitly.
+   */
   applyMode?: ApplyMode;
   /** Default EVERYONE. */
   audience?: Audience;
@@ -375,4 +378,20 @@ export async function setPromotionStatus(
           token
         );
   if (!res.ok) throw failure(`setPromotionStatus(${source})`, res);
+}
+
+/**
+ * DELETE a promotions-list row through its own source's endpoint (coupon or
+ * deal). Raw: callers decide whether a refusal fails or is logged.
+ */
+export function deletePromotionRaw(
+  token: string,
+  row: Pick<PromotionListRow, "id" | "source">
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "DELETE",
+    row.source === "COUPON" ? `/api/coupons/${row.id}` : `/api/deals/${row.id}`,
+    undefined,
+    token
+  );
 }

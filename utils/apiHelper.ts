@@ -1367,20 +1367,25 @@ export async function ensureAutomationChain(
  * throwaway restaurant — used for tenant-isolation / IDOR contract tests without
  * a second credential in .env. Records the email for globalTeardown's user
  * sweep; the caller deletes the restaurant. Falls back to OWNER2_EMAIL/PASSWORD
- * when both are set.
+ * when both are set — unless `alwaysFresh`: specs that seed data onto the
+ * tenant or change its settings must pass it, because OWNER2's restaurant is
+ * persistent (it is never deleted, so their seeds would pile up there).
  */
 export async function createSecondOwner(
   adminToken: string,
-  runId: string
+  runId: string,
+  { alwaysFresh = false }: { alwaysFresh?: boolean } = {}
 ): Promise<{
   accessToken: string;
   userId: string;
   email: string;
+  /** Set only for a freshly minted owner (OWNER2's is in .env). */
+  password?: string;
   restaurantId: string | null;
 }> {
   const envEmail = process.env.OWNER2_EMAIL;
   const envPassword = process.env.OWNER2_PASSWORD;
-  if (envEmail && envPassword) {
+  if (!alwaysFresh && envEmail && envPassword) {
     const login = await apiLogin(envEmail, envPassword);
     const owned = await getOwnerRestaurants(login.accessToken);
     return {
@@ -1421,6 +1426,7 @@ export async function createSecondOwner(
     accessToken: login.accessToken,
     userId: user.id,
     email,
+    password,
     restaurantId,
   };
 }
@@ -1449,7 +1455,24 @@ export interface ApiCoupon {
   maxDiscount?: number | null;
   /** "restaurant" | "organization" — org coupons are shared, never delete. */
   source?: string;
+  /** A promotion's name (coupons have no name column). */
+  description?: string | null;
 }
+
+/**
+ * An automation-created promotion: AUTO-prefixed name or code. A coupon's
+ * name is its `description`; a code-less AUTOMATIC promotion (sale, spend
+ * free item) has `code: null`, so its name is the only marker.
+ */
+export const isAutomationPromotion = (
+  row: {
+    name?: string | null;
+    description?: string | null;
+    code?: string | null;
+  },
+  prefix = "AUTO"
+): boolean =>
+  [row.name, row.description, row.code].some((v) => v?.startsWith(prefix));
 
 /** GET /api/coupons/restaurant/:id — response is { success, coupons: [...] }. */
 export async function getRestaurantCoupons(
@@ -1479,26 +1502,27 @@ export async function deleteCouponApi(
 }
 
 /**
- * Sweep all automation-created coupons (codes starting with `codePrefix`)
- * from a restaurant — this run's AND leftovers from interrupted runs.
- * Organization-level coupons are skipped. Best-effort per coupon.
+ * Sweep all automation-created coupons (code OR name starting with `prefix` —
+ * see isAutomationPromotion; a code-less AUTOMATIC promotion is matched by
+ * its name) from a restaurant — this run's AND leftovers from interrupted
+ * runs. Organization-level coupons are skipped. Best-effort per coupon.
  */
 export async function deleteAutomationCoupons(
   accessToken: string,
   restaurantId: string,
-  codePrefix = "AUTO"
+  prefix = "AUTO"
 ): Promise<number> {
   const coupons = await getRestaurantCoupons(accessToken, restaurantId);
   let deleted = 0;
   for (const coupon of coupons) {
-    if (!coupon.code?.startsWith(codePrefix)) continue;
+    if (!isAutomationPromotion(coupon, prefix)) continue;
     if (coupon.source === "organization") continue;
     try {
       await deleteCouponApi(accessToken, coupon.id);
       deleted++;
     } catch (err) {
       console.warn(
-        `[apiHelper] Failed to delete coupon ${coupon.code} (${coupon.id}):`,
+        `[apiHelper] Failed to delete coupon ${coupon.code ?? coupon.description} (${coupon.id}):`,
         err
       );
     }

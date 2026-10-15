@@ -13,7 +13,8 @@
  * sweep backstops an interrupted run. The recipient is a unique Mailpit
  * address (generateUserEmail). When MAILPIT_BASE_URL isn't set (local runs
  * without the shared inbox's credentials) the email step is skipped and
- * annotated; CI always has it.
+ * annotated — locally only: in CI (process.env.CI) a missing MAILPIT_BASE_URL
+ * fails TC-852, so the email check can never silently drop out of the nightly.
  */
 
 import * as allure from "allure-js-commons";
@@ -50,6 +51,14 @@ test.describe("Owner — Promotions send", () => {
     await allure.description(
       "Row action Send to customers → Send a promotion dialog (starts on that promotion) → Email to a unique Mailpit address. The email's subject names the restaurant and its body carries the code; Send & campaigns opened on the promotion shows a Direct send of 1 in its Send history."
     );
+    // CI must prove the email arrives; only a local run may skip that step.
+    // Checked first, so a misconfigured CI run sends nothing.
+    if (process.env.CI) {
+      expect(
+        MAILPIT_BASE_URL,
+        "MAILPIT_BASE_URL must be set in CI — TC-852's email step can't be skipped there"
+      ).toBeTruthy();
+    }
     const { restaurantId, restaurantName } = readSharedState();
     const { accessToken: token } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD);
     const name = `AUTO Send ${generateRunId()}`;

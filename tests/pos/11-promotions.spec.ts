@@ -146,13 +146,17 @@ test.describe("POS — Promotions (price-preview + cash orders)", () => {
     if (!OWNER_EMAIL || !OWNER_PASSWORD || !ADMIN_EMAIL || !ADMIN_PASSWORD)
       return;
     adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
-    const tenant = await createSecondOwner(adminToken, runId);
-    if (!tenant.restaurantId)
+    // Always a fresh tenant (never OWNER2's persistent one): this file seeds
+    // the acceptance set and changes tax, delivery and the owner's POS PIN.
+    const tenant = await createSecondOwner(adminToken, runId, {
+      alwaysFresh: true,
+    });
+    if (!tenant.restaurantId || !tenant.password)
       throw new Error("[pos-promotions] could not mint the throwaway tenant");
     token = tenant.accessToken;
     restaurantId = tenant.restaurantId;
-    ownerEmail = process.env.OWNER2_EMAIL || tenant.email;
-    ownerPassword = process.env.OWNER2_PASSWORD || "Automation!Owner2-" + runId;
+    ownerEmail = tenant.email;
+    ownerPassword = tenant.password;
     await updateRestaurantSettingsApi(token, restaurantId, {
       acceptingOrders: true,
     });
@@ -192,7 +196,7 @@ test.describe("POS — Promotions (price-preview + cash orders)", () => {
     const t = await freshOwnerToken().catch(() => token);
     if (device) await deactivateTabletDevice(t, restaurantId, device.id);
     // Admin DELETE archives the throwaway restaurant; AUTO promotions are also swept by globalTeardown.
-    if (restaurantId && !process.env.OWNER2_EMAIL)
+    if (restaurantId)
       await deleteTestRestaurant(adminToken, restaurantId).catch(() => {});
   });
 

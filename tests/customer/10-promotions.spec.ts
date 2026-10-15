@@ -7,11 +7,12 @@
  * through the API in beforeAll by seedStorefrontPromotions: a per-run
  * "Automation Menu Promo Wind <id>" category with six items, a 50% automatic
  * sale and a free-item spend offer scoped to those items only (so no other
- * file's cart is repriced), a 15%-off-$30+ order code, a "2nd gyro for $1.99"
- * BOGO with item options (menu + code) and a CODE-only combo. The two deals
- * take two of the seed restaurant's 10 active slots for this file's run
- * (created cap-safe) — see TEST_PLAN.md's footprint table. Everything is
- * deleted in afterAll (each delete checked; a failed one fails the hook), and
+ * file's cart is repriced) and a 15%-off-$30+ order code. The two deals — a
+ * "2nd gyro for $1.99" BOGO with item options (menu + code) and a CODE-only
+ * combo — are created inside the tests that use them (cap-safe) and deleted in
+ * that test's finally, so the file holds no ACTIVE deal slot between tests
+ * (TC-841 briefly holds both) — see TEST_PLAN.md's footprint table. The rest
+ * is deleted in afterAll (each delete checked; a failed one fails the hook), and
  * globalTeardown's AUTO / "Automation Menu" sweeps backstop an interrupted run.
  *
  * TC-844 places ONE real Stripe test-card order (the plan's one wind order).
@@ -35,7 +36,10 @@ import {
   publicMenuItem,
   seedStorefrontPromotions,
   STOREFRONT_PRICES,
+  withStorefrontBogo,
+  withStorefrontCombo,
   type SeededItem,
+  type StorefrontDealContext,
   type StorefrontPromotionSet,
 } from "../../utils/promotionFixtures";
 import { promotionQuote } from "../../utils/promotionsApi";
@@ -72,6 +76,12 @@ test.describe("Storefront — Promotions (template-wind)", () => {
   let token = "";
   let set: StorefrontPromotionSet;
   const created: Parameters<typeof seedStorefrontPromotions>[3] = {};
+  const dealCtx = (): StorefrontDealContext => ({
+    token,
+    restaurantId,
+    set,
+    createdDeals: (created.createdDeals ??= []),
+  });
 
   const cartLine = (item: SeededItem, quantity = 1) => ({
     menuItemId: item.id,
@@ -90,8 +100,9 @@ test.describe("Storefront — Promotions (template-wind)", () => {
   test.afterAll(async () => {
     if (!token) return;
     const failures = await cleanupStorefrontPromotions(token, created);
-    // A leaked deal holds one of the seed restaurant's 10 active slots for
-    // every other file: fail loudly rather than log.
+    // Backstop for a per-test deal delete that never ran, plus the menu and
+    // coupons. A leaked deal holds one of the seed restaurant's 10 active
+    // slots for every other file: fail loudly rather than log.
     expect(failures, "storefront promotions cleanup").toEqual([]);
   });
 
@@ -144,73 +155,75 @@ test.describe("Storefront — Promotions (template-wind)", () => {
   test("TC-837: the BOGO builder offers each slot's options; two picks show the deal's server price, and the deal lands in the cart", async ({
     page,
   }) => {
-    const deals = createCustomerDealPage(page);
-    const { gyroA, gyroB } = set.items;
-    const server = await allure.step(
-      "server price for these picks (/quote)",
-      () =>
-        promotionQuote(restaurantId, {
-          items: [],
-          orderDeals: [
-            {
-              dealId: set.bogo.dealId,
-              quantity: 1,
-              items: [
-                {
-                  dealItemId: set.bogo.buyItemId,
-                  menuItemId: gyroA.id,
-                  quantity: 1,
-                },
-                {
-                  dealItemId: set.bogo.getItemId,
-                  menuItemId: gyroB.id,
-                  quantity: 1,
-                },
-              ],
-            },
-          ],
-        })
-    );
-    const dealPrice = server.deals[0]?.dealPrice;
-    expect(dealPrice, JSON.stringify(server.raw)).toBeDefined();
+    await withStorefrontBogo(dealCtx(), async (bogo) => {
+      const deals = createCustomerDealPage(page);
+      const { gyroA, gyroB } = set.items;
+      const server = await allure.step(
+        "server price for these picks (/quote)",
+        () =>
+          promotionQuote(restaurantId, {
+            items: [],
+            orderDeals: [
+              {
+                dealId: bogo.dealId,
+                quantity: 1,
+                items: [
+                  {
+                    dealItemId: bogo.buyItemId,
+                    menuItemId: gyroA.id,
+                    quantity: 1,
+                  },
+                  {
+                    dealItemId: bogo.getItemId,
+                    menuItemId: gyroB.id,
+                    quantity: 1,
+                  },
+                ],
+              },
+            ],
+          })
+      );
+      const dealPrice = server.deals[0]?.dealPrice;
+      expect(dealPrice, JSON.stringify(server.raw)).toBeDefined();
 
-    await allure.step("each slot lists both options", async () => {
-      await deals.gotoBuilder(restaurantId, set.bogo.dealId);
-      await expect(deals.builderHeading(set.bogo.name)).toBeVisible({
-        timeout: 20_000,
-      });
-      await expect(deals.choiceSlots()).toHaveCount(2);
-      for (const slot of [0, 1]) {
-        for (const item of [gyroA, gyroB]) {
-          await expect(deals.choiceCard(slot, item.name)).toBeVisible();
-          await expect(deals.choiceCard(slot, item.name)).toContainText(
-            money(item.price)
-          );
+      await allure.step("each slot lists both options", async () => {
+        await deals.gotoBuilder(restaurantId, bogo.dealId);
+        await expect(deals.builderHeading(bogo.name)).toBeVisible({
+          timeout: 20_000,
+        });
+        await expect(deals.choiceSlots()).toHaveCount(2);
+        for (const slot of [0, 1]) {
+          for (const item of [gyroA, gyroB]) {
+            await expect(deals.choiceCard(slot, item.name)).toBeVisible();
+            await expect(deals.choiceCard(slot, item.name)).toContainText(
+              money(item.price)
+            );
+          }
         }
-      }
-      await deals.assertProgress(0, 2);
-    });
-
-    await allure.step("pick one option per slot", async () => {
-      await deals.pickChoice(0, gyroA.name);
-      await deals.assertProgress(1, 2);
-      await deals.pickChoice(1, gyroB.name);
-      await deals.assertDealComplete();
-      await expect(deals.progressDealPrice()).toHaveText(money(dealPrice!));
-    });
-
-    await allure.step("the cart holds the deal at that price", async () => {
-      const [quoteRes] = await Promise.all([
-        page.waitForResponse(isQuoteResponse, { timeout: 30_000 }),
-        deals.viewCartButton().click(),
-      ]);
-      const quote = await readQuote(quoteRes);
-      expect(quote.request.orderDeals?.[0]?.dealId).toBe(set.bogo.dealId);
-      expect(quote.body.quote?.deals?.[0]?.dealPrice).toBe(dealPrice);
-      await expect(deals.dealSummaryRow(set.bogo.name)).toBeVisible({
-        timeout: 15_000,
+        await deals.assertProgress(0, 2);
       });
-      await expect(deals.partOfDealLabels()).toHaveCount(2);
+
+      await allure.step("pick one option per slot", async () => {
+        await deals.pickChoice(0, gyroA.name);
+        await deals.assertProgress(1, 2);
+        await deals.pickChoice(1, gyroB.name);
+        await deals.assertDealComplete();
+        await expect(deals.progressDealPrice()).toHaveText(money(dealPrice!));
+      });
+
+      await allure.step("the cart holds the deal at that price", async () => {
+        const [quoteRes] = await Promise.all([
+          page.waitForResponse(isQuoteResponse, { timeout: 30_000 }),
+          deals.viewCartButton().click(),
+        ]);
+        const quote = await readQuote(quoteRes);
+        expect(quote.request.orderDeals?.[0]?.dealId).toBe(bogo.dealId);
+        expect(quote.body.quote?.deals?.[0]?.dealPrice).toBe(dealPrice);
+        await expect(deals.dealSummaryRow(bogo.name)).toBeVisible({
+          timeout: 15_000,
+        });
+        await expect(deals.partOfDealLabels()).toHaveCount(2);
+      });
     });
   });
 
@@ -255,27 +268,31 @@ test.describe("Storefront — Promotions (template-wind)", () => {
   test("TC-839: a bundle code opens its deal builder — from the code box and from a ?promo= link", async ({
     page,
   }) => {
-    const checkout = createCustomerCheckoutPage(page);
-    const menu = createCustomerMenuPage(page);
-    const deals = createCustomerDealPage(page);
-    const builderUrl = new RegExp(
-      `/deals/${set.bogo.dealId}\\?code=${set.bogo.code}`
-    );
+    await withStorefrontBogo(dealCtx(), async (bogo) => {
+      const checkout = createCustomerCheckoutPage(page);
+      const menu = createCustomerMenuPage(page);
+      const deals = createCustomerDealPage(page);
+      const builderUrl = new RegExp(
+        `/deals/${bogo.dealId}\\?code=${bogo.code}`
+      );
 
-    await allure.step("code box", async () => {
-      await checkout.seedCartItems(restaurantId, [cartLine(set.items.platter)]);
-      await checkout.applyCoupon(set.bogo.code);
-      await expect(page).toHaveURL(builderUrl, { timeout: 20_000 });
-      await expect(deals.builderHeading(set.bogo.name)).toBeVisible({
-        timeout: 20_000,
+      await allure.step("code box", async () => {
+        await checkout.seedCartItems(restaurantId, [
+          cartLine(set.items.platter),
+        ]);
+        await checkout.applyCoupon(bogo.code);
+        await expect(page).toHaveURL(builderUrl, { timeout: 20_000 });
+        await expect(deals.builderHeading(bogo.name)).toBeVisible({
+          timeout: 20_000,
+        });
       });
-    });
 
-    await allure.step("?promo= link", async () => {
-      await menu.gotoWithParams(restaurantId, { promo: set.bogo.code });
-      await expect(page).toHaveURL(builderUrl, { timeout: 20_000 });
-      await expect(deals.builderHeading(set.bogo.name)).toBeVisible({
-        timeout: 20_000,
+      await allure.step("?promo= link", async () => {
+        await menu.gotoWithParams(restaurantId, { promo: bogo.code });
+        await expect(page).toHaveURL(builderUrl, { timeout: 20_000 });
+        await expect(deals.builderHeading(bogo.name)).toBeVisible({
+          timeout: 20_000,
+        });
       });
     });
   });
@@ -327,184 +344,194 @@ test.describe("Storefront — Promotions (template-wind)", () => {
   test("TC-841: a CODE-only combo is not listed on the menu; its code opens it, and checkout prices it with no 'needs its code' issue", async ({
     page,
   }) => {
-    const menu = createCustomerMenuPage(page);
-    const deals = createCustomerDealPage(page);
-    const checkout = createCustomerCheckoutPage(page);
-    const { platter, burger } = set.items;
+    await withStorefrontBogo(dealCtx(), (bogo) =>
+      withStorefrontCombo(dealCtx(), async (combo) => {
+        const menu = createCustomerMenuPage(page);
+        const deals = createCustomerDealPage(page);
+        const checkout = createCustomerCheckoutPage(page);
+        const { platter, burger } = set.items;
 
-    await allure.step("hidden without its code", async () => {
-      const listed = (
-        await getActiveDealsPublic(restaurantId, { v2: true })
-      ).data.deals?.map((d) => d.id);
-      expect(listed).toContain(set.bogo.dealId);
-      expect(listed).not.toContain(set.combo.dealId);
-      await menu.goto(restaurantId);
-      await menu.assertPageLoaded();
-      // Positive control: the BOGO (menu + code) is listed.
-      await expect(menu.dealHeading(set.bogo.name)).toBeVisible({
-        timeout: 30_000,
-      });
-      await expect(menu.dealHeading(set.combo.name)).toHaveCount(0);
-    });
+        await allure.step("hidden without its code", async () => {
+          const listed = (
+            await getActiveDealsPublic(restaurantId, { v2: true })
+          ).data.deals?.map((d) => d.id);
+          expect(listed).toContain(bogo.dealId);
+          expect(listed).not.toContain(combo.dealId);
+          await menu.goto(restaurantId);
+          await menu.assertPageLoaded();
+          // Positive control: the BOGO (menu + code) is listed.
+          await expect(menu.dealHeading(bogo.name)).toBeVisible({
+            timeout: 30_000,
+          });
+          await expect(menu.dealHeading(combo.name)).toHaveCount(0);
+        });
 
-    await allure.step("its code opens the builder", async () => {
-      await checkout.seedCartItems(restaurantId, [cartLine(set.items.gyroA)]);
-      await checkout.applyCoupon(set.combo.code);
-      await expect(page).toHaveURL(
-        new RegExp(`/deals/${set.combo.dealId}\\?code=${set.combo.code}`),
-        { timeout: 20_000 }
-      );
-      await expect(deals.builderHeading(set.combo.name)).toBeVisible({
-        timeout: 20_000,
-      });
-    });
+        await allure.step("its code opens the builder", async () => {
+          await checkout.seedCartItems(restaurantId, [
+            cartLine(set.items.gyroA),
+          ]);
+          await checkout.applyCoupon(combo.code);
+          await expect(page).toHaveURL(
+            new RegExp(`/deals/${combo.dealId}\\?code=${combo.code}`),
+            { timeout: 20_000 }
+          );
+          await expect(deals.builderHeading(combo.name)).toBeVisible({
+            timeout: 20_000,
+          });
+        });
 
-    await allure.step("build it and check out", async () => {
-      await deals.openIncompleteSlot(platter.name);
-      await deals.clickAddToDeal();
-      await deals.openIncompleteSlot(burger.name);
-      await deals.clickAddToDeal();
-      await deals.assertDealComplete();
-      const [quoteRes] = await Promise.all([
-        page.waitForResponse(isQuoteResponse, { timeout: 30_000 }),
-        deals.viewCartButton().click(),
-      ]);
-      const quote = await readQuote(quoteRes);
-      const line = quote.request.orderDeals?.find(
-        (d) => d.dealId === set.combo.dealId
-      );
-      expect(line?.code, "the coded deal travels with its code").toBe(
-        set.combo.code
-      );
-      expect(
-        (quote.body.issues ?? []).map((i) => i.code),
-        JSON.stringify(quote.body.issues)
-      ).not.toContain("code_required");
-      expect(
-        quote.body.quote?.deals?.find((d) => d.dealId === set.combo.dealId)
-          ?.dealPrice
-      ).toBe(STOREFRONT_PRICES.comboPrice);
-      await expect(deals.dealSummaryRow(set.combo.name)).toBeVisible({
-        timeout: 15_000,
-      });
-      await expect(checkout.dealNeedsCodeMessage()).toHaveCount(0);
-      await expect(checkout.reviewYourOrderButton()).toHaveCount(0);
-      // Pay is disabled until the customer form is valid; with it filled,
-      // nothing (no code issue, no incomplete deal) may block it.
-      await checkout.fillCustomerInfo(
-        "Combo",
-        "Tester",
-        generateUserEmail("windcombo"),
-        generateSeedPhone()
-      );
-      await checkout.selectPickup();
-      await expect(checkout.proceedToPaymentButton()).toBeEnabled({
-        timeout: 15_000,
-      });
-    });
+        await allure.step("build it and check out", async () => {
+          await deals.openIncompleteSlot(platter.name);
+          await deals.clickAddToDeal();
+          await deals.openIncompleteSlot(burger.name);
+          await deals.clickAddToDeal();
+          await deals.assertDealComplete();
+          const [quoteRes] = await Promise.all([
+            page.waitForResponse(isQuoteResponse, { timeout: 30_000 }),
+            deals.viewCartButton().click(),
+          ]);
+          const quote = await readQuote(quoteRes);
+          const line = quote.request.orderDeals?.find(
+            (d) => d.dealId === combo.dealId
+          );
+          expect(line?.code, "the coded deal travels with its code").toBe(
+            combo.code
+          );
+          expect(
+            (quote.body.issues ?? []).map((i) => i.code),
+            JSON.stringify(quote.body.issues)
+          ).not.toContain("code_required");
+          expect(
+            quote.body.quote?.deals?.find((d) => d.dealId === combo.dealId)
+              ?.dealPrice
+          ).toBe(STOREFRONT_PRICES.comboPrice);
+          await expect(deals.dealSummaryRow(combo.name)).toBeVisible({
+            timeout: 15_000,
+          });
+          await expect(checkout.dealNeedsCodeMessage()).toHaveCount(0);
+          await expect(checkout.reviewYourOrderButton()).toHaveCount(0);
+          // Pay is disabled until the customer form is valid; with it filled,
+          // nothing (no code issue, no incomplete deal) may block it.
+          await checkout.fillCustomerInfo(
+            "Combo",
+            "Tester",
+            generateUserEmail("windcombo"),
+            generateSeedPhone()
+          );
+          await checkout.selectPickup();
+          await expect(checkout.proceedToPaymentButton()).toBeEnabled({
+            timeout: 15_000,
+          });
+        });
+      })
+    );
   });
 
   test("TC-842: Keep shopping after completing a deal lands on the menu with '<deal> added to your cart' — once; a crafted dealAdded id shows nothing", async ({
     page,
   }) => {
-    const deals = createCustomerDealPage(page);
-    const menu = createCustomerMenuPage(page);
-    const expected = `${set.bogo.name} added to your cart`;
+    await withStorefrontBogo(dealCtx(), async (bogo) => {
+      const deals = createCustomerDealPage(page);
+      const menu = createCustomerMenuPage(page);
+      const expected = `${bogo.name} added to your cart`;
 
-    await allure.step("complete the deal → Keep shopping", async () => {
-      await deals.gotoBuilder(restaurantId, set.bogo.dealId);
-      await expect(deals.keepShoppingButton()).toHaveCount(0);
-      await deals.pickChoice(0, set.items.gyroA.name);
-      await deals.pickChoice(1, set.items.gyroB.name);
-      await deals.assertDealComplete();
-      await deals.keepShoppingButton().click();
-      await expect(page).toHaveURL(/\/menu/, { timeout: 15_000 });
-      await expect(menu.dealAddedConfirmation()).toHaveText(expected, {
-        timeout: 10_000,
-      });
-      // One-shot: the param is stripped on read.
-      await expect(page).not.toHaveURL(/dealAdded=/);
-    });
-
-    await allure.step("a refresh does not show it again", async () => {
-      await page.reload({ waitUntil: "domcontentloaded" });
-      await expect(menu.itemCard(set.items.platter.name)).toBeVisible({
-        timeout: 30_000,
-      });
-      await expect(menu.dealAddedConfirmation()).toHaveCount(0);
-    });
-
-    await allure.step(
-      "a crafted id shows nothing; the real one (control) does",
-      async () => {
-        await menu.gotoWithParams(restaurantId, {
-          dealAdded: "00000000-0000-4000-8000-000000000000",
-        });
-        await expect(menu.itemCard(set.items.platter.name)).toBeVisible({
-          timeout: 30_000,
-        });
-        await expect(page).not.toHaveURL(/dealAdded=/);
-        await expect(menu.dealAddedConfirmation()).toHaveCount(0);
-        await menu.gotoWithParams(restaurantId, { dealAdded: set.bogo.dealId });
+      await allure.step("complete the deal → Keep shopping", async () => {
+        await deals.gotoBuilder(restaurantId, bogo.dealId);
+        await expect(deals.keepShoppingButton()).toHaveCount(0);
+        await deals.pickChoice(0, set.items.gyroA.name);
+        await deals.pickChoice(1, set.items.gyroB.name);
+        await deals.assertDealComplete();
+        await deals.keepShoppingButton().click();
+        await expect(page).toHaveURL(/\/menu/, { timeout: 15_000 });
         await expect(menu.dealAddedConfirmation()).toHaveText(expected, {
           timeout: 10_000,
         });
-      }
-    );
+        // One-shot: the param is stripped on read.
+        await expect(page).not.toHaveURL(/dealAdded=/);
+      });
+
+      await allure.step("a refresh does not show it again", async () => {
+        await page.reload({ waitUntil: "domcontentloaded" });
+        await expect(menu.itemCard(set.items.platter.name)).toBeVisible({
+          timeout: 30_000,
+        });
+        await expect(menu.dealAddedConfirmation()).toHaveCount(0);
+      });
+
+      await allure.step(
+        "a crafted id shows nothing; the real one (control) does",
+        async () => {
+          await menu.gotoWithParams(restaurantId, {
+            dealAdded: "00000000-0000-4000-8000-000000000000",
+          });
+          await expect(menu.itemCard(set.items.platter.name)).toBeVisible({
+            timeout: 30_000,
+          });
+          await expect(page).not.toHaveURL(/dealAdded=/);
+          await expect(menu.dealAddedConfirmation()).toHaveCount(0);
+          await menu.gotoWithParams(restaurantId, { dealAdded: bogo.dealId });
+          await expect(menu.dealAddedConfirmation()).toHaveText(expected, {
+            timeout: 10_000,
+          });
+        }
+      );
+    });
   });
 
   test("TC-843: a deal with upgrade picks shows Items, Upgrades (itemised, incl. the size choice) and Subtotal — Items + Upgrades = Subtotal = the quote's", async ({
     page,
   }) => {
-    const deals = createCustomerDealPage(page);
-    const modal = createCustomerItemModal(page);
-    const checkout = createCustomerCheckoutPage(page);
-    const { platter, burger } = set.items;
-    const P = STOREFRONT_PRICES;
+    await withStorefrontCombo(dealCtx(), async (combo) => {
+      const deals = createCustomerDealPage(page);
+      const modal = createCustomerItemModal(page);
+      const checkout = createCustomerCheckoutPage(page);
+      const { platter, burger } = set.items;
+      const P = STOREFRONT_PRICES;
 
-    await deals.gotoBuilder(restaurantId, set.combo.dealId, set.combo.code);
-    await expect(deals.builderHeading(set.combo.name)).toBeVisible({
-      timeout: 20_000,
+      await deals.gotoBuilder(restaurantId, combo.dealId, combo.code);
+      await expect(deals.builderHeading(combo.name)).toBeVisible({
+        timeout: 20_000,
+      });
+      await deals.openIncompleteSlot(platter.name);
+      await deals.clickAddToDeal();
+      await deals.openIncompleteSlot(burger.name);
+      await modal.selectOption(`Large ${runId}`);
+      await modal.selectOption(`Bacon ${runId}`);
+      await modal.assertPrice((P.burgerLarge + P.bacon).toFixed(2));
+      await deals.clickAddToDeal();
+      await deals.assertDealComplete();
+
+      const [quoteRes] = await Promise.all([
+        page.waitForResponse(isQuoteResponse, { timeout: 30_000 }),
+        deals.viewCartButton().click(),
+      ]);
+      const quote = (await readQuote(quoteRes)).body.quote!;
+      const upcharge = quote.deals?.[0]?.upcharge;
+      // Large replaces Regular ($15 − $12) + Bacon $1.50.
+      expect(upcharge).toBe(P.burgerLarge - P.burger + P.bacon);
+
+      await expect(checkout.summaryItemsRow()).toBeVisible({ timeout: 15_000 });
+      const items = await checkout.readMoney(checkout.summaryItemsRow());
+      const upgrades = await checkout.readMoney(checkout.summaryUpgradesRow());
+      const subtotal = await checkout.readMoney(checkout.subtotalRow());
+      await allure.parameter(
+        "items / upgrades / subtotal",
+        `${items} / ${upgrades} / ${subtotal}`
+      );
+      expect(Math.round((items + upgrades) * 100)).toBe(
+        Math.round(subtotal * 100)
+      );
+      expect(upgrades).toBe(upcharge);
+      expect(subtotal).toBe(quote.subtotal);
+      await expect(checkout.summaryUpgradesRow()).toContainText(
+        `+${money(upcharge!)}`
+      );
+      const details = checkout.summaryUpgradeDetails();
+      await expect(details).toContainText(
+        `Large ${runId} +${money(P.burgerLarge - P.burger)}`
+      );
+      await expect(details).toContainText(`Bacon ${runId} +${money(P.bacon)}`);
     });
-    await deals.openIncompleteSlot(platter.name);
-    await deals.clickAddToDeal();
-    await deals.openIncompleteSlot(burger.name);
-    await modal.selectOption(`Large ${runId}`);
-    await modal.selectOption(`Bacon ${runId}`);
-    await modal.assertPrice((P.burgerLarge + P.bacon).toFixed(2));
-    await deals.clickAddToDeal();
-    await deals.assertDealComplete();
-
-    const [quoteRes] = await Promise.all([
-      page.waitForResponse(isQuoteResponse, { timeout: 30_000 }),
-      deals.viewCartButton().click(),
-    ]);
-    const quote = (await readQuote(quoteRes)).body.quote!;
-    const upcharge = quote.deals?.[0]?.upcharge;
-    // Large replaces Regular ($15 − $12) + Bacon $1.50.
-    expect(upcharge).toBe(P.burgerLarge - P.burger + P.bacon);
-
-    await expect(checkout.summaryItemsRow()).toBeVisible({ timeout: 15_000 });
-    const items = await checkout.readMoney(checkout.summaryItemsRow());
-    const upgrades = await checkout.readMoney(checkout.summaryUpgradesRow());
-    const subtotal = await checkout.readMoney(checkout.subtotalRow());
-    await allure.parameter(
-      "items / upgrades / subtotal",
-      `${items} / ${upgrades} / ${subtotal}`
-    );
-    expect(Math.round((items + upgrades) * 100)).toBe(
-      Math.round(subtotal * 100)
-    );
-    expect(upgrades).toBe(upcharge);
-    expect(subtotal).toBe(quote.subtotal);
-    await expect(checkout.summaryUpgradesRow()).toContainText(
-      `+${money(upcharge!)}`
-    );
-    const details = checkout.summaryUpgradeDetails();
-    await expect(details).toContainText(
-      `Large ${runId} +${money(P.burgerLarge - P.burger)}`
-    );
-    await expect(details).toContainText(`Bacon ${runId} +${money(P.bacon)}`);
   });
 
   test("TC-844: paying with the order code records the code's promotion, the quoted savings and the total shown before paying", async ({

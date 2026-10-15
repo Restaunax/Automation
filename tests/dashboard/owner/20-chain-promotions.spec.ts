@@ -56,6 +56,7 @@ import {
   type ApiMenuItem,
 } from "../../../utils/apiHelper";
 import {
+  deletePromotionRaw,
   listChainPromotions,
   listPromotions,
 } from "../../../utils/promotionsApi";
@@ -99,12 +100,7 @@ test.describe("Owner — Chain promotions", () => {
         (r) => r.name === name
       );
       for (const r of rows) {
-        const res = await apiRequestRaw(
-          "DELETE",
-          r.source === "COUPON" ? `/api/coupons/${r.id}` : `/api/deals/${r.id}`,
-          undefined,
-          t
-        );
+        const res = await deletePromotionRaw(t, r);
         if (!res.ok) {
           console.warn(
             `[20-chain-promotions] cleanup: deleting ${r.source} ${r.id} (${name}) → ${res.status} ${JSON.stringify(res.data)}`
