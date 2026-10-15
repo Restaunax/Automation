@@ -195,6 +195,63 @@ export const createOwnerPromotionsPage = (page: Page) => {
     }
   };
 
+  /**
+   * The "Send a promotion" dialog (row action "Send to customers" on a
+   * restaurant list). Opened from a row it starts on that promotion in
+   * "One of your promotions" mode; with no customer it asks for the
+   * recipient's email. Resolves with the send's response
+   * (POST …/send-to-contact).
+   */
+  const sendDialog = () =>
+    page.getByRole("dialog").filter({ hasText: "Send a promotion" });
+
+  const sendToEmail = async (
+    name: string,
+    email: string
+  ): Promise<{ status: number }> => {
+    await openRowAction(name, "Send to customers");
+    const dialog = sendDialog();
+    await expect(dialog).toBeVisible();
+    // The picker starts on the row's promotion.
+    await expect(dialog.locator("#send-promotion-picker")).toHaveText(name);
+    await dialog.getByRole("radio", { name: "Email", exact: true }).check();
+    await dialog.getByLabel("Their email", { exact: true }).fill(email);
+    const [res] = await Promise.all([
+      page.waitForResponse(
+        (r) =>
+          /\/send-to-contact$/.test(new URL(r.url()).pathname) &&
+          r.request().method() === "POST"
+      ),
+      dialog.getByRole("button", { name: "Send", exact: true }).click(),
+    ]);
+    await expect(dialog).toBeHidden();
+    return { status: res.status() };
+  };
+
+  /** The dialog's success toast ("Promotion sent."). */
+  const sentToast = () => page.getByText("Promotion sent.", { exact: true });
+
+  /**
+   * Promotions › Send & campaigns, opened on one promotion (the list's
+   * chain Send uses the same `promotion=` link). A coupon shows its
+   * "Send history" panel under the send form.
+   */
+  const gotoCampaigns = async (restaurantId: string, promotionId: string) => {
+    await page.goto(
+      `/restaurant/restaurantId/${restaurantId}/restaurantManagement?tab=promotion-campaigns&promotion=${promotionId}`,
+      { waitUntil: "domcontentloaded" }
+    );
+    await expect(
+      page.getByRole("heading", { name: "Send history", exact: true })
+    ).toBeVisible({ timeout: 20_000 });
+  };
+
+  /** One card of the Send history panel, found by its label. */
+  const sendHistoryEvent = (label: string | RegExp) =>
+    page
+      .locator(".MuiCard-root")
+      .filter({ has: page.getByText(label, { exact: true }) });
+
   /** A chain member opened a centralized promotions tab. */
   const expectSectionDisabled = () =>
     expect(
@@ -224,6 +281,11 @@ export const createOwnerPromotionsPage = (page: Page) => {
     expectRowSavings,
     expectRowCode,
     expectSectionDisabled,
+    sendDialog,
+    sendToEmail,
+    sentToast,
+    gotoCampaigns,
+    sendHistoryEvent,
   };
 };
 

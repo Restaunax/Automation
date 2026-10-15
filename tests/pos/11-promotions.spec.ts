@@ -11,7 +11,9 @@
  * acceptance set (SAVE15 / SAVE2 / FIRST5 / SAVE3). Setup chain mirrors
  * 10-deals: ADMIN-created REGISTER device → tablet login → owner PIN → staff
  * sign-in, then a register session for cash tenders. Tax is set to 0%, so
- * every total is a clean sum. Every order is cash and is cancelled in afterAll.
+ * every total is a clean sum. Orders are cash tenders, except TC-851's unpaid
+ * CARD delivery tickets (never paid, so no courier is dispatched); every order
+ * is cancelled in afterAll.
  */
 
 import * as allure from "allure-js-commons";

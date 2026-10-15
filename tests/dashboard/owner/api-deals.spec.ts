@@ -7,7 +7,7 @@
  * computed money fields, the qty-1 slot invariant, the availability window,
  * status/cap rules, delete semantics, what the customer is charged (deal price
  * × qty + modifier upcharge, never the client's numbers), stats, chain scope
- * and the authorization pins. See docs/DEALS_TAB_TEST_STRATEGY.md §3.6 / §4.
+ * and the authorization pins. See docs/PROMOTIONS_TEST_STRATEGY.md §3.6 / §4.
  *
  * Own tenant: the WHOLE file runs on a per-run throwaway restaurant owned by
  * an admin-minted OWNER (`createSecondOwner`) — the seed restaurant carries five
@@ -21,7 +21,7 @@
  * The §1 findings (IDOR, cap bypass, PUT validation, coupon ⊥ deal, aiGenerated)
  * were fixed in RestauNax #618/#619 and are LIVE on QA — the tests that pinned
  * them as test.fail() now assert the FIXED behaviour (TC-334, 335b, 336, 341,
- * 343, 347..350). See docs/DEALS_TAB_TEST_STRATEGY.md §1.
+ * 343, 347..350). See docs/PROMOTIONS_TEST_STRATEGY.md §1.
  *
  * Guided deal types (restaunax DEAL_TYPES.md, TC-691..677): every write now
  * runs the type rules — a COMBO needs >= 2 unit rows priced below the items'

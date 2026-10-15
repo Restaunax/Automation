@@ -189,11 +189,11 @@ test.describe("Customer — Checkout", () => {
   });
 });
 
-// ── Coupon auto-revalidation on cart change — CouponSection re-POSTs
-// /api/coupons/validate (500ms debounce) whenever the cart changes and
-// removes the coupon if the server now rejects it. Driven here with a
-// minOrderAmount coupon: two cart lines clear the minimum, removing one
-// drops below it.
+// ── Coupon re-check on cart change — every cart change re-quotes the cart
+// (/quote), and a code that no longer qualifies stays in the box with an
+// ERROR issue that blocks Pay until it is removed (Promotions: the code is no
+// longer silently auto-removed). Driven here with a minOrderAmount coupon: two
+// cart lines clear the minimum, removing one drops below it.
 test.describe("Customer — Checkout coupon revalidation", () => {
   test.skip(
     !TEMPLATE_WIND_URL || !OWNER_EMAIL || !OWNER_PASSWORD,

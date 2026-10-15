@@ -55,7 +55,7 @@ on:
       project:
         description: "Playwright project to run"
         type: choice
-        options: [all, dashboard, customer]
+        options: [all, dashboard, customer, customer-lima, pos]
         default: all
 
 # The suite mutates a single shared QA environment: two runs at once interfere

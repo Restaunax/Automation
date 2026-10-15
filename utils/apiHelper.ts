@@ -1576,7 +1576,7 @@ export interface ApiErrorBody {
  * every write since guided deal types — savingsAmount = max(0, orig − deal),
  * savingsPercentage 1 dp) — assert against them, never a hand sum.
  * `computedStatus` / `hasOutOfStockItem` / `isAvailable` are list-only
- * projections (GET /restaurant/:id) — see docs/DEALS_TAB_TEST_STRATEGY.md §3.6.
+ * projections (GET /restaurant/:id) — see docs/PROMOTIONS_TEST_STRATEGY.md §3.6.
  */
 export interface ApiDeal {
   id: string;
@@ -1742,11 +1742,11 @@ export async function createDealApi(
  * SHARED seed restaurant; the throwaway-tenant specs don't need it.
  */
 /**
- * How long a seed-restaurant deal create waits for a cap slot. The longest
- * hold is 11-deals TC-359, which tops the shared restaurant up to 10 ACTIVE
- * deals and keeps them through several page loads, toggles and a retry loop
- * (up to about a minute on QA). The old 45 s was shorter than that, so a
- * concurrent file timed out waiting. 150 s clears it; a genuine leak still
+ * How long a seed-restaurant deal create waits for a cap slot. Sized for the
+ * old 11-deals TC-359 (retired 2026-10-15 with the Deals page), which topped
+ * the shared restaurant up to 10 ACTIVE deals for about a minute on QA; no
+ * current spec holds the cap that long, but several deal specs still share the
+ * seed restaurant's 10 slots. 150 s keeps that margin; a genuine leak still
  * fails, just later.
  */
 export const CAP_WAIT_MS = 150_000;

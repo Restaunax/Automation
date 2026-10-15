@@ -5,7 +5,7 @@
  * TEMPLATE_WIND_URL) and `ownerPage` (restored owner dashboard session). Proves
  * what the owner tab tests can't: the deal the owner creates / toggles / 86s
  * is what the customer is offered, builds, is quoted, PAYS for, and what the
- * owner's usage counters then report. See docs/DEALS_TAB_TEST_STRATEGY.md §4
+ * owner's usage counters then report. See docs/PROMOTIONS_TEST_STRATEGY.md §4
  * (Layer 3). Own data: a per-run "Automation Deals Storefront <id>" category on
  * the seed restaurant (Burger 10 · Fries 6.50 · Pizza 12 with an ADJUSTS_PRICE
  * "Extra Cheese" +2 modifier) and AUTO deals; everything deleted / hard-deleted
