@@ -1759,6 +1759,17 @@ Deals carry days, an HH:mm window (overnight allowed) and start/end dates, judge
 
 ---
 
+## TC-713 → — Promotions (2026-10)
+
+**Status:** Task 1 of the promotions automation plan (spec `restaunax/docs/features/PROMOTIONS.md`).
+
+### API contract (`dashboard/owner/api-promotions.spec.ts`, throwaway tenant)
+
+| TC         | What it checks                                                                                         |
+| ---------- | ------------------------------------------------------------------------------------------------------ |
+| **TC-713** | An order code redeems as `ORDER` via `/api/promotions/redeem-code` and appears in the promotions list. |
+| **TC-714** | An unknown code is refused (>= 400, `success:false`) with resolved text, never an i18n key.            |
+
 ## TC-691 → TC-712 — Guided Deal Types (type-first deals, 2026-10)
 
 **Status:** ✅ Passing on QA (2026-10-09, after restaunax #927 + #928). The deploy gate was removed — these always run.

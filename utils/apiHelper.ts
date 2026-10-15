@@ -1412,8 +1412,17 @@ export async function createSecondOwner(
 export interface ApiCoupon {
   id: string;
   code: string;
-  /** CouponType enum, e.g. "PERCENTAGE" | "FIXED_AMOUNT" | "FREE_DELIVERY". */
-  type?: string;
+  /**
+   * CouponType enum, e.g. "PERCENTAGE" | "FIXED_AMOUNT" | "FREE_DELIVERY" |
+   * "ITEM_SALE" | "FREE_ITEM".
+   */
+  type?:
+    | "PERCENTAGE"
+    | "FIXED_AMOUNT"
+    | "FIXED_ITEM"
+    | "FREE_DELIVERY"
+    | "ITEM_SALE"
+    | "FREE_ITEM";
   /** Discount value (Float). Percentage points or fixed amount per `type`. */
   value?: number;
   /** Minimum order subtotal before the coupon applies (required on FREE_DELIVERY). */
@@ -1502,7 +1511,8 @@ export type DealType =
   | "COMBO"
   | "BOGO_FREE"
   | "BOGO_PERCENT_OFF"
-  | "PERCENT_OFF";
+  | "PERCENT_OFF"
+  | "BOGO_FIXED_PRICE";
 /** Per-row role: BUY / GET on the two BOGO types, INCLUDED otherwise. */
 export type DealItemRole = "INCLUDED" | "BUY" | "GET";
 
@@ -1615,7 +1625,18 @@ export interface DealBody {
     role?: DealItemRole;
     isRequired?: boolean;
     sortOrder?: number;
+    /** "One of these items" choices for the slot (write field; read back as `options`). */
+    optionMenuItemIds?: string[];
   }[];
+  /** How customers get it (promotions v2); absent = backend default. */
+  applyMode?: "AUTOMATIC" | "CODE" | "BOTH";
+  audience?: "EVERYONE" | "FIRST_ORDER";
+  code?: string | null;
+  /** BOGO_FIXED_PRICE: what the GET item costs. */
+  getPrice?: number | null;
+  minOrderAmount?: number | null;
+  perUserLimit?: number | null;
+  usageLimit?: number | null;
   validDays?: string[];
   validTimeStart?: string;
   validTimeEnd?: string;
@@ -1979,9 +2000,14 @@ export function getActiveDealsPublic(
     at?: string;
     lang?: "en" | "es";
     includeUnavailable?: boolean;
+    /** Send X-Promotions-Version: 2 (a client that knows the new mechanics). */
+    v2?: boolean;
+    /** A bundle code the customer typed (CODE-only deals list only with it). */
+    code?: string;
   } = {}
 ): Promise<RawResponse<ActiveDealsResponse>> {
   const q = new URLSearchParams();
+  if (opts.code) q.set("code", opts.code);
   if (opts.channel) q.set("channel", opts.channel);
   if (opts.at) q.set("at", opts.at);
   if (opts.includeUnavailable) q.set("includeUnavailable", "1");
@@ -1991,7 +2017,12 @@ export function getActiveDealsPublic(
     `/api/deals/restaurant/${restaurantId}/active${qs ? `?${qs}` : ""}`,
     undefined,
     undefined,
-    opts.lang ? { "Accept-Language": opts.lang } : undefined
+    opts.lang || opts.v2
+      ? {
+          ...(opts.lang ? { "Accept-Language": opts.lang } : {}),
+          ...(opts.v2 ? { "X-Promotions-Version": "2" } : {}),
+        }
+      : undefined
   );
 }
 
@@ -4772,7 +4803,7 @@ const RETRY_BACKOFF_MS = [1_000, 3_000];
  * MAX_RETRIES times with backoff — a single QA gateway blip during
  * setup/teardown shouldn't abort the whole run or leak cleanup.
  */
-async function apiRequestRaw<T = unknown>(
+export async function apiRequestRaw<T = unknown>(
   method: string,
   path: string,
   body?: unknown,
