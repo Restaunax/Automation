@@ -26,11 +26,11 @@ import {
   apiLogin,
   createMenuGroupNamed,
   createMenuItemFull,
-  deleteCouponApi,
-  deleteDealRaw,
+  apiRequestRaw,
   deleteMenuGroupRaw,
   deleteMenuItemRaw,
   getActiveDealsPublic,
+  getDealApi,
   getRestaurantCoupons,
   waitForFreeDealSlot,
 } from "../../../utils/apiHelper";
@@ -82,19 +82,31 @@ test.describe("Owner — Promotions", () => {
   ): Promise<PromotionListRow | undefined> =>
     (await listPromotions(token, restaurantId)).find((r) => r.name === name);
 
-  /** Deletes every promotion titled `name` (coupon or deal). Best-effort. */
+  /**
+   * Deletes every promotion titled `name` (coupon or deal). Never throws, so
+   * one failed cleanup in a `finally` can't skip the next; a refused delete is
+   * logged and left for globalTeardown's AUTO sweep.
+   */
   const cleanup = async (name: string) => {
-    const rows = (await listPromotions(token, restaurantId)).filter(
-      (r) => r.name === name
-    );
-    for (const r of rows) {
-      if (r.source === "COUPON") {
-        await deleteCouponApi(token, r.id).catch(() => {
-          // Already gone (the test deleted it) — nothing to clean.
-        });
-      } else {
-        await deleteDealRaw(token, r.id);
+    try {
+      const rows = (await listPromotions(token, restaurantId)).filter(
+        (r) => r.name === name
+      );
+      for (const r of rows) {
+        const res = await apiRequestRaw(
+          "DELETE",
+          r.source === "COUPON" ? `/api/coupons/${r.id}` : `/api/deals/${r.id}`,
+          undefined,
+          token
+        );
+        if (!res.ok) {
+          console.warn(
+            `[19-promotions] cleanup: deleting ${r.source} ${r.id} (${name}) → ${res.status} ${JSON.stringify(res.data)}`
+          );
+        }
       }
+    } catch (err) {
+      console.warn(`[19-promotions] cleanup of "${name}" failed:`, err);
     }
   };
 
@@ -289,11 +301,11 @@ test.describe("Owner — Promotions", () => {
   // rewritten against the new gallery once it ships.
   test.fixme("TC-825: create Combo price from an example — pending create-flow redesign — rewritten after it ships", async () => {});
 
-  test("TC-826: create Free item (spend $40), Free delivery ($15+, up to $8) and Combo price ($15 for two items)", async ({
+  test("TC-826: create Free item (spend $40), Free delivery ($15+, up to $8) and Combo price ($15, the same item twice)", async ({
     ownerPage,
   }) => {
     await allure.description(
-      "The remaining card types save and list as Live; the combo is built from its card (the from-an-example path is TC-825, pending the examples redesign)."
+      "The remaining card types save and list as Live; the combo is built from its card with the same item on two lines (two wraps + a bowl) and the server deal keeps both (the from-an-example path is TC-825, pending the examples redesign)."
     );
     const freeItem = promoName("Free item");
     const freeDelivery = promoName("Free delivery");
@@ -332,6 +344,8 @@ test.describe("Owner — Promotions", () => {
           itemA.name,
           itemB.name,
         ]);
+        // The same item twice: two wraps + a bowl ($32 regular).
+        await create.repeatLine(itemA.name);
         await create.setAmount("Combo price", "15");
         await create.setName(combo);
         await create.expectPreviewText(/\$15\.00/);
@@ -340,7 +354,15 @@ test.describe("Owner — Promotions", () => {
         await create.expectSaved();
         await list.showAllRows();
         await list.expectRowStatus(combo, "Live");
-        expect((await serverRow(combo))?.status).toBe("ACTIVE");
+        const row = await serverRow(combo);
+        expect(row?.status).toBe("ACTIVE");
+        const deal = await getDealApi(token, row?.id ?? "");
+        const units = (id: string) =>
+          (deal.items ?? [])
+            .filter((i) => i.menuItemId === id)
+            .reduce((n, i) => n + i.quantity, 0);
+        expect(units(itemA.id), JSON.stringify(deal.items)).toBe(2);
+        expect(units(itemB.id), JSON.stringify(deal.items)).toBe(1);
       });
     } finally {
       await cleanup(freeItem);
@@ -449,11 +471,11 @@ test.describe("Owner — Promotions", () => {
     }
   });
 
-  test("TC-830: Delete asks once and removes the promotion", async ({
+  test("TC-830: Delete asks once — Cancel keeps the promotion, Delete removes it", async ({
     ownerPage,
   }) => {
     await allure.description(
-      'One confirm ("Delete this promotion?"), then the row is gone and the server no longer lists it.'
+      'One confirm ("Delete this promotion?"): Cancel leaves the row and the server row; Delete removes both.'
     );
     const name = promoName("Delete");
     await createCouponPromotion(token, restaurantId, {
@@ -465,6 +487,12 @@ test.describe("Owner — Promotions", () => {
     const list = createOwnerPromotionsPage(ownerPage);
     try {
       await list.goto(restaurantId);
+      await allure.step("Cancel keeps it", async () => {
+        await list.openRowAction(name, "Delete");
+        await list.cancelDialog();
+        await list.expectRow(name);
+        expect(await serverRow(name)).toBeTruthy();
+      });
       await list.openRowAction(name, "Delete");
       await expect(
         ownerPage.getByRole("dialog").getByText("Delete this promotion?")
@@ -474,6 +502,42 @@ test.describe("Owner — Promotions", () => {
       expect(await serverRow(name)).toBeUndefined();
     } finally {
       await cleanup(name);
+    }
+  });
+
+  test("TC-853: Duplicate opens Create prefilled as a copy and saves nothing until asked", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      'The row menu\'s Duplicate opens "Copy a promotion" with the type and amount of the original, the name "Copy of <name>" and an empty code; leaving without saving creates no second promotion.'
+    );
+    const name = promoName("Duplicate");
+    const copy = `Copy of ${name}`;
+    await createCouponPromotion(token, restaurantId, {
+      name,
+      code: generateCouponCode(),
+      type: "FIXED_AMOUNT",
+      value: 3,
+    });
+    const list = createOwnerPromotionsPage(ownerPage);
+    const create = createOwnerCreatePromotionPage(ownerPage);
+    try {
+      await list.goto(restaurantId);
+      await list.openRowAction(name, "Duplicate");
+      await create.expectDuplicating();
+      await expect(create.card("Money off the order")).toBeChecked();
+      await expect(create.amountField("Amount off")).toHaveValue(/^3(\.00)?$/);
+      await expect(create.nameField()).toHaveValue(copy);
+      await expect(create.codeField()).toHaveValue("");
+
+      await create.cancel();
+      const rows = (await listPromotions(token, restaurantId)).filter(
+        (r) => r.name === name || r.name === copy
+      );
+      expect(rows.map((r) => r.name)).toEqual([name]);
+    } finally {
+      await cleanup(name);
+      await cleanup(copy);
     }
   });
 

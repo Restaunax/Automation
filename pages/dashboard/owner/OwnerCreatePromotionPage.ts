@@ -191,6 +191,16 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
     }
   };
 
+  /** A line's "Add the same item again" — the same item as one more line. */
+  const repeatLine = async (itemName: string) => {
+    await page
+      .getByRole("button", {
+        name: `Add the same item again: ${itemName}`,
+        exact: true,
+      })
+      .click();
+  };
+
   /** The side panel headed "Preview" (desktop layout). */
   const previewPanel = () =>
     page
@@ -246,6 +256,25 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
   const expectFieldError = (text: string | RegExp) =>
     expect(page.getByText(text).first()).toBeVisible();
 
+  /** Cancel; confirms "Leave without saving?" when the page asks. */
+  const cancel = async () => {
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    const leave = page
+      .getByRole("dialog")
+      .filter({ hasText: "Leave without saving?" });
+    await expect(listHeading().or(leave).first()).toBeVisible();
+    if (await leave.isVisible()) {
+      await leave.getByRole("button", { name: "Leave", exact: true }).click();
+    }
+    await expect(listHeading()).toBeVisible();
+  };
+
+  /** Duplicate opened Create as "Copy a promotion". */
+  const expectDuplicating = () =>
+    expect(
+      page.getByRole("heading", { name: "Copy a promotion", level: 1 })
+    ).toBeVisible({ timeout: 20_000 });
+
   const expectEditing = () =>
     expect(
       page.getByRole("heading", { name: "Edit promotion", level: 1 })
@@ -267,6 +296,7 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
     setWho,
     setTimeOfDay,
     pickItems,
+    repeatLine,
     previewPanel,
     expectPreviewText,
     turnOn,
@@ -274,6 +304,8 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
     expectSaved,
     expectFieldError,
     expectEditing,
+    expectDuplicating,
+    cancel,
     fixErrorsAlert,
   };
 };

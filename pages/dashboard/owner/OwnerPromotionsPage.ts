@@ -52,6 +52,7 @@ export const createOwnerPromotionsPage = (page: Page) => {
 
   /** Show up to 50 rows so a row is never hidden on page 2. */
   const showAllRows = async () => {
+    await expectLoaded();
     if (!(await table().isVisible())) return;
     const select = rowsPerPage();
     if ((await select.textContent())?.trim() === "50") return;
@@ -125,6 +126,14 @@ export const createOwnerPromotionsPage = (page: Page) => {
     await expect(dialog).toBeHidden();
   };
 
+  /** Dismisses the open dialog with its Cancel button. */
+  const cancelDialog = async () => {
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(dialog).toBeHidden();
+  };
+
   const expectRow = (name: string) => expect(row(name)).toBeVisible();
   const expectNoRow = (name: string) => expect(row(name)).toHaveCount(0);
 
@@ -162,6 +171,7 @@ export const createOwnerPromotionsPage = (page: Page) => {
     filterStatus,
     openRowAction,
     confirmDialog,
+    cancelDialog,
     expectRow,
     expectNoRow,
     expectRowStatus,
