@@ -47,6 +47,7 @@ import {
   createChainDealRaw,
   bulkCreateChainDealsRaw,
   getChainDealScheduleCheckRaw,
+  getActiveDealsPublic,
   getBusinessHoursRaw,
   setBusinessHoursApi,
   getRestaurantTimeZonePublic,
@@ -125,9 +126,12 @@ test.describe("Owner — Chain promotions", () => {
 
   test.afterAll(async () => {
     if (!chainGroupId) return;
+    // best-effort cleanup: a failed login falls back to the last token
     const t = await freshToken().catch(() => token);
+    // best-effort cleanup: an already-deleted deal must not fail the hook
     for (const id of createdDealIds) await deleteDealApi(t, id).catch(() => {});
     // Backstop: anything of this run still on the chain list.
+    // best-effort cleanup: if the list fails, globalTeardown's AUTO sweep remains
     const left = await listChainPromotions(t, chainGroupId).catch(() => []);
     for (const r of left.filter((x) => x.name.includes(runId)))
       await cleanup(r.name);
@@ -351,11 +355,14 @@ test.describe("Owner — Chain promotions", () => {
 
     test.afterAll(async () => {
       if (!chainGroupId) return;
+      // best-effort cleanup: a failed login falls back to the last token
       const t = await freshToken().catch(() => token);
       if (adminToken)
         for (const it of [s1, s2].filter(Boolean))
+          // best-effort cleanup: globalTeardown's sweep catches stragglers
           await permanentlyDeleteMenuItemApi(adminToken, it.id).catch(() => {});
       if (sharedGroupId)
+        // best-effort cleanup: globalTeardown's sweep catches stragglers
         await deleteTestMenuGroup(t, sharedGroupId).catch(() => {});
     });
 
@@ -433,6 +440,34 @@ test.describe("Owner — Chain promotions", () => {
       expect(bulk.data.message).toBe(
         "Choose an option from the list for audience, meal type and occasion."
       );
+    });
+
+    test("TC-854: a chain deal is publicly offered at every member location, and gone from both once deleted", async () => {
+      const name = promoName("Public");
+      const res = await createChainDealRaw(token, chainGroupId, {
+        name,
+        dealPrice: 12,
+        items: [
+          { menuItemId: s1.id, quantity: 1, itemName: s1.name, itemPrice: 9 },
+          { menuItemId: s2.id, quantity: 1, itemName: s2.name, itemPrice: 6 },
+        ],
+      });
+      expect(res.status, JSON.stringify(res.data)).toBe(201);
+      const id = res.data.deal!.id;
+      createdDealIds.push(id);
+      const offeredAt = async (loc: string) => {
+        const pub = await getActiveDealsPublic(loc, { v2: true });
+        expect(pub.status).toBe(200);
+        return (pub.data.deals ?? []).some((d) => d.id === id);
+      };
+      try {
+        expect(await offeredAt(locA), "offered at A").toBe(true);
+        expect(await offeredAt(locB), "offered at B").toBe(true);
+      } finally {
+        await cleanup(name);
+      }
+      expect(await offeredAt(locA), "gone from A").toBe(false);
+      expect(await offeredAt(locB), "gone from B").toBe(false);
     });
 
     test("TC-534: chain schedule-check returns one warning per location that is closed on a chosen day — named by location — and none for days every location is open", async () => {
