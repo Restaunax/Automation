@@ -1901,7 +1901,7 @@ The customer-facing coupon **redemption** path — previously untested. Coupons 
 ### How it works, step by step
 
 1. `beforeAll` seeds a 10%-off coupon (`AUTO…` code) on the seed restaurant via the owner coupon API, and confirms it's queryable.
-2. The test seeds the cart, types the code into the checkout coupon box, clicks Apply, and verifies the discount appears (a "Saving $X.XX" block and a "Coupon (CODE)" line in the order summary).
+2. The test seeds the cart, types the code into the checkout coupon box, clicks Apply, and verifies the discount appears: the applied-code pill shows the code, a "Saving $X.XX" line sits under it, and the order summary shows the server's promotion line (`appliedPromotion.title` from `/quote`, e.g. "10% off your order") with the same amount (PROMOTIONS.md "Clients as built (plan 3)").
 3. It then applies a bogus code and verifies the rejection error, with no discount.
 4. The seeded coupon is swept by `globalTeardown` (the existing `AUTO*` cleanup) — no per-test cleanup needed.
 
@@ -1977,11 +1977,11 @@ TC-177 set out to prove a gift card that fully covers an order's total skips Str
 
 ### What they check
 
-Five previously-untested checkout behaviors, all over existing wiring: TC-184 (the `?item=<id>` landing-page deep link auto-opens that item's modal — no card click), TC-185 (`/checkout` with an empty cart renders the "Your Cart is Empty" screen instead of the form), TC-186 (tip presets and the custom tip input flow into the **server-quoted** total — asserted as relative total movement so no tax-math assumptions), TC-187 (a `minOrderAmount` coupon is **auto-removed** when removing a cart line drops the order below its minimum — CouponSection's debounced revalidation against `/api/coupons/validate`), TC-188 (a $0.25 item quotes a total under Stripe's $0.50 floor — the proceed button disables with "Minimum $0.50 Required" plus the explainer banner, and no order is ever created).
+Five previously-untested checkout behaviors, all over existing wiring: TC-184 (the `?item=<id>` landing-page deep link auto-opens that item's modal — no card click), TC-185 (`/checkout` with an empty cart renders the "Your Cart is Empty" screen instead of the form), TC-186 (tip presets and the custom tip input flow into the **server-quoted** total — asserted as relative total movement so no tax-math assumptions), TC-187 (a `minOrderAmount` coupon **stops applying** when removing a cart line drops the order below its minimum — the re-quote drops the discount and raises an ERROR issue on the code: the sentence "Your order doesn't meet the minimum for that coupon." sits next to the code with "Remove the code to continue", and Pay reads "Review your order" and is disabled; since Promotions the code is no longer auto-removed), TC-188 (a $0.25 item quotes a total under Stripe's $0.50 floor — the proceed button disables with "Minimum $0.50 Required" plus the explainer banner, and no order is ever created).
 
 ### Notes from authoring
 
-Two findings worth keeping: (1) the backend's "Order must be at least $X to use this coupon" revalidation message renders only **transiently** before the next revalidation cycle clears it, so TC-187 asserts the removal itself (applied block gone, box back to code-entry state), not the error copy; (2) cleaning up a seeded menu category requires **permanent** (admin) item deletion first — soft-deleted items still trip the category-delete guard (the TC-67 rule), which is why TC-188's fixture teardown passes the admin token. TC-188's cheap item is real, not just a sessionStorage entry, because the server quote reprices the cart from DB prices.
+Two findings worth keeping: (1) the backend's "Order must be at least $X to use this coupon" revalidation message renders only **transiently** before the next revalidation cycle clears it, so TC-187 used to assert the removal itself, not the error copy (since Promotions the code stays and its sentence is shown persistently, so TC-187 now asserts it); (2) cleaning up a seeded menu category requires **permanent** (admin) item deletion first — soft-deleted items still trip the category-delete guard (the TC-67 rule), which is why TC-188's fixture teardown passes the admin token. TC-188's cheap item is real, not just a sessionStorage entry, because the server quote reprices the cart from DB prices.
 
 ---
 
@@ -2005,7 +2005,7 @@ Four items are seeded with **inline `modifierGroups` on the item-create endpoint
 
 ### What they check
 
-The deal purchase path, previously zero coverage: TC-195 (opening `/deals/<id>` auto-adds the deal to the cart, per-slot progress shows "0 of 1 items added", filling the slot via "Add to Deal" flips to "Deal Complete!" and checkout offers the normal Proceed to Payment button), TC-196 (an unfilled slot leaves checkout's proceed button disabled and labeled "Complete Deals to Continue"), TC-197 (with a deal in the cart, applying **any** coupon code is blocked client-side with "Cannot combine coupons with deals" — the check fires before validation, so no seeded coupon is needed). Since guided deal types (2026-10) the single-slot fixture is a `PERCENT_OFF` 20% deal — a one-item COMBO is refused by the backend — sent with the same price as `dealPrice` so it seeds on both sides of the deploy.
+The deal purchase path, previously zero coverage: TC-195 (opening `/deals/<id>` auto-adds the deal to the cart, per-slot progress shows "0 of 1 items added", filling the slot via "Add to Deal" flips to "Deal Complete!" and checkout offers the normal Proceed to Payment button), TC-196 (an unfilled slot leaves checkout's proceed button disabled and labeled "Complete Deals to Continue"), TC-197 (with a completed deal in the cart, a real seeded AUTO 10% coupon is refused by the server's pricing with "Coupons can't be combined with deals…" next to the code and no saving applied — a bundle is the customer's promotion, PROMOTIONS.md money rule 3; a real code is needed so the refusal comes from that rule, not "code not found"). Since guided deal types (2026-10) the single-slot fixture is a `PERCENT_OFF` 20% deal — a one-item COMBO is refused by the backend — sent with the same price as `dealPrice` so it seeds on both sides of the deploy.
 
 ### How the fixtures work
 

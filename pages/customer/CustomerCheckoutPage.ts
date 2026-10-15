@@ -6,6 +6,8 @@ import { STRIPE_CARDS, STRIPE_DEFAULTS } from "../../utils/stripeCards";
 // Wind storefront, wind.restaunax.com — NOT qa.restaunax.com, the marketing site).
 import { TEMPLATE_WIND_URL } from "../../utils/testData";
 
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 export const createCustomerCheckoutPage = (page: Page) => {
   // Navigate to menu first to establish the domain, then seed cart via sessionStorage.
   //
@@ -337,7 +339,7 @@ export const createCustomerCheckoutPage = (page: Page) => {
   // row). Server-authoritative — driven by the restaurant's
   // passProcessingFeeToCustomer setting, so it appears/disappears purely from
   // that flag. Text-only hook (the row has no id/testid), same style as the
-  // Coupon line assertion above.
+  // promotion-line assertion in assertCouponApplied above.
   //
   // Since template-wind c15fb89 (2026-08-28) the label reads
   // "Processing Fee (credit cards)": surcharging debit/prepaid is barred, the
@@ -613,5 +615,3 @@ export const createCustomerCheckoutPage = (page: Page) => {
     assertDeliveryQuoteResolved,
   };
 };
-
-const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
