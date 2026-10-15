@@ -72,16 +72,34 @@ export interface RedeemCodeResult {
 export interface PromotionQuote {
   amountToCharge: number;
   subtotal: number;
-  appliedPromotion: { id: string; title: string; savings: number } | null;
+  /** Backend key is `couponId` (Service/pricing/types.ts AppliedPromotion), not `id`. */
+  appliedPromotion: {
+    couponId: string;
+    title: string;
+    savings: number;
+  } | null;
   /** "APPLIED" | "BETTER_OFFER_APPLIED" | "NOT_ELIGIBLE" */
   codeOutcome: string | null;
   codeOutcomeMessage?: string | null;
   freeItemOffer: { menuItemId: string; name: string } | null;
   issues?: {
+    code?: string;
     severity: "ERROR" | "WARNING";
-    reason?: string;
+    reason?: string | null;
     message?: string;
   }[];
+  /**
+   * Why the entered code was refused. The backend strips `codeIssue` from the
+   * response, so this is the first entry of `issues` that carries an
+   * IneligibleReason (`reason`, e.g. "first_order_needs_customer"); null when
+   * the code raised no issue.
+   */
+  codeIssue: {
+    code?: string;
+    severity: "ERROR" | "WARNING";
+    reason: string;
+    message?: string;
+  } | null;
   /** Full response (status + body) for debugging. */
   raw: unknown;
 }
@@ -192,6 +210,13 @@ interface QuoteWire {
   issues?: PromotionQuote["issues"];
 }
 
+function codeIssueOf(
+  issues: PromotionQuote["issues"]
+): PromotionQuote["codeIssue"] {
+  const hit = issues?.find((i) => typeof i.reason === "string" && i.reason);
+  return hit ? { ...hit, reason: hit.reason as string } : null;
+}
+
 /**
  * POST /api/order/:id/quote in the engine-intent shape (items / deals /
  * couponCode — the only shape that carries a typed code). The backend does
@@ -251,6 +276,7 @@ export async function promotionQuote(
     codeOutcomeMessage: q.codeOutcomeMessage ?? null,
     freeItemOffer: q.freeItemOffer ?? null,
     issues: res.data.issues,
+    codeIssue: codeIssueOf(res.data.issues),
     raw: { status: res.status, body: res.data },
   };
 }
@@ -265,7 +291,7 @@ export async function tabletPricePreview(
   tabletToken: string,
   staffSession: string | null,
   body: unknown
-): Promise<{ status: number; body: any }> {
+): Promise<{ status: number; body: unknown }> {
   const res = await apiRequestRaw(
     "POST",
     "/api/tablet/orders/price-preview",
