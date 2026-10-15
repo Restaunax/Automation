@@ -5,9 +5,10 @@ import { type Locator, type Page, expect } from "@playwright/test";
  * page it doubles as (?tab=edit-promotion&source=…&id=…, reached from a row's
  * Edit).
  *
- * Three steps on one page: "What kind of promotion?" (six radio cards +
- * examples), "Set it up" (the type's own questions, then the collapsible rule
- * cards) and "Name and code"; a live preview panel on the side; Turn on /
+ * Three steps on one page: "What kind of promotion?" (six radio cards;
+ * the examples area is being redesigned, so no example helpers yet),
+ * "Set it up" (the type's own questions, then the collapsible rule cards)
+ * and "Name and code"; a live preview panel on the side; Turn on /
  * Save as paused in a sticky bar. English copy:
  * restaunax-frontend/public/locales/en/promotions.json.
  *
@@ -71,18 +72,6 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
   const pickCard = async (name: PromotionCard) => {
     await card(name).click();
     await expect(card(name)).toBeChecked();
-  };
-
-  /** "Not sure? Start from an example" — a card by its title. */
-  const useExample = async (title: string) => {
-    await page.getByRole("button", { name: title, exact: true }).click();
-    // A half-filled form asks before the example replaces it.
-    const replace = page
-      .getByRole("dialog")
-      .filter({ hasText: "Replace your answers with this example?" });
-    if (await replace.isVisible()) {
-      await replace.getByRole("button", { name: "Use the example" }).click();
-    }
   };
 
   const nameField = () =>
@@ -266,7 +255,6 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
     goto,
     card,
     pickCard,
-    useExample,
     nameField,
     codeField,
     setName,
