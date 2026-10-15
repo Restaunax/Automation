@@ -80,12 +80,26 @@ export const createOwnerTablesFloorPage = (page: Page) => {
     await storeOpsHeader().click();
   };
 
+  /**
+   * Opens the Store Operations flyout and clicks `item`, retrying the WHOLE
+   * open-then-click until the URL matches. The flyout is hover-driven (opens
+   * on mouseenter, closes 80 ms after mouseleave, animates in with Grow), and
+   * right after a page load the sidebar can still be settling — a single
+   * attempt intermittently timed out with "element is not stable" (TC-434,
+   * 2026-10-13 QA run). Each attempt is short so a stuck one is abandoned
+   * and the menu reopened, rather than waiting out one long click.
+   */
+  const clickStoreOpsItem = async (item: Locator, url: RegExp) => {
+    await expect(async () => {
+      await openStoreOpsFlyout();
+      await item.click({ timeout: 3_000 });
+      await page.waitForURL(url, { timeout: 5_000 });
+    }).toPass({ timeout: 30_000 });
+  };
+
   const navigateViaSidebar = async (restaurantId: string) => {
     await mgmtPage.goto(restaurantId);
-    await openStoreOpsFlyout();
-    await tablesFloorNavItem().waitFor({ state: "visible", timeout: 5_000 });
-    await tablesFloorNavItem().click();
-    await page.waitForURL(/tab=tables/, { timeout: 10_000 });
+    await clickStoreOpsItem(tablesFloorNavItem(), /tab=tables/);
     await assertLoaded();
   };
 
@@ -274,6 +288,24 @@ export const createOwnerTablesFloorPage = (page: Page) => {
   const floorSelectionEmpty = () =>
     page.getByText("Select a table on the floor to edit its details.");
 
+  // Add panel presets: floor-preset-<id> (square2, round2, rect4, round4,
+  // rect6, round6, rect8, round8 — floorPresets.ts). A click creates the
+  // table on the server and places it locally (unsaved).
+  const presetTile = (presetId: string) =>
+    page.getByTestId(`floor-preset-${presetId}`);
+  // Toolbar — the labels carry the platform's key combo ("Undo (Ctrl+Z)").
+  const undoButton = () => page.getByRole("button", { name: /^Undo\b/ });
+  const redoButton = () => page.getByRole("button", { name: /^Redo\b/ });
+  const discardLayoutButton = () =>
+    page.getByRole("button", { name: "Discard changes", exact: true });
+  const shortcutsButton = () =>
+    page.getByRole("button", { name: "Keyboard shortcuts", exact: true });
+  const shortcutsDialog = () =>
+    page.getByRole("dialog").filter({ hasText: "Floor editor shortcuts" });
+  // Canvas empty state for a section with no placed tables.
+  const floorEmptyState = () => page.getByTestId("floor-empty-state");
+  const floorEmptyPrimaryButton = () => page.getByTestId("floor-empty-primary");
+
   // ── "All tables" browser (floor Add panel → popper) ───────────────────────
   const tablesBrowserButton = () => page.getByTestId("floor-browser-open");
   const browserRow = (name: string) =>
@@ -312,6 +344,7 @@ export const createOwnerTablesFloorPage = (page: Page) => {
     tablesFloorNavItem,
     reservationsNavItem,
     openStoreOpsFlyout,
+    clickStoreOpsItem,
     navigateViaSidebar,
     addSectionButton,
     sectionNameInput,
@@ -358,6 +391,14 @@ export const createOwnerTablesFloorPage = (page: Page) => {
     browserRowStatus,
     openTablesBrowser,
     pickTableInBrowser,
+    presetTile,
+    undoButton,
+    redoButton,
+    discardLayoutButton,
+    shortcutsButton,
+    shortcutsDialog,
+    floorEmptyState,
+    floorEmptyPrimaryButton,
     snackbar,
   };
 };

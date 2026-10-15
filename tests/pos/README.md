@@ -74,9 +74,10 @@ The POS uses a different auth model from the dashboard:
   not-linkable 400, early no-show split, `clientRequestId` replay, advisory
   overbook past the paced cap, host list shape, transfer on a seated check,
   and cancelling a linked order unlinking the reservation WITHOUT reverting
-  its status (confirmed: stays SEATED). TC-417 (`RESERVED_SOON` floor state)
-  is `test.fixme` — no write path assigns a table without seating it; see
-  `docs/PHYSICAL_TEST_LEDGER.md`.
+  its status (confirmed: stays SEATED). TC-417 covers the manual table hold
+  (2026-10-12, replaces the retired `RESERVED_SOON` state): too-early 409,
+  `reservedSoon` annotation, `TABLE_HELD` for every other party, keep,
+  release. TC-406 also pins "paid is not free": PAID until a host CLEAR.
 
 - **`07-waitlist-public.spec.ts` (TC-418..425)** — waitlist (tablet host
   stand) + PUBLIC self-service booking. Own throwaway tenant + REGISTER
@@ -95,7 +96,25 @@ The POS uses a different auth model from the dashboard:
   refusing a second PIN staff's sign-in while the register is open elsewhere,
   split tenders, and blind-count close (`overShort` sign convention).
 
-Every file 04–08 runs on its own per-run throwaway tenant
+- **`09-table-hold.spec.ts` (TC-713..726, TC-738, TC-745)** — the manual
+  table HOLD (2026-10-12): host-list hold fields, `TABLE_HELD` refusals for
+  walk-in seat / joined party / another booking / create-order on an empty
+  table / moving a check there (no manager override), the held booking's
+  own check and the seated party's second check let through, join
+  suggestions skipping held tables, overlap / waitlist / undersized-table
+  refusals, keep + re-hold; editing a booking from the host stand (PATCH,
+  past-move refusal, a time move releasing the hold, not-editable states);
+  host-list contact details only for hosts; Owner-app push-token
+  registration (throwaway owner only).
+- **`10-table-turns.spec.ts` (TC-727..737)** — "paid is not free" (2026-10-07):
+  each afterPaymentPolicy (PAID until Clear / DIRTY / PAID with
+  `autoClearAt`), turn-setting validation, check-presented stamped once,
+  walk-in seating before an order (seat time + guest count carried onto the
+  first check; refusals; unseat; seating over a PAID table), the floor's
+  server strip, the waitlist quote, and the owner's turn insights. Opens a
+  register for the whole file (cash pays create the turns).
+
+Every file 04–10 runs on its own per-run throwaway tenant
 (`createSecondOwner`), mirroring 03's pattern — none of this mutates the
 shared seed restaurant. Real-browser coverage of the same two owner-portal
 tabs (Tables & Floor, Reservations) lives in
