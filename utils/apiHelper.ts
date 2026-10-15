@@ -7031,3 +7031,148 @@ export async function stripePublicRaw(
   }
   return { status: res.status, ok: res.ok, data };
 }
+
+// ── Books & taxes, partner API, add-on billing (restaunax #943) ─────────────
+
+/** `/partner/v1{path}` with a partner bearer (an owner's `rnx_key_…` API key
+ *  or a partner access token) — not a dashboard JWT. */
+export function partnerApiRaw<T = { data?: LooseJson; error?: string }>(
+  bearer: string | null,
+  method: Method,
+  path: string,
+  body?: unknown,
+  extraHeaders?: Record<string, string>
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/partner/v1${path}`,
+    body,
+    bearer ?? undefined,
+    extraHeaders
+  );
+}
+
+/** Store Settings → Connected apps: `/api/partner-access/:rid{path}`. */
+export function partnerAccessRaw<T = { data?: LooseJson; message?: string }>(
+  token: string,
+  restaurantId: string,
+  method: Method,
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/api/partner-access/${restaurantId}${path}`,
+    body,
+    token
+  );
+}
+
+/** B5 owner routes: `/api/books/:rid{path}` (accountants, tax calendar,
+ *  year end — behind ACCOUNTING_SYNC). */
+export function booksRaw<T = { data?: LooseJson; message?: string }>(
+  token: string,
+  restaurantId: string,
+  method: Method,
+  path: string,
+  body?: unknown,
+  extraHeaders?: Record<string, string>
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(
+    method,
+    `/api/books/${restaurantId}${path}`,
+    body,
+    token,
+    extraHeaders
+  );
+}
+
+/** The accountant's workspace: `/api/accountant{path}` (read-only). */
+export function accountantRaw<T = { data?: LooseJson; message?: string }>(
+  token: string,
+  path: string
+): Promise<RawResponse<T>> {
+  return apiRequestRaw("GET", `/api/accountant${path}`, undefined, token);
+}
+
+/** HQ add-on catalog and billing: `/api/admin/addons{path}` (ADMIN). */
+export function adminAddonsRaw<T = { data?: LooseJson; message?: string }>(
+  token: string,
+  method: Method,
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(method, `/api/admin/addons${path}`, body, token);
+}
+
+/** DELETE `/restaurant/:rid/addons/:instanceId` — the owner removes a
+ *  self-serve add-on (at the end of the paid period). */
+export function ownerAddonRemoveRaw(
+  token: string,
+  restaurantId: string,
+  instanceId: string
+): Promise<RawResponse<{ data?: LooseJson; message?: string }>> {
+  return apiRequestRaw(
+    "DELETE",
+    `/restaurant/${restaurantId}/addons/${instanceId}`,
+    undefined,
+    token
+  );
+}
+
+/** POST `/restaurant/:rid/daily-close` — close the current business day from
+ *  the dashboard (fires the partner API's `day.closed`). */
+export function closeDayWebRaw(
+  token: string,
+  restaurantId: string,
+  body: { depositAmount: number; note?: string; reclose?: boolean } = {
+    depositAmount: 0,
+  }
+): Promise<RawResponse<{ data?: LooseJson; message?: string }>> {
+  return apiRequestRaw(
+    "POST",
+    `/restaurant/${restaurantId}/daily-close`,
+    body,
+    token
+  );
+}
+
+export interface BinaryResponse {
+  status: number;
+  headers: Headers;
+  body: Buffer;
+}
+
+/**
+ * GET a file (ZIP, PDF, CSV) as raw bytes — apiRequestRaw decodes bodies as
+ * text, which corrupts binary downloads. One attempt, no retries: callers
+ * assert on the status.
+ */
+export async function downloadRaw(
+  token: string,
+  path: string,
+  extraHeaders: Record<string, string> = {}
+): Promise<BinaryResponse> {
+  const res = await fetch(`${BACKEND_URL}${path}`, {
+    headers: { Authorization: `Bearer ${token}`, ...extraHeaders },
+    signal: AbortSignal.timeout(90_000),
+  });
+  return {
+    status: res.status,
+    headers: res.headers,
+    body: Buffer.from(await res.arrayBuffer()),
+  };
+}
+
+/** GET /api/admin/restaurants?search= — admin restaurant search by name. */
+export function adminSearchRestaurantsRaw(
+  adminToken: string,
+  search: string
+): Promise<RawResponse<{ restaurants?: Array<{ id: string; name: string }> }>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/admin/restaurants?search=${encodeURIComponent(search)}&limit=10`,
+    undefined,
+    adminToken
+  );
+}
