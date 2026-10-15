@@ -1759,7 +1759,7 @@ Deals carry days, an HH:mm window (overnight allowed) and start/end dates, judge
 
 ---
 
-## TC-713 → — Promotions (2026-10)
+## TC-800 → — Promotions (2026-10)
 
 **Status:** Tasks 1–2 of the promotions automation plan (spec `restaunax/docs/features/PROMOTIONS.md`).
 
@@ -1767,27 +1767,27 @@ Deals carry days, an HH:mm window (overnight allowed) and start/end dates, judge
 
 | TC         | What it checks                                                                                                                                                                         |
 | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **TC-713** | An order code redeems as `ORDER` via `/api/promotions/redeem-code` and appears in the promotions list.                                                                                 |
-| **TC-714** | An unknown code is refused (>= 400, `success:false`) with resolved text, never an i18n key.                                                                                            |
-| **TC-715** | Quote: 3 gyros ($41.97) + SAVE15 (15% off $30+, cap $4.50) → `appliedPromotion.savings` 4.50, title set, `codeOutcome` APPLIED.                                                        |
-| **TC-716** | Quote: $24.98 of food + SAVE15 → not applied, `codeOutcome` NOT_ELIGIBLE, message mentions the minimum.                                                                                |
-| **TC-717** | redeem-code SAVE2 → `{kind:"BUNDLE", dealId}`.                                                                                                                                         |
-| **TC-718** | Quote: SAVE2 (BOGO_FIXED_PRICE, "one of these items") with Lamb + Chicken → line total 13.99 + 1.99 = 15.98.                                                                           |
-| **TC-719** | Quote: SAVE3 combo (bowl + gyro + patty, AUTOMATIC) → deal price 21.99, no code, no ERROR issue.                                                                                       |
-| **TC-720** | Quote: FIRST5 for a guest with a fresh `customerEmail` → $5 applied.                                                                                                                   |
-| **TC-721** | Quote: FIRST5 for an email with a prior confirmed order on the tenant → refused, "only for a first order".                                                                             |
-| **TC-722** | Old-client protection: an AUTOMATIC first-order promotion is not quoted to a guest with no identity (control: applied with an email).                                                  |
-| **TC-723** | Best wins: AUTOMATIC 10% ($4.20) beats a $1 code → `codeOutcome` BETTER_OFFER_APPLIED, sentence names the code, the winner and both amounts.                                           |
-| **TC-724** | Bundle exclusivity: SAVE3 combo + SAVE15 code (cart over $30) → code refused (`coupon_deal_exclusive`), combo stays 21.99.                                                             |
-| **TC-725** | Free delivery alongside a bundle: combo + FREE_DELIVERY code, DELIVERY, fee 5.99 (legacy quote body) → fee waived 5.99, combo 21.99. Tenant moved to NY (FL refuses any delivery fee). |
-| **TC-726** | ITEM_SALE 50% off Garlic Knots (AUTOMATIC): public menu `promotion.salePrice` 2.00 + label; quote savings = 3.99 − menu sale price.                                                    |
-| **TC-727** | FREE_ITEM soda over $40 (SPEND): quote at $45.96 → `freeItemOffer` = soda; with the soda added → discounted 2.49.                                                                      |
-| **TC-728** | CODE-only deal: hidden from `/active` (v2) without `?code=`, listed with it; quote without the line `code` → ERROR `deal_not_eligible` reason `code_required`; with it → priced 12.00. |
-| **TC-729** | Version gate: the BOGO_FIXED_PRICE deal is absent from `/active` without `X-Promotions-Version: 2`, present with it.                                                                   |
-| **TC-730** | `/api/coupons/validate` rule layer: a code valid only on another day (restaurant zone) → 400 "isn't available right now"; the same code shape valid today → 200, $2.                   |
-| **TC-731** | Pause: SAVE15 + SAVE3 INACTIVE → redeem refused, no `appliedPromotion`, deal gone from `/active`, list rows INACTIVE; re-activating restores all four.                                 |
-| **TC-732** | Line quantity 1000 and 0.5 → 400 "whole number from 1 to 999".                                                                                                                         |
-| **TC-733** | Legacy FIXED_ITEM "$2 off a patty": 3 patties → validate and quote both discount $2 exactly once (regression pin).                                                                     |
+| **TC-800** | An order code redeems as `ORDER` via `/api/promotions/redeem-code` and appears in the promotions list.                                                                                 |
+| **TC-801** | An unknown code is refused (>= 400, `success:false`) with resolved text, never an i18n key.                                                                                            |
+| **TC-802** | Quote: 3 gyros ($41.97) + SAVE15 (15% off $30+, cap $4.50) → `appliedPromotion.savings` 4.50, title set, `codeOutcome` APPLIED.                                                        |
+| **TC-803** | Quote: $24.98 of food + SAVE15 → not applied, `codeOutcome` NOT_ELIGIBLE, message mentions the minimum.                                                                                |
+| **TC-804** | redeem-code SAVE2 → `{kind:"BUNDLE", dealId}`.                                                                                                                                         |
+| **TC-805** | Quote: SAVE2 (BOGO_FIXED_PRICE, "one of these items") with Lamb + Chicken → line total 13.99 + 1.99 = 15.98.                                                                           |
+| **TC-806** | Quote: SAVE3 combo (bowl + gyro + patty, AUTOMATIC) → deal price 21.99, no code, no ERROR issue.                                                                                       |
+| **TC-807** | Quote: FIRST5 for a guest with a fresh `customerEmail` → $5 applied.                                                                                                                   |
+| **TC-808** | Quote: FIRST5 for an email with a prior confirmed order on the tenant → refused, "only for a first order".                                                                             |
+| **TC-809** | Old-client protection: an AUTOMATIC first-order promotion is not quoted to a guest with no identity (control: applied with an email).                                                  |
+| **TC-810** | Best wins: AUTOMATIC 10% ($4.20) beats a $1 code → `codeOutcome` BETTER_OFFER_APPLIED, sentence names the code, the winner and both amounts.                                           |
+| **TC-811** | Bundle exclusivity: SAVE3 combo + SAVE15 code (cart over $30) → code refused (`coupon_deal_exclusive`), combo stays 21.99.                                                             |
+| **TC-812** | Free delivery alongside a bundle: combo + FREE_DELIVERY code, DELIVERY, fee 5.99 (legacy quote body) → fee waived 5.99, combo 21.99. Tenant moved to NY (FL refuses any delivery fee). |
+| **TC-813** | ITEM_SALE 50% off Garlic Knots (AUTOMATIC): public menu `promotion.salePrice` 2.00 + label; quote savings = 3.99 − menu sale price.                                                    |
+| **TC-814** | FREE_ITEM soda over $40 (SPEND): quote at $45.96 → `freeItemOffer` = soda; with the soda added → discounted 2.49.                                                                      |
+| **TC-815** | CODE-only deal: hidden from `/active` (v2) without `?code=`, listed with it; quote without the line `code` → ERROR `deal_not_eligible` reason `code_required`; with it → priced 12.00. |
+| **TC-816** | Version gate: the BOGO_FIXED_PRICE deal is absent from `/active` without `X-Promotions-Version: 2`, present with it.                                                                   |
+| **TC-817** | `/api/coupons/validate` rule layer: a code valid only on another day (restaurant zone) → 400 "isn't available right now"; the same code shape valid today → 200, $2.                   |
+| **TC-818** | Pause: SAVE15 + SAVE3 INACTIVE → redeem refused, no `appliedPromotion`, deal gone from `/active`, list rows INACTIVE; re-activating restores all four.                                 |
+| **TC-819** | Line quantity 1000 and 0.5 → 400 "whole number from 1 to 999".                                                                                                                         |
+| **TC-820** | Legacy FIXED_ITEM "$2 off a patty": 3 patties → validate and quote both discount $2 exactly once (regression pin).                                                                     |
 
 ## TC-691 → TC-712 — Guided Deal Types (type-first deals, 2026-10)
 

@@ -3,7 +3,7 @@
  * Spec: restaunax docs/features/PROMOTIONS.md. Runs on a throwaway tenant
  * (createSecondOwner), never the seed restaurant.
  *
- * TC-713..714: codes resolve. TC-715..733: every type, every money rule and
+ * TC-800..801: codes resolve. TC-802..820: every type, every money rule and
  * the old-client protections, on the acceptance set (seedAcceptanceSet). Every
  * money assertion is the server's number (/quote, /validate, redeem-code).
  *
@@ -79,7 +79,7 @@ test.describe("Promotions — API contract", () => {
       process.env.OWNER2_EMAIL && process.env.OWNER2_PASSWORD
     );
     // A tax rate (0% keeps the money readable) or /quote refuses to price;
-    // published + accepting orders or the seeded prior order (TC-721) is
+    // published + accepting orders or the seeded prior order (TC-808) is
     // refused.
     await updateRestaurantSettingsApi(token, restaurantId, {
       acceptingOrders: true,
@@ -102,7 +102,7 @@ test.describe("Promotions — API contract", () => {
     await allure.label("severity", "critical");
   });
 
-  test("TC-713: an order code redeems as ORDER and appears in the promotions list", async () => {
+  test("TC-800: an order code redeems as ORDER and appears in the promotions list", async () => {
     const code = generateCouponCode();
     const { id } = await createCouponPromotion(token, restaurantId, {
       name: `AUTO ${code}`,
@@ -120,7 +120,7 @@ test.describe("Promotions — API contract", () => {
     expect(list.find((p) => p.id === id)?.code).toBe(code);
   });
 
-  test("TC-714: an unknown code is refused with a readable message", async () => {
+  test("TC-801: an unknown code is refused with a readable message", async () => {
     const r = await redeemCode(restaurantId, "AUTONOPE" + Date.now());
     expect(r.status).toBeGreaterThanOrEqual(400);
     expect(r.body.success).toBe(false);
@@ -128,7 +128,7 @@ test.describe("Promotions — API contract", () => {
     expect(r.body.message ?? "").not.toMatch(I18N_KEY);
   });
 
-  test("TC-715: SAVE15 on 3 gyros ($41.97) saves the $4.50 cap", async () => {
+  test("TC-802: SAVE15 on 3 gyros ($41.97) saves the $4.50 cap", async () => {
     const q = await allure.step("quote 3 gyros + SAVE15", () =>
       promotionQuote(restaurantId, {
         items: threeGyros(),
@@ -143,7 +143,7 @@ test.describe("Promotions — API contract", () => {
     expect(q.codeOutcome).toBe("APPLIED");
   });
 
-  test("TC-716: SAVE15 on $24.98 of food is refused for the minimum", async () => {
+  test("TC-803: SAVE15 on $24.98 of food is refused for the minimum", async () => {
     const q = await promotionQuote(restaurantId, {
       items: [
         { menuItemId: set.menu.riceBowlId, quantity: 1 },
@@ -160,13 +160,13 @@ test.describe("Promotions — API contract", () => {
     expect(q.codeOutcomeMessage ?? "").toMatch(/minimum/i);
   });
 
-  test("TC-717: the SAVE2 code redeems as a BUNDLE that opens its deal", async () => {
+  test("TC-804: the SAVE2 code redeems as a BUNDLE that opens its deal", async () => {
     const r = await redeemCode(restaurantId, set.save2.code);
     expect(r.status, JSON.stringify(r.body)).toBe(200);
     expect(r.body.data).toEqual({ kind: "BUNDLE", dealId: set.save2.dealId });
   });
 
-  test("TC-718: SAVE2 with Lamb + Chicken prices the 2nd gyro at $1.99 ($15.98)", async () => {
+  test("TC-805: SAVE2 with Lamb + Chicken prices the 2nd gyro at $1.99 ($15.98)", async () => {
     const [chicken, lamb] = set.menu.gyroIds;
     const q = await promotionQuote(restaurantId, {
       items: [],
@@ -192,7 +192,7 @@ test.describe("Promotions — API contract", () => {
     expect(q.subtotal).toBeCloseTo(15.98, 2);
   });
 
-  test("TC-719: the SAVE3 combo (bowl + gyro + patty) is $21.99 with no code", async () => {
+  test("TC-806: the SAVE3 combo (bowl + gyro + patty) is $21.99 with no code", async () => {
     const [bowlSlot, gyroSlot, pattySlot] = set.save3.slotIds;
     const q = await promotionQuote(restaurantId, {
       items: [],
@@ -227,7 +227,7 @@ test.describe("Promotions — API contract", () => {
     expect(q.issues?.filter((i) => i.severity === "ERROR") ?? []).toEqual([]);
   });
 
-  test("TC-720: FIRST5 takes $5 off for a guest with a fresh email", async () => {
+  test("TC-807: FIRST5 takes $5 off for a guest with a fresh email", async () => {
     const q = await promotionQuote(restaurantId, {
       items: [{ menuItemId: set.menu.gyroIds[0], quantity: 1 }],
       couponCode: set.first5.code,
@@ -238,7 +238,7 @@ test.describe("Promotions — API contract", () => {
     expect(q.appliedPromotion?.savings).toBeCloseTo(5, 2);
   });
 
-  test.describe.serial("TC-721: FIRST5 after a prior paid order", () => {
+  test.describe.serial("TC-808: FIRST5 after a prior paid order", () => {
     const email = `auto-repeat-${generateRunId()}@restaunax-test.com`;
 
     test.beforeAll(async () => {
@@ -257,7 +257,7 @@ test.describe("Promotions — API contract", () => {
       expect(order.status).toBe("CONFIRMED");
     });
 
-    test("TC-721: FIRST5 is refused as only for a first order", async () => {
+    test("TC-808: FIRST5 is refused as only for a first order", async () => {
       const q = await promotionQuote(restaurantId, {
         items: [{ menuItemId: set.menu.gyroIds[0], quantity: 1 }],
         couponCode: set.first5.code,
@@ -269,7 +269,7 @@ test.describe("Promotions — API contract", () => {
     });
   });
 
-  test("TC-722: an automatic first-order promotion is not quoted to a guest with no identity", async () => {
+  test("TC-809: an automatic first-order promotion is not quoted to a guest with no identity", async () => {
     const auto = await createCouponPromotion(token, restaurantId, {
       name: `AUTO $3 off first order ${generateRunId()}`,
       type: "FIXED_AMOUNT",
@@ -300,7 +300,7 @@ test.describe("Promotions — API contract", () => {
     }
   });
 
-  test("TC-723: best wins — an automatic 10% beats a smaller code, and says so", async () => {
+  test("TC-810: best wins — an automatic 10% beats a smaller code, and says so", async () => {
     const auto = await createCouponPromotion(token, restaurantId, {
       name: `AUTO 10% off everything ${generateRunId()}`,
       type: "PERCENTAGE",
@@ -334,7 +334,7 @@ test.describe("Promotions — API contract", () => {
     }
   });
 
-  test("TC-724: a combo in the cart keeps its price and blocks the SAVE15 code", async () => {
+  test("TC-811: a combo in the cart keeps its price and blocks the SAVE15 code", async () => {
     const [bowlSlot, gyroSlot, pattySlot] = set.save3.slotIds;
     // Combo $21.99 + a Shrimp Gyro $14.99 = $36.98, over SAVE15's $30 minimum,
     // so the only reason left to refuse the code is the bundle.
@@ -374,7 +374,7 @@ test.describe("Promotions — API contract", () => {
     expect(q.subtotal).toBeCloseTo(21.99 + MENU_PRICES.shrimpGyro, 2);
   });
 
-  test("TC-725: free delivery rides alongside a combo", async () => {
+  test("TC-812: free delivery rides alongside a combo", async () => {
     const code = generateCouponCode();
     const freeDel = await createCouponPromotion(token, restaurantId, {
       name: `AUTO Free delivery ${code}`,
@@ -440,7 +440,7 @@ test.describe("Promotions — API contract", () => {
     ).toBeCloseTo(21.99, 2);
   });
 
-  test("TC-726: an automatic 50% sale on Garlic Knots shows on the menu and prices the quote", async () => {
+  test("TC-813: an automatic 50% sale on Garlic Knots shows on the menu and prices the quote", async () => {
     const sale = await createCouponPromotion(token, restaurantId, {
       name: `AUTO Garlic Knots half off ${generateRunId()}`,
       type: "ITEM_SALE",
@@ -473,7 +473,7 @@ test.describe("Promotions — API contract", () => {
     }
   });
 
-  test("TC-727: a free soda is offered over $40 and discounted once added", async () => {
+  test("TC-814: a free soda is offered over $40 and discounted once added", async () => {
     const gift = await createCouponPromotion(token, restaurantId, {
       name: `AUTO Free soda over $40 ${generateRunId()}`,
       type: "FREE_ITEM",
@@ -513,7 +513,7 @@ test.describe("Promotions — API contract", () => {
     }
   });
 
-  test("TC-728: a CODE-only deal is listed and priced only with its code", async () => {
+  test("TC-815: a CODE-only deal is listed and priced only with its code", async () => {
     const code = generateCouponCode();
     const deal = await createPromotionDeal(token, restaurantId, {
       name: `AUTO Code combo ${code}`,
@@ -595,7 +595,7 @@ test.describe("Promotions — API contract", () => {
     }
   });
 
-  test("TC-729: a BOGO_FIXED_PRICE deal is listed only to clients that send the v2 header", async () => {
+  test("TC-816: a BOGO_FIXED_PRICE deal is listed only to clients that send the v2 header", async () => {
     const old = await getActiveDealsPublic(restaurantId);
     expect(old.status).toBe(200);
     expect((old.data.deals ?? []).some((d) => d.id === set.save2.dealId)).toBe(
@@ -608,7 +608,7 @@ test.describe("Promotions — API contract", () => {
     );
   });
 
-  test("TC-730: /api/coupons/validate checks the day rule on the restaurant's clock", async () => {
+  test("TC-817: /api/coupons/validate checks the day rule on the restaurant's clock", async () => {
     const zone = await getRestaurantTimeZonePublic(restaurantId);
     const today = new Intl.DateTimeFormat("en-US", {
       weekday: "long",
@@ -665,7 +665,7 @@ test.describe("Promotions — API contract", () => {
     expect(on.data.discountAmount).toBeCloseTo(2, 2);
   });
 
-  test("TC-731: pausing a promotion stops it everywhere; re-activating restores it", async () => {
+  test("TC-818: pausing a promotion stops it everywhere; re-activating restores it", async () => {
     const quote = () =>
       promotionQuote(restaurantId, {
         items: threeGyros(),
@@ -708,7 +708,7 @@ test.describe("Promotions — API contract", () => {
     });
   });
 
-  test("TC-732: line quantities must be whole numbers from 1 to 999", async () => {
+  test("TC-819: line quantities must be whole numbers from 1 to 999", async () => {
     for (const quantity of [1000, 0.5]) {
       const r = await quoteRaw({
         items: [{ menuItemId: set.menu.gyroIds[0], quantity }],
@@ -718,7 +718,7 @@ test.describe("Promotions — API contract", () => {
     }
   });
 
-  test("TC-733: a legacy FIXED_ITEM coupon still discounts exactly once", async () => {
+  test("TC-820: a legacy FIXED_ITEM coupon still discounts exactly once", async () => {
     const code = generateCouponCode();
     const legacy = await createCouponPromotion(token, restaurantId, {
       name: `AUTO $2 off a patty ${code}`,
