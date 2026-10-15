@@ -44,8 +44,11 @@ export interface CouponPromotionBody {
   // ITEM_SALE
   saleKind?: ItemSaleKind;
   maxDiscountedUnits?: number | null;
-  scopeMenuItemIds?: string[];
-  scopeMenuGroupIds?: string[];
+  /** Backend field names (couponRules.ts): scopeItemIds / scopeGroupIds. */
+  scopeItemIds?: string[];
+  scopeGroupIds?: string[];
+  // Legacy FIXED_ITEM: "$value off once when this item is in the cart".
+  menuItemId?: string;
   // FREE_ITEM
   giftMenuItemId?: string;
   triggerKind?: "SPEND" | "BUY_ITEM";
@@ -82,6 +85,13 @@ export interface PromotionQuote {
   codeOutcome: string | null;
   codeOutcomeMessage?: string | null;
   freeItemOffer: { menuItemId: string; name: string } | null;
+  /** Priced bundle lines (server's dealPrice / lineTotal). */
+  deals: {
+    dealId: string;
+    dealPrice: number;
+    lineTotal: number;
+    quantity: number;
+  }[];
   issues?: {
     code?: string;
     severity: "ERROR" | "WARNING";
@@ -209,6 +219,7 @@ interface QuoteWire {
     codeOutcome?: string | null;
     codeOutcomeMessage?: string | null;
     freeItemOffer?: PromotionQuote["freeItemOffer"];
+    deals?: PromotionQuote["deals"];
   };
   issues?: PromotionQuote["issues"];
 }
@@ -296,6 +307,7 @@ export async function promotionQuote(
     codeOutcome: q.codeOutcome ?? null,
     codeOutcomeMessage: q.codeOutcomeMessage ?? null,
     freeItemOffer: q.freeItemOffer ?? null,
+    deals: q.deals ?? [],
     issues: res.data.issues,
     codeIssue: codeIssueOf(res.data.issues),
     raw: { status: res.status, body: res.data },
