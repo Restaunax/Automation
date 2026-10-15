@@ -1,5 +1,7 @@
 import { type Page, type Locator, expect } from "@playwright/test";
 
+import { LIMA_ORDERING_URL } from "../../utils/testData";
+
 /**
  * Template Lima — deal surfaces (verified in template-lima source, qa branch,
  * 2026-10-05):
@@ -16,6 +18,17 @@ import { type Page, type Locator, expect } from "@playwright/test";
  *   deal-availability-label inside the card.
  */
 export const createLimaDealPage = (page: Page) => {
+  /**
+   * Open a deal's builder directly: /<slug>/deal/<id>, with ?code= for a
+   * CODE-only deal (the builder cannot load one without its code).
+   */
+  const gotoBuilder = async (slug: string, dealId: string, code?: string) => {
+    const query = code ? `?code=${encodeURIComponent(code)}` : "";
+    await page.goto(`${LIMA_ORDERING_URL}/${slug}/deal/${dealId}${query}`, {
+      waitUntil: "domcontentloaded",
+    });
+  };
+
   const todaysDealsHeading = () =>
     page.getByRole("heading", { name: "Today's Deals" });
 
@@ -70,12 +83,57 @@ export const createLimaDealPage = (page: Page) => {
   const viewCartButton = () =>
     page.getByRole("button", { name: "View Cart", exact: true });
 
+  // ── "One of these items" slots (BOGO / pick deals) ────────────────────────
+  // DealBuilderPage renders each pick slot as data-testid="deal-choice-slot"
+  // (h5 title + one DealItemCard per option: "Pick N" chip, price, h3 name;
+  // the picked option's chip reads "Your pick").
+
+  const choiceSlots = (): Locator => page.getByTestId("deal-choice-slot");
+
+  const choiceCard = (slot: number, itemName: string): Locator =>
+    choiceSlots()
+      .nth(slot)
+      .locator(".MuiCard-root")
+      .filter({
+        has: page.getByRole("heading", { name: itemName, exact: true }),
+      });
+
+  /**
+   * Click an option → its item modal → "Add to Deal". An option card ignores
+   * clicks while its availability is still loading (aria-disabled="true"), so
+   * wait for it to be enabled first — a click before that is silently lost.
+   */
+  const pickChoice = async (slot: number, itemName: string) => {
+    const card = choiceCard(slot, itemName);
+    await expect(card).toHaveAttribute("aria-disabled", "false", {
+      timeout: 15_000,
+    });
+    await card.click();
+    await clickAddToDeal();
+  };
+
+  /** "Keep shopping" — DealProgress renders it only once the deal is complete. */
+  const keepShoppingButton = (): Locator =>
+    page.getByTestId("deal-keep-shopping");
+
+  /**
+   * The deal price in the sticky progress bar (h6; "From $x" until every
+   * pick slot is filled, then the price of exactly those picks).
+   */
+  const progressDealPrice = (): Locator =>
+    page
+      .locator(".MuiPaper-root")
+      .filter({ has: viewCartButton() })
+      .last()
+      .getByRole("heading", { level: 6, name: /^(From )?\$[\d,]+\.\d{2}$/ });
+
   const cardScheduleSummary = (dealName: string) =>
     dealCard(dealName).getByTestId("deal-schedule-summary");
   const cardAvailabilityLabel = (dealName: string) =>
     dealCard(dealName).getByTestId("deal-availability-label");
 
   return {
+    gotoBuilder,
     todaysDealsHeading,
     dealCard,
     viewDeal,
@@ -87,6 +145,11 @@ export const createLimaDealPage = (page: Page) => {
     assertProgress,
     assertDealComplete,
     viewCartButton,
+    choiceSlots,
+    choiceCard,
+    pickChoice,
+    keepShoppingButton,
+    progressDealPrice,
     cardScheduleSummary,
     cardAvailabilityLabel,
   };

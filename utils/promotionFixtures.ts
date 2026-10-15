@@ -330,7 +330,8 @@ export interface StorefrontPromotionSet {
     gift: SeededItem;
   };
   sale: { id: string; name: string };
-  freeItem: { id: string; name: string };
+  /** Null when seeded with `withFreeItem: false`. */
+  freeItem: { id: string; name: string } | null;
   orderCode: { id: string; name: string; code: string };
   bogo: {
     dealId: string;
@@ -364,6 +365,18 @@ export const STOREFRONT_PRICES = {
 /** Spend that earns the free item (subtotal without the gift line). */
 export const FREE_ITEM_MIN = 55;
 
+/** Which storefront the set is for (names) and whether to add the free item. */
+export interface StorefrontSeedOptions {
+  /** Prefix of the category and item names: "Wind" (default) / "Lima". */
+  label?: string;
+  /**
+   * Seed the automatic FREE_ITEM spend offer (default true). Only ONE file
+   * may run it: a spend trigger offers its gift to EVERY cart over the
+   * threshold, so two files' offers would compete for each other's carts.
+   */
+  withFreeItem?: boolean;
+}
+
 /**
  * Seeds the storefront set on the seed restaurant. Deals go through
  * createDealApiCapSafe (the seed restaurant's 10-active cap is shared).
@@ -378,23 +391,28 @@ export async function seedStorefrontPromotions(
     createdItems?: SeededItem[];
     createdCoupons?: string[];
     createdDeals?: string[];
-  } = {}
+  } = {},
+  { label = "Wind", withFreeItem = true }: StorefrontSeedOptions = {}
 ): Promise<StorefrontPromotionSet> {
   partial.createdItems ??= [];
   partial.createdCoupons ??= [];
   partial.createdDeals ??= [];
   const groupId = (
-    await createMenuGroupNamed(token, `Automation Menu Promo Wind ${runId}`, {
-      restaurantId,
-    })
+    await createMenuGroupNamed(
+      token,
+      `Automation Menu Promo ${label} ${runId}`,
+      {
+        restaurantId,
+      }
+    )
   ).id;
   partial.groupId = groupId;
   const item = async (
-    label: string,
+    what: string,
     price: number,
     opts: CreateMenuItemOpts = {}
   ): Promise<SeededItem> => {
-    const name = `Wind ${label} ${runId}`;
+    const name = `${label} ${what} ${runId}`;
     const created = await createMenuItemFull(token, groupId, name, price, {
       description: "Automation storefront promotions item",
       ...opts,
@@ -437,7 +455,7 @@ export async function seedStorefrontPromotions(
     partial.createdCoupons!.push(created.id);
     return created;
   };
-  const saleName = `AUTO Wind half-price wrap ${runId}`;
+  const saleName = `AUTO ${label} half-price wrap ${runId}`;
   const sale = await coupon({
     name: saleName,
     type: "ITEM_SALE",
@@ -446,17 +464,19 @@ export async function seedStorefrontPromotions(
     scopeItemIds: [saleItem.id],
     applyMode: "AUTOMATIC",
   });
-  const freeName = `AUTO Wind free cookie over $${FREE_ITEM_MIN} ${runId}`;
-  const freeItem = await coupon({
-    name: freeName,
-    type: "FREE_ITEM",
-    value: 0,
-    triggerKind: "SPEND",
-    minOrderAmount: FREE_ITEM_MIN,
-    giftMenuItemId: gift.id,
-    applyMode: "AUTOMATIC",
-  });
-  const orderCodeName = `AUTO Wind 15% off $30+ ${runId}`;
+  const freeName = `AUTO ${label} free cookie over $${FREE_ITEM_MIN} ${runId}`;
+  const freeItem = withFreeItem
+    ? await coupon({
+        name: freeName,
+        type: "FREE_ITEM",
+        value: 0,
+        triggerKind: "SPEND",
+        minOrderAmount: FREE_ITEM_MIN,
+        giftMenuItemId: gift.id,
+        applyMode: "AUTOMATIC",
+      })
+    : null;
+  const orderCodeName = `AUTO ${label} 15% off $30+ ${runId}`;
   const orderCodeValue = generateCouponCode();
   const orderCode = await coupon({
     name: orderCodeName,
@@ -474,7 +494,7 @@ export async function seedStorefrontPromotions(
     startDate: new Date(now - DAY_MS).toISOString(),
     endDate: new Date(now + 30 * DAY_MS).toISOString(),
   };
-  const bogoName = `AUTO Wind gyro 2nd $1.99 ${runId}`;
+  const bogoName = `AUTO ${label} gyro 2nd $1.99 ${runId}`;
   const bogoCode = generateCouponCode();
   const optionLine = (role: "BUY" | "GET", sortOrder: number) => ({
     optionMenuItemIds: [gyroA.id, gyroB.id],
@@ -501,7 +521,7 @@ export async function seedStorefrontPromotions(
     }
   );
   partial.createdDeals!.push(bogo.id);
-  const comboName = `AUTO Wind platter + burger ${runId}`;
+  const comboName = `AUTO ${label} platter + burger ${runId}`;
   const comboCode = generateCouponCode();
   const combo = await createDealApiCapSafe(
     token,
@@ -520,7 +540,7 @@ export async function seedStorefrontPromotions(
     groupId,
     items,
     sale: { id: sale.id, name: saleName },
-    freeItem: { id: freeItem.id, name: freeName },
+    freeItem: freeItem ? { id: freeItem.id, name: freeName } : null,
     orderCode: { id: orderCode.id, name: orderCodeName, code: orderCodeValue },
     bogo: {
       dealId: bogo.id,

@@ -19,7 +19,6 @@
  */
 
 import * as allure from "allure-js-commons";
-import type { Page, Response } from "@playwright/test";
 import { test, expect } from "../../fixtures/base";
 import { createCustomerMenuPage } from "../../pages/customer/CustomerMenuPage";
 import { createCustomerDealPage } from "../../pages/customer/CustomerDealPage";
@@ -40,6 +39,13 @@ import {
   type StorefrontPromotionSet,
 } from "../../utils/promotionFixtures";
 import { promotionQuote } from "../../utils/promotionsApi";
+import {
+  expectShownMatchesLatestQuote,
+  isQuoteResponse,
+  readQuote,
+  trackQuotes,
+  type PageQuote,
+} from "../../utils/quoteTracker";
 import { STRIPE_CARDS } from "../../utils/stripeCards";
 import {
   generateRunId,
@@ -51,64 +57,6 @@ import {
 const TEMPLATE_WIND_URL = process.env.TEMPLATE_WIND_URL ?? "";
 const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
-
-/** The parts of the page's POST /quote the tests read. */
-interface PageQuote {
-  request: {
-    couponId?: string | null;
-    orderItems?: { menuItemId: string; quantity: number }[];
-    orderDeals?: { dealId: string; quantity: number; code?: string }[];
-  };
-  body: {
-    quote?: {
-      subtotal: number;
-      amountToCharge: number;
-      appliedPromotion?: {
-        couponId: string;
-        title: string;
-        savings: number;
-      } | null;
-      freeItemOffer?: { menuItemId: string; name: string } | null;
-      deals?: { dealId: string; dealPrice: number; upcharge: number }[];
-    };
-    issues?: { code?: string; severity: string; message?: string }[];
-  };
-}
-
-const isQuoteResponse = (r: Response) =>
-  /\/api\/order\/[^/]+\/quote$/.test(r.url()) &&
-  r.request().method() === "POST" &&
-  r.status() === 200;
-
-const readQuote = async (r: Response): Promise<PageQuote> => ({
-  request: r.request().postDataJSON() as PageQuote["request"],
-  body: (await r.json()) as PageQuote["body"],
-});
-
-/**
- * Records every successful /quote the page makes, in response order, so a
- * test can compare the screen with the LATEST quote (the summary re-quotes
- * when the cart, code or tip changes).
- */
-const trackQuotes = (page: Page) => {
-  const seen: Promise<PageQuote | null>[] = [];
-  page.on("response", (r) => {
-    if (!isQuoteResponse(r)) return;
-    // The body can be gone if the page navigated away first: skip that one.
-    seen.push(readQuote(r).catch(() => null));
-  });
-  return {
-    latest: async (): Promise<PageQuote> => {
-      const all = (await Promise.all(seen)).filter(
-        (q): q is PageQuote => q !== null
-      );
-      expect(all.length, "the page made at least one /quote").toBeGreaterThan(
-        0
-      );
-      return all[all.length - 1]!;
-    },
-  };
-};
 
 const money = (n: number) => `$${n.toFixed(2)}`;
 
@@ -297,9 +245,7 @@ test.describe("Storefront — Promotions (template-wind)", () => {
     await expect(checkout.promotionLine(set.orderCode.name)).toContainText(
       "-$4.50"
     );
-    await expect
-      .poll(checkout.readOrderTotal, { timeout: 15_000 })
-      .toBe((await quotes.latest()).body.quote!.amountToCharge);
+    await expectShownMatchesLatestQuote(checkout.readOrderTotal, quotes);
     const latest = await quotes.latest();
     expect(latest.request.couponId, "the latest quote is for the code").toBe(
       set.orderCode.id
@@ -362,8 +308,8 @@ test.describe("Storefront — Promotions (template-wind)", () => {
     const giftQuote = (await readQuote(giftQuoteRes)).body.quote!;
     // The gift is priced at its regular price and discounted in full.
     expect(giftQuote.appliedPromotion).toMatchObject({
-      couponId: set.freeItem.id,
-      title: set.freeItem.name,
+      couponId: set.freeItem!.id,
+      title: set.freeItem!.name,
       savings: gift.price,
     });
     expect(giftQuote.freeItemOffer ?? null).toBeNull();
@@ -371,13 +317,11 @@ test.describe("Storefront — Promotions (template-wind)", () => {
     await expect(
       page.getByRole("heading", { name: `1x ${gift.name}` })
     ).toBeVisible({ timeout: 15_000 });
-    await expect(checkout.promotionLine(set.freeItem.name)).toContainText(
+    await expect(checkout.promotionLine(set.freeItem!.name)).toContainText(
       `-${money(gift.price)}`
     );
     await expect(checkout.freeItemOfferButton()).toHaveCount(0);
-    await expect
-      .poll(checkout.readOrderTotal, { timeout: 15_000 })
-      .toBe((await quotes.latest()).body.quote!.amountToCharge);
+    await expectShownMatchesLatestQuote(checkout.readOrderTotal, quotes);
   });
 
   test("TC-841: a CODE-only combo is not listed on the menu; its code opens it, and checkout prices it with no 'needs its code' issue", async ({
@@ -585,13 +529,14 @@ test.describe("Storefront — Promotions (template-wind)", () => {
     await checkout.clickProceedToPayment();
     await checkout.assertPaymentSectionVisible();
 
+    const payTotal = await expectShownMatchesLatestQuote(
+      checkout.readOrderTotal,
+      quotes
+    );
     const latest = await quotes.latest();
     const quoted = latest.body.quote!;
     expect(latest.request.couponId).toBe(set.orderCode.id);
-    await expect
-      .poll(checkout.readOrderTotal, { timeout: 15_000 })
-      .toBe(quoted.amountToCharge);
-    const payTotal = await checkout.readOrderTotal();
+    expect(quoted.amountToCharge).toBe(payTotal);
     await allure.parameter("pay total", money(payTotal));
 
     await checkout.fillStripeCard(STRIPE_CARDS.VISA_SUCCESS);
