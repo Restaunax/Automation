@@ -63,6 +63,8 @@ import {
   CAP_WAIT_MS,
   type ApiDeal,
   type ApiMenuItem,
+  DEAL_SLOT_TEST_TIMEOUT_MS,
+  DEAL_SLOT_TWO_TEST_TIMEOUT_MS,
 } from "../../utils/apiHelper";
 
 const TEMPLATE_WIND_URL = process.env.TEMPLATE_WIND_URL ?? "";
@@ -103,6 +105,9 @@ test.describe("Deals → Storefront hand-off", () => {
     (await apiLogin(OWNER_EMAIL, OWNER_PASSWORD)).accessToken;
 
   test.beforeAll(async () => {
+    // A slot wait (up to CAP_WAIT_MS) runs inside this test: size its budget so
+    // starvation fails with the helper's message, not a bare test timeout.
+    test.setTimeout(DEAL_SLOT_TWO_TEST_TIMEOUT_MS);
     if (!TEMPLATE_WIND_URL || !OWNER_EMAIL || !OWNER_PASSWORD) return;
     restaurantId = readSharedState().restaurantId;
     token = await freshToken();
@@ -198,6 +203,9 @@ test.describe("Deals → Storefront hand-off", () => {
     page,
     ownerPage,
   }) => {
+    // A slot wait (up to CAP_WAIT_MS) runs inside this test: size its budget so
+    // starvation fails with the helper's message, not a bare test timeout.
+    test.setTimeout(DEAL_SLOT_TEST_TIMEOUT_MS);
     await allure.description(
       "Storefront /menu renders the DealCard for the API-seeded combo (name, 'Save 21%', 'Includes:' one " +
         "'1x' chip per slot row, struck $26.50 / $21.00, 'View Deal' → /deals/<id>). The owner flips the " +
@@ -615,6 +623,9 @@ test.describe("Deals → Storefront hand-off", () => {
   test("TC-535: a deal that starts later today is offered with 'Available from <time>' and its schedule, but its builder slots are disabled until then", async ({
     page,
   }) => {
+    // A slot wait (up to CAP_WAIT_MS) runs inside this test: size its budget so
+    // starvation fails with the helper's message, not a bare test timeout.
+    test.setTimeout(DEAL_SLOT_TEST_TIMEOUT_MS);
     const tz = await getRestaurantTimeZonePublic(restaurantId);
     requireScheduling("backend", Boolean(tz));
     const span = await todaySpan(tz);
@@ -659,6 +670,9 @@ test.describe("Deals → Storefront hand-off", () => {
   test("TC-536: choosing a scheduled pickup inside the deal's window unlocks it — the quote with scheduledFor prices the deal", async ({
     page,
   }) => {
+    // A slot wait (up to CAP_WAIT_MS) runs inside this test: size its budget so
+    // starvation fails with the helper's message, not a bare test timeout.
+    test.setTimeout(DEAL_SLOT_TEST_TIMEOUT_MS);
     const tz = await getRestaurantTimeZonePublic(restaurantId);
     requireScheduling("backend", Boolean(tz));
     const span = await todaySpan(tz);
@@ -720,6 +734,9 @@ test.describe("Deals → Storefront hand-off", () => {
   test("TC-537: a scheduled pickup outside the deal's window shows the server's DEAL_NOT_AVAILABLE_AT_TIME message naming the deal, with Remove deal / Change time — Remove deal drops it and checkout continues", async ({
     page,
   }) => {
+    // A slot wait (up to CAP_WAIT_MS) runs inside this test: size its budget so
+    // starvation fails with the helper's message, not a bare test timeout.
+    test.setTimeout(DEAL_SLOT_TEST_TIMEOUT_MS);
     const tz = await getRestaurantTimeZonePublic(restaurantId);
     requireScheduling("backend", Boolean(tz));
     const w = liveNowWindow(tz);
@@ -773,6 +790,9 @@ test.describe("Deals → Storefront hand-off", () => {
   test("TC-538: the Deals grid block shows each deal's real price, struck original, item names and schedule text — exactly what the page's own /active returned", async ({
     page,
   }) => {
+    // A slot wait (up to CAP_WAIT_MS) runs inside this test: size its budget so
+    // starvation fails with the helper's message, not a bare test timeout.
+    test.setTimeout(DEAL_SLOT_TEST_TIMEOUT_MS);
     await allure.description(
       "DealsGridBlock (block type deals_grid) is placed on no page by default. An ADMIN puts one on the seed " +
         "restaurant's catering page (PUT /api/admin/restaurants/:id/branding with restaurantPages only — the " +

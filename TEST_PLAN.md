@@ -449,7 +449,11 @@ spec file is the isolation unit: tests inside a file always run in order, in
 one worker — serial CRUD chains and `beforeAll` seeding keep working. The
 counts were tuned empirically: 4 local workers pushed combined Chromium + QA
 load past action budgets (pure slowness, no data races); 3 is the sweet spot,
-paired with a 90s per-test budget.
+paired with a 90s per-test budget. Tests that wait for a deal slot
+raise their own budget with `DEAL_SLOT_TEST_TIMEOUT_MS` (`CAP_WAIT_MS` + 90 s;
+`DEAL_SLOT_TWO_TEST_TIMEOUT_MS` when a test holds two slots) via
+`test.setTimeout`, so starvation fails with the helper's message, not a bare
+timeout.
 
 **Seed-restaurant deal budget per file.** Only ten deals may be ACTIVE on a
 restaurant, and the shared seed restaurant already carries a **baseline of
@@ -462,8 +466,8 @@ immediately (try/finally in the test, never "in afterAll"):
 | -------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `dashboard/owner/19-promotions`                    | 0                                                                            | +1 (TC-824 BOGO, TC-826 combo — each waits for a slot, deleted in finally); TC-825 saves paused: +0     |
 | `dashboard/owner/21-promotion-send`                | 0 (one AUTO coupon per test — coupons take no deal slot; deleted in finally) | 0                                                                                                       |
-| `dashboard/owner/api-menu`                         | 0                                                                            | +1 (TC-272 delete-blocker deal, deleted in finally; plain `createDealRaw` — not cap-safe)               |
-| `dashboard/owner/04c-menu-item-editor`             | 0                                                                            | +1 (TC-303 delete-blocker deal, deleted in finally; plain `createDealRaw` — not cap-safe)               |
+| `dashboard/owner/api-menu`                         | 0                                                                            | +1 (TC-272 delete-blocker deal, cap-safe via `createDealApiCapSafe`, deleted in finally)                |
+| `dashboard/owner/04c-menu-item-editor`             | 0                                                                            | +1 (TC-303 delete-blocker deal, cap-safe via `createDealApiCapSafe`, deleted in finally)                |
 | `customer/06-deals`                                | 0                                                                            | +1 (TC-195..197 — each creates its own deal cap-safe, deleted in finally)                               |
 | `customer/08-deals-handoff`                        | 2 (combo, pizza deal)                                                        | +1 (TC-535..538, each deleted in finally)                                                               |
 | `customer/10-promotions`                           | 0                                                                            | +1 (BOGO or CODE-only combo, per test, cap-safe, deleted in finally); +2 in TC-841 (needs both at once) |

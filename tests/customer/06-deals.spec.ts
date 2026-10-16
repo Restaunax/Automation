@@ -13,6 +13,7 @@ import {
   createDealApiCapSafe,
   createCouponRaw,
   deleteDealRaw,
+  DEAL_SLOT_TEST_TIMEOUT_MS,
 } from "../../utils/apiHelper";
 
 const TEMPLATE_WIND_URL = process.env.TEMPLATE_WIND_URL ?? "";
@@ -34,6 +35,9 @@ const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
 // dealType) uses and the new backend ignores (it computes it) — so the seed
 // works on both sides of the deploy.
 test.describe("Customer — Deals", () => {
+  // A slot wait (up to CAP_WAIT_MS) runs inside the test: size the budget so
+  // starvation fails with the helper's message, not a bare test timeout.
+  test.describe.configure({ timeout: DEAL_SLOT_TEST_TIMEOUT_MS });
   test.skip(
     !TEMPLATE_WIND_URL || !OWNER_EMAIL || !OWNER_PASSWORD,
     "TEMPLATE_WIND_URL, OWNER_EMAIL, and OWNER_PASSWORD must all be set in .env"

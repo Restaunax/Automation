@@ -30,6 +30,8 @@ import {
   apiLogin,
   getActiveDealsPublic,
   getOrderByIdRaw,
+  DEAL_SLOT_TEST_TIMEOUT_MS,
+  DEAL_SLOT_TWO_TEST_TIMEOUT_MS,
 } from "../../utils/apiHelper";
 import {
   cleanupStorefrontPromotions,
@@ -69,7 +71,10 @@ test.describe("Storefront — Promotions (template-wind)", () => {
     !TEMPLATE_WIND_URL || !OWNER_EMAIL || !OWNER_PASSWORD,
     "TEMPLATE_WIND_URL, OWNER_EMAIL and OWNER_PASSWORD must be set in .env"
   );
-  test.describe.configure({ mode: "serial" });
+  test.describe.configure({
+    mode: "serial",
+    timeout: DEAL_SLOT_TEST_TIMEOUT_MS,
+  });
 
   const runId = generateRunId();
   let restaurantId = "";
@@ -344,6 +349,9 @@ test.describe("Storefront — Promotions (template-wind)", () => {
   test("TC-841: a CODE-only combo is not listed on the menu; its code opens it, and checkout prices it with no 'needs its code' issue", async ({
     page,
   }) => {
+    // A slot wait (up to CAP_WAIT_MS) runs inside this test: size its budget so
+    // starvation fails with the helper's message, not a bare test timeout.
+    test.setTimeout(DEAL_SLOT_TWO_TEST_TIMEOUT_MS);
     await withStorefrontBogo(dealCtx(), (bogo) =>
       withStorefrontCombo(dealCtx(), async (combo) => {
         const menu = createCustomerMenuPage(page);

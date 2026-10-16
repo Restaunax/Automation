@@ -29,9 +29,9 @@ import {
   deleteTestMenuGroup,
   deleteMenuItemRaw,
   permanentlyDeleteMenuItemApi,
-  createDealRaw,
+  createDealApiCapSafe,
+  DEAL_SLOT_TEST_TIMEOUT_MS,
   deleteDealApi,
-  type ApiDeal,
 } from "../../../utils/apiHelper";
 
 const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
@@ -605,27 +605,22 @@ test.describe("Owner — Menu builder, item wizard & item detail", () => {
     );
     created[item.name] = item.id;
     const dealName = `AUTO Blocker ${runId}`;
-    const dealRes = await createDealRaw(token, restaurantId, {
-      name: dealName,
-      description: "Automation delete-blocker deal — safe to delete",
-      dealPrice: 7,
-      items: [
-        {
-          menuItemId: item.id,
-          // Two units: a one-item COMBO is refused since guided deal types
-          // (comboNeedsTwoItems); quantity 2 of one item counts as two.
-          quantity: 2,
-          itemName: item.name,
-          itemPrice: 9,
-          isRequired: true,
-        },
-      ],
-    });
-    expect(
-      dealRes.ok,
-      `deal seed failed: ${JSON.stringify(dealRes.data)}`
-    ).toBe(true);
-    const dealId = (dealRes.data as { deal: ApiDeal }).deal.id;
+    // The slot wait (up to CAP_WAIT_MS) runs inside this test's budget.
+    test.setTimeout(DEAL_SLOT_TEST_TIMEOUT_MS);
+    // Cap-safe: the seed restaurant shares its 10 ACTIVE-deal slots with other
+    // files; waits for a free one and gives it back in the finally below.
+    // Two units: a one-item COMBO is refused since guided deal types
+    // (comboNeedsTwoItems); quantity 2 of one item counts as two.
+    const dealId = (
+      await createDealApiCapSafe(
+        token,
+        restaurantId,
+        dealName,
+        7,
+        [{ id: item.id, name: item.name, price: 9, quantity: 2 }],
+        { description: "Automation delete-blocker deal — safe to delete" }
+      )
+    ).id;
     try {
       const detail = createMenuItemDetailPage(ownerPage);
       await detail.goto(restaurantId, groupId, item.id);
