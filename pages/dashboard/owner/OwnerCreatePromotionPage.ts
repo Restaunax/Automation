@@ -454,7 +454,8 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
    * Clicks "Try it as a customer" (then "Try it at: …" for `locationId` in a
    * chain shell with two or more locations) and returns the lima tab once it
    * reached /preview/<token>. When the dashboard reports a refusal instead,
-   * throws with the banner text (the dashboard has closed the tab already).
+   * throws with the banner text (the dashboard has closed the tab already);
+   * when the form is invalid (no tab opens), throws "form invalid: …".
    */
   const tryAsCustomer = async (locationId?: string): Promise<Page> => {
     const popup = page.context().waitForEvent("page", { timeout: 30_000 });
@@ -462,7 +463,25 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
     if (locationId) {
       await page.getByTestId(`try-as-customer-location-${locationId}`).click();
     }
-    const tab = await popup;
+    // An invalid form opens no tab: it marks its answers instead.
+    const invalid = fixErrorsAlert()
+      .waitFor({ state: "visible", timeout: 30_000 })
+      .then(
+        () => null,
+        // Never marked: leave the outcome to the popup wait.
+        () => new Promise<never>(() => {})
+      );
+    const tab = await Promise.race([popup, invalid]);
+    if (!tab) {
+      // The popup wait is abandoned on purpose: no tab is coming.
+      popup.catch(() => {});
+      const why = await page
+        .getByRole("alert")
+        .filter({ has: fixErrorsAlert() })
+        .innerText()
+        .catch(async () => fixErrorsAlert().innerText());
+      throw new Error(`"Try it as a customer": form invalid: ${why}`);
+    }
     // An object, so the narrowing below sees the poll callback's writes.
     const seen: { outcome: "opened" | "failed" | "waiting" } = {
       outcome: "waiting",

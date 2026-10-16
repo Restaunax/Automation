@@ -172,7 +172,7 @@ Automation/
 │   │   │   ├── 19-promotions.spec.ts         # ✅ real — Promotions section (replaced Coupons + Deals): old-link redirects, create each of the six types, combo from a menu example (TC-825), validation, edit, pause/turn on, delete, Results (TC-821..832, TC-853, TC-859, TC-860, TC-861, TC-862, TC-871)
 │   │   │   ├── 25-promotion-scenarios.spec.ts # ✅ real @scenario — eight real-world promotions end to end: dashboard UI build → exact read-back → edit → lima AND wind picks → quote-checked checkout (TC-863..870)
 │   │   │   ├── api-promotion-preview.spec.ts # ✅ real — "Try it as a customer" API (TC-872..881); skips while QA answers 503 PROMOTION_PREVIEW_UNAVAILABLE
-│   │   │   ├── 26-promotion-preview.spec.ts  # ✅ real — Try it as a customer, dashboard → lima (TC-882..887); skips while previews are unavailable
+│   │   │   ├── 26-promotion-preview.spec.ts  # ✅ real — Try it as a customer, dashboard → lima (TC-882..887); skips while QA answers 503 PROMOTION_PREVIEW_UNAVAILABLE
 │   │   │   ├── 08-payment-settings.spec.ts   # ✅ real (route mocks Stripe status/create for pre-connection + failure states)
 │   │   │   ├── 09-uber-settings.spec.ts      # ✅ real — Uber Eats delivery settings (owner-reachable, unlike publish/tax/loyalty)
 │   │   │   ├── 10-subscription.spec.ts       # ✅ real — Subscription/Billing page (permission-gated, not role-gated)

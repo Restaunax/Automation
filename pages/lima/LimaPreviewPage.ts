@@ -9,8 +9,9 @@ import type { Locator, Page } from "@playwright/test";
  *   orders can't be placed", the server's subtitle/title · location, the
  *   optional hint, "N minutes left" (preview-minutes-left), "Details"
  *   (expands preview-details: suspended rules + notes) and "End preview"
- *   (DELETEs the preview, closes a script-opened tab, else shows the ended
- *   page).
+ *   (DELETEs the preview, then window.close(): the dashboard opens the tab
+ *   with window.open, so it closes; only a hand-opened tab falls back to the
+ *   ended page).
  * - PreviewEnded (data-testid="preview-ended") when the preview was ended,
  *   replaced or expired — also on return to the tab (focus / visibility
  *   re-check). A reload of an ended preview gets the server's plain 404 page

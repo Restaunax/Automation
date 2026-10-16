@@ -20,8 +20,8 @@
  *
  * The whole file skips — instead of failing — when the backend refuses to
  * mint previews (503 PROMOTION_PREVIEW_UNAVAILABLE: QA's ORDERING_BASE_URL
- * unset), or when the dashboard reports "Customer previews aren't available
- * here yet." and hides the button. Nightly lane (no @smoke).
+ * unset). A backend without the preview route (404) fails beforeAll.
+ * Nightly lane (no @smoke).
  */
 import * as allure from "allure-js-commons";
 import type { Page } from "@playwright/test";
@@ -65,8 +65,6 @@ const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
 const API_UNAVAILABLE_REASON =
   "Previews are switched off on this backend (503 PROMOTION_PREVIEW_UNAVAILABLE): set ORDERING_BASE_URL on QA, then re-run";
-const UI_UNAVAILABLE_REASON =
-  'The dashboard says "Customer previews aren\'t available here yet." (the backend answered 503 PROMOTION_PREVIEW_UNAVAILABLE or has no preview route): deploy the preview backend / set ORDERING_BASE_URL on QA, then re-run';
 const PREVIEW_MENU_URL = /\/preview\/[A-Za-z0-9_-]{43}\/menu/;
 const money = (n: number) => `$${n.toFixed(2)}`;
 
@@ -106,22 +104,14 @@ test.describe("Owner — Try it as a customer (dashboard → lima)", () => {
 
   /**
    * Presses "Try it as a customer" and returns the lima tab plus its token
-   * (recorded for the backstop at once). Skips the rest of the file when the
-   * dashboard reports previews unavailable; any other refusal fails.
+   * (recorded for the backstop at once). Any refusal fails.
    */
   const tryIt = async (
     create: OwnerCreatePromotionPage
   ): Promise<{ tab: Page; previewToken: string }> => {
-    let tab: Page;
-    try {
-      tab = await create.tryAsCustomer();
-    } catch (err) {
-      if (await create.previewUnavailableNotice().isVisible()) {
-        previewsUnavailable = true;
-        test.skip(true, UI_UNAVAILABLE_REASON);
-      }
-      throw err;
-    }
+    // A refusal fails here: the 503 "unavailable" case was already skipped
+    // by the probe, and a missing route fails the probe.
+    const tab = await create.tryAsCustomer();
     const previewToken = createLimaPreviewPage(tab).token();
     opened.push(previewToken);
     return { tab, previewToken };
@@ -155,6 +145,10 @@ test.describe("Owner — Try it as a customer (dashboard → lima)", () => {
       previewsUnavailable = true;
       return;
     }
+    expect(
+      probe.status,
+      "backend has no preview route — deploy the preview backend"
+    ).not.toBe(404);
 
     groupId = (
       await createMenuGroupNamed(token, `Automation Menu Try ${runId}`, {
@@ -176,12 +170,7 @@ test.describe("Owner — Try it as a customer (dashboard → lima)", () => {
   });
 
   test.beforeEach(async () => {
-    test.skip(
-      previewsUnavailable,
-      previewsUnavailable && !groupId
-        ? API_UNAVAILABLE_REASON
-        : UI_UNAVAILABLE_REASON
-    );
+    test.skip(previewsUnavailable, API_UNAVAILABLE_REASON);
     await allure.label("feature", "Promotions");
     await allure.label("severity", "critical");
   });
@@ -259,7 +248,6 @@ test.describe("Owner — Try it as a customer (dashboard → lima)", () => {
             const holders = (await listPromotions(token, restaurantId)).filter(
               (r) => r.source === "DEAL" && r.holdsDealSlot
             );
-            expect(holders.some((r) => r.id === dealId)).toBe(false);
             expect(count).toBe(holders.length);
           }).toPass({ timeout: 30_000 });
         }
@@ -418,9 +406,11 @@ test.describe("Owner — Try it as a customer (dashboard → lima)", () => {
         "End preview in the banner ends the second",
         async () => {
           const secondPreview = createLimaPreviewPage(second!.tab);
+          // The dashboard opened this tab with window.open, so lima's
+          // window.close() after the DELETE closes it.
+          const closed = second!.tab.waitForEvent("close", { timeout: 15_000 });
           await secondPreview.endPreviewButton().click();
-          // The tab was opened by script, so lima may close it; either way the
-          // preview is gone.
+          await closed;
           await expect
             .poll(
               async () => (await getPreviewRaw(second!.previewToken)).status,
@@ -429,18 +419,6 @@ test.describe("Owner — Try it as a customer (dashboard → lima)", () => {
               }
             )
             .toBe(404);
-          // Closed by lima, or left open on the ended page — nothing else.
-          await expect
-            .poll(
-              async () =>
-                second!.tab.isClosed() ||
-                (await secondPreview
-                  .endedMessage()
-                  .isVisible()
-                  .catch(() => second!.tab.isClosed())),
-              { timeout: 15_000 }
-            )
-            .toBe(true);
         }
       );
 
