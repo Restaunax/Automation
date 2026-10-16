@@ -888,6 +888,54 @@ test.describe("Owner — Promotions", () => {
     }
   });
 
+  // The un-helped path of the page object's cancel(), which confirms
+  // "Leave without saving?" for the caller whenever it appears.
+  test("TC-871: Cancel with unsaved answers asks 'Leave without saving?' — Keep editing keeps them, Leave saves nothing", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Create → Money off the order, 15%, a name, then Cancel: the 'Leave without saving?' dialog opens (it is not skipped). 'Keep editing' closes it with every answer still there; Cancel again → 'Leave' returns to the list and the server has no promotion of that name."
+    );
+    const name = promoName("Leave");
+    const create = createOwnerCreatePromotionPage(ownerPage);
+    const list = createOwnerPromotionsPage(ownerPage);
+    const leave = ownerPage
+      .getByRole("dialog")
+      .filter({ hasText: "Leave without saving?" });
+    try {
+      await create.goto(restaurantId);
+      await create.pickCard("Money off the order");
+      await create.setAmount("Percentage off", "15");
+      await create.setName(name);
+
+      await allure.step("Keep editing keeps the answers", async () => {
+        await ownerPage
+          .getByRole("button", { name: "Cancel", exact: true })
+          .click();
+        await expect(leave).toBeVisible();
+        await leave
+          .getByRole("button", { name: "Keep editing", exact: true })
+          .click();
+        await expect(leave).toBeHidden();
+        await expect(create.card("Money off the order")).toBeChecked();
+        await expect(create.amountField("Percentage off")).toHaveValue("15");
+        await expect(create.nameField()).toHaveValue(name);
+      });
+
+      await allure.step("Leave goes back and saves nothing", async () => {
+        await ownerPage
+          .getByRole("button", { name: "Cancel", exact: true })
+          .click();
+        await expect(leave).toBeVisible();
+        await leave.getByRole("button", { name: "Leave", exact: true }).click();
+        await expect(list.heading()).toBeVisible();
+        expect(await serverRow(name)).toBeUndefined();
+      });
+    } finally {
+      await cleanup(name);
+    }
+  });
+
   test("TC-831: Results load, and the 60-day range works", async ({
     ownerPage,
   }) => {

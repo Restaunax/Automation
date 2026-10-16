@@ -169,7 +169,8 @@ Automation/
 │   │   │   ├── 06-orders.spec.ts             # ✅ real — 33 tests: search hits, filters return the right rows, sort/paging, detail money/items/customer/delivery, full lifecycles, unpaid cancel, CSV export, header stats (own seed set)
 │   │   │   ├── 06b-orders-journey.spec.ts    # ✅ real @stripe — customer places a real order (page) → owner sees/works/refunds it (ownerPage); TC-225/253/254
 │   │   │   ├── api-orders.spec.ts            # ✅ real — order-management API contract (no browser): status allowlist, cancel-twice, refund-unpaid, INITIALIZED hidden, backwards-move pin, export
-│   │   │   ├── 19-promotions.spec.ts         # ✅ real — Promotions section (replaced Coupons + Deals): old-link redirects, create each of the six types, combo from a menu example (TC-825), validation, edit, pause/turn on, delete, Results (TC-821..832, TC-853, TC-859, TC-860, TC-861, TC-862)
+│   │   │   ├── 19-promotions.spec.ts         # ✅ real — Promotions section (replaced Coupons + Deals): old-link redirects, create each of the six types, combo from a menu example (TC-825), validation, edit, pause/turn on, delete, Results (TC-821..832, TC-853, TC-859, TC-860, TC-861, TC-862, TC-871)
+│   │   │   ├── 25-promotion-scenarios.spec.ts # ✅ real @scenario — eight real-world promotions end to end: dashboard UI build → exact read-back → edit → lima AND wind picks → quote-checked checkout (TC-863..870)
 │   │   │   ├── 08-payment-settings.spec.ts   # ✅ real (route mocks Stripe status/create for pre-connection + failure states)
 │   │   │   ├── 09-uber-settings.spec.ts      # ✅ real — Uber Eats delivery settings (owner-reachable, unlike publish/tax/loyalty)
 │   │   │   ├── 10-subscription.spec.ts       # ✅ real — Subscription/Billing page (permission-gated, not role-gated)
@@ -462,18 +463,19 @@ leaves about five slots for every concurrently running file together. Files
 that put AUTO deals on it must therefore stay small and give slots back
 immediately (try/finally in the test, never "in afterAll"):
 
-| File                                               | Steady ACTIVE footprint                                                      | Temporary peak                                                                                          |
-| -------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `dashboard/owner/19-promotions`                    | 0                                                                            | +1 (TC-824 BOGO, TC-826 combo — each waits for a slot, deleted in finally); TC-825 saves paused: +0     |
-| `dashboard/owner/21-promotion-send`                | 0 (one AUTO coupon per test — coupons take no deal slot; deleted in finally) | 0                                                                                                       |
-| `dashboard/owner/api-menu`                         | 0                                                                            | +1 (TC-272 delete-blocker deal, cap-safe via `createDealApiCapSafe`, deleted in finally)                |
-| `dashboard/owner/04c-menu-item-editor`             | 0                                                                            | +1 (TC-303 delete-blocker deal, cap-safe via `createDealApiCapSafe`, deleted in finally)                |
-| `customer/06-deals`                                | 0                                                                            | +1 (TC-195..197 — each creates its own deal cap-safe, deleted in finally)                               |
-| `customer/08-deals-handoff`                        | 2 (combo, pizza deal)                                                        | +1 (TC-535..538, each deleted in finally)                                                               |
-| `customer/10-promotions`                           | 0                                                                            | +1 (BOGO or CODE-only combo, per test, cap-safe, deleted in finally); +2 in TC-841 (needs both at once) |
-| `customer-lima/13-deals`                           | 1                                                                            | +1 (TC-L63, deleted in finally)                                                                         |
-| `customer-lima/14-promotions`                      | 0                                                                            | +1 (BOGO or CODE-only combo, per test, cap-safe, deleted in finally)                                    |
-| `api-deals`, `20-chain-promotions`, `pos/10-deals` | 0 on the seed restaurant (throwaway tenant / chain)                          | n/a                                                                                                     |
+| File                                               | Steady ACTIVE footprint                                                      | Temporary peak                                                                                                                                                                   |
+| -------------------------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dashboard/owner/19-promotions`                    | 0                                                                            | +1 (TC-824 BOGO, TC-826 combo — each waits for a slot, deleted in finally); TC-825 saves paused: +0                                                                              |
+| `dashboard/owner/21-promotion-send`                | 0 (one AUTO coupon per test — coupons take no deal slot; deleted in finally) | 0                                                                                                                                                                                |
+| `dashboard/owner/api-menu`                         | 0                                                                            | +1 (TC-272 delete-blocker deal, cap-safe via `createDealApiCapSafe`, deleted in finally)                                                                                         |
+| `dashboard/owner/04c-menu-item-editor`             | 0                                                                            | +1 (TC-303 delete-blocker deal, cap-safe via `createDealApiCapSafe`, deleted in finally)                                                                                         |
+| `dashboard/owner/25-promotion-scenarios`           | 0                                                                            | +1 (each scenario's deal, from Save and turn on — `turnOnDealWhenSlotFree` — to its `finally`, one scenario at a time); S6 is a coupon (+0); S8's deal is on the chain (+0 here) |
+| `customer/06-deals`                                | 0                                                                            | +1 (TC-195..197 — each creates its own deal cap-safe, deleted in finally)                                                                                                        |
+| `customer/08-deals-handoff`                        | 2 (combo, pizza deal)                                                        | +1 (TC-535..538, each deleted in finally)                                                                                                                                        |
+| `customer/10-promotions`                           | 0                                                                            | +1 (BOGO or CODE-only combo, per test, cap-safe, deleted in finally); +2 in TC-841 (needs both at once)                                                                          |
+| `customer-lima/13-deals`                           | 1                                                                            | +1 (TC-L63, deleted in finally)                                                                                                                                                  |
+| `customer-lima/14-promotions`                      | 0                                                                            | +1 (BOGO or CODE-only combo, per test, cap-safe, deleted in finally)                                                                                                             |
+| `api-deals`, `20-chain-promotions`, `pos/10-deals` | 0 on the seed restaurant (throwaway tenant / chain)                          | n/a                                                                                                                                                                              |
 
 Steady total: baseline 5 + 3 = 8 of 10, so the peaks above queue on the
 remaining two slots instead of failing. UI submits that create an ACTIVE deal
@@ -489,6 +491,9 @@ they price no other file's cart — another file's checkout over $55 can only
 see the "You've earned a free …" button, never a discount. It is the ONLY
 automatic spend offer the suite may run there: `19-promotions` TC-826 saves
 its free item "Only with a code".
+`dashboard/owner/25-promotion-scenarios` runs no automatic spend offer either (its
+free item is code-only) and keeps its carts under $55; its S8 publishes the
+Automation Chain's location A for the lima step only (restored in `finally`).
 `customer-lima/14-promotions` seeds the same set (labelled "Lima") WITHOUT the
 free item: a spend-triggered gift is offered to every cart over its threshold,
 so a second one would compete with wind's for each other's carts.
