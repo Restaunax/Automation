@@ -8,7 +8,7 @@
  * through the API (utils/promotionsApi.ts, the public deal list and menu).
  *
  * Own data on the seed restaurant: a per-run "Automation Menu Promo <id>"
- * category with three items (two to sell, one free gift), so a live sale or
+ * category with four items (two to sell, one free gift, one spare), so a live sale or
  * free item never reprices the seed item other files assert on. Every
  * promotion has an AUTO name (and an AUTO code when it takes one) and is
  * deleted in its test's `finally`; the category goes in afterAll, and
@@ -76,6 +76,7 @@ test.describe("Owner — Promotions", () => {
   let itemA: OwnItem;
   let itemB: OwnItem;
   let gift: OwnItem;
+  let extra: OwnItem;
 
   const promoName = (label: string) => `AUTO ${label} ${runId}`;
 
@@ -125,11 +126,12 @@ test.describe("Owner — Promotions", () => {
     itemA = await make("Wrap", 10);
     itemB = await make("Bowl", 12);
     gift = await make("Cookie", 4);
+    extra = await make("Salad", 6);
   });
 
   test.afterAll(async () => {
     if (!token) return;
-    for (const item of [itemA, itemB, gift]) {
+    for (const item of [itemA, itemB, gift, extra]) {
       if (item) await deleteMenuItemRaw(token, item.id);
     }
     if (groupId) await deleteMenuGroupRaw(token, groupId);
@@ -733,6 +735,62 @@ test.describe("Owner — Promotions", () => {
     } finally {
       await cleanup(name);
       await cleanup(copy);
+    }
+  });
+
+  test("TC-861: Change a picked item in place — position kept, others untouched, Keep cancels", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      'Create → Combo price with three items. "Change <second item>" opens the menu search on that line; picking another item replaces that line in place (order item1, NEW, item3). "Change <first item>" then "Keep <first item>" leaves the list unchanged. Save for later (no deal slot) stores the deal with items item1, NEW, item3.'
+    );
+    const name = promoName("Change line");
+    const create = createOwnerCreatePromotionPage(ownerPage);
+    const group = "What's in the combo?";
+    try {
+      await create.goto(restaurantId);
+      await create.pickCard("Combo price");
+      await create.pickItems(group, [itemA.name, itemB.name, gift.name]);
+      await create.setAmount("Combo price", "15");
+      await create.setName(name);
+      expect(await create.lineNames(group)).toEqual([
+        itemA.name,
+        itemB.name,
+        gift.name,
+      ]);
+
+      await allure.step("Change the second line to another item", async () => {
+        await create.changeLine(group, itemB.name);
+        await create.pickReplacement(group, extra.name);
+        await expect
+          .poll(() => create.lineNames(group))
+          .toEqual([itemA.name, extra.name, gift.name]);
+      });
+
+      await allure.step("Keep on the first line changes nothing", async () => {
+        await create.changeLine(group, itemA.name);
+        await create.keepLine(group, itemA.name);
+        await expect
+          .poll(() => create.lineNames(group))
+          .toEqual([itemA.name, extra.name, gift.name]);
+      });
+
+      await create.saveForLater();
+      await create.expectSaved();
+
+      await allure.step("the server deal has the changed list", async () => {
+        const row = await serverRow(name);
+        expect(row, `listPromotions has ${name}`).toBeTruthy();
+        expect(row!.status).toBe("INACTIVE");
+        const deal = await getDealApi(token, row!.id);
+        expect((deal.items ?? []).map((i) => i.itemName)).toEqual([
+          itemA.name,
+          extra.name,
+          gift.name,
+        ]);
+      });
+    } finally {
+      await cleanup(name);
     }
   });
 
