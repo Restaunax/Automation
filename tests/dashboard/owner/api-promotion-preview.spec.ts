@@ -1,6 +1,6 @@
 /**
  * api-promotion-preview.spec.ts — "Try it as a customer" at the API level on
- * QA (TC-872 → TC-881).
+ * QA (TC-872 → TC-881, TC-888, TC-889).
  *
  * Runs on its OWN throwaway tenant (createSecondOwner, alwaysFresh), never the
  * seed restaurant: the 5-live-preview cap and the create rate limiter are per
@@ -45,7 +45,11 @@ import {
   type PreviewCreated,
 } from "../../../utils/previewApi";
 import { listPromotions } from "../../../utils/promotionsApi";
-import { generateRunId, LIMA_ORDERING_URL } from "../../../utils/testData";
+import {
+  generateRunId,
+  LIMA_ORDERING_URL,
+  readRestaurantId,
+} from "../../../utils/testData";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
@@ -521,6 +525,100 @@ test.describe("Owner — Promotion preview (API)", () => {
       expect((await getPreviewRaw(created.token)).status).toBe(404);
     } finally {
       // Idempotent: a no-op when the body already ended it.
+      await endPreviewRaw(created.token);
+    }
+  });
+
+  test("TC-888: a preview token does nothing on another restaurant (the seed's list, quote and site)", async ({
+    request,
+  }) => {
+    const seedId = readRestaurantId();
+    expect(seedId, "seed restaurant id").toBeTruthy();
+    expect(seedId).not.toBe(restaurantId);
+    const name = `AUTO Preview Cross ${runId}`;
+    const created = await open(comboBody(name));
+    try {
+      const dealId = await previewDealId(created.token);
+
+      // (a) The seed's public deal list: no preview deal, not marked preview,
+      // not no-store.
+      const list = await request.get(
+        `${BACKEND_URL}/api/deals/restaurant/${seedId}/active`,
+        {
+          headers: {
+            "X-Promotions-Version": "2",
+            ...previewHeader(created.token),
+          },
+        }
+      );
+      expect(list.status(), await list.text()).toBe(200);
+      const listBody = (await list.json()) as {
+        deals: { id: string; name: string; isPreview?: boolean }[];
+      };
+      expect(listBody.deals.some((d) => d.name === name)).toBe(false);
+      expect(listBody.deals.some((d) => d.id === dealId)).toBe(false);
+      expect(listBody.deals.some((d) => d.isPreview)).toBe(false);
+      expect(list.headers()["cache-control"] ?? "").not.toContain("no-store");
+
+      // (b) /quote on the seed prices exactly like a request without the
+      // header — the preview deal is unknown there, so both are refused alike.
+      const quoteBody = {
+        orderType: "PICKUP",
+        items: [],
+        deals: [
+          { dealId, quantity: 1, selections: [{ menuItemId: item(0).id }] },
+        ],
+      };
+      const withHeader = await apiRequestRaw(
+        "POST",
+        `/api/order/${seedId}/quote`,
+        quoteBody,
+        undefined,
+        previewHeader(created.token)
+      );
+      const plain = await apiRequestRaw(
+        "POST",
+        `/api/order/${seedId}/quote`,
+        quoteBody
+      );
+      expect(withHeader.status, JSON.stringify(withHeader.data)).not.toBe(200);
+      expect(withHeader.status).toBe(plain.status);
+      expect(withHeader.data).toEqual(plain.data);
+
+      // (c) The site resolver answers with the token's own restaurant only.
+      const site = await apiRequestRaw<{
+        data?: { restaurantId?: string };
+      }>("GET", `/api/public/site?preview=${created.token}`);
+      expect(site.status, JSON.stringify(site.data)).toBe(200);
+      expect(site.data.data?.restaurantId).toBe(restaurantId);
+      expect(site.data.data?.restaurantId).not.toBe(seedId);
+    } finally {
+      await endPreviewRaw(created.token);
+    }
+  });
+
+  test("TC-889: a preview tab can't book a reservation or pay a balance", async () => {
+    const created = await open(comboBody(`AUTO Preview Stand-alone ${runId}`));
+    try {
+      // Invalid payloads on purpose: nothing real is created even if a
+      // refusal were missing. The refusal must come first, as a 403.
+      const reservation = await apiRequestRaw(
+        "POST",
+        `/api/public/restaurants/${restaurantId}/reservations`,
+        {},
+        undefined,
+        previewHeader(created.token)
+      );
+      expect(reservation.status, JSON.stringify(reservation.data)).toBe(403);
+      const payBalance = await apiRequestRaw(
+        "POST",
+        `/api/pay-balance/AUTO-NO-SUCH-ORDER/AUTO-NO-SUCH-TOKEN/payment-intent`,
+        {},
+        undefined,
+        previewHeader(created.token)
+      );
+      expect(payBalance.status, JSON.stringify(payBalance.data)).toBe(403);
+    } finally {
       await endPreviewRaw(created.token);
     }
   });
