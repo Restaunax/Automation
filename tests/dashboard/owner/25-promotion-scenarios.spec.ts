@@ -51,7 +51,10 @@ import {
   createMenuItemFull,
   deleteMenuGroupRaw,
   deleteMenuItemRaw,
+  apiRequestRaw,
+  getActiveDealsPublic,
   getDealApi,
+  setAvailability,
   waitForFreeDealSlot,
   DEAL_SLOT_TEST_TIMEOUT_MS,
   type ApiDeal,
@@ -71,6 +74,7 @@ import {
   type QuoteTracker,
 } from "../../../utils/quoteTracker";
 import {
+  generateCouponCode,
   generateRunId,
   readRestaurantSlug,
   readSharedState,
@@ -117,6 +121,14 @@ const choose = (items: Item[], role = "INCLUDED"): Line => ({
   menuItemId: null,
   menuGroupId: null,
   options: items.map((i) => i.id).sort(),
+});
+
+const anyFrom = (categoryId: string, role = "INCLUDED"): Line => ({
+  role,
+  quantity: 1,
+  menuItemId: null,
+  menuGroupId: categoryId,
+  options: [],
 });
 
 /** The deal's lines, normalised for an exact comparison. */
@@ -204,6 +216,17 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
   let riceBowl: Item; // $11.99
   let patty: Item; // $4.99
   let knots: Item; // $3.99
+  let pizzaGroupId = "";
+  let pizzaGroupName = "";
+  let margherita: Item; // $14; Toppings (ADJUSTS_PRICE): cheese +1.50, mushrooms +1
+  let pepperoni: Item; // $16; same toppings
+  let baklava: Item; // $5 — S6's free item
+  let sub: Item; // $9
+  let cola: Item; // $2
+  let lemonade: Item; // $3 — S7 marks it out of stock
+  let icedTea: Item; // $2.50
+  const CHEESE = `Extra cheese ${runId}`;
+  const MUSHROOMS = `Mushrooms ${runId}`;
   const WINGS_8 = `8 pc ${runId}`;
   const WINGS_10 = `10 pc ${runId}`;
 
@@ -266,6 +289,29 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
     riceBowl = await makeItem(groupId, "Rice Bowl", 11.99);
     patty = await makeItem(groupId, "Beef Patty", 4.99);
     knots = await makeItem(groupId, "Garlic Knots", 3.99);
+    pizzaGroupName = `Automation Menu Scenario Pizzas ${runId}`;
+    pizzaGroupId = await makeGroup("Scenario Pizzas");
+    const toppings: CreateMenuItemOpts = {
+      modifierGroups: [
+        {
+          name: "Toppings",
+          pricingMode: "ADJUSTS_PRICE",
+          minSelections: 0,
+          maxSelections: null,
+          modifiers: [
+            { name: CHEESE, price: 1.5 },
+            { name: MUSHROOMS, price: 1 },
+          ],
+        },
+      ],
+    };
+    margherita = await makeItem(pizzaGroupId, "Margherita", 14, toppings);
+    pepperoni = await makeItem(pizzaGroupId, "Pepperoni", 16, toppings);
+    baklava = await makeItem(groupId, "Baklava", 5);
+    sub = await makeItem(groupId, "Sub", 9);
+    cola = await makeItem(groupId, "Cola", 2);
+    lemonade = await makeItem(groupId, "Lemonade", 3);
+    icedTea = await makeItem(groupId, "Iced Tea", 2.5);
   });
 
   test.afterAll(async () => {
@@ -301,6 +347,19 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
     expect(row, `listPromotions has ${name}`).toBeTruthy();
     expect(row!.source).toBe("DEAL");
     return getDealApi(token, row!.id);
+  };
+
+  /** The coupon row as the owner API stores it (fields read loosely). */
+  const couponRow = async (
+    couponId: string
+  ): Promise<Record<string, unknown> & { id: string }> => {
+    const res = await apiRequestRaw<{
+      coupons?: (Record<string, unknown> & { id: string })[];
+    }>("GET", `/api/coupons/restaurant/${restaurantId}`, undefined, token);
+    expect(res.ok, JSON.stringify(res.data)).toBe(true);
+    const row = (res.data.coupons ?? []).find((c) => c.id === couponId);
+    expect(row, `coupon ${couponId} is listed`).toBeTruthy();
+    return row!;
   };
 
   /** Promotions list → the row's Edit → the edit page. */
@@ -774,6 +833,520 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
         }
         await windKeepShoppingToCheckout(page, quotes, name, want, bugs);
       });
+      reportBugs(bugs);
+    } finally {
+      await cleanup(name);
+    }
+  });
+
+  test("TC-864: @scenario S2 Second gyro for $1.99 (BOGO_FIXED_PRICE) — choose-from on both They buy and They get; the cheaper pick gets the set price", async ({
+    ownerPage,
+    page,
+  }) => {
+    test.setTimeout(SCENARIO_TEST_TIMEOUT_MS);
+    await allure.description(
+      "Build: Buy one, get one → They buy: choose from Chicken / Lamb / Beef Gyro, They get: choose from the same three (both with 'Add these choices'), For a set price, They pay $1.99, Save and turn on. Read back: BOGO_FIXED_PRICE, getPrice 1.99, a BUY and a GET line with exactly the three options each. Edit: They pay → $2.49. Lima + wind: buy Beef ($13), get Chicken ($11) → the cheaper one costs $2.49: deal $15.49 (builder bar and quote), no upgrades, You're saving = $24 − $15.49."
+    );
+    const name = promoName("2nd gyro");
+    const gyros = [chickenGyro, lambGyro, beefGyro];
+    const create = createOwnerCreatePromotionPage(ownerPage);
+    const quotes = trackQuotes(page);
+    const bugs: string[] = [];
+    try {
+      await allure.step("build it in the dashboard", async () => {
+        await create.goto(restaurantId);
+        await create.pickCard("Buy one, get one");
+        const names = gyros.map((g) => g.name);
+        await create.pickItems("They buy", names, { choice: true });
+        await create.pickItems("They get", names, { choice: true });
+        await create.chooseOption("For a set price");
+        await create.setAmount("They pay", "1.99");
+        await create.setName(name);
+        await create.turnOnDealWhenSlotFree(() =>
+          waitForFreeDealSlot(token, restaurantId)
+        );
+        await create.expectSaved();
+      });
+
+      const dealId = await allure.step("read back", async () => {
+        const deal = await savedDeal(name);
+        expect(deal.status).toBe("ACTIVE");
+        expect(deal.dealType).toBe("BOGO_FIXED_PRICE");
+        expect(deal.getPrice).toBe(1.99);
+        expect(linesOf(deal), JSON.stringify(deal.items)).toEqual([
+          choose(gyros, "BUY"),
+          choose(gyros, "GET"),
+        ]);
+        return deal.id;
+      });
+
+      await allure.step("edit: They pay → $2.49", async () => {
+        const edit = await openEdit(ownerPage, name);
+        await expect(edit.amountField("They pay")).toHaveValue("1.99");
+        await edit.setAmount("They pay", "2.49");
+        await saveEdit(ownerPage);
+        const deal = await getDealApi(token, dealId);
+        expect(deal.getPrice).toBe(2.49);
+        expect(linesOf(deal)).toEqual([
+          choose(gyros, "BUY"),
+          choose(gyros, "GET"),
+        ]);
+      });
+
+      // Equal-or-lesser: Beef $13 at full price, Chicken $11 at $2.49.
+      const want: ExpectedDealCheckout = {
+        dealId,
+        dealPrice: 15.49,
+        upcharge: 0,
+        regular: beefGyro.price + chickenGyro.price,
+      };
+
+      await allure.step("lima: buy Beef, get Chicken → checkout", async () => {
+        const deals = await limaOpenDeal(page, name);
+        await expect(deals.choiceSlots()).toHaveCount(2);
+        for (const slot of [0, 1])
+          for (const g of gyros)
+            await expect(deals.choiceCard(slot, g.name)).toBeVisible();
+        await deals.pickChoice(0, beefGyro.name);
+        await deals.pickChoice(1, chickenGyro.name);
+        await deals.assertDealComplete();
+        await expect(deals.progressDealPrice()).toHaveText(money(15.49));
+        await limaKeepShoppingToCheckout(page, quotes, name, want, bugs);
+      });
+
+      await allure.step("wind: buy Beef, get Chicken → checkout", async () => {
+        const deals = await windOpenDeal(page, name);
+        await expect(deals.choiceSlots()).toHaveCount(2);
+        for (const slot of [0, 1])
+          for (const g of gyros)
+            await expect(deals.choiceCard(slot, g.name)).toBeVisible();
+        await deals.pickChoice(0, beefGyro.name);
+        await deals.pickChoice(1, chickenGyro.name);
+        await deals.assertDealComplete();
+        await expect(deals.progressDealPrice()).toHaveText(money(15.49));
+        await windKeepShoppingToCheckout(page, quotes, name, want, bugs);
+      });
+      reportBugs(bugs);
+    } finally {
+      await cleanup(name);
+    }
+  });
+
+  test("TC-866: @scenario S4 Any 2 medium pizzas for $19.99 — two 'Any from a category' lines; paid toppings show as upgrades", async ({
+    ownerPage,
+    page,
+  }) => {
+    test.setTimeout(SCENARIO_TEST_TIMEOUT_MS);
+    await allure.description(
+      "Build: Combo price → Any from a category: the per-run pizza category, twice, $19.99, Save and turn on. Read back: two category lines on that category. Edit: price → $20.99. Lima + wind: Margherita + Extra cheese (+$1.50) and Pepperoni (the pricier pizza) + Mushrooms (+$1) → deal $20.99, upgrades $2.50 itemised, Items + Upgrades = Subtotal, You're saving = $30 − $20.99."
+    );
+    const name = promoName("Two pizzas");
+    const group = "What's in the combo?";
+    const create = createOwnerCreatePromotionPage(ownerPage);
+    const quotes = trackQuotes(page);
+    const bugs: string[] = [];
+    try {
+      await allure.step("build it in the dashboard", async () => {
+        await create.goto(restaurantId);
+        await create.pickCard("Combo price");
+        await create.pickCategory(group, pizzaGroupName);
+        await create.pickCategory(group, pizzaGroupName);
+        await create.setAmount("Combo price", "19.99");
+        await create.setName(name);
+        await create.turnOnDealWhenSlotFree(() =>
+          waitForFreeDealSlot(token, restaurantId)
+        );
+        await create.expectSaved();
+      });
+
+      const dealId = await allure.step("read back", async () => {
+        const deal = await savedDeal(name);
+        expect(deal.status).toBe("ACTIVE");
+        expect(deal.dealType).toBe("COMBO");
+        expect(deal.dealPrice).toBe(19.99);
+        expect(linesOf(deal), JSON.stringify(deal.items)).toEqual([
+          anyFrom(pizzaGroupId),
+          anyFrom(pizzaGroupId),
+        ]);
+        return deal.id;
+      });
+
+      await allure.step("edit: price → $20.99", async () => {
+        const edit = await openEdit(ownerPage, name);
+        await expect(edit.amountField("Combo price")).toHaveValue("19.99");
+        await edit.setAmount("Combo price", "20.99");
+        await saveEdit(ownerPage);
+        const deal = await getDealApi(token, dealId);
+        expect(deal.dealPrice).toBe(20.99);
+        expect(linesOf(deal)).toEqual([
+          anyFrom(pizzaGroupId),
+          anyFrom(pizzaGroupId),
+        ]);
+      });
+
+      const want: ExpectedDealCheckout = {
+        dealId,
+        dealPrice: 20.99,
+        upcharge: 2.5,
+        regular: margherita.price + pepperoni.price,
+        fromRegular: 2 * margherita.price,
+        upgradeDetails: [`${CHEESE} +$1.50`, `${MUSHROOMS} +$1.00`],
+      };
+
+      await allure.step(
+        "lima: Margherita + cheese, Pepperoni + mushrooms → checkout",
+        async () => {
+          const deals = await limaOpenDeal(page, name);
+          const lima = createLimaStorefrontPage(page);
+          await expect(deals.choiceSlots()).toHaveCount(2);
+          await deals.pickChoice(0, margherita.name, () =>
+            lima.modifierOption(CHEESE).check()
+          );
+          await deals.pickChoice(1, pepperoni.name, () =>
+            lima.modifierOption(MUSHROOMS).check()
+          );
+          await limaKeepShoppingToCheckout(page, quotes, name, want, bugs);
+        }
+      );
+
+      await allure.step(
+        "wind: Margherita + cheese, Pepperoni + mushrooms → checkout",
+        async () => {
+          const deals = await windOpenDeal(page, name);
+          const modal = createCustomerItemModal(page);
+          await expect(deals.choiceSlots()).toHaveCount(2);
+          await deals.pickChoice(0, margherita.name, () =>
+            modal.selectOption(CHEESE)
+          );
+          await deals.pickChoice(1, pepperoni.name, () =>
+            modal.selectOption(MUSHROOMS)
+          );
+          await windKeepShoppingToCheckout(page, quotes, name, want, bugs);
+        }
+      );
+      reportBugs(bugs);
+    } finally {
+      await cleanup(name);
+    }
+  });
+
+  test("TC-868: @scenario S6 Free baklava on orders of $25+ — only with a code: the code applies, the free-item offer shows, Add makes the line free", async ({
+    ownerPage,
+    page,
+  }) => {
+    test.setTimeout(SCENARIO_TEST_TIMEOUT_MS);
+    await allure.description(
+      "Code-only on purpose: an automatic spend offer would offer its gift to every other file's cart (TEST_PLAN.md → seed-restaurant budget). Build: Free item → Which item is free? Baklava ($5), When they spend, Order total of at least $25, Only with a code, AUTO code, Save and turn on. Read back (coupon row): FREE_ITEM, gift = Baklava, SPEND trigger, $25 minimum, CODE with that code. Edit: minimum → $30. Lima + wind: three Chicken Gyros ($33, over $30 and under the wind file's $55 automatic offer) → enter the code → the quote's freeItemOffer shows 'You've earned a free Baklava — Add it' → Add → the quote prices the gift and discounts it in full (savings $5), the promotion line reads -$5.00 and Total = the latest quote."
+    );
+    const name = promoName("Free baklava");
+    const code = generateCouponCode();
+    const create = createOwnerCreatePromotionPage(ownerPage);
+    const quotes = trackQuotes(page);
+    try {
+      await allure.step("build it in the dashboard", async () => {
+        await create.goto(restaurantId);
+        await create.pickCard("Free item");
+        await create.pickItems("Which item is free?", [baklava.name]);
+        await create.chooseOption("When they spend");
+        await create.setAmount("Order total of at least", "25");
+        await create.setHowCustomersGetIt("Only with a code");
+        await create.setName(name);
+        await create.setCode(code);
+        await create.turnOn();
+        await create.expectSaved();
+      });
+
+      const coupon = await allure.step("read back", async () => {
+        const row = await serverRow(name);
+        expect(row, `listPromotions has ${name}`).toBeTruthy();
+        expect(row!.source).toBe("COUPON");
+        const c = await couponRow(row!.id);
+        expect(c, JSON.stringify(c)).toMatchObject({
+          type: "FREE_ITEM",
+          code,
+          applyMode: "CODE",
+          giftMenuItemId: baklava.id,
+          triggerKind: "SPEND",
+          minOrderAmount: 25,
+          status: "ACTIVE",
+        });
+        return c;
+      });
+
+      await allure.step("edit: minimum → $30", async () => {
+        const edit = await openEdit(ownerPage, name);
+        await expect(edit.amountField("Order total of at least")).toHaveValue(
+          /^25(\.00)?$/
+        );
+        await edit.setAmount("Order total of at least", "30");
+        await saveEdit(ownerPage);
+        expect(await couponRow(coupon.id)).toMatchObject({
+          type: "FREE_ITEM",
+          code,
+          giftMenuItemId: baklava.id,
+          triggerKind: "SPEND",
+          minOrderAmount: 30,
+        });
+      });
+
+      /** The quote after Add carries the gift line, priced free. */
+      const quoteWithGift = (r: Parameters<typeof isQuoteResponse>[0]) =>
+        isQuoteResponse(r) &&
+        (
+          (r.request().postDataJSON() as PageQuote["request"]).orderItems ?? []
+        ).some((i) => i.menuItemId === baklava.id);
+      const expectGiftQuote = (quote: PageQuote) => {
+        expect(quote.request.couponId).toBe(coupon.id);
+        expect(quote.body.quote?.appliedPromotion).toMatchObject({
+          couponId: coupon.id,
+          title: name,
+          savings: baklava.price,
+        });
+        expect(quote.body.quote?.freeItemOffer ?? null).toBeNull();
+      };
+      const offerText = `You've earned a free ${baklava.name} — Add it`;
+
+      await allure.step(
+        "lima: three gyros → code on the cart → checkout → Add the free baklava",
+        async () => {
+          const lima = createLimaStorefrontPage(page);
+          const checkout = createLimaCheckoutPage(page);
+          await lima.gotoMenu(slug);
+          await lima.assertOnMenu();
+          for (let i = 0; i < 3; i++) {
+            await expect(lima.itemCard(chickenGyro.name)).toBeVisible({
+              timeout: 30_000,
+            });
+            await lima.itemCard(chickenGyro.name).click();
+            await expect(lima.addToCartButton()).toBeEnabled({
+              timeout: 20_000,
+            });
+            await lima.clickAddToCart();
+            await expect(lima.addToCartButton()).toBeHidden({
+              timeout: 15_000,
+            });
+          }
+          await lima.cartButton().click();
+          await expect(page).toHaveURL(new RegExp(`/${slug}/cart`), {
+            timeout: 15_000,
+          });
+          const [redeem] = await Promise.all([
+            page.waitForResponse(
+              (r) =>
+                r.url().includes("/api/promotions/redeem-code") &&
+                r.request().method() === "POST",
+              { timeout: 20_000 }
+            ),
+            checkout.applyCoupon(code),
+          ]);
+          expect(redeem.status(), await redeem.text()).toBe(200);
+          await expect(checkout.appliedCodeChip(code)).toBeVisible({
+            timeout: 15_000,
+          });
+          const [codeRes] = await Promise.all([
+            page.waitForResponse(
+              (r) =>
+                isQuoteResponse(r) &&
+                (r.request().postDataJSON() as PageQuote["request"])
+                  .couponId === coupon.id,
+              { timeout: 30_000 }
+            ),
+            checkout.goToCheckout(),
+          ]);
+          const codeQuote = await readQuote(codeRes);
+          expect(codeQuote.body.quote?.freeItemOffer).toMatchObject({
+            menuItemId: baklava.id,
+          });
+          await expect(checkout.freeItemOfferButton()).toHaveText(offerText, {
+            timeout: 20_000,
+          });
+          const [giftRes] = await Promise.all([
+            page.waitForResponse(quoteWithGift, { timeout: 30_000 }),
+            checkout.freeItemOfferButton().click(),
+          ]);
+          expectGiftQuote(await readQuote(giftRes));
+          await expect(checkout.freeItemOfferButton()).toHaveCount(0);
+          await expect(checkout.promotionLine(name)).toContainText(
+            `-${money(baklava.price)}`,
+            { timeout: 20_000 }
+          );
+          await expectShownMatchesLatestQuote(checkout.readTotal, quotes);
+        }
+      );
+
+      await allure.step(
+        "wind: three gyros → checkout → code → Add the free baklava",
+        async () => {
+          const menu = createCustomerMenuPage(page);
+          const checkout = createCustomerCheckoutPage(page);
+          await menu.goto(restaurantId);
+          await menu.assertPageLoaded();
+          await expect(menu.itemCard(chickenGyro.name)).toBeVisible({
+            timeout: 30_000,
+          });
+          for (let i = 0; i < 3; i++) {
+            await menu.openItemModal(chickenGyro.name);
+            await menu.assertItemModalOpen();
+            await menu.clickAddToCart();
+            await expect(menu.addToCartButton()).toBeHidden({
+              timeout: 15_000,
+            });
+          }
+          await menu.openCart();
+          await menu.proceedToCheckout();
+          const [codeRes] = await Promise.all([
+            page.waitForResponse(
+              (r) =>
+                isQuoteResponse(r) &&
+                (r.request().postDataJSON() as PageQuote["request"])
+                  .couponId === coupon.id,
+              { timeout: 30_000 }
+            ),
+            checkout.applyCoupon(code),
+          ]);
+          expect(
+            (await readQuote(codeRes)).body.quote?.freeItemOffer
+          ).toMatchObject({ menuItemId: baklava.id });
+          await expect(checkout.freeItemOfferButton()).toHaveText(offerText, {
+            timeout: 20_000,
+          });
+          const [giftRes] = await Promise.all([
+            page.waitForResponse(quoteWithGift, { timeout: 30_000 }),
+            checkout.freeItemOfferButton().click(),
+          ]);
+          expectGiftQuote(await readQuote(giftRes));
+          await expect(
+            page.getByRole("heading", { name: `1x ${baklava.name}` })
+          ).toBeVisible({ timeout: 15_000 });
+          await expect(checkout.freeItemOfferButton()).toHaveCount(0);
+          await expect(checkout.promotionLine(name)).toContainText(
+            `-${money(baklava.price)}`
+          );
+          await expectShownMatchesLatestQuote(checkout.readOrderTotal, quotes);
+        }
+      );
+    } finally {
+      await cleanup(name);
+    }
+  });
+
+  test("TC-869: @scenario S7 Sub + a drink, one drink out of stock — the storefront won't let the customer pick it; the others work", async ({
+    ownerPage,
+    page,
+  }) => {
+    test.setTimeout(SCENARIO_TEST_TIMEOUT_MS);
+    await allure.description(
+      "Build: Combo price → Sub (one item) + Choose from these items: Cola / Lemonade / Iced Tea (with 'Add these choices'), $9.99, Save and turn on. Read back: the two lines with exactly the three drinks. Then Lemonade goes out of stock on the menu (PATCH availability, as the owner's menu toggle does). Edit: price → $10.49 (the deal still saves; the stored line keeps all three). The public v2 deal list then offers only Cola and Iced Tea, and lima + wind show only those two (both pickable, no Lemonade card). Sub + Iced Tea → deal $10.49, no upgrades, You're saving = $11.50 − $10.49."
+    );
+    const name = promoName("Sub combo");
+    const group = "What's in the combo?";
+    const drinks = [cola, lemonade, icedTea];
+    const create = createOwnerCreatePromotionPage(ownerPage);
+    const quotes = trackQuotes(page);
+    const bugs: string[] = [];
+    try {
+      await allure.step("build it in the dashboard", async () => {
+        await create.goto(restaurantId);
+        await create.pickCard("Combo price");
+        await create.pickItems(group, [sub.name]);
+        await create.pickItems(
+          group,
+          drinks.map((d) => d.name),
+          { choice: true }
+        );
+        await create.setAmount("Combo price", "9.99");
+        await create.setName(name);
+        await create.turnOnDealWhenSlotFree(() =>
+          waitForFreeDealSlot(token, restaurantId)
+        );
+        await create.expectSaved();
+      });
+
+      const dealId = await allure.step("read back", async () => {
+        const deal = await savedDeal(name);
+        expect(deal.status).toBe("ACTIVE");
+        expect(deal.dealPrice).toBe(9.99);
+        expect(linesOf(deal), JSON.stringify(deal.items)).toEqual([
+          fixed(sub),
+          choose(drinks),
+        ]);
+        return deal.id;
+      });
+
+      await allure.step("Lemonade goes out of stock", () =>
+        setAvailability(token, lemonade.id, true)
+      );
+
+      await allure.step("edit: price → $10.49", async () => {
+        const edit = await openEdit(ownerPage, name);
+        await edit.setAmount("Combo price", "10.49");
+        await saveEdit(ownerPage);
+        const deal = await getDealApi(token, dealId);
+        expect(deal.dealPrice).toBe(10.49);
+        expect(deal.status).toBe("ACTIVE");
+        expect(linesOf(deal)).toEqual([fixed(sub), choose(drinks)]);
+      });
+
+      await allure.step(
+        "the public deal list stops offering Lemonade",
+        async () => {
+          const res = await getActiveDealsPublic(restaurantId, { v2: true });
+          expect(res.ok, JSON.stringify(res.data)).toBe(true);
+          const deal = res.data.deals?.find((d) => d.id === dealId);
+          expect(deal, `v2 /active lists ${name}`).toBeTruthy();
+          expect(linesOf(deal!), JSON.stringify(deal!.items)).toEqual([
+            fixed(sub),
+            choose([cola, icedTea]),
+          ]);
+        }
+      );
+
+      const want: ExpectedDealCheckout = {
+        dealId,
+        dealPrice: 10.49,
+        upcharge: 0,
+        regular: sub.price + icedTea.price,
+        fromRegular: sub.price + cola.price,
+      };
+
+      await allure.step(
+        "lima: Lemonade can't be picked; Sub + Iced Tea → checkout",
+        async () => {
+          const deals = await limaOpenDeal(page, name);
+          await expect(deals.choiceSlots()).toHaveCount(1);
+          for (const d of [cola, icedTea])
+            await expect(deals.choiceCard(0, d.name)).toHaveAttribute(
+              "aria-disabled",
+              "false",
+              { timeout: 15_000 }
+            );
+          await expect(deals.choiceCard(0, lemonade.name)).toHaveCount(0);
+          await deals.pickChoice(0, icedTea.name);
+          await deals.openIncompleteSlot(sub.name);
+          await deals.clickAddToDeal();
+          await limaKeepShoppingToCheckout(page, quotes, name, want, bugs);
+        }
+      );
+
+      await allure.step(
+        "wind: Lemonade can't be picked; Sub + Iced Tea → checkout",
+        async () => {
+          const deals = await windOpenDeal(page, name);
+          await expect(deals.choiceSlots()).toHaveCount(1);
+          for (const d of [cola, icedTea]) {
+            await expect(deals.choiceCard(0, d.name)).toBeVisible();
+            await expect(deals.choiceCard(0, d.name)).not.toHaveAttribute(
+              "aria-disabled",
+              "true"
+            );
+          }
+          await expect(deals.choiceCard(0, lemonade.name)).toHaveCount(0);
+          await deals.pickChoice(0, icedTea.name);
+          await deals.openIncompleteSlot(sub.name);
+          await deals.clickAddToDeal();
+          await windKeepShoppingToCheckout(page, quotes, name, want, bugs);
+        }
+      );
       reportBugs(bugs);
     } finally {
       await cleanup(name);

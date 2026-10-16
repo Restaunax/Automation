@@ -122,22 +122,6 @@ export const createLimaDealPage = (page: Page) => {
     await clickAddToDeal();
   };
 
-  /**
-   * An option the customer can't pick (out of stock / off the menu): the card
-   * is aria-disabled, tagged deal-option-unavailable and reads "Unavailable".
-   */
-  const expectChoiceUnavailable = async (slot: number, itemName: string) => {
-    const card = choiceCard(slot, itemName);
-    await expect(card).toHaveAttribute("aria-disabled", "true", {
-      timeout: 15_000,
-    });
-    await expect(card).toHaveAttribute(
-      "data-testid",
-      "deal-option-unavailable"
-    );
-    await expect(card).toContainText("Unavailable");
-  };
-
   /** "Keep shopping" — DealProgress renders it only once the deal is complete. */
   const keepShoppingButton = (): Locator =>
     page.getByTestId("deal-keep-shopping");
@@ -174,7 +158,6 @@ export const createLimaDealPage = (page: Page) => {
     choiceSlots,
     choiceCard,
     pickChoice,
-    expectChoiceUnavailable,
     keepShoppingButton,
     progressDealPrice,
     cardScheduleSummary,
