@@ -12,7 +12,8 @@
  * Every test ends its own preview(s) in `finally` (at most two live at once —
  * TC-878); afterAll ends anything left as a backstop, hard-deletes the items,
  * deletes the category and archives the tenant. A preview never takes a deal
- * slot.
+ * slot; TC-873 holds ONE real deal slot on the tenant (its own cap) for the
+ * length of the test, deleted in finally.
  *
  * The backend refuses to mint previews (503 PROMOTION_PREVIEW_UNAVAILABLE)
  * while its ORDERING_BASE_URL is unset; the whole file then skips with that
@@ -26,8 +27,10 @@ import {
   apiRequestRaw,
   BACKEND_URL,
   createMenuGroupNamed,
+  createDealApi,
   createMenuItemFull,
   createSecondOwner,
+  deleteDealApi,
   deleteTestMenuGroup,
   deleteTestRestaurant,
   ensureTaxRate,
@@ -186,20 +189,41 @@ test.describe("Owner — Promotion preview (API)", () => {
   });
 
   test("TC-873: a preview is never listed or counted", async () => {
+    // One real ACTIVE deal on the tenant (its own cap, never the seed's), so
+    // the count/list parity below is non-vacuous: 1 slot held, preview not.
+    const real = await createDealApi(
+      token,
+      restaurantId,
+      `AUTO Preview Real Combo ${runId}`,
+      14,
+      [
+        { id: item(0).id, name: item(0).name, price: item(0).price },
+        { id: item(1).id, name: item(1).name, price: item(1).price },
+      ],
+      {
+        status: "ACTIVE",
+        startDate: new Date(Date.now() - DAY).toISOString(),
+        endDate: new Date(Date.now() + 30 * DAY).toISOString(),
+      }
+    );
     const name = `AUTO Preview Hidden ${runId}`;
-    const created = await open(comboBody(name));
+    let created: PreviewCreated | undefined;
     try {
+      created = await open(comboBody(name));
       const dealId = await previewDealId(created.token);
       expect(
         (await listPromotions(token, restaurantId)).some((r) => r.id === dealId)
       ).toBe(false);
-      // The cap count equals the deals the list says hold a slot — so the
-      // live preview (absent from the list) is not counted.
+      // While the preview is live: the cap counts exactly the real deal, the
+      // real deal's row says it holds a slot (a missing field fails), and the
+      // count equals the list's slot-holding DEAL rows.
       await expect(async () => {
         const [count, rows] = await Promise.all([
           getActiveDealsCountRaw(token, restaurantId),
           listPromotions(token, restaurantId),
         ]);
+        expect(count.data.activeDealsCount).toBe(1);
+        expect(rows.find((r) => r.id === real.id)?.holdsDealSlot).toBe(true);
         expect(count.data.activeDealsCount).toBe(
           rows.filter((r) => r.source === "DEAL" && r.holdsDealSlot).length
         );
@@ -213,7 +237,8 @@ test.describe("Owner — Promotion preview (API)", () => {
       );
       expect(plain.data.deals.some((d) => d.name === name)).toBe(false);
     } finally {
-      await endPreviewRaw(created.token);
+      if (created) await endPreviewRaw(created.token);
+      await deleteDealApi(token, real.id);
     }
   });
 
