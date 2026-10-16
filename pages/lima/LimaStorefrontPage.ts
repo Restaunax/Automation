@@ -133,6 +133,19 @@ export const createLimaStorefrontPage = (page: Page) => {
       .first();
 
   /**
+   * On a chain's picker (LocationPicker → LocationCard), "Order here" on the
+   * card of the location with this name.
+   */
+  const pickLocation = async (locationName: string) => {
+    await expect(locationPicker()).toBeVisible({ timeout: 30_000 });
+    await page
+      .locator(".MuiCard-root")
+      .filter({ hasText: locationName })
+      .getByRole("button", { name: "Order here", exact: true })
+      .click();
+  };
+
+  /**
    * Every request this page makes that carried an Authorization header.
    * The real proof of tenant isolation — UI state alone is too weak, because a
    * token can be attached to API calls while the UI still looks logged out.
@@ -184,6 +197,7 @@ export const createLimaStorefrontPage = (page: Page) => {
     cartBadgeCount,
     assertOnMenu,
     locationPicker,
+    pickLocation,
     trackAuthorizedRequests,
     readStorageKeys,
     documentTitle,

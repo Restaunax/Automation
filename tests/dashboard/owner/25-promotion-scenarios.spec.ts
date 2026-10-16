@@ -54,7 +54,10 @@ import {
   apiRequestRaw,
   getActiveDealsPublic,
   getDealApi,
+  getRestaurantTimeZonePublic,
+  permanentlyDeleteMenuItemRaw,
   setAvailability,
+  setRestaurantPublishedApi,
   waitForFreeDealSlot,
   DEAL_SLOT_TEST_TIMEOUT_MS,
   type ApiDeal,
@@ -62,6 +65,7 @@ import {
 } from "../../../utils/apiHelper";
 import {
   deletePromotionRaw,
+  listChainPromotions,
   listPromotions,
   type PromotionListRow,
 } from "../../../utils/promotionsApi";
@@ -82,6 +86,8 @@ import {
 
 const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 
 /**
  * A scenario waits for a deal slot (up to CAP_WAIT_MS), then drives three
@@ -263,6 +269,29 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
     }
   };
 
+  /** Same as cleanup, for a promotion owned by a chain group. */
+  const cleanupChain = async (chainGroupId: string, name: string) => {
+    try {
+      const t = (await apiLogin(OWNER_EMAIL, OWNER_PASSWORD)).accessToken;
+      const rows = (await listChainPromotions(t, chainGroupId)).filter(
+        (r) => r.name === name
+      );
+      for (const r of rows) {
+        const res = await deletePromotionRaw(t, r);
+        if (!res.ok) {
+          console.warn(
+            `[25-promotion-scenarios] chain cleanup: deleting ${r.source} ${r.id} (${name}) → ${res.status} ${JSON.stringify(res.data)}`
+          );
+        }
+      }
+    } catch (err) {
+      console.warn(
+        `[25-promotion-scenarios] chain cleanup of "${name}" failed:`,
+        err
+      );
+    }
+  };
+
   test.beforeAll(async () => {
     if (!OWNER_EMAIL || !OWNER_PASSWORD) return;
     ({ restaurantId } = readSharedState());
@@ -392,11 +421,20 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
         (r.request().postDataJSON() as PageQuote["request"]).orderDeals ?? []
       ).some((d) => d.dealId === dealId);
 
-  /** Lima: menu → "Today's Deals" → View Deal → the builder. */
-  const limaOpenDeal = async (page: Page, dealName: string, at = slug) => {
+  /**
+   * Lima: menu → "Today's Deals" → View Deal → the builder. `location`: `at`
+   * is a chain's slug, and the customer first picks this location.
+   */
+  const limaOpenDeal = async (
+    page: Page,
+    dealName: string,
+    at = slug,
+    location?: string
+  ) => {
     const lima = createLimaStorefrontPage(page);
     const deals = createLimaDealPage(page);
     await lima.gotoMenu(at);
+    if (location) await lima.pickLocation(location);
     await lima.assertOnMenu();
     await expect(deals.dealCard(dealName)).toBeVisible({ timeout: 30_000 });
     await deals.viewDeal(dealName);
@@ -1350,6 +1388,388 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
       reportBugs(bugs);
     } finally {
       await cleanup(name);
+    }
+  });
+
+  test("TC-867: @scenario S5 Weekday lunch combo — outside its hours the storefronts show it unavailable; moved to cover now, it's orderable", async ({
+    ownerPage,
+    page,
+  }) => {
+    test.setTimeout(SCENARIO_TEST_TIMEOUT_MS);
+    await allure.description(
+      "Build: Combo price → Rice Bowl + Fries, $13.99, When? → Weekdays (Mon–Fri; on a weekend run today's day instead, so the window can be judged today) and a Custom time window that is relative to NOW in the restaurant's zone so the result is deterministic: later today (now+2h → now+3h; past windows when it is too late for that). Read back: those days and times. Lima + wind (and the public v2 list): the deal is shown not available now ('Available from …' on the card, the builder's availability label, slots disabled) — or, for a window already over today, not offered. Edit: the window moves to cover now (now−1h → now+2h). Then both storefronts build it and checkout prices it at $13.99, You're saving = $15.99 − $13.99."
+    );
+    const name = promoName("Lunch combo");
+    const group = "What's in the combo?";
+    const create = createOwnerCreatePromotionPage(ownerPage);
+    const quotes = trackQuotes(page);
+    const bugs: string[] = [];
+
+    const tz = await getRestaurantTimeZonePublic(restaurantId);
+    expect(tz, "the backend reports the restaurant's zone").toBeTruthy();
+    const nowParts = Object.fromEntries(
+      new Intl.DateTimeFormat("en-US", {
+        timeZone: tz,
+        weekday: "long",
+        hour: "numeric",
+        hourCycle: "h23",
+      })
+        .formatToParts(new Date())
+        .map((p) => [p.type, p.value])
+    );
+    const today = String(nowParts.weekday).toUpperCase();
+    const hour = Number(nowParts.hour);
+    const WEEKDAYS = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY"];
+    const onWeekday = WEEKDAYS.includes(today);
+    const days = onWeekday ? WEEKDAYS : [today];
+    // Later today when there is room, else a window that already ended.
+    const later = hour + 3 <= 23;
+    const outside = later
+      ? { start: [hour + 2, 0], end: [hour + 3, 0] }
+      : { start: [hour - 3, 0], end: [hour - 2, 0] };
+    const inside = {
+      start: [Math.max(0, hour - 1), 0],
+      end: hour + 2 <= 23 ? [hour + 2, 0] : [23, 59],
+    };
+    const hhmm = ([h, m]: number[]) =>
+      `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+    /** What the time field takes when typed, e.g. "0100PM". */
+    const typed = ([h, m]: number[]) =>
+      `${String(h! % 12 || 12).padStart(2, "0")}${String(m).padStart(2, "0")}${h! < 12 ? "AM" : "PM"}`;
+    await allure.parameter(
+      "restaurant now",
+      `${today} ${hour}:xx ${tz}; outside ${hhmm(outside.start)}–${hhmm(outside.end)}; inside ${hhmm(inside.start)}–${hhmm(inside.end)}`
+    );
+
+    try {
+      await allure.step(
+        "build it in the dashboard (weekdays, a window outside now)",
+        async () => {
+          await create.goto(restaurantId);
+          await create.pickCard("Combo price");
+          await create.pickItems(group, [riceBowl.name, fries.name]);
+          await create.setAmount("Combo price", "13.99");
+          await create.openRule("When?");
+          if (onWeekday) {
+            await create.scheduleChip("weekdays").click();
+            await expect(create.scheduleChip("weekdays")).toHaveAttribute(
+              "aria-pressed",
+              "true"
+            );
+          } else {
+            await create.dayChip(today).click();
+          }
+          for (const d of days)
+            await expect(create.dayChip(d)).toHaveAttribute(
+              "aria-pressed",
+              "true"
+            );
+          await create.setTimeOfDay(typed(outside.start), typed(outside.end));
+          await create.setName(name);
+          await create.turnOnDealWhenSlotFree(() =>
+            waitForFreeDealSlot(token, restaurantId)
+          );
+          await create.expectSaved();
+        }
+      );
+
+      const dealId = await allure.step("read back", async () => {
+        const deal = await savedDeal(name);
+        expect(deal.status).toBe("ACTIVE");
+        expect(deal.dealPrice).toBe(13.99);
+        expect(linesOf(deal)).toEqual([fixed(riceBowl), fixed(fries)]);
+        expect([...(deal.validDays ?? [])].sort()).toEqual([...days].sort());
+        expect(deal.validTimeStart).toBe(hhmm(outside.start));
+        expect(deal.validTimeEnd).toBe(hhmm(outside.end));
+        return deal.id;
+      });
+
+      await allure.step(
+        later
+          ? "outside the window: offered as 'not available now'"
+          : "outside the window (already over today): not offered",
+        async () => {
+          const res = await getActiveDealsPublic(restaurantId, { v2: true });
+          expect(res.ok, JSON.stringify(res.data)).toBe(true);
+          const listed = res.data.deals?.find((d) => d.id === dealId);
+          if (later) {
+            expect(listed, `v2 /active lists ${name}`).toBeTruthy();
+            expect(listed!.availableNow).toBe(false);
+          } else {
+            expect(listed?.availableNow ?? false).toBe(false);
+          }
+
+          const lima = createLimaStorefrontPage(page);
+          const limaDeals = createLimaDealPage(page);
+          await lima.gotoMenu(slug);
+          await lima.assertOnMenu();
+          const windMenu = createCustomerMenuPage(page);
+          const windDeals = createCustomerDealPage(page);
+          if (later) {
+            await expect(limaDeals.cardAvailabilityLabel(name)).toBeVisible({
+              timeout: 30_000,
+            });
+            await limaDeals.gotoBuilder(slug, dealId);
+            await expect(
+              page.getByTestId("deal-availability-label")
+            ).toBeVisible({ timeout: 20_000 });
+            await expect(limaDeals.keepShoppingButton()).toHaveCount(0);
+
+            await windMenu.goto(restaurantId);
+            await expect(windDeals.cardAvailabilityLabel(name)).toBeVisible({
+              timeout: 30_000,
+            });
+            await windDeals.viewDeal(name);
+            await expect(windDeals.builderAvailabilityLabel()).toBeVisible({
+              timeout: 20_000,
+            });
+            const slots = windDeals.slotCardHooks();
+            await expect(slots).toHaveCount(2);
+            for (const card of await slots.all())
+              await expect(card).toHaveAttribute("aria-disabled", "true");
+          } else {
+            // Positive control: the menu itself loaded.
+            await expect(lima.itemCard(riceBowl.name)).toBeVisible({
+              timeout: 30_000,
+            });
+            await expect(limaDeals.dealCard(name)).toHaveCount(0);
+            await windMenu.goto(restaurantId);
+            await expect(windMenu.itemCard(riceBowl.name)).toBeVisible({
+              timeout: 30_000,
+            });
+            await expect(windDeals.dealCard(name)).toHaveCount(0);
+          }
+        }
+      );
+
+      await allure.step("edit: the window moves to cover now", async () => {
+        const edit = await openEdit(ownerPage, name);
+        await edit.setTimeOfDay(typed(inside.start), typed(inside.end));
+        await saveEdit(ownerPage);
+        const deal = await getDealApi(token, dealId);
+        expect(deal.validTimeStart).toBe(hhmm(inside.start));
+        expect(deal.validTimeEnd).toBe(hhmm(inside.end));
+        expect([...(deal.validDays ?? [])].sort()).toEqual([...days].sort());
+        const res = await getActiveDealsPublic(restaurantId, { v2: true });
+        expect(res.data.deals?.find((d) => d.id === dealId)?.availableNow).toBe(
+          true
+        );
+      });
+
+      const want: ExpectedDealCheckout = {
+        dealId,
+        dealPrice: 13.99,
+        upcharge: 0,
+        regular: riceBowl.price + fries.price,
+      };
+
+      await allure.step("lima: now orderable → checkout", async () => {
+        const deals = await limaOpenDeal(page, name);
+        await expect(page.getByTestId("deal-availability-label")).toHaveCount(
+          0
+        );
+        for (const it of [riceBowl, fries]) {
+          await deals.openIncompleteSlot(it.name);
+          await deals.clickAddToDeal();
+        }
+        await limaKeepShoppingToCheckout(page, quotes, name, want, bugs);
+      });
+
+      await allure.step("wind: now orderable → checkout", async () => {
+        const deals = await windOpenDeal(page, name);
+        await expect(deals.builderAvailabilityLabel()).toHaveCount(0);
+        for (const it of [riceBowl, fries]) {
+          await deals.openIncompleteSlot(it.name);
+          await deals.clickAddToDeal();
+        }
+        await windKeepShoppingToCheckout(page, quotes, name, want, bugs);
+      });
+      reportBugs(bugs);
+    } finally {
+      await cleanup(name);
+    }
+  });
+
+  test("TC-870: @scenario S8 Chain combo built in the chain shell — the fan-out confirm, then the member location's lima and wind offer and price it", async ({
+    ownerPage,
+    page,
+  }) => {
+    test.setTimeout(SCENARIO_TEST_TIMEOUT_MS);
+    const state = readSharedState();
+    const chainGroupId = state.chainGroupId ?? "";
+    const locA = state.chainLocationAId ?? "";
+    const locAName = state.chainLocationAName ?? "";
+    // Lima addresses a chain by the CHAIN's slug and a location picker (a
+    // member's own slug does not resolve while the member is unpublished).
+    const chainSlug = state.chainSlug ?? "";
+    test.skip(
+      !chainGroupId || !locA || !locAName || !chainSlug,
+      "Automation Chain fixture (or its ordering slug) not available"
+    );
+    test.skip(
+      !ADMIN_EMAIL || !ADMIN_PASSWORD,
+      "ADMIN_EMAIL / ADMIN_PASSWORD needed (publish location A for lima, hard-delete the chain items)"
+    );
+    let admin = "";
+    const adminToken = () => admin;
+    admin = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
+    await allure.description(
+      "Chain menu: a per-run chain category with Wrap ($9) and Drink ($3). Build in the chain shell: Create promotion → Combo price → Wrap + Drink, $10.49 → Save and turn on asks 'Heads up — chain-wide change … This will affect all N locations' → Continue. Read back (chain list + deal): owned by the chain group, the two lines, $10.49. Edit in the chain shell: price → $10.99 (the confirm again). Location A on lima (the chain's slug → the location picker → Order here at A) and wind (?restaurantId=A) list it in Today's Deals; building it prices $10.99 at checkout, You're saving = $12 − $10.99."
+    );
+    await allure.parameter(
+      "location A",
+      `${locAName} ${locA} (lima: ${chainSlug} → pick the location)`
+    );
+    const name = promoName("Chain combo");
+    const group = "What's in the combo?";
+    const promos = createOwnerPromotionsPage(ownerPage);
+    const create = createOwnerCreatePromotionPage(ownerPage);
+    const quotes = trackQuotes(page);
+    const bugs: string[] = [];
+    const chainItems: Item[] = [];
+    let chainCategory = "";
+    const fanOut = ownerPage
+      .getByRole("dialog")
+      .filter({ hasText: "Heads up — chain-wide change" });
+    /** Clears "Don't ask again" for the fan-out confirm (session scoped). */
+    const resetFanOutConfirm = () =>
+      ownerPage.evaluate(() => {
+        for (const k of Object.keys(sessionStorage))
+          if (k.startsWith("restaunax:fanOutConfirm"))
+            sessionStorage.removeItem(k);
+      });
+    try {
+      chainCategory = (
+        await createMenuGroupNamed(
+          token,
+          `Automation Menu Chain Scenarios ${runId}`,
+          { groupId: chainGroupId }
+        )
+      ).id;
+      for (const [label, price] of [
+        ["Chain Wrap", 9],
+        ["Chain Drink", 3],
+      ] as const) {
+        const itemName = `AUTO Scn ${label} ${runId}`;
+        const made = await createMenuItemFull(
+          token,
+          chainCategory,
+          itemName,
+          price
+        );
+        chainItems.push({ id: made.id, name: itemName, price });
+      }
+      const [wrap, drink] = chainItems as [Item, Item];
+
+      await allure.step(
+        "build it in the chain shell (fan-out confirm)",
+        async () => {
+          await promos.gotoChain(chainGroupId);
+          await resetFanOutConfirm();
+          await promos.clickCreate();
+          await create.pickCard("Combo price");
+          await create.pickItems(group, [wrap.name, drink.name]);
+          await create.setAmount("Combo price", "10.49");
+          await create.setName(name);
+          await create.turnOnButton().click();
+          await expect(fanOut).toBeVisible({ timeout: 20_000 });
+          await expect(fanOut).toContainText(
+            /This will affect all \d+ locations in your chain\./
+          );
+          await create.settle();
+          await create.expectSaved();
+        }
+      );
+
+      const dealId = await allure.step("read back", async () => {
+        const row = (await listChainPromotions(token, chainGroupId)).find(
+          (r) => r.name === name
+        );
+        expect(row, `the chain list has ${name}`).toBeTruthy();
+        const deal = await getDealApi(token, row!.id);
+        expect(deal.status).toBe("ACTIVE");
+        expect(deal.restaurantGroupId).toBe(chainGroupId);
+        expect(deal.dealPrice).toBe(10.49);
+        expect(linesOf(deal), JSON.stringify(deal.items)).toEqual([
+          fixed(wrap),
+          fixed(drink),
+        ]);
+        return deal.id;
+      });
+
+      await allure.step("edit in the chain shell: price → $10.99", async () => {
+        await promos.gotoChain(chainGroupId);
+        await promos.openRowAction(name, "Edit");
+        await create.expectEditing();
+        await create.setAmount("Combo price", "10.99");
+        await saveEdit(ownerPage);
+        const deal = await getDealApi(token, dealId);
+        expect(deal.dealPrice).toBe(10.99);
+        expect(linesOf(deal)).toEqual([fixed(wrap), fixed(drink)]);
+      });
+
+      const want: ExpectedDealCheckout = {
+        dealId,
+        dealPrice: 10.99,
+        upcharge: 0,
+        regular: wrap.price + drink.price,
+      };
+
+      await allure.step("location A on wind → checkout", async () => {
+        const deals = await windOpenDeal(page, name, locA);
+        for (const it of [wrap, drink]) {
+          await deals.openIncompleteSlot(it.name);
+          await deals.clickAddToDeal();
+        }
+        await windKeepShoppingToCheckout(page, quotes, name, want, bugs);
+      });
+
+      await allure.step("location A on lima → checkout", async () => {
+        // The fixture's locations are unpublished, and lima's picker lists
+        // published locations only: publish A for this step, restore after.
+        const { previous } = await setRestaurantPublishedApi(
+          adminToken(),
+          locA,
+          true
+        );
+        try {
+          const deals = await limaOpenDeal(page, name, chainSlug, locAName);
+          for (const it of [wrap, drink]) {
+            await deals.openIncompleteSlot(it.name);
+            await deals.clickAddToDeal();
+          }
+          await limaKeepShoppingToCheckout(
+            page,
+            quotes,
+            name,
+            want,
+            bugs,
+            chainSlug
+          );
+        } finally {
+          if (!previous)
+            await setRestaurantPublishedApi(adminToken(), locA, false);
+        }
+      });
+      reportBugs(bugs);
+    } finally {
+      await cleanupChain(chainGroupId, name);
+      for (const it of chainItems) {
+        // A chain item's category deletes only once the item row is gone:
+        // hard delete (admin).
+        const res = await permanentlyDeleteMenuItemRaw(adminToken(), it.id);
+        if (!res.ok && res.status !== 404)
+          console.warn(
+            `[25-promotion-scenarios] chain item ${it.name} delete → ${res.status}`
+          );
+      }
+      if (chainCategory) {
+        const res = await deleteMenuGroupRaw(token, chainCategory);
+        if (!res.ok && res.status !== 404)
+          console.warn(
+            `[25-promotion-scenarios] chain category ${chainCategory} delete → ${res.status} (globalTeardown's "Automation Menu" sweep backstops it)`
+          );
+      }
     }
   });
 });

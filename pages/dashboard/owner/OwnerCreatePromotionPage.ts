@@ -483,8 +483,9 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
 
   // "When?" rule: the shared schedule section (test ids come from the deal
   // schedule component the promotion form embeds).
-  const scheduleChip = (chip: "any" | "lunch" | "breakfast" | "dinner") =>
-    page.getByTestId(`deal-schedule-chip-${chip}`);
+  const scheduleChip = (
+    chip: "any" | "lunch" | "breakfast" | "dinner" | "weekdays" | "weekends"
+  ) => page.getByTestId(`deal-schedule-chip-${chip}`);
   const dayChip = (day: string) => page.getByTestId(`deal-day-chip-${day}`);
   const hoursWarning = () => page.getByTestId("deal-schedule-warning");
   const waitForScheduleCheck = (match: (url: string) => boolean) =>
