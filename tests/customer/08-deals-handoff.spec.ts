@@ -63,6 +63,7 @@ import {
   CAP_WAIT_MS,
   type ApiDeal,
   type ApiMenuItem,
+  DEAL_SLOT_TEST_TIMEOUT_MS,
 } from "../../utils/apiHelper";
 
 const TEMPLATE_WIND_URL = process.env.TEMPLATE_WIND_URL ?? "";
@@ -85,7 +86,10 @@ test.describe("Deals → Storefront hand-off", () => {
     !TEMPLATE_WIND_URL || !OWNER_EMAIL || !OWNER_PASSWORD,
     "TEMPLATE_WIND_URL, OWNER_EMAIL and OWNER_PASSWORD must be set in .env"
   );
-  test.describe.configure({ mode: "serial" });
+  test.describe.configure({
+    mode: "serial",
+    timeout: DEAL_SLOT_TEST_TIMEOUT_MS,
+  });
 
   const runId = generateRunId();
   let restaurantId = "";

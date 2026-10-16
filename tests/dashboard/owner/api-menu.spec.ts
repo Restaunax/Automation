@@ -51,12 +51,12 @@ import {
   deleteMenuGroupRaw,
   deleteTestMenuGroup,
   uploadMenuItemImageRaw,
-  createDealRaw,
+  createDealApiCapSafe,
+  DEAL_SLOT_TEST_TIMEOUT_MS,
   deleteDealApi,
   createSecondOwner,
   deleteTestRestaurant,
   type ApiMenuItem,
-  type ApiDeal,
 } from "../../../utils/apiHelper";
 
 const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
@@ -593,27 +593,22 @@ test.describe("Owner — Menu API contract", () => {
         "after the deal is removed the same delete succeeds."
     );
     const item = await seedItem("Dealt", 11);
-    const dealRes = await createDealRaw(token, restaurantId, {
-      name: `AUTO Deal Blocker ${runId}`,
-      description: "Automation delete-blocker deal — safe to delete",
-      dealPrice: 9,
-      items: [
-        {
-          menuItemId: item.id,
-          // Two units: a one-item COMBO is refused since guided deal types
-          // (comboNeedsTwoItems); quantity 2 of one item counts as two.
-          quantity: 2,
-          itemName: item.name,
-          itemPrice: 11,
-          isRequired: true,
-        },
-      ],
-    });
-    expect(
-      dealRes.ok,
-      `deal seed failed: ${JSON.stringify(dealRes.data)}`
-    ).toBe(true);
-    const dealId = (dealRes.data as { deal: ApiDeal }).deal.id;
+    // The slot wait (up to CAP_WAIT_MS) runs inside this test's budget.
+    test.setTimeout(DEAL_SLOT_TEST_TIMEOUT_MS);
+    // Cap-safe: the seed restaurant shares its 10 ACTIVE-deal slots with other
+    // files; waits for a free one and gives it back in the finally below.
+    // Two units: a one-item COMBO is refused since guided deal types
+    // (comboNeedsTwoItems); quantity 2 of one item counts as two.
+    const dealId = (
+      await createDealApiCapSafe(
+        token,
+        restaurantId,
+        `AUTO Deal Blocker ${runId}`,
+        9,
+        [{ id: item.id, name: item.name, price: 11, quantity: 2 }],
+        { description: "Automation delete-blocker deal — safe to delete" }
+      )
+    ).id;
     try {
       const blocked = await deleteMenuItemRaw(token, item.id);
       expect(blocked.status).toBe(409);

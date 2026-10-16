@@ -35,6 +35,7 @@ import {
   getMenuItemApi,
   getRestaurantCoupons,
   waitForFreeDealSlot,
+  DEAL_SLOT_TEST_TIMEOUT_MS,
 } from "../../../utils/apiHelper";
 import {
   createCouponPromotion,
@@ -64,6 +65,9 @@ interface DealLineWithOptions {
 }
 
 test.describe("Owner — Promotions", () => {
+  // A slot wait (up to CAP_WAIT_MS) runs inside the test: size the budget so
+  // starvation fails with the helper's message, not a bare test timeout.
+  test.describe.configure({ timeout: DEAL_SLOT_TEST_TIMEOUT_MS });
   test.skip(
     !OWNER_EMAIL || !OWNER_PASSWORD,
     "OWNER_EMAIL / OWNER_PASSWORD not set in .env"

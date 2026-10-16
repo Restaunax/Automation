@@ -25,6 +25,7 @@ import {
   getBusinessHoursRaw,
   type ApiDeal,
   type ApiMenuItem,
+  DEAL_SLOT_TEST_TIMEOUT_MS,
 } from "../../utils/apiHelper";
 import { requireScheduling } from "../../utils/dealScheduleGate";
 import {
@@ -54,7 +55,10 @@ test.describe("Lima — deals", () => {
     !restaurantSlug || !OWNER_EMAIL || !OWNER_PASSWORD,
     "Ordering slug not seeded, or OWNER creds missing"
   );
-  test.describe.configure({ mode: "serial" });
+  test.describe.configure({
+    mode: "serial",
+    timeout: DEAL_SLOT_TEST_TIMEOUT_MS,
+  });
 
   const runId = generateRunId();
   let restaurantId = "";

@@ -234,17 +234,20 @@ test.describe("Owner — Deals API contract", () => {
     locB = state.chainLocationBId ?? "";
     seedToken = await freshSeedToken();
     adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
-    const tenant = await createSecondOwner(adminToken, runId);
+    // alwaysFresh: this file seeds deals/items/settings onto the tenant, so it
+    // must never be OWNER2's persistent restaurant (nothing would delete them).
+    const tenant = await createSecondOwner(adminToken, runId, {
+      alwaysFresh: true,
+    });
     if (!tenant.restaurantId)
       throw new Error(
         "[api-deals] could not mint the throwaway tenant restaurant"
       );
     token = tenant.accessToken;
     restaurantId = tenant.restaurantId;
-    // createSecondOwner returns env OWNER2 creds when set; otherwise the
-    // password it minted (mirrors its own convention) — needed for freshToken.
-    ownerEmail = process.env.OWNER2_EMAIL || tenant.email;
-    ownerPassword = process.env.OWNER2_PASSWORD || "Automation!Owner2-" + runId;
+    // The minted owner's credentials (alwaysFresh) — needed for freshToken.
+    ownerEmail = tenant.email;
+    ownerPassword = "Automation!Owner2-" + runId;
     // /quote refuses restaurants without a tax rate.
     await ensureTaxRate(adminToken, restaurantId);
     groupId = (
@@ -293,7 +296,7 @@ test.describe("Owner — Deals API contract", () => {
     for (const id of extraGroupIds)
       await deleteTestMenuGroup(t, id).catch(() => {});
     // Admin DELETE archives the throwaway restaurant (never a hard delete).
-    if (restaurantId && !process.env.OWNER2_EMAIL)
+    if (restaurantId)
       await deleteTestRestaurant(adminToken, restaurantId).catch(() => {});
   });
 

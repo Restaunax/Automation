@@ -1776,6 +1776,18 @@ export async function createDealApi(
 export const CAP_WAIT_MS = 150_000;
 
 /**
+ * Per-test budget for a test that waits for ONE deal slot (withStorefrontDeal,
+ * createDealApiCapSafe, turnOnDealWhenSlotFree) and then runs for the normal
+ * 90 s. Without it the slot wait runs inside the default 90 s budget while
+ * CAP_WAIT_MS is 150 s, so starvation surfaced as a vague test timeout instead
+ * of the helper's "no free deal slot" message.
+ */
+export const DEAL_SLOT_TEST_TIMEOUT_MS = CAP_WAIT_MS + 90_000;
+
+/** Same, for a test that holds two slots at once (waits twice, in series). */
+export const DEAL_SLOT_TWO_TEST_TIMEOUT_MS = 2 * CAP_WAIT_MS + 90_000;
+
+/**
  * Wait until the restaurant has a free ACTIVE-deal slot (GET /active-count),
  * polling like createDealApiCapSafe does. Call before a UI submit that creates
  * an ACTIVE deal on the shared seed restaurant: the form can't retry for us.

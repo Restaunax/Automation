@@ -31,7 +31,11 @@ import { test, expect } from "../../fixtures/base";
 import { createLimaCheckoutPage } from "../../pages/lima/LimaCheckoutPage";
 import { createLimaDealPage } from "../../pages/lima/LimaDealPage";
 import { createLimaStorefrontPage } from "../../pages/lima/LimaStorefrontPage";
-import { apiLogin, getOrderByIdRaw } from "../../utils/apiHelper";
+import {
+  apiLogin,
+  getOrderByIdRaw,
+  DEAL_SLOT_TWO_TEST_TIMEOUT_MS,
+} from "../../utils/apiHelper";
 import {
   cleanupStorefrontPromotions,
   publicMenuItem,
@@ -73,7 +77,10 @@ test.describe("Lima — Promotions", () => {
     !restaurantSlug || !OWNER_EMAIL || !OWNER_PASSWORD,
     "Ordering slug not seeded, or OWNER_EMAIL / OWNER_PASSWORD missing"
   );
-  test.describe.configure({ mode: "serial" });
+  test.describe.configure({
+    mode: "serial",
+    timeout: DEAL_SLOT_TWO_TEST_TIMEOUT_MS,
+  });
 
   const runId = generateRunId();
   let restaurantId = "";
