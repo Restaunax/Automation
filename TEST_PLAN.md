@@ -169,7 +169,7 @@ Automation/
 │   │   │   ├── 06-orders.spec.ts             # ✅ real — 33 tests: search hits, filters return the right rows, sort/paging, detail money/items/customer/delivery, full lifecycles, unpaid cancel, CSV export, header stats (own seed set)
 │   │   │   ├── 06b-orders-journey.spec.ts    # ✅ real @stripe — customer places a real order (page) → owner sees/works/refunds it (ownerPage); TC-225/253/254
 │   │   │   ├── api-orders.spec.ts            # ✅ real — order-management API contract (no browser): status allowlist, cancel-twice, refund-unpaid, INITIALIZED hidden, backwards-move pin, export
-│   │   │   ├── 19-promotions.spec.ts         # ✅ real — Promotions section (replaced Coupons + Deals): old-link redirects, create each of the six types, combo from a menu example (TC-825), validation, edit, pause/turn on, delete, Results (TC-821..832, TC-853, TC-859, TC-860, TC-861)
+│   │   │   ├── 19-promotions.spec.ts         # ✅ real — Promotions section (replaced Coupons + Deals): old-link redirects, create each of the six types, combo from a menu example (TC-825), validation, edit, pause/turn on, delete, Results (TC-821..832, TC-853, TC-859, TC-860, TC-861, TC-862)
 │   │   │   ├── 08-payment-settings.spec.ts   # ✅ real (route mocks Stripe status/create for pre-connection + failure states)
 │   │   │   ├── 09-uber-settings.spec.ts      # ✅ real — Uber Eats delivery settings (owner-reachable, unlike publish/tax/loyalty)
 │   │   │   ├── 10-subscription.spec.ts       # ✅ real — Subscription/Billing page (permission-gated, not role-gated)

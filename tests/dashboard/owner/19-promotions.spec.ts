@@ -78,6 +78,8 @@ test.describe("Owner — Promotions", () => {
   let itemB: OwnItem;
   let gift: OwnItem;
   let extra: OwnItem;
+  let side: OwnItem;
+  let drink: OwnItem;
 
   const promoName = (label: string) => `AUTO ${label} ${runId}`;
 
@@ -128,11 +130,13 @@ test.describe("Owner — Promotions", () => {
     itemB = await make("Bowl", 12);
     gift = await make("Cookie", 4);
     extra = await make("Salad", 6);
+    side = await make("Fries", 3);
+    drink = await make("Soda", 2);
   });
 
   test.afterAll(async () => {
     if (!token) return;
-    for (const item of [itemA, itemB, gift, extra]) {
+    for (const item of [itemA, itemB, gift, extra, side, drink]) {
       if (item) await deleteMenuItemRaw(token, item.id);
     }
     if (groupId) await deleteMenuGroupRaw(token, groupId);
@@ -795,6 +799,88 @@ test.describe("Owner — Promotions", () => {
           extra.name,
           gift.name,
         ]);
+      });
+    } finally {
+      await cleanup(name);
+    }
+  });
+
+  // Owner-reported on QA 2026-10-15 (RestauNax fix/combo-option-lines): the
+  // items ticked under "Choose from these items" were only kept by the box
+  // until "Add these choices" was pressed, so a Save dropped them silently and
+  // in Edit the same ticks said "Nothing to save". Fails against a dashboard
+  // without that fix; passes once it is deployed.
+  test("TC-862: Combo with a 'Choose from these items' line — the ticked choices are saved, shown in Edit, and one more choice saves", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      'Create → Combo price: two fixed items, then "Choose from these items" with three items ticked (without pressing "Add these choices"), Save for later (no deal slot). The server deal has a line whose options are exactly those three items. Edit shows that line with the same choices. Changing it to four choices (one more, again only ticked) and Save changes is a change, not "Nothing to save", and the server line now has all four.'
+    );
+    const name = promoName("Choices");
+    const create = createOwnerCreatePromotionPage(ownerPage);
+    const list = createOwnerPromotionsPage(ownerPage);
+    const group = "What's in the combo?";
+    const choices = [gift, extra, side];
+    /** The deal's choose-from lines, as sorted option item ids. */
+    const optionLines = async (dealId: string): Promise<string[][]> => {
+      const deal = await getDealApi(token, dealId);
+      return ((deal.items ?? []) as DealLineWithOptions[])
+        .map((line) => (line.options ?? []).map((o) => o.menuItemId).sort())
+        .filter((ids) => ids.length > 0);
+    };
+    const ids = (items: OwnItem[]) => items.map((i) => i.id).sort();
+    try {
+      await create.goto(restaurantId);
+      await create.pickCard("Combo price");
+      await create.pickItems(group, [itemA.name, itemB.name]);
+      await create.tickChoices(
+        group,
+        choices.map((c) => c.name)
+      );
+      await create.setAmount("Combo price", "20");
+      await create.setName(name);
+      await create.saveForLater();
+      await create.expectSaved();
+
+      const row = await serverRow(name);
+      expect(row, `listPromotions has ${name}`).toBeTruthy();
+      expect(row!.status).toBe("INACTIVE");
+
+      await allure.step(
+        "the server deal keeps every ticked choice",
+        async () => {
+          expect(await optionLines(row!.id)).toEqual([ids(choices)]);
+        }
+      );
+
+      await allure.step("Edit shows the same choices", async () => {
+        await list.goto(restaurantId);
+        await list.openRowAction(name, "Edit");
+        await create.expectEditing();
+        await expect
+          .poll(() => create.lineNames(group))
+          .toEqual([
+            itemA.name,
+            itemB.name,
+            choices.map((c) => c.name).join(", "),
+          ]);
+      });
+
+      await allure.step("one more choice in Edit saves", async () => {
+        const more = [...choices, drink];
+        await create.tickChoices(
+          group,
+          more.map((c) => c.name),
+          { change: choices.map((c) => c.name).join(", ") }
+        );
+        await create.save();
+        await expect(
+          ownerPage.getByText("Nothing to save", { exact: false })
+        ).toHaveCount(0);
+        await create.expectSaved();
+        await expect
+          .poll(() => optionLines(row!.id), { timeout: 15_000 })
+          .toEqual([ids(more)]);
       });
     } finally {
       await cleanup(name);

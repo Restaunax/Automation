@@ -195,6 +195,40 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
     }
   };
 
+  /**
+   * Ticks items in a "Choose from these items" box the way an owner does —
+   * open the list, click each item, close it — and does NOT press "Add these
+   * choices" (TC-862: the ticks alone must register). `change` ticks in the
+   * box of that line's "Change" (opened first); otherwise in the slot's add
+   * box, switching its kind to "Choose from these items".
+   */
+  const tickChoices = async (
+    slotLabel: string,
+    items: string[],
+    opts: { change?: string } = {}
+  ) => {
+    const group = slot(slotLabel);
+    if (opts.change) {
+      await changeLine(slotLabel, opts.change);
+    }
+    const kindButton = group.getByRole("button", {
+      name: "Choose from these items",
+      exact: true,
+    });
+    // The Change box's toggle and search come first, the add box's last.
+    const which = (l: Locator) => (opts.change ? l.first() : l.last());
+    await which(kindButton).click();
+    const search = which(
+      group.getByRole("combobox", { name: slotLabel, exact: true })
+    );
+    await search.click();
+    for (const item of items) {
+      await search.fill(item);
+      await page.getByRole("option", { name: startsWith(item) }).click();
+    }
+    await page.keyboard.press("Escape");
+  };
+
   /** A line's "Add the same item again" — the same item as one more line. */
   const repeatLine = async (itemName: string) => {
     await page
@@ -474,6 +508,7 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
     setWho,
     setTimeOfDay,
     pickItems,
+    tickChoices,
     repeatLine,
     lineNames,
     changeLine,
