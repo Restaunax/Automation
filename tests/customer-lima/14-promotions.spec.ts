@@ -34,7 +34,7 @@ import { createLimaStorefrontPage } from "../../pages/lima/LimaStorefrontPage";
 import {
   apiLogin,
   getOrderByIdRaw,
-  DEAL_SLOT_TWO_TEST_TIMEOUT_MS,
+  DEAL_SLOT_TEST_TIMEOUT_MS,
 } from "../../utils/apiHelper";
 import {
   cleanupStorefrontPromotions,
@@ -79,7 +79,7 @@ test.describe("Lima — Promotions", () => {
   );
   test.describe.configure({
     mode: "serial",
-    timeout: DEAL_SLOT_TWO_TEST_TIMEOUT_MS,
+    timeout: DEAL_SLOT_TEST_TIMEOUT_MS,
   });
 
   const runId = generateRunId();

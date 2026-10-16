@@ -65,9 +65,6 @@ interface DealLineWithOptions {
 }
 
 test.describe("Owner — Promotions", () => {
-  // A slot wait (up to CAP_WAIT_MS) runs inside the test: size the budget so
-  // starvation fails with the helper's message, not a bare test timeout.
-  test.describe.configure({ timeout: DEAL_SLOT_TEST_TIMEOUT_MS });
   test.skip(
     !OWNER_EMAIL || !OWNER_PASSWORD,
     "OWNER_EMAIL / OWNER_PASSWORD not set in .env"
@@ -260,6 +257,9 @@ test.describe("Owner — Promotions", () => {
   test("TC-824: create Buy one, get one — 2nd for $1.99 from one of two items", async ({
     ownerPage,
   }) => {
+    // A slot wait (up to CAP_WAIT_MS) runs inside this test: size its budget so
+    // starvation fails with the helper's message, not a bare test timeout.
+    test.setTimeout(DEAL_SLOT_TEST_TIMEOUT_MS);
     await allure.description(
       "They buy = choose from two items, They get = Same item, For a set price $1.99. The row is Live and the public v2 deal list returns it with both options on its lines."
     );
@@ -493,6 +493,9 @@ test.describe("Owner — Promotions", () => {
   test("TC-826: create Free item (spend $40, code only), Free delivery ($15+, up to $8) and Combo price ($15, the same item twice)", async ({
     ownerPage,
   }) => {
+    // A slot wait (up to CAP_WAIT_MS) runs inside this test: size its budget so
+    // starvation fails with the helper's message, not a bare test timeout.
+    test.setTimeout(DEAL_SLOT_TEST_TIMEOUT_MS);
     await allure.description(
       "The remaining card types save and list as Live; the combo is built from its card with the same item on two lines (two wraps + a bowl) and the server deal keeps both (the from-an-example path is TC-825)."
     );

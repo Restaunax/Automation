@@ -449,7 +449,11 @@ spec file is the isolation unit: tests inside a file always run in order, in
 one worker — serial CRUD chains and `beforeAll` seeding keep working. The
 counts were tuned empirically: 4 local workers pushed combined Chromium + QA
 load past action budgets (pure slowness, no data races); 3 is the sweet spot,
-paired with a 90s per-test budget.
+paired with a 90s per-test budget. Tests that wait for a deal slot
+raise their own budget with `DEAL_SLOT_TEST_TIMEOUT_MS` (`CAP_WAIT_MS` + 90 s;
+`DEAL_SLOT_TWO_TEST_TIMEOUT_MS` when a test holds two slots) via
+`test.setTimeout`, so starvation fails with the helper's message, not a bare
+timeout.
 
 **Seed-restaurant deal budget per file.** Only ten deals may be ACTIVE on a
 restaurant, and the shared seed restaurant already carries a **baseline of
