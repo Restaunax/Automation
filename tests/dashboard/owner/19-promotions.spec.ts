@@ -874,10 +874,11 @@ test.describe("Owner — Promotions", () => {
           { change: choices.map((c) => c.name).join(", ") }
         );
         await create.save();
+        await create.expectSaved();
+        // Back on the list: the save went through, so no "Nothing to save".
         await expect(
           ownerPage.getByText("Nothing to save", { exact: false })
         ).toHaveCount(0);
-        await create.expectSaved();
         await expect
           .poll(() => optionLines(row!.id), { timeout: 15_000 })
           .toEqual([ids(more)]);
