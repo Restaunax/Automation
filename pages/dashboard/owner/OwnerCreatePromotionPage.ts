@@ -21,7 +21,10 @@ import { type Locator, type Page, expect } from "@playwright/test";
  * "They pay", …); item pickers are comboboxes named after their slot ("They
  * buy", "Which items are on sale?") inside a group of the same name; option
  * toggles are buttons whose name starts with their title ("For a set price
- * For example: …").
+ * For example: …"). The one exception is "Try it as a customer" (test ids
+ * try-as-customer / -hint / -reason / -location-<restaurantId>), which sits
+ * in the live preview panel on desktop and inside the expanded "Preview" bar
+ * at phone width, never in the save bar's button row.
  */
 
 export type PromotionCard =
@@ -36,6 +39,14 @@ export type HowCustomersGetIt =
   | "Applies by itself"
   | "Only with a code"
   | "Both";
+
+/** A lima tab that reached a "Try it as a customer" preview. */
+export const PREVIEW_TAB_URL = /\/preview\/[A-Za-z0-9_-]{43}(?:[/?#]|$)/;
+
+export type WhereChannel =
+  | "Online & in-store"
+  | "Online only"
+  | "In-store only";
 
 const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const startsWith = (s: string) => new RegExp(`^${escapeRegex(s)}`);
@@ -137,6 +148,9 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
 
   const setWho = (audience: "Everyone" | "First order only") =>
     ruleOption("Who can use it?", audience);
+
+  /** "Where?" rule: online and in-store, online only, or in-store only. */
+  const setWhere = (where: WhereChannel) => ruleOption("Where?", where);
 
   /**
    * "When?" → Time of day → Custom, with both ends typed as the time field
@@ -392,6 +406,93 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
   const expectPreviewText = (text: string | RegExp) =>
     expect(previewPanel()).toContainText(text);
 
+  // ── "Try it as a customer" ────────────────────────────────────────────────
+  // The click opens a blank tab at once ("Preparing your preview…"), then the
+  // dashboard creates the preview and points that tab at lima's
+  // /preview/<token>/…; on a refusal it closes the tab and shows the top
+  // banner "We couldn't open the preview". "Customer previews aren't
+  // available here yet." (503 PROMOTION_PREVIEW_UNAVAILABLE, or a backend
+  // without the route) also hides the button for the rest of the visit.
+
+  /** "Try it as a customer" — in the live preview panel (desktop) or bar (phone). */
+  const tryAsCustomerButton = () => page.getByTestId("try-as-customer").first();
+
+  /** The caption under it: the hint, or "Preparing your preview…" while busy. */
+  const tryAsCustomerHint = () =>
+    page.getByTestId("try-as-customer-hint").first();
+
+  /** The caption that replaces the hint when the button is unavailable. */
+  const tryAsCustomerReason = () =>
+    page.getByTestId("try-as-customer-reason").first();
+
+  const previewFailedTitle = () =>
+    page.getByText("We couldn't open the preview", { exact: true });
+
+  const previewUnavailableNotice = () =>
+    page.getByText("Customer previews aren't available here yet.", {
+      exact: true,
+    });
+
+  /** Phone width: the collapsible "Preview" bar above the save buttons. */
+  const previewBarToggle = () =>
+    page
+      .getByRole("button", { name: /^Preview/ })
+      .and(page.locator('[aria-controls="promotion-preview-body"]'));
+
+  /** Phone width: the bar's body (its sentence, example and the action). */
+  const previewBarBody = () => page.locator("#promotion-preview-body");
+
+  const openPreviewBar = async () => {
+    const toggle = previewBarToggle();
+    if ((await toggle.getAttribute("aria-expanded")) !== "true") {
+      await toggle.click();
+    }
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  };
+
+  /**
+   * Clicks "Try it as a customer" (then "Try it at: …" for `locationId` in a
+   * chain shell with two or more locations) and returns the lima tab once it
+   * reached /preview/<token>. When the dashboard reports a refusal instead,
+   * throws with the banner text (the dashboard has closed the tab already).
+   */
+  const tryAsCustomer = async (locationId?: string): Promise<Page> => {
+    const popup = page.context().waitForEvent("page", { timeout: 30_000 });
+    await tryAsCustomerButton().click();
+    if (locationId) {
+      await page.getByTestId(`try-as-customer-location-${locationId}`).click();
+    }
+    const tab = await popup;
+    // An object, so the narrowing below sees the poll callback's writes.
+    const seen: { outcome: "opened" | "failed" | "waiting" } = {
+      outcome: "waiting",
+    };
+    await expect
+      .poll(
+        async () => {
+          if (PREVIEW_TAB_URL.test(tab.url())) seen.outcome = "opened";
+          else if (await previewFailedTitle().isVisible())
+            seen.outcome = "failed";
+          return seen.outcome;
+        },
+        {
+          timeout: 30_000,
+          message: "the new tab reaches lima's /preview/<token>",
+        }
+      )
+      .not.toBe("waiting");
+    if (seen.outcome === "failed") {
+      const why = await page
+        .getByRole("alert")
+        .filter({ has: previewFailedTitle() })
+        .innerText()
+        .catch(() => "");
+      if (!tab.isClosed()) await tab.close();
+      throw new Error(`"Try it as a customer" was refused: ${why}`);
+    }
+    return tab;
+  };
+
   /**
    * Waits for the outcome of Save and turn on / Save for later: back on the list, or the page
    * marked an answer, or the server refused. Handles the chain fan-out
@@ -570,6 +671,7 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
     openRule,
     setHowCustomersGetIt,
     setWho,
+    setWhere,
     setTimeOfDay,
     pickItems,
     addChoices,
@@ -582,6 +684,15 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
     pickReplacement,
     previewPanel,
     expectPreviewText,
+    tryAsCustomerButton,
+    tryAsCustomerHint,
+    tryAsCustomerReason,
+    previewFailedTitle,
+    previewUnavailableNotice,
+    previewBarToggle,
+    previewBarBody,
+    openPreviewBar,
+    tryAsCustomer,
     settle,
     turnOn,
     turnOnButton,
