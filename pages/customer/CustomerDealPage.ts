@@ -47,20 +47,20 @@ export const createCustomerDealPage = (page: Page) => {
   const dealsSectionHeading = () =>
     page.getByRole("heading", { name: "Today's Deals" });
   /**
-   * The DealCard for a deal name — the innermost container that holds the
-   * name AND the "Save X%" badge (the badge sits in the image header, above
-   * the p-5 body, so the body div alone is too small). Do NOT also require the
-   * "View Deal" button: a deal that is not available now shows its
-   * availability label instead of the button, and requiring it widens the
-   * match to the whole grid (every deal's label and button).
+   * The DealCard for a deal name — its clickable root (DealCard.tsx: the
+   * `rounded-xl cursor-pointer` div that holds the badge, the name and the
+   * footer). Keyed on the root, not on the badge text: a BOGO / free-item
+   * deal's badge is its offer label ("2nd for $1.99"), not "Save X%", and a
+   * text filter that misses the card widens the match to the whole grid. Do
+   * NOT require the "View Deal" button either: a deal that is not available
+   * now shows its availability label instead.
    */
   const dealCard = (dealName: string) =>
     page
-      .locator("div")
+      .locator("div.cursor-pointer.rounded-xl")
       .filter({
         has: page.getByRole("heading", { name: dealName, exact: true }),
       })
-      .filter({ hasText: /Save \d+%/ })
       .last();
   /** Open the deal: its "View Deal" button, or — when the deal is not orderable now and has no button — the card itself. */
   const viewDeal = async (dealName: string) => {
@@ -141,9 +141,21 @@ export const createCustomerDealPage = (page: Page) => {
       .filter({
         has: page.getByRole("heading", { name: itemName, exact: true }),
       });
-  /** Pick `itemName` for the slot and confirm the modal's "Add to Deal". */
-  const pickChoice = async (slotIndex: number, itemName: string) => {
+  /**
+   * Pick `itemName` for the slot and confirm the modal's "Add to Deal".
+   * `customize` runs with the modal open, before "Add to Deal" (pick a size,
+   * tick paid extras, …).
+   */
+  const pickChoice = async (
+    slotIndex: number,
+    itemName: string,
+    customize?: () => Promise<void>
+  ) => {
     await choiceCard(slotIndex, itemName).click();
+    if (customize) {
+      await expect(addToDealButton()).toBeVisible({ timeout: 10_000 });
+      await customize();
+    }
     await clickAddToDeal();
   };
 

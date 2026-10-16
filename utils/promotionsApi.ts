@@ -127,6 +127,8 @@ export interface PromotionListRow {
   code: string | null;
   status: string;
   type: string;
+  /** The server's own "this deal takes one of the active-deal slots" flag. */
+  holdsDealSlot?: boolean;
 }
 
 const DAY_MS = 86_400_000;
@@ -190,6 +192,7 @@ interface PromotionRowWire {
   title: string;
   code: string | null;
   statusActive: boolean;
+  holdsDealSlot?: boolean;
 }
 
 const toListRow = (r: PromotionRowWire): PromotionListRow => ({
@@ -199,6 +202,7 @@ const toListRow = (r: PromotionRowWire): PromotionListRow => ({
   code: r.code ?? null,
   status: r.statusActive ? "ACTIVE" : "INACTIVE",
   type: r.type,
+  holdsDealSlot: r.holdsDealSlot,
 });
 
 /** GET /api/promotions/restaurant/:id (owner token), normalised. */

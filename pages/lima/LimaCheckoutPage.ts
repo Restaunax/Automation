@@ -204,6 +204,24 @@ export const createLimaCheckoutPage = (page: Page) => {
   const summarySubtotalRow = (): Locator =>
     page.getByTestId("summary-subtotal");
 
+  /**
+   * The plain "Subtotal" row when there is no upgrade build-up, else the
+   * build-up's summary-subtotal row.
+   */
+  const subtotalRow = (): Locator =>
+    page
+      .getByTestId("summary-subtotal")
+      .or(page.getByText("Subtotal", { exact: true }).locator(".."))
+      .first();
+
+  /** "You're saving $x.xx" — the summary's deal-savings row (client-computed). */
+  const youAreSavingRow = (): Locator =>
+    page.getByText("You're saving", { exact: true }).locator("xpath=../..");
+
+  /** "You've earned a free <item> — Add it" (the quote's freeItemOffer). */
+  const freeItemOfferButton = (): Locator =>
+    page.getByRole("button", { name: /^You've earned a free / });
+
   /** The first $ amount inside a row. */
   const readMoney = async (row: Locator): Promise<number> => {
     await expect(row).toContainText(/\$\s?[\d,]+\.\d{2}/, { timeout: 15_000 });
@@ -247,6 +265,9 @@ export const createLimaCheckoutPage = (page: Page) => {
     summaryUpgradesRow,
     summaryUpgradeDetails,
     summarySubtotalRow,
+    subtotalRow,
+    youAreSavingRow,
+    freeItemOfferButton,
     readMoney,
     errorAlert,
     assertOnCheckout,

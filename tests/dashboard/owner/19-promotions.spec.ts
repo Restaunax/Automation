@@ -78,6 +78,8 @@ test.describe("Owner — Promotions", () => {
   let itemB: OwnItem;
   let gift: OwnItem;
   let extra: OwnItem;
+  let side: OwnItem;
+  let drink: OwnItem;
 
   const promoName = (label: string) => `AUTO ${label} ${runId}`;
 
@@ -128,11 +130,13 @@ test.describe("Owner — Promotions", () => {
     itemB = await make("Bowl", 12);
     gift = await make("Cookie", 4);
     extra = await make("Salad", 6);
+    side = await make("Fries", 3);
+    drink = await make("Soda", 2);
   });
 
   test.afterAll(async () => {
     if (!token) return;
-    for (const item of [itemA, itemB, gift, extra]) {
+    for (const item of [itemA, itemB, gift, extra, side, drink]) {
       if (item) await deleteMenuItemRaw(token, item.id);
     }
     if (groupId) await deleteMenuGroupRaw(token, groupId);
@@ -795,6 +799,134 @@ test.describe("Owner — Promotions", () => {
           extra.name,
           gift.name,
         ]);
+      });
+    } finally {
+      await cleanup(name);
+    }
+  });
+
+  // Owner-reported on QA 2026-10-15 (RestauNax fix/combo-option-lines): the
+  // choices ticked under "Choose from these items" were only kept by the box
+  // until "Add these choices" was pressed (that UI is now "Let customers pick
+  // a different item here", where every pick applies at once), so a Save dropped them silently and
+  // in Edit the same ticks said "Nothing to save". Fails against a dashboard
+  // without that fix; passes once it is deployed.
+  test("TC-862: Combo with a choose-from line — the choices are saved without pressing Done, shown in Edit, and one more choice saves", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      'Create → Combo price: two fixed items, then a third item with "Let customers pick a different item here" and two more picked as its choices (Done is never pressed), Save for later (no deal slot). The server deal has a line whose options are exactly those three items. Edit shows that line with the same choices. Changing it to four choices (one more, via the line\'s Add another choice button, Done again not pressed) and Save changes is a change, not "Nothing to save", and the server line now has all four.'
+    );
+    const name = promoName("Choices");
+    const create = createOwnerCreatePromotionPage(ownerPage);
+    const list = createOwnerPromotionsPage(ownerPage);
+    const group = "What's in the combo?";
+    const choices = [gift, extra, side];
+    /** The deal's choose-from lines, as sorted option item ids. */
+    const optionLines = async (dealId: string): Promise<string[][]> => {
+      const deal = await getDealApi(token, dealId);
+      return ((deal.items ?? []) as DealLineWithOptions[])
+        .map((line) => (line.options ?? []).map((o) => o.menuItemId).sort())
+        .filter((ids) => ids.length > 0);
+    };
+    const ids = (items: OwnItem[]) => items.map((i) => i.id).sort();
+    try {
+      await create.goto(restaurantId);
+      await create.pickCard("Combo price");
+      await create.pickItems(group, [itemA.name, itemB.name]);
+      await create.pickItems(
+        group,
+        choices.map((c) => c.name),
+        { choice: true }
+      );
+      await create.setAmount("Combo price", "20");
+      await create.setName(name);
+      await create.saveForLater();
+      await create.expectSaved();
+
+      const row = await serverRow(name);
+      expect(row, `listPromotions has ${name}`).toBeTruthy();
+      expect(row!.status).toBe("INACTIVE");
+
+      await allure.step("the server deal keeps every choice", async () => {
+        expect(await optionLines(row!.id)).toEqual([ids(choices)]);
+      });
+
+      await allure.step("Edit shows the same choices", async () => {
+        await list.goto(restaurantId);
+        await list.openRowAction(name, "Edit");
+        await create.expectEditing();
+        await expect
+          .poll(() => create.lineNames(group))
+          .toEqual([
+            itemA.name,
+            itemB.name,
+            choices.map((c) => c.name).join(", "),
+          ]);
+      });
+
+      await allure.step("one more choice in Edit saves", async () => {
+        const more = [...choices, drink];
+        await create.addChoices(group, choices.map((c) => c.name).join(", "), [
+          drink.name,
+        ]);
+        await create.save();
+        await create.expectSaved();
+        // Back on the list: the save went through, so no "Nothing to save".
+        await expect(
+          ownerPage.getByText("Nothing to save", { exact: false })
+        ).toHaveCount(0);
+        await expect
+          .poll(() => optionLines(row!.id), { timeout: 15_000 })
+          .toEqual([ids(more)]);
+      });
+    } finally {
+      await cleanup(name);
+    }
+  });
+
+  // The un-helped path of the page object's cancel(), which confirms
+  // "Leave without saving?" for the caller whenever it appears.
+  test("TC-871: Cancel with unsaved answers asks 'Leave without saving?' — Keep editing keeps them, Leave saves nothing", async ({
+    ownerPage,
+  }) => {
+    await allure.description(
+      "Create → Money off the order, 15%, a name, then Cancel: the 'Leave without saving?' dialog opens (it is not skipped). 'Keep editing' closes it with every answer still there; Cancel again → 'Leave' returns to the list and the server has no promotion of that name."
+    );
+    const name = promoName("Leave");
+    const create = createOwnerCreatePromotionPage(ownerPage);
+    const list = createOwnerPromotionsPage(ownerPage);
+    const leave = ownerPage
+      .getByRole("dialog")
+      .filter({ hasText: "Leave without saving?" });
+    try {
+      await create.goto(restaurantId);
+      await create.pickCard("Money off the order");
+      await create.setAmount("Percentage off", "15");
+      await create.setName(name);
+
+      await allure.step("Keep editing keeps the answers", async () => {
+        await ownerPage
+          .getByRole("button", { name: "Cancel", exact: true })
+          .click();
+        await expect(leave).toBeVisible();
+        await leave
+          .getByRole("button", { name: "Keep editing", exact: true })
+          .click();
+        await expect(leave).toBeHidden();
+        await expect(create.card("Money off the order")).toBeChecked();
+        await expect(create.amountField("Percentage off")).toHaveValue("15");
+        await expect(create.nameField()).toHaveValue(name);
+      });
+
+      await allure.step("Leave goes back and saves nothing", async () => {
+        await ownerPage
+          .getByRole("button", { name: "Cancel", exact: true })
+          .click();
+        await expect(leave).toBeVisible();
+        await leave.getByRole("button", { name: "Leave", exact: true }).click();
+        await expect(list.heading()).toBeVisible();
+        expect(await serverRow(name)).toBeUndefined();
       });
     } finally {
       await cleanup(name);
