@@ -49,7 +49,7 @@ const msg = (body: unknown): string =>
 const unwrap = (res: { data: unknown }): any => (res.data as any)?.data;
 
 // MM/DD/YYYY digits for the DatePicker's sectioned keyboard input — same
-// convention as OwnerCouponPage's setStartDate/setEndDate (07-coupons.spec.ts).
+// convention the retired coupon form's date fields used.
 const formatMMDDYYYY = (date: Date) =>
   `${String(date.getMonth() + 1).padStart(2, "0")}${String(
     date.getDate()

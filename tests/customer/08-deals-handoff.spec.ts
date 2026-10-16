@@ -5,7 +5,7 @@
  * TEMPLATE_WIND_URL) and `ownerPage` (restored owner dashboard session). Proves
  * what the owner tab tests can't: the deal the owner creates / toggles / 86s
  * is what the customer is offered, builds, is quoted, PAYS for, and what the
- * owner's usage counters then report. See docs/DEALS_TAB_TEST_STRATEGY.md §4
+ * owner's usage counters then report. See docs/PROMOTIONS_TEST_STRATEGY.md §4
  * (Layer 3). Own data: a per-run "Automation Deals Storefront <id>" category on
  * the seed restaurant (Burger 10 · Fries 6.50 · Pizza 12 with an ADJUSTS_PRICE
  * "Extra Cheese" +2 modifier) and AUTO deals; everything deleted / hard-deleted
@@ -19,11 +19,8 @@ import { createCustomerDealPage } from "../../pages/customer/CustomerDealPage";
 import { createCustomerItemModal } from "../../pages/customer/CustomerItemModal";
 import { createCustomerCheckoutPage } from "../../pages/customer/CustomerCheckoutPage";
 import { createCustomerOrderConfirmationPage } from "../../pages/customer/CustomerOrderConfirmationPage";
-import {
-  createOwnerDealsPage,
-  DEAL_STATUS_TEXT,
-} from "../../pages/dashboard/owner/OwnerDealsPage";
-import { createDealAnalyticsPage } from "../../pages/dashboard/owner/DealAnalyticsPage";
+import { createOwnerPromotionsPage } from "../../pages/dashboard/owner/OwnerPromotionsPage";
+import { createOwnerPromotionResultsPage } from "../../pages/dashboard/owner/OwnerPromotionResultsPage";
 import { STRIPE_CARDS } from "../../utils/stripeCards";
 import { requireScheduling } from "../../utils/dealScheduleGate";
 import {
@@ -62,6 +59,8 @@ import {
   getBrandingAdminRaw,
   putBrandingAdminRaw,
   getOrderByIdRaw,
+  waitForFreeDealSlot,
+  CAP_WAIT_MS,
   type ApiDeal,
   type ApiMenuItem,
 } from "../../utils/apiHelper";
@@ -195,19 +194,19 @@ test.describe("Deals → Storefront hand-off", () => {
     token = await freshToken();
   });
 
-  test("TC-367: 'Today's Deals' on /menu offers the owner's deal; toggling it OFF in Manage Deals removes it, ON brings it back", async ({
+  test("TC-367: 'Today's Deals' on /menu offers the owner's deal; pausing it in Promotions removes it, Turn on brings it back", async ({
     page,
     ownerPage,
   }) => {
     await allure.description(
       "Storefront /menu renders the DealCard for the API-seeded combo (name, 'Save 21%', 'Includes:' one " +
         "'1x' chip per slot row, struck $26.50 / $21.00, 'View Deal' → /deals/<id>). The owner flips the " +
-        "row's switch OFF in ?tab=deals → the storefront no longer offers it (public /active hides INACTIVE); " +
-        "ON → back."
+        "row's menu → Pause in ?tab=promotions (row reads Paused) → the storefront no longer offers it (public " +
+        "/active hides INACTIVE); Turn on (row reads Live) → back."
     );
     const menu = createCustomerMenuPage(page);
     const deals = createCustomerDealPage(page);
-    const dashboard = createOwnerDealsPage(ownerPage);
+    const promotions = createOwnerPromotionsPage(ownerPage);
 
     await allure.step("Storefront lists the deal card", async () => {
       await menu.goto(restaurantId);
@@ -235,36 +234,43 @@ test.describe("Deals → Storefront hand-off", () => {
       });
     });
 
-    await allure.step(
-      "Owner deactivates it → storefront drops it",
-      async () => {
-        await dashboard.gotoManageDeals(restaurantId);
-        await dashboard.search(combo.name);
-        const off = await dashboard.toggleStatus(combo.name);
-        expect(off.status).toBe(200);
-        await expect(dashboard.rowStatusText(combo.name)).toHaveText(
-          DEAL_STATUS_TEXT.inactive
-        );
-        await menu.goto(restaurantId);
-        await menu.assertPageLoaded();
-        // Positive control: our second (still active) deal is offered.
-        await expect(deals.dealCard(pizzaDeal.name)).toBeVisible({
-          timeout: 30_000,
-        });
-        await expect(deals.dealCard(combo.name)).toHaveCount(0);
-        await deals.gotoBuilder(restaurantId, combo.id);
-        await expect(deals.dealNotFound()).toBeVisible({ timeout: 20_000 });
-        await expect(deals.returnToMenuButton()).toBeVisible();
-      }
-    );
+    await allure.step("Owner pauses it → storefront drops it", async () => {
+      await promotions.goto(restaurantId);
+      const off = await promotions.setStatusFromMenu(combo.name, "Pause");
+      expect(off.status, JSON.stringify(off.body)).toBe(200);
+      await promotions.expectRowStatus(combo.name, "Paused");
+      await menu.goto(restaurantId);
+      await menu.assertPageLoaded();
+      // Positive control: our second (still active) deal is offered.
+      await expect(deals.dealCard(pizzaDeal.name)).toBeVisible({
+        timeout: 30_000,
+      });
+      await expect(deals.dealCard(combo.name)).toHaveCount(0);
+      await deals.gotoBuilder(restaurantId, combo.id);
+      await expect(deals.dealNotFound()).toBeVisible({ timeout: 20_000 });
+      await expect(deals.returnToMenuButton()).toBeVisible();
+    });
 
     await allure.step(
-      "Owner re-activates → storefront offers it again",
+      "Owner turns it on → storefront offers it again",
       async () => {
-        // Cap-tolerant: 11-deals may hold the seed restaurant at 10 active for a
-        // few seconds (its cap-banner test) — retry until a slot frees.
-        const on = await dashboard.activateWithRetry(combo.name);
-        expect(on.status, JSON.stringify(on.body)).toBe(200);
+        // Cap-tolerant: other files may hold the seed restaurant at 10 active
+        // deals for a moment — a refused Turn on (cap dialog) is retried once
+        // a slot frees, until CAP_WAIT_MS.
+        const deadline = Date.now() + CAP_WAIT_MS;
+        for (;;) {
+          await waitForFreeDealSlot(token, restaurantId);
+          const on = await promotions.setStatusFromMenu(combo.name, "Turn on");
+          if (on.status === 200) break;
+          expect(on.body?.error, JSON.stringify(on.body)).toBe(
+            "MAX_ACTIVE_DEALS_REACHED"
+          );
+          await promotions.confirmDialog("OK");
+          expect(Date.now(), "a deal slot freed in time").toBeLessThan(
+            deadline
+          );
+        }
+        await promotions.expectRowStatus(combo.name, "Live");
         await menu.goto(restaurantId);
         await expect(deals.dealCard(combo.name)).toBeVisible({
           timeout: 30_000,
@@ -353,11 +359,14 @@ test.describe("Deals → Storefront hand-off", () => {
   }) => {
     await allure.description(
       "Pizza + fries @ $15; the pizza slot is customised with 'Extra Cheese' (+$2.00, ADJUSTS_PRICE). Checkout " +
-        "shows 'Modifiers/Upgrades +$2.00', the expanded deal lists '1x <pizza> (+$2.00)', and the page's own " +
+        "shows the upgrade build-up (Items $15.00, Upgrades +$2.00 itemised 'Extra Cheese +$2.00', Subtotal " +
+        "$17.00 — template-wind #117 replaced the old 'Modifiers/Upgrades' row), the expanded deal lists " +
+        "'1x <pizza> (+$2.00)', and the page's own " +
         "/quote returns upcharge 2 / lineTotal 17 / subtotal 17 — the client's number is recomputed server-side."
     );
     const deals = createCustomerDealPage(page);
     const modal = createCustomerItemModal(page);
+    const checkout = createCustomerCheckoutPage(page);
     await deals.gotoBuilder(restaurantId, pizzaDeal.id);
     await expect(deals.builderHeading(pizzaDeal.name)).toBeVisible({
       timeout: 20_000,
@@ -394,7 +403,11 @@ test.describe("Deals → Storefront hand-off", () => {
       lineTotal: 17,
     });
     expect(quote.quote?.subtotal).toBe(17);
-    await expect(deals.modifiersUpgradesRow()).toContainText("+$2.00");
+    await expect(checkout.summaryItemsRow()).toContainText("$15.00");
+    await expect(checkout.summaryUpgradesRow()).toContainText("+$2.00");
+    await expect(checkout.summaryUpgradeDetails()).toHaveText(
+      `Extra Cheese ${runId} +$2.00`
+    );
     await deals.dealSummaryRow(pizzaDeal.name).click();
     await expect(deals.dealItemUpchargeLine(pizza.name)).toBeVisible();
     await expect(deals.dealItemUpchargeLine(pizza.name)).toContainText(
@@ -436,7 +449,7 @@ test.describe("Deals → Storefront hand-off", () => {
     });
   });
 
-  test("TC-371: paying for a deal order records the deal on the order and bumps the owner's usage counters (stats API, Manage Deals row, Deal Analytics)", async ({
+  test("TC-371: paying for a deal order records the deal on the order and bumps the owner's usage counters (stats API, Promotions row, Results)", async ({
     page,
     ownerPage,
   }) => {
@@ -444,14 +457,15 @@ test.describe("Deals → Storefront hand-off", () => {
       "Builds the combo, checks out as a pickup guest with the Stripe VISA test card → 'Order Confirmed!'. " +
         "The order (owner GET /api/order/:id) carries orderDeals[0] {dealId, dealPrice 21, quantity 1} and " +
         "3 orderDealItems; on payment processDealStatistics increments Deal.timesUsed / totalRevenue → the " +
-        "/stats summary moves by +1 / +21, the Manage Deals row reads '1 times' + '$21.00', and Deal " +
-        "Analytics' Top Performing Deals lists it. Leaves one real paid order on QA (as TC-26 does)."
+        "/stats summary moves by +1 / +21; the Promotions list row reads one more use and the $5.50 saved, " +
+        "and Results' Top promotions lists it with the same numbers. Leaves one real paid order on QA (as " +
+        "TC-26 does)."
     );
     const deals = createCustomerDealPage(page);
     const checkout = createCustomerCheckoutPage(page);
     const confirmation = createCustomerOrderConfirmationPage(page);
-    const dashboard = createOwnerDealsPage(ownerPage);
-    const analytics = createDealAnalyticsPage(ownerPage);
+    const promotions = createOwnerPromotionsPage(ownerPage);
+    const results = createOwnerPromotionResultsPage(ownerPage);
 
     const before = (await getDealStatsRaw(token, restaurantId)).data.summary!;
     const dealBefore = await getDealApi(token, combo.id);
@@ -533,23 +547,19 @@ test.describe("Deals → Storefront hand-off", () => {
       );
     });
 
-    await allure.step(
-      "Manage Deals row and Deal Analytics show it",
-      async () => {
-        await dashboard.gotoManageDeals(restaurantId);
-        await dashboard.search(combo.name);
-        const row = dashboard.row(combo.name);
-        await expect(row).toContainText(
-          `${(dealBefore.timesUsed ?? 0) + 1} times`
-        );
-        await expect(row).toContainText("$21.00");
-        await dashboard.gotoTab(restaurantId, "deal-analytics");
-        await analytics.assertLoaded();
-        const top = analytics.topDealRow(combo.name);
-        await expect(top).toBeVisible({ timeout: 15_000 });
-        await expect(top).toContainText("$21.00");
-      }
-    );
+    await allure.step("Promotions list row and Results show it", async () => {
+      const uses = (dealBefore.timesUsed ?? 0) + 1;
+      await promotions.goto(restaurantId);
+      await promotions.expectRowUses(combo.name, uses);
+      // The deal's saving on this order (dealDiscountAmount 5.5 above).
+      await promotions.expectRowSavings(combo.name, "$5.50");
+      await results.goto(restaurantId);
+      await results.expectLoaded();
+      const top = results.topRow(combo.name);
+      await expect(top).toBeVisible({ timeout: 15_000 });
+      await expect(top.getByRole("cell").nth(3)).toHaveText(String(uses));
+      await expect(top.getByRole("cell").nth(4)).toHaveText("$5.50");
+    });
   });
 
   // ── Deal scheduling on the storefront (Plans 1 + 4) ───────────────────────

@@ -39,6 +39,49 @@ export const createLimaStorefrontPage = (page: Page) => {
       .or(page.getByRole("heading", { name, exact: true }))
       .first();
 
+  /**
+   * One menu card, strictly by its h3 name (Item.tsx: data-testid
+   * "menu-item-card"). Unlike menuItemCard there is no heading fallback, so
+   * the sale price / label locators below stay inside the card.
+   */
+  const itemCard = (name: string) =>
+    page
+      .getByTestId("menu-item-card")
+      .filter({ has: page.getByRole("heading", { name, exact: true }) });
+
+  /** Struck regular price on a card — rendered only while a sale applies. */
+  const cardRegularPrice = (name: string) =>
+    itemCard(name).getByTestId("menu-item-regular-price");
+
+  /** The sale's label under the card name — rendered only with a sale. */
+  const cardSaleLabel = (name: string) =>
+    itemCard(name).getByTestId("menu-item-sale-label");
+
+  /**
+   * "<deal name> added to your cart" after the builder's Keep shopping
+   * (DashboardRoutes Snackbar Alert; auto-hides after 3 s).
+   */
+  const dealAddedConfirmation = () =>
+    page.getByTestId("deal-added-confirmation");
+
+  /** Promo-link feedback Snackbar ("Code X added — …" or the refusal). */
+  const promoLinkFeedback = () =>
+    page.getByRole("alert").filter({ hasText: /^Code .+ added/ });
+
+  /**
+   * A modifier choice in the open item modal (ModifierGroups: MUI Radio for a
+   * single-pick group, Checkbox otherwise, labelled by a FormControlLabel
+   * that starts with the modifier name).
+   */
+  const modifierOption = (name: string) => {
+    const label = new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`);
+    return page
+      .getByRole("dialog")
+      .getByRole("radio", { name: label })
+      .or(page.getByRole("dialog").getByRole("checkbox", { name: label }))
+      .first();
+  };
+
   const addToCartButton = () =>
     page
       .getByTestId("add-to-cart")
@@ -127,6 +170,12 @@ export const createLimaStorefrontPage = (page: Page) => {
     gotoMenu,
     gotoRoot,
     menuItemCard,
+    itemCard,
+    cardRegularPrice,
+    cardSaleLabel,
+    dealAddedConfirmation,
+    promoLinkFeedback,
+    modifierOption,
     addToCartButton,
     openItemModal,
     clickAddToCart,

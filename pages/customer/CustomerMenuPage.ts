@@ -74,9 +74,50 @@ export const createCustomerMenuPage = (page: Page) => {
     await page.waitForURL(/\/checkout/, { timeout: 15_000 });
   };
 
+  /**
+   * /menu with extra query params (`promo`, `dealAdded`, …) on top of the
+   * ?restaurantId= QA override.
+   */
+  const gotoWithParams = async (
+    restaurantId: string,
+    params: Record<string, string>
+  ) => {
+    const q = new URLSearchParams({ restaurantId, ...params });
+    await page.goto(`${TEMPLATE_WIND_URL}/menu?${q.toString()}`, {
+      waitUntil: "domcontentloaded",
+    });
+  };
+
+  // ── Automatic sale on an item (MenuItemCard: struck regular price +
+  // shown price + label, from the public menu's `promotion` field). The card
+  // root is the testid'd card holding the item's name.
+  const itemCard = (name: string) =>
+    page.getByTestId("menu-item-card").filter({
+      has: page.getByRole("heading", { name, exact: true }),
+    });
+  const cardRegularPrice = (name: string) =>
+    itemCard(name).getByTestId("regular-price");
+  const cardSaleLabel = (name: string) =>
+    itemCard(name).getByTestId("sale-label");
+
+  // ── "Keep shopping" from a deal builder: a one-shot confirmation
+  // ("<deal> added to your cart", read from the cart) on /menu.
+  const dealAddedConfirmation = () =>
+    page.getByTestId("deal-added-confirmation");
+
+  /** A deal on the menu's "Today's Deals" list, any deal type (by its name heading). */
+  const dealHeading = (dealName: string) =>
+    page.getByRole("heading", { name: dealName, exact: true });
+
   return {
     goto,
     gotoWithItem,
+    gotoWithParams,
+    itemCard,
+    cardRegularPrice,
+    cardSaleLabel,
+    dealAddedConfirmation,
+    dealHeading,
     menuItemCard,
     floatingCartButton,
     assertPageLoaded,

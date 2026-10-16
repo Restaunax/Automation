@@ -1,4 +1,36 @@
-# Deals — Test Strategy & Coverage Audit (owner portal + storefront)
+# Promotions — Test Strategy & Coverage (owner portal, storefronts, POS)
+
+_Renamed from `DEALS_TAB_TEST_STRATEGY.md` on 2026-10-15, when the dashboard's Coupon and Deal pages
+became one **Promotions** section (spec: `restaunax/docs/features/PROMOTIONS.md`). The three-layer
+model below is unchanged; this preface maps it onto the Promotions files. Everything from "Sources read
+for this audit" down is the original 2026-08 Deals audit, kept as history: it names files that were
+retired with the Deals page (`11-deals.spec.ts`, `18-chain-deals.spec.ts`, `OwnerDealsPage`)._
+
+## Promotions — the three layers today
+
+```
+Layer 3  Storefront / POS     a promotion priced by the server  ──►  wind + lima menu, builder, code box,
+                              checkout total = the page's /quote; POS price-preview + cash orders
+Layer 2  Owner UI             API-seeded promotions  ──►  Promotions list, create (six types), edit,
+                              duplicate, pause / turn on, delete, Results, Send, chain shell
+Layer 1  API contract         redeem-code, /quote, /active (v2), /validate, rules (best wins, bundle
+                              exclusivity, free delivery alongside, first order, old clients)
+```
+
+| Layer                | Files                                                                                                                                                                          | TCs                                                                                |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| 1 — API              | `dashboard/owner/api-promotions.spec.ts` (throwaway tenant, acceptance set), `api-deals.spec.ts` (deal contract, kept)                                                         | TC-800 → TC-820; TC-325 → TC-350, TC-691 → TC-712                                  |
+| 2 — Owner UI         | `dashboard/owner/19-promotions.spec.ts`, `20-chain-promotions.spec.ts`, `21-promotion-send.spec.ts`                                                                            | TC-821 → TC-835, TC-852 → TC-854, TC-857 (fixme, app bug)                          |
+| 3 — Storefront / POS | `customer/10-promotions.spec.ts` (wind), `customer-lima/14-promotions.spec.ts` (lima), `pos/11-promotions.spec.ts` (API-level POS), `customer/08-deals-handoff.spec.ts` (kept) | TC-836 → TC-844, TC-L64 → TC-L70, TC-845 → TC-851, TC-855, TC-856, TC-367 → TC-371 |
+
+Two real Stripe card orders prove the money end to end (TC-844 wind, TC-L70 lima); everything else
+asserts the server's own `/quote` / price-preview / order responses. The customer mobile app's
+promotions run as Maestro flows (`restaunax-ordering-app/.maestro/flows/promotions/`, local only — no
+Playwright project). Gaps and pending cases are listed in `TEST_COVERAGE.md` → Promotions.
+
+---
+
+## Original Deals audit (2026-08)
 
 _Owner dashboard → Restaurant Management → **Deals** (Manage Deals · Create Deal · AI Generator ·
 Deal Analytics), the chain-scoped twins under `/chain/:groupId/…`, the public deal API the storefront

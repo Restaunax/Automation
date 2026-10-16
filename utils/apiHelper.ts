@@ -1178,6 +1178,24 @@ export async function ensureTaxRate(
 }
 
 /**
+ * Turn delivery acceptance on for a restaurant — POST /restaurant/restaurantId/:id
+ * {payload:{canAcceptDeliveries}}. The field is server-owned: only an ADMIN
+ * token may write it (an owner's write is stripped). Throwaway tenants only.
+ */
+export async function setCanAcceptDeliveriesAdminApi(
+  adminToken: string,
+  restaurantId: string,
+  value = true
+): Promise<void> {
+  await apiRequest<unknown>(
+    "POST",
+    `/restaurant/restaurantId/${restaurantId}`,
+    { payload: { canAcceptDeliveries: value } },
+    adminToken
+  );
+}
+
+/**
  * Publish (or unpublish) a restaurant the way the dashboard's Publish page does
  * — POST /restaurant/restaurantId/:id {payload:{published}} (admin/employee
  * token, as in the UI). Since restaunax 04d3c8d0e (2026-09-11, "preview
@@ -1349,20 +1367,25 @@ export async function ensureAutomationChain(
  * throwaway restaurant — used for tenant-isolation / IDOR contract tests without
  * a second credential in .env. Records the email for globalTeardown's user
  * sweep; the caller deletes the restaurant. Falls back to OWNER2_EMAIL/PASSWORD
- * when both are set.
+ * when both are set — unless `alwaysFresh`: specs that seed data onto the
+ * tenant or change its settings must pass it, because OWNER2's restaurant is
+ * persistent (it is never deleted, so their seeds would pile up there).
  */
 export async function createSecondOwner(
   adminToken: string,
-  runId: string
+  runId: string,
+  { alwaysFresh = false }: { alwaysFresh?: boolean } = {}
 ): Promise<{
   accessToken: string;
   userId: string;
   email: string;
+  /** Set only for a freshly minted owner (OWNER2's is in .env). */
+  password?: string;
   restaurantId: string | null;
 }> {
   const envEmail = process.env.OWNER2_EMAIL;
   const envPassword = process.env.OWNER2_PASSWORD;
-  if (envEmail && envPassword) {
+  if (!alwaysFresh && envEmail && envPassword) {
     const login = await apiLogin(envEmail, envPassword);
     const owned = await getOwnerRestaurants(login.accessToken);
     return {
@@ -1403,6 +1426,7 @@ export async function createSecondOwner(
     accessToken: login.accessToken,
     userId: user.id,
     email,
+    password,
     restaurantId,
   };
 }
@@ -1412,8 +1436,17 @@ export async function createSecondOwner(
 export interface ApiCoupon {
   id: string;
   code: string;
-  /** CouponType enum, e.g. "PERCENTAGE" | "FIXED_AMOUNT" | "FREE_DELIVERY". */
-  type?: string;
+  /**
+   * CouponType enum, e.g. "PERCENTAGE" | "FIXED_AMOUNT" | "FREE_DELIVERY" |
+   * "ITEM_SALE" | "FREE_ITEM".
+   */
+  type?:
+    | "PERCENTAGE"
+    | "FIXED_AMOUNT"
+    | "FIXED_ITEM"
+    | "FREE_DELIVERY"
+    | "ITEM_SALE"
+    | "FREE_ITEM";
   /** Discount value (Float). Percentage points or fixed amount per `type`. */
   value?: number;
   /** Minimum order subtotal before the coupon applies (required on FREE_DELIVERY). */
@@ -1422,7 +1455,24 @@ export interface ApiCoupon {
   maxDiscount?: number | null;
   /** "restaurant" | "organization" — org coupons are shared, never delete. */
   source?: string;
+  /** A promotion's name (coupons have no name column). */
+  description?: string | null;
 }
+
+/**
+ * An automation-created promotion: AUTO-prefixed name or code. A coupon's
+ * name is its `description`; a code-less AUTOMATIC promotion (sale, spend
+ * free item) has `code: null`, so its name is the only marker.
+ */
+export const isAutomationPromotion = (
+  row: {
+    name?: string | null;
+    description?: string | null;
+    code?: string | null;
+  },
+  prefix = "AUTO"
+): boolean =>
+  [row.name, row.description, row.code].some((v) => v?.startsWith(prefix));
 
 /** GET /api/coupons/restaurant/:id — response is { success, coupons: [...] }. */
 export async function getRestaurantCoupons(
@@ -1452,26 +1502,27 @@ export async function deleteCouponApi(
 }
 
 /**
- * Sweep all automation-created coupons (codes starting with `codePrefix`)
- * from a restaurant — this run's AND leftovers from interrupted runs.
- * Organization-level coupons are skipped. Best-effort per coupon.
+ * Sweep all automation-created coupons (code OR name starting with `prefix` —
+ * see isAutomationPromotion; a code-less AUTOMATIC promotion is matched by
+ * its name) from a restaurant — this run's AND leftovers from interrupted
+ * runs. Organization-level coupons are skipped. Best-effort per coupon.
  */
 export async function deleteAutomationCoupons(
   accessToken: string,
   restaurantId: string,
-  codePrefix = "AUTO"
+  prefix = "AUTO"
 ): Promise<number> {
   const coupons = await getRestaurantCoupons(accessToken, restaurantId);
   let deleted = 0;
   for (const coupon of coupons) {
-    if (!coupon.code?.startsWith(codePrefix)) continue;
+    if (!isAutomationPromotion(coupon, prefix)) continue;
     if (coupon.source === "organization") continue;
     try {
       await deleteCouponApi(accessToken, coupon.id);
       deleted++;
     } catch (err) {
       console.warn(
-        `[apiHelper] Failed to delete coupon ${coupon.code} (${coupon.id}):`,
+        `[apiHelper] Failed to delete coupon ${coupon.code ?? coupon.description} (${coupon.id}):`,
         err
       );
     }
@@ -1502,7 +1553,8 @@ export type DealType =
   | "COMBO"
   | "BOGO_FREE"
   | "BOGO_PERCENT_OFF"
-  | "PERCENT_OFF";
+  | "PERCENT_OFF"
+  | "BOGO_FIXED_PRICE";
 /** Per-row role: BUY / GET on the two BOGO types, INCLUDED otherwise. */
 export type DealItemRole = "INCLUDED" | "BUY" | "GET";
 
@@ -1548,7 +1600,7 @@ export interface ApiErrorBody {
  * every write since guided deal types — savingsAmount = max(0, orig − deal),
  * savingsPercentage 1 dp) — assert against them, never a hand sum.
  * `computedStatus` / `hasOutOfStockItem` / `isAvailable` are list-only
- * projections (GET /restaurant/:id) — see docs/DEALS_TAB_TEST_STRATEGY.md §3.6.
+ * projections (GET /restaurant/:id) — see docs/PROMOTIONS_TEST_STRATEGY.md §3.6.
  */
 export interface ApiDeal {
   id: string;
@@ -1615,7 +1667,18 @@ export interface DealBody {
     role?: DealItemRole;
     isRequired?: boolean;
     sortOrder?: number;
+    /** "One of these items" choices for the slot (write field; read back as `options`). */
+    optionMenuItemIds?: string[];
   }[];
+  /** How customers get it (promotions v2); absent = backend default. */
+  applyMode?: "AUTOMATIC" | "CODE" | "BOTH";
+  audience?: "EVERYONE" | "FIRST_ORDER";
+  code?: string | null;
+  /** BOGO_FIXED_PRICE: what the GET item costs. */
+  getPrice?: number | null;
+  minOrderAmount?: number | null;
+  perUserLimit?: number | null;
+  usageLimit?: number | null;
   validDays?: string[];
   validTimeStart?: string;
   validTimeEnd?: string;
@@ -1703,11 +1766,11 @@ export async function createDealApi(
  * SHARED seed restaurant; the throwaway-tenant specs don't need it.
  */
 /**
- * How long a seed-restaurant deal create waits for a cap slot. The longest
- * hold is 11-deals TC-359, which tops the shared restaurant up to 10 ACTIVE
- * deals and keeps them through several page loads, toggles and a retry loop
- * (up to about a minute on QA). The old 45 s was shorter than that, so a
- * concurrent file timed out waiting. 150 s clears it; a genuine leak still
+ * How long a seed-restaurant deal create waits for a cap slot. Sized for the
+ * old 11-deals TC-359 (retired 2026-10-15 with the Deals page), which topped
+ * the shared restaurant up to 10 ACTIVE deals for about a minute on QA; no
+ * current spec holds the cap that long, but several deal specs still share the
+ * seed restaurant's 10 slots. 150 s keeps that margin; a genuine leak still
  * fails, just later.
  */
 export const CAP_WAIT_MS = 150_000;
@@ -1979,9 +2042,14 @@ export function getActiveDealsPublic(
     at?: string;
     lang?: "en" | "es";
     includeUnavailable?: boolean;
+    /** Send X-Promotions-Version: 2 (a client that knows the new mechanics). */
+    v2?: boolean;
+    /** A bundle code the customer typed (CODE-only deals list only with it). */
+    code?: string;
   } = {}
 ): Promise<RawResponse<ActiveDealsResponse>> {
   const q = new URLSearchParams();
+  if (opts.code) q.set("code", opts.code);
   if (opts.channel) q.set("channel", opts.channel);
   if (opts.at) q.set("at", opts.at);
   if (opts.includeUnavailable) q.set("includeUnavailable", "1");
@@ -1991,7 +2059,12 @@ export function getActiveDealsPublic(
     `/api/deals/restaurant/${restaurantId}/active${qs ? `?${qs}` : ""}`,
     undefined,
     undefined,
-    opts.lang ? { "Accept-Language": opts.lang } : undefined
+    opts.lang || opts.v2
+      ? {
+          ...(opts.lang ? { "Accept-Language": opts.lang } : {}),
+          ...(opts.v2 ? { "X-Promotions-Version": "2" } : {}),
+        }
+      : undefined
   );
 }
 
@@ -2209,6 +2282,10 @@ export function getOrderByIdRaw(
     status?: string;
     subtotal?: number;
     total?: number;
+    /** The order-level promotion stored on the order (Coupon id). */
+    couponId?: string | null;
+    /** Order-level promotion discount the server stored. */
+    discountAmount?: number | null;
     dealDiscountAmount?: number | null;
     dealUpchargeAmount?: number | null;
     orderDeals?: {
@@ -4772,7 +4849,7 @@ const RETRY_BACKOFF_MS = [1_000, 3_000];
  * MAX_RETRIES times with backoff — a single QA gateway blip during
  * setup/teardown shouldn't abort the whole run or leak cleanup.
  */
-async function apiRequestRaw<T = unknown>(
+export async function apiRequestRaw<T = unknown>(
   method: string,
   path: string,
   body?: unknown,

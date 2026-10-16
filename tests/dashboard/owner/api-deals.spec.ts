@@ -7,7 +7,7 @@
  * computed money fields, the qty-1 slot invariant, the availability window,
  * status/cap rules, delete semantics, what the customer is charged (deal price
  * × qty + modifier upcharge, never the client's numbers), stats, chain scope
- * and the authorization pins. See docs/DEALS_TAB_TEST_STRATEGY.md §3.6 / §4.
+ * and the authorization pins. See docs/PROMOTIONS_TEST_STRATEGY.md §3.6 / §4.
  *
  * Own tenant: the WHOLE file runs on a per-run throwaway restaurant owned by
  * an admin-minted OWNER (`createSecondOwner`) — the seed restaurant carries five
@@ -21,7 +21,7 @@
  * The §1 findings (IDOR, cap bypass, PUT validation, coupon ⊥ deal, aiGenerated)
  * were fixed in RestauNax #618/#619 and are LIVE on QA — the tests that pinned
  * them as test.fail() now assert the FIXED behaviour (TC-334, 335b, 336, 341,
- * 343, 347..350). See docs/DEALS_TAB_TEST_STRATEGY.md §1.
+ * 343, 347..350). See docs/PROMOTIONS_TEST_STRATEGY.md §1.
  *
  * Guided deal types (restaunax DEAL_TYPES.md, TC-691..677): every write now
  * runs the type rules — a COMBO needs >= 2 unit rows priced below the items'
@@ -2425,11 +2425,11 @@ test.describe("Owner — Deals API contract", () => {
       expect(roles(bogo)).toEqual(["BUY", "GET"]);
     });
 
-    test("TC-701: public GET /ai/questions adds the optional multi-select 'dealTypes' question with the four types", async () => {
+    test("TC-701: public GET /ai/questions adds the optional multi-select 'dealTypes' question with the bundle types", async () => {
       await allure.description(
         "The AI generator's questionnaire grows a 5th question, id 'dealTypes', type 'multiple', whose option " +
-          "values are exactly COMBO / BOGO_FREE / BOGO_PERCENT_OFF / PERCENT_OFF, each with a label and a plain " +
-          "description. The four original ids are still there."
+          "values are exactly COMBO / BOGO_FREE / BOGO_PERCENT_OFF / BOGO_FIXED_PRICE / PERCENT_OFF, each with a " +
+          "label and a plain description. The four original ids are still there."
       );
       const res = await getAiDealQuestionsPublic();
       expect(res.status).toBe(200);
@@ -2446,10 +2446,13 @@ test.describe("Owner — Deals API contract", () => {
       const q = questions.find((x) => x.id === "dealTypes")!;
       expect(q.type).toBe("multiple");
       expect(typeof q.question).toBe("string");
+      // spec: PROMOTIONS.md "Create promotion" (AI suggestions keep producing
+      // bundle types) + "New mechanics" → BOGO_FIXED_PRICE, a new bundle type.
       expect((q.options ?? []).map((o) => o.value)).toEqual([
         "COMBO",
         "BOGO_FREE",
         "BOGO_PERCENT_OFF",
+        "BOGO_FIXED_PRICE",
         "PERCENT_OFF",
       ]);
       for (const o of q.options ?? []) {

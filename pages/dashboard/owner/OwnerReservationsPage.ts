@@ -205,7 +205,7 @@ export const createOwnerReservationsPage = (page: Page) => {
   // MUI X DatePicker's visible widget is a sectioned input, not a plain text
   // box — click the section-list container inside the FormControl carrying
   // the label, then type through the keyboard (same pattern established in
-  // OwnerCouponPage.ts for the coupon validity-period date fields).
+  // the retired coupon form's validity-period date fields).
   const dateSectionsFor = (labelText: string) =>
     page
       .getByRole("dialog")

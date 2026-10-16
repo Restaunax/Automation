@@ -6,6 +6,8 @@ import { STRIPE_CARDS, STRIPE_DEFAULTS } from "../../utils/stripeCards";
 // Wind storefront, wind.restaunax.com — NOT qa.restaunax.com, the marketing site).
 import { TEMPLATE_WIND_URL } from "../../utils/testData";
 
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 export const createCustomerCheckoutPage = (page: Page) => {
   // Navigate to menu first to establish the domain, then seed cart via sessionStorage.
   //
@@ -201,15 +203,34 @@ export const createCustomerCheckoutPage = (page: Page) => {
     await applyCouponButton().click();
   };
 
-  // Success swaps the input for a green applied-coupon block ("Saving $X.XX")
-  // and OrderSummary shows a "Coupon (CODE)" discount line. Codes uppercase in
-  // the UI, so match case-insensitively on the code.
-  const assertCouponApplied = async (code: string) => {
-    await expect(page.getByText(/Saving \$\d/)).toBeVisible({
-      timeout: 15_000,
-    });
+  // Success swaps the input for a green applied-code pill (the code) with
+  // "Saving $X.XX" under it, and OrderSummary shows the server's promotion
+  // line: `appliedPromotion.title` from /quote and "-$X.XX".
+  // spec: PROMOTIONS.md "Clients as built (plan 3)" → Storefronts — the old
+  // client-built "Coupon (CODE)" line is gone; promotion lines come from
+  // /quote, and the code box shows a saving only for the code's own line.
+  // So: the pill proves the code was taken, "Saving" proves the code is the
+  // promotion the server applied, and the summary row with the same amount
+  // ties the summary discount to that code (what "Coupon (CODE)" proved).
+  const assertCouponApplied = async (code: string, promotionTitle: string) => {
+    const saving = page.getByText(/^Saving \$\d+\.\d{2}$/);
+    await expect(saving).toBeVisible({ timeout: 15_000 });
+    const amount = /\$(\d+\.\d{2})/.exec(
+      (await saving.textContent()) ?? ""
+    )?.[1];
+    expect(amount, "Saving line carries an amount").toBeTruthy();
     await expect(
-      page.getByText(new RegExp(`Coupon\\s*\\(${code}\\)`, "i"))
+      page.getByText(new RegExp(`^${escapeRegExp(code)}$`, "i"))
+    ).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page
+        .locator("div")
+        .filter({
+          hasText: new RegExp(
+            `^${escapeRegExp(promotionTitle)}-\\$${escapeRegExp(amount!)}$`
+          ),
+        })
+        .last()
     ).toBeVisible({ timeout: 10_000 });
   };
 
@@ -318,7 +339,7 @@ export const createCustomerCheckoutPage = (page: Page) => {
   // row). Server-authoritative — driven by the restaurant's
   // passProcessingFeeToCustomer setting, so it appears/disappears purely from
   // that flag. Text-only hook (the row has no id/testid), same style as the
-  // Coupon line assertion above.
+  // promotion-line assertion in assertCouponApplied above.
   //
   // Since template-wind c15fb89 (2026-08-28) the label reads
   // "Processing Fee (credit cards)": surcharging debit/prepaid is barred, the
@@ -541,7 +562,47 @@ export const createCustomerCheckoutPage = (page: Page) => {
     /\/api\/order\/[^/]+\/quote$/.test(r.url()) &&
     r.request().method() === "POST";
 
+  // ── Promotions in the OrderSummary (spec: PROMOTIONS.md "Clients as built
+  // (plan 3)" → Storefronts). All server money: from the page's /quote.
+  /** "You've earned a free <item> — Add it" (quote.freeItemOffer). */
+  const freeItemOfferButton = () =>
+    page.getByRole("button", { name: /^You've earned a free / });
+  /** The summary row for a promotion (its title + "-$X.XX"). */
+  const promotionLine = (title: string) =>
+    page
+      .locator("div")
+      .filter({
+        hasText: new RegExp(`^${escapeRegExp(title)}-\\$\\d+\\.\\d{2}$`),
+      })
+      .last();
+  /** Deal upgrades build-up: Items / Upgrades / itemised detail (summary-* testids). */
+  const summaryItemsRow = () => page.getByTestId("summary-items");
+  const summaryUpgradesRow = () => page.getByTestId("summary-upgrades");
+  const summaryUpgradeDetails = () =>
+    page.getByTestId("summary-upgrade-details");
+  const subtotalRow = () =>
+    page.getByText("Subtotal", { exact: true }).locator("..");
+  /** The first "$X.XX" in a row, as a number (NaN when absent). */
+  const readMoney = async (row: ReturnType<typeof page.locator>) => {
+    const m = /\$(\d+(?:,\d{3})*\.\d{2})/.exec((await row.textContent()) ?? "");
+    return m ? parseFloat(m[1]!.replace(/,/g, "")) : NaN;
+  };
+  /** The CODE-only-deal refusal sentence (backend api.json codeRequired). */
+  const dealNeedsCodeMessage = () => page.getByText(/This deal needs its code/);
+  /** Pay blocked by a quote ERROR issue. */
+  const reviewYourOrderButton = () =>
+    page.getByRole("button", { name: "Review your order", exact: true });
+
   return {
+    freeItemOfferButton,
+    promotionLine,
+    summaryItemsRow,
+    summaryUpgradesRow,
+    summaryUpgradeDetails,
+    subtotalRow,
+    readMoney,
+    dealNeedsCodeMessage,
+    reviewYourOrderButton,
     seedCart,
     seedCartItems,
     seedCartWithDeal,

@@ -212,8 +212,9 @@ tests/
     owner/          — Restaurant client manages their own restaurant(s)
     employee/       — Company-side setup staff (publish/tax/create restaurant)
     staff/          — Thin /staff PIN-card stub (web)
-  customer/         — Customer ordering (project: customer, baseURL TEMPLATE_WIND_URL)
-  pos/              — Device In Store / POS — API-level placeholder (not a project)
+  customer/         — Customer ordering on template-wind (project: customer, baseURL TEMPLATE_WIND_URL)
+  customer-lima/    — Embedded ordering on template-lima (project: customer-lima, baseURL LIMA_ORDERING_URL)
+  pos/              — Device In Store / POS, API level (project: pos — tablet device token, no browser UI)
 
 pages/
   dashboard/
@@ -378,10 +379,11 @@ never fetch `gh-pages`.
   `e2e.yml` runs **only `--project=customer`** for it (one storefront changed —
   no need for the full suite) and publishes to the `wind-deploy/` report. Needs
   the same `AUTOMATION_DISPATCH_TOKEN` secret on the template-wind repo.
-  template-lima is deliberately NOT wired (no lima tests exist; decision
-  2026-07-19).
+  template-lima has no deploy dispatch yet: its specs (`--project=customer-lima`)
+  run in the nightly full suite and on demand.
 - **Manual** `workflow_dispatch` (Actions tab → e2e → Run workflow;
-  optional `grep` / `project` inputs).
+  optional `grep` / `project` inputs; `project` is one of all, dashboard,
+  customer, customer-lima, pos).
 
 **Do NOT rebuild the Grafana pipeline.** `scripts/publish-results.ts` still POSTs
 to a backend ingest endpoint that was removed (backend migration
