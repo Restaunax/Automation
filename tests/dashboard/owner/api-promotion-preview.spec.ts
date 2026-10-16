@@ -1,9 +1,18 @@
 /**
  * api-promotion-preview.spec.ts — "Try it as a customer" at the API level on
- * QA (TC-872 → TC-881). Own data on the seed restaurant: a per-run
- * "Automation Menu Preview <id>" category with three items; every preview is
- * ended in afterAll (they also expire within the hour) and the category is
- * deleted. A preview never takes a deal slot, so no cap wait is needed.
+ * QA (TC-872 → TC-881).
+ *
+ * Runs on its OWN throwaway tenant (createSecondOwner, alwaysFresh), never the
+ * seed restaurant: the 5-live-preview cap and the create rate limiter are per
+ * restaurant / per identity, so this file can never evict
+ * 26-promotion-preview's previews or spend its limiter budget. The tenant gets
+ * a tax rate (/quote refuses without one) and a per-run
+ * "Automation Menu Preview <id>" category with three AUTO items.
+ *
+ * Every test ends its own preview(s) in `finally` (at most two live at once —
+ * TC-878); afterAll ends anything left as a backstop, hard-deletes the items,
+ * deletes the category and archives the tenant. A preview never takes a deal
+ * slot.
  *
  * The backend refuses to mint previews (503 PROMOTION_PREVIEW_UNAVAILABLE)
  * while its ORDERING_BASE_URL is unset; the whole file then skips with that
@@ -18,25 +27,25 @@ import {
   BACKEND_URL,
   createMenuGroupNamed,
   createMenuItemFull,
-  deleteMenuGroupRaw,
-  deleteMenuItemRaw,
+  createSecondOwner,
+  deleteTestMenuGroup,
+  deleteTestRestaurant,
+  ensureTaxRate,
   getActiveDealsCountRaw,
+  permanentlyDeleteMenuItemApi,
 } from "../../../utils/apiHelper";
 import {
   createRestaurantPreviewRaw,
   endPreviewRaw,
   getPreviewRaw,
   previewHeader,
+  type PreviewCreated,
 } from "../../../utils/previewApi";
 import { listPromotions } from "../../../utils/promotionsApi";
-import {
-  generateRunId,
-  LIMA_ORDERING_URL,
-  readSharedState,
-} from "../../../utils/testData";
+import { generateRunId, LIMA_ORDERING_URL } from "../../../utils/testData";
 
-const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
-const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 const DAY = 24 * 60 * 60 * 1000;
 const TOKEN_IN_URL = /\/preview\/([A-Za-z0-9_-]{43})$/;
 const UNAVAILABLE_REASON =
@@ -44,17 +53,19 @@ const UNAVAILABLE_REASON =
 
 test.describe("Owner — Promotion preview (API)", () => {
   test.skip(
-    !OWNER_EMAIL || !OWNER_PASSWORD,
-    "OWNER_EMAIL / OWNER_PASSWORD not set in .env"
+    !ADMIN_EMAIL || !ADMIN_PASSWORD,
+    "ADMIN_* credentials not set in .env (admin mints the throwaway tenant)"
   );
   test.describe.configure({ mode: "serial" });
 
   const runId = generateRunId();
+  let adminToken = "";
   let token = "";
   let restaurantId = "";
   let groupId = "";
   let previewsUnavailable = false;
   const items: { id: string; name: string; price: number }[] = [];
+  /** Every token ever minted — afterAll's backstop (DELETE is idempotent). */
   const opened: string[] = [];
   /** The per-run item at `i` (Burger $12, Cookie $4, Soda $2); throws if beforeAll did not seed it. */
   const item = (i: number) => {
@@ -80,17 +91,35 @@ test.describe("Owner — Promotion preview (API)", () => {
       ...extra,
     },
   });
-  const open = async (body: Record<string, unknown>) => {
+  const open = async (
+    body: Record<string, unknown>
+  ): Promise<PreviewCreated> => {
     const res = await createRestaurantPreviewRaw(token, restaurantId, body);
+    if (res.data.data?.token) opened.push(res.data.data.token);
     expect(res.status, JSON.stringify(res.data)).toBe(201);
-    const created = res.data.data!;
-    opened.push(created.token);
-    return created;
+    return res.data.data!;
+  };
+  /** The preview's own deal id, from its payload. */
+  const previewDealId = async (previewToken: string): Promise<string> => {
+    const res = await getPreviewRaw(previewToken);
+    expect(res.status, JSON.stringify(res.data)).toBe(200);
+    return (res.data.data!.promotion as { id: string }).id;
   };
 
   test.beforeAll(async () => {
-    ({ restaurantId } = readSharedState());
-    ({ accessToken: token } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD));
+    test.setTimeout(180_000);
+    adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
+    // alwaysFresh: never OWNER2's persistent restaurant — this file seeds
+    // items and previews onto the tenant and archives it afterwards.
+    const tenant = await createSecondOwner(adminToken, runId, {
+      alwaysFresh: true,
+    });
+    if (!tenant.restaurantId)
+      throw new Error(
+        "[api-promotion-preview] could not mint the throwaway tenant restaurant"
+      );
+    token = tenant.accessToken;
+    restaurantId = tenant.restaurantId;
 
     // Availability probe — an empty body. The backend answers 503 before it
     // validates anything when previews are off; otherwise it is a 400 and
@@ -104,6 +133,8 @@ test.describe("Owner — Promotion preview (API)", () => {
       return;
     }
 
+    // /quote refuses restaurants without a tax rate.
+    await ensureTaxRate(adminToken, restaurantId);
     groupId = (
       await createMenuGroupNamed(token, `Automation Menu Preview ${runId}`, {
         restaurantId,
@@ -121,10 +152,16 @@ test.describe("Owner — Promotion preview (API)", () => {
   });
 
   test.afterAll(async () => {
-    // Previews first: they reference the per-run items.
-    for (const t of opened) await endPreviewRaw(t);
-    for (const row of items) await deleteMenuItemRaw(token, row.id);
-    if (groupId) await deleteMenuGroupRaw(token, groupId);
+    if (!token) return;
+    // Backstop only — each test ends its previews in finally. Previews first:
+    // they reference the per-run items.
+    for (const t of opened) await endPreviewRaw(t).catch(() => {});
+    for (const row of items)
+      await permanentlyDeleteMenuItemApi(adminToken, row.id).catch(() => {});
+    if (groupId) await deleteTestMenuGroup(token, groupId).catch(() => {});
+    // Admin DELETE archives the throwaway restaurant (never a hard delete).
+    if (restaurantId)
+      await deleteTestRestaurant(adminToken, restaurantId).catch(() => {});
   });
 
   test.beforeEach(async () => {
@@ -135,67 +172,85 @@ test.describe("Owner — Promotion preview (API)", () => {
 
   test("TC-872: creating a preview returns a one-hour lima URL", async () => {
     const created = await open(comboBody(`AUTO Preview Combo ${runId}`));
-    expect(created.previewUrl.startsWith(`${LIMA_ORDERING_URL}/preview/`)).toBe(
-      true
-    );
-    expect(TOKEN_IN_URL.exec(created.previewUrl)?.[1]).toBe(created.token);
-    const ttl = Date.parse(created.expiresAt) - Date.now();
-    expect(ttl).toBeGreaterThan(55 * 60 * 1000);
-    expect(ttl).toBeLessThanOrEqual(60 * 60 * 1000);
+    try {
+      expect(
+        created.previewUrl.startsWith(`${LIMA_ORDERING_URL}/preview/`)
+      ).toBe(true);
+      expect(TOKEN_IN_URL.exec(created.previewUrl)?.[1]).toBe(created.token);
+      const ttl = Date.parse(created.expiresAt) - Date.now();
+      expect(ttl).toBeGreaterThan(55 * 60 * 1000);
+      expect(ttl).toBeLessThanOrEqual(60 * 60 * 1000);
+    } finally {
+      await endPreviewRaw(created.token);
+    }
   });
 
   test("TC-873: a preview is never listed or counted", async () => {
-    const before = (await getActiveDealsCountRaw(token, restaurantId)).data
-      .activeDealsCount;
     const name = `AUTO Preview Hidden ${runId}`;
-    await open(comboBody(name));
-    expect(
-      (await listPromotions(token, restaurantId)).some((r) => r.name === name)
-    ).toBe(false);
-    expect(
-      (await getActiveDealsCountRaw(token, restaurantId)).data.activeDealsCount
-    ).toBe(before);
-    const plain = await apiRequestRaw<{ deals: { name: string }[] }>(
-      "GET",
-      `/api/deals/restaurant/${restaurantId}/active`,
-      undefined,
-      undefined,
-      { "X-Promotions-Version": "2" }
-    );
-    expect(plain.data.deals.some((d) => d.name === name)).toBe(false);
+    const created = await open(comboBody(name));
+    try {
+      const dealId = await previewDealId(created.token);
+      expect(
+        (await listPromotions(token, restaurantId)).some((r) => r.id === dealId)
+      ).toBe(false);
+      // The cap count equals the deals the list says hold a slot — so the
+      // live preview (absent from the list) is not counted.
+      await expect(async () => {
+        const [count, rows] = await Promise.all([
+          getActiveDealsCountRaw(token, restaurantId),
+          listPromotions(token, restaurantId),
+        ]);
+        expect(count.data.activeDealsCount).toBe(
+          rows.filter((r) => r.source === "DEAL" && r.holdsDealSlot).length
+        );
+      }).toPass({ timeout: 30_000 });
+      const plain = await apiRequestRaw<{ deals: { name: string }[] }>(
+        "GET",
+        `/api/deals/restaurant/${restaurantId}/active`,
+        undefined,
+        undefined,
+        { "X-Promotions-Version": "2" }
+      );
+      expect(plain.data.deals.some((d) => d.name === name)).toBe(false);
+    } finally {
+      await endPreviewRaw(created.token);
+    }
   });
 
   test("TC-874: /quote prices the preview deal with its header and refuses it without", async () => {
     const created = await open(comboBody(`AUTO Preview Quote ${runId}`));
-    const preview = await getPreviewRaw(created.token);
-    const dealId = (preview.data.data!.promotion as { id: string }).id;
-    const body = {
-      orderType: "PICKUP",
-      items: [],
-      deals: [
-        { dealId, quantity: 1, selections: [{ menuItemId: item(0).id }] },
-      ],
-    };
-    const withHeader = await apiRequestRaw<{
-      quote: { deals: { dealId: string; dealPrice: number }[] };
-    }>(
-      "POST",
-      `/api/order/${restaurantId}/quote`,
-      body,
-      undefined,
-      previewHeader(created.token)
-    );
-    expect(withHeader.status, JSON.stringify(withHeader.data)).toBe(200);
-    expect(withHeader.data.quote.deals[0]).toMatchObject({
-      dealId,
-      dealPrice: 9.5,
-    });
-    const without = await apiRequestRaw(
-      "POST",
-      `/api/order/${restaurantId}/quote`,
-      body
-    );
-    expect(without.status).toBe(400);
+    try {
+      const dealId = await previewDealId(created.token);
+      const body = {
+        orderType: "PICKUP",
+        items: [],
+        deals: [
+          { dealId, quantity: 1, selections: [{ menuItemId: item(0).id }] },
+        ],
+      };
+      const withHeader = await apiRequestRaw<{
+        quote: { deals: { dealId: string; dealPrice: number }[] };
+      }>(
+        "POST",
+        `/api/order/${restaurantId}/quote`,
+        body,
+        undefined,
+        previewHeader(created.token)
+      );
+      expect(withHeader.status, JSON.stringify(withHeader.data)).toBe(200);
+      expect(withHeader.data.quote.deals[0]).toMatchObject({
+        dealId,
+        dealPrice: 9.5,
+      });
+      const without = await apiRequestRaw(
+        "POST",
+        `/api/order/${restaurantId}/quote`,
+        body
+      );
+      expect(without.status).toBe(400);
+    } finally {
+      await endPreviewRaw(created.token);
+    }
   });
 
   test("TC-875: the public deal list shows the preview first, only to its own tab, never cached", async ({
@@ -203,21 +258,26 @@ test.describe("Owner — Promotion preview (API)", () => {
   }) => {
     const name = `AUTO Preview List ${runId}`;
     const created = await open(comboBody(name));
-    const res = await request.get(
-      `${BACKEND_URL}/api/deals/restaurant/${restaurantId}/active`,
-      {
-        headers: {
-          "X-Promotions-Version": "2",
-          ...previewHeader(created.token),
-        },
-      }
-    );
-    const body = (await res.json()) as {
-      deals: { name: string; isPreview?: boolean }[];
-    };
-    expect(body.deals[0]).toMatchObject({ name, isPreview: true });
-    expect(res.headers()["cache-control"]).toContain("no-store");
-    expect(res.headers()["vary"]).toMatch(/X-Promotion-Preview/i);
+    try {
+      const res = await request.get(
+        `${BACKEND_URL}/api/deals/restaurant/${restaurantId}/active`,
+        {
+          headers: {
+            "X-Promotions-Version": "2",
+            ...previewHeader(created.token),
+          },
+        }
+      );
+      expect(res.status(), await res.text()).toBe(200);
+      const body = (await res.json()) as {
+        deals: { name: string; isPreview?: boolean }[];
+      };
+      expect(body.deals[0]).toMatchObject({ name, isPreview: true });
+      expect(res.headers()["cache-control"]).toContain("no-store");
+      expect(res.headers()["vary"]).toMatch(/X-Promotion-Preview/i);
+    } finally {
+      await endPreviewRaw(created.token);
+    }
   });
 
   test("TC-876: the preview payload carries the banner text, resolved", async () => {
@@ -227,69 +287,79 @@ test.describe("Owner — Promotion preview (API)", () => {
         code: `PV${Date.now().toString(36).toUpperCase()}`,
       })
     );
-    const res = await getPreviewRaw(created.token);
-    expect(res.status).toBe(200);
-    const data = res.data.data as {
-      kind: string;
-      suspendedRules: string[];
-      notes: string[];
-      subtitle: string | null;
-    };
-    expect(data.kind).toBe("DEAL");
-    expect(
-      data.suspendedRules.some((r) =>
-        r.startsWith("Customers will need the code")
-      )
-    ).toBe(true);
-    expect(data.notes).toHaveLength(2);
-    expect(data.subtitle).toBeNull();
+    try {
+      const res = await getPreviewRaw(created.token);
+      expect(res.status).toBe(200);
+      const data = res.data.data as {
+        kind: string;
+        suspendedRules: string[];
+        notes: string[];
+        subtitle: string | null;
+      };
+      expect(data.kind).toBe("DEAL");
+      expect(
+        data.suspendedRules.some((r) =>
+          r.startsWith("Customers will need the code")
+        )
+      ).toBe(true);
+      expect(data.notes).toHaveLength(2);
+      expect(data.subtitle).toBeNull();
+    } finally {
+      await endPreviewRaw(created.token);
+    }
   });
 
   test("TC-877: a preview tab can't place an order", async () => {
     const created = await open(comboBody(`AUTO Preview Order ${runId}`));
-    const dealId = (
-      (await getPreviewRaw(created.token)).data.data!.promotion as {
-        id: string;
-      }
-    ).id;
-    const orderBody = {
-      orderType: "PICKUP",
-      orderItems: [],
-      orderDeals: [
-        {
-          dealId,
-          quantity: 1,
-          dealPrice: 9.5,
-          items: [{ menuItemId: item(0).id }],
-        },
-      ],
-    };
-    const refused = await apiRequestRaw<{ errorCode?: string }>(
-      "POST",
-      `/api/order/new/restaurantId/${restaurantId}`,
-      orderBody,
-      undefined,
-      previewHeader(created.token)
-    );
-    expect(refused.status).toBe(403);
-    expect(refused.data.errorCode).toBe("PROMOTION_PREVIEW_NOT_ORDERABLE");
-    const direct = await apiRequestRaw(
-      "POST",
-      `/api/order/new/restaurantId/${restaurantId}`,
-      orderBody
-    );
-    expect(direct.ok, JSON.stringify(direct.data)).toBe(false);
+    try {
+      const dealId = await previewDealId(created.token);
+      const orderBody = {
+        orderType: "PICKUP",
+        orderItems: [],
+        orderDeals: [
+          {
+            dealId,
+            quantity: 1,
+            dealPrice: 9.5,
+            items: [{ menuItemId: item(0).id }],
+          },
+        ],
+      };
+      const refused = await apiRequestRaw<{ errorCode?: string }>(
+        "POST",
+        `/api/order/new/restaurantId/${restaurantId}`,
+        orderBody,
+        undefined,
+        previewHeader(created.token)
+      );
+      expect(refused.status).toBe(403);
+      expect(refused.data.errorCode).toBe("PROMOTION_PREVIEW_NOT_ORDERABLE");
+      const direct = await apiRequestRaw(
+        "POST",
+        `/api/order/new/restaurantId/${restaurantId}`,
+        orderBody
+      );
+      expect(direct.ok, JSON.stringify(direct.data)).toBe(false);
+    } finally {
+      await endPreviewRaw(created.token);
+    }
   });
 
   test("TC-878: pressing again replaces the previous preview", async () => {
     const first = await open(comboBody(`AUTO Preview First ${runId}`));
-    await open({
-      ...comboBody(`AUTO Preview Second ${runId}`),
-      replaces: first.token,
-    });
-    const ended = await getPreviewRaw(first.token);
-    expect(ended.status).toBe(404);
-    expect(ended.data.errorCode).toBe("PROMOTION_PREVIEW_ENDED");
+    let second: PreviewCreated | undefined;
+    try {
+      second = await open({
+        ...comboBody(`AUTO Preview Second ${runId}`),
+        replaces: first.token,
+      });
+      const ended = await getPreviewRaw(first.token);
+      expect(ended.status).toBe(404);
+      expect(ended.data.errorCode).toBe("PROMOTION_PREVIEW_ENDED");
+    } finally {
+      await endPreviewRaw(first.token);
+      if (second) await endPreviewRaw(second.token);
+    }
   });
 
   test("TC-879: a plain request after a preview request never contains the preview (cache leak)", async ({
@@ -297,24 +367,30 @@ test.describe("Owner — Promotion preview (API)", () => {
   }) => {
     const name = `AUTO Preview Leak ${runId}`;
     const created = await open(comboBody(name));
-    await request.get(
-      `${BACKEND_URL}/api/deals/restaurant/${restaurantId}/active`,
-      {
-        headers: {
-          "X-Promotions-Version": "2",
-          ...previewHeader(created.token),
-        },
-      }
-    );
-    const plain = await request.get(
-      `${BACKEND_URL}/api/deals/restaurant/${restaurantId}/active`,
-      {
-        headers: { "X-Promotions-Version": "2" },
-      }
-    );
-    const body = (await plain.json()) as { deals: { name: string }[] };
-    expect(body.deals.some((d) => d.name === name)).toBe(false);
-    expect(plain.headers()["vary"]).toMatch(/X-Promotion-Preview/i);
+    try {
+      const withHeader = await request.get(
+        `${BACKEND_URL}/api/deals/restaurant/${restaurantId}/active`,
+        {
+          headers: {
+            "X-Promotions-Version": "2",
+            ...previewHeader(created.token),
+          },
+        }
+      );
+      expect(withHeader.status(), await withHeader.text()).toBe(200);
+      const plain = await request.get(
+        `${BACKEND_URL}/api/deals/restaurant/${restaurantId}/active`,
+        {
+          headers: { "X-Promotions-Version": "2" },
+        }
+      );
+      expect(plain.status(), await plain.text()).toBe(200);
+      const body = (await plain.json()) as { deals: { name: string }[] };
+      expect(body.deals.some((d) => d.name === name)).toBe(false);
+      expect(plain.headers()["vary"]).toMatch(/X-Promotion-Preview/i);
+    } finally {
+      await endPreviewRaw(created.token);
+    }
   });
 
   test("TC-880: an ITEM_SALE preview shows its sale price only with the header; money off is refused", async () => {
@@ -333,16 +409,20 @@ test.describe("Owner — Promotion preview (API)", () => {
         endDate: end,
       },
     });
-    const path = `/api/order/itemId/${item(0).id}?restaurantId=${restaurantId}`;
-    const withHeader = await apiRequestRaw<{
-      item: { promotion: { salePrice: number } | null };
-    }>("GET", path, undefined, undefined, previewHeader(created.token));
-    expect(withHeader.data.item.promotion?.salePrice).toBe(6);
-    const plain = await apiRequestRaw<{ item: { promotion: unknown } }>(
-      "GET",
-      path
-    );
-    expect(plain.data.item.promotion).toBeNull();
+    try {
+      const path = `/api/order/itemId/${item(0).id}?restaurantId=${restaurantId}`;
+      const withHeader = await apiRequestRaw<{
+        item: { promotion: { salePrice: number } | null };
+      }>("GET", path, undefined, undefined, previewHeader(created.token));
+      expect(withHeader.data.item.promotion?.salePrice).toBe(6);
+      const plain = await apiRequestRaw<{ item: { promotion: unknown } }>(
+        "GET",
+        path
+      );
+      expect(plain.data.item.promotion).toBeNull();
+    } finally {
+      await endPreviewRaw(created.token);
+    }
 
     const moneyOff = await createRestaurantPreviewRaw(token, restaurantId, {
       source: "COUPON",
@@ -354,8 +434,12 @@ test.describe("Owner — Promotion preview (API)", () => {
         endDate: end,
       },
     });
-    // Guard the cleanup in case the refusal regresses and a preview is minted.
-    if (moneyOff.data.data?.token) opened.push(moneyOff.data.data.token);
+    // Should the refusal regress and a preview be minted, end it at once.
+    const minted = moneyOff.data.data?.token;
+    if (minted) {
+      opened.push(minted);
+      await endPreviewRaw(minted);
+    }
     expect(moneyOff.status).toBe(400);
     expect(moneyOff.data.errorCode).toBe("PROMOTION_PREVIEW_UNSUPPORTED");
   });
@@ -376,30 +460,43 @@ test.describe("Owner — Promotion preview (API)", () => {
         endDate: end,
       },
     });
-    const quote = await apiRequestRaw<{
-      quote: { freeItemOffer: { menuItemId: string } | null };
-    }>(
-      "POST",
-      `/api/order/${restaurantId}/quote`,
-      {
-        orderType: "PICKUP",
-        items: [{ menuItemId: item(0).id, quantity: 1 }],
-        deals: [],
-      },
-      undefined,
-      previewHeader(created.token)
-    );
-    expect(quote.data.quote.freeItemOffer?.menuItemId).toBe(item(1).id);
+    try {
+      const quote = await apiRequestRaw<{
+        quote: { freeItemOffer: { menuItemId: string } | null };
+      }>(
+        "POST",
+        `/api/order/${restaurantId}/quote`,
+        {
+          orderType: "PICKUP",
+          items: [{ menuItemId: item(0).id, quantity: 1 }],
+          deals: [],
+        },
+        undefined,
+        previewHeader(created.token)
+      );
+      expect(quote.data.quote.freeItemOffer?.menuItemId).toBe(item(1).id);
 
-    expect(
-      (await apiRequestRaw("GET", `/api/public/site?preview=${created.token}`))
-        .status
-    ).toBe(200);
-    expect((await endPreviewRaw(created.token)).status).toBe(200);
-    expect(
-      (await apiRequestRaw("GET", `/api/public/site?preview=${created.token}`))
-        .status
-    ).toBe(404);
-    expect((await getPreviewRaw(created.token)).status).toBe(404);
+      expect(
+        (
+          await apiRequestRaw(
+            "GET",
+            `/api/public/site?preview=${created.token}`
+          )
+        ).status
+      ).toBe(200);
+      expect((await endPreviewRaw(created.token)).status).toBe(200);
+      expect(
+        (
+          await apiRequestRaw(
+            "GET",
+            `/api/public/site?preview=${created.token}`
+          )
+        ).status
+      ).toBe(404);
+      expect((await getPreviewRaw(created.token)).status).toBe(404);
+    } finally {
+      // Idempotent: a no-op when the body already ended it.
+      await endPreviewRaw(created.token);
+    }
   });
 });
