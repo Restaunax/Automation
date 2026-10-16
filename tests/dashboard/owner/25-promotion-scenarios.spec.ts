@@ -8,7 +8,7 @@
  * Every scenario, in one test:
  *   1. build it in the dashboard UI (Create promotion → card → editors →
  *      rules → Save and turn on), without helpers that confirm steps an owner
- *      might skip (S1 ticks its choices and never presses "Add these choices");
+ *      might skip (S1 builds its choices through "Let customers pick a different item here" and never presses Done);
  *   2. read it back from the server — lines, option ids, category ids,
  *      prices, rules — exactly;
  *   3. edit one meaningful thing in the dashboard, save, read back again;
@@ -676,13 +676,13 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
 
   // ── Scenarios ────────────────────────────────────────────────────────────
 
-  test("TC-863: @scenario S1 Wings + Fries + one of three gyros — choices TICKED (no 'Add these choices'); customer picks 10 pc + Lamb: the size is an upgrade, the combo price stays fixed", async ({
+  test("TC-863: @scenario S1 Wings + Fries + one of three gyros — choices added to the line (Done never pressed); customer picks 10 pc + Lamb: the size is an upgrade, the combo price stays fixed", async ({
     ownerPage,
     page,
   }) => {
     test.setTimeout(SCENARIO_TEST_TIMEOUT_MS);
     await allure.description(
-      "The owner-reported combo. Build: Combo price → One item: Wings, One item: Fries, Choose from these items: Chicken / Lamb / Beef Gyro by TICKING only (never pressing 'Add these choices'), $21.99, Save and turn on. Read back: three lines, the third with exactly the three gyro options. Edit: price → $22.49. Lima: Wings 10 pc (+$3 over the 8 pc default) and Lamb (pricier than the cheapest gyro) → deal $22.49, upgrades $3.00. Wind: the customer leaves the default 8 pc and picks Lamb → deal $22.49, upcharge $0, no upgrades line. Both: You're saving = $26 regular − $22.49. Expected to FAIL at the build on a dashboard without RestauNax #974 (the ticks are dropped, so the form prices Wings + Fries alone at $14 and refuses $21.99); not fixme'd — it goes green with that fix."
+      "The owner-reported combo. Build: Combo price → Wings, Fries, then Chicken Gyro with 'Let customers pick a different item here' adding Lamb and Beef Gyro as choices (each applies at once; Done is never pressed), $21.99, Save and turn on. Read back: three lines, the third with exactly the three gyro options. Edit: price → $22.49. Lima: Wings 10 pc (+$3 over the 8 pc default) and Lamb (pricier than the cheapest gyro) → deal $22.49, upgrades $3.00. Wind: the customer leaves the default 8 pc and picks Lamb → deal $22.49, upcharge $0, no upgrades line. Both: You're saving = $26 regular − $22.49. Expected to FAIL at the build on a dashboard without RestauNax #974 (the choices are dropped, so the form prices Wings + Fries alone at $14 and refuses $21.99); not fixme'd — it goes green with that fix."
     );
     const name = promoName("Wings combo");
     const group = "What's in the combo?";
@@ -691,28 +691,33 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
     const quotes = trackQuotes(page);
     const bugs: string[] = [];
     try {
-      await allure.step("build it in the dashboard (ticks only)", async () => {
-        await create.goto(restaurantId);
-        await create.pickCard("Combo price");
-        await create.pickItems(group, [wings.name, fries.name]);
-        // Ticked only, as the owner did: "Add these choices" is never pressed.
-        await create.tickChoices(
-          group,
-          gyros.map((g) => g.name)
-        );
-        await create.setAmount("Combo price", "21.99");
-        await create.setName(name);
-        await create.turnOnDealWhenSlotFree(() =>
-          waitForFreeDealSlot(token, restaurantId)
-        );
-        // Without RestauNax #974 the ticks are dropped: the form then prices
-        // Wings + Fries alone ($14) and refuses $21.99 as not below regular.
-        await expect(
-          create.fixErrorsAlert(),
-          "the form counted the ticked gyros (no marked answers)"
-        ).toBeHidden();
-        await create.expectSaved();
-      });
+      await allure.step(
+        "build it in the dashboard (choices only, no Done)",
+        async () => {
+          await create.goto(restaurantId);
+          await create.pickCard("Combo price");
+          await create.pickItems(group, [wings.name, fries.name]);
+          // The first gyro is a line; "Let customers pick a different item
+          // here" adds the others as choices. Done is never pressed.
+          await create.pickItems(
+            group,
+            gyros.map((g) => g.name),
+            { choice: true }
+          );
+          await create.setAmount("Combo price", "21.99");
+          await create.setName(name);
+          await create.turnOnDealWhenSlotFree(() =>
+            waitForFreeDealSlot(token, restaurantId)
+          );
+          // Without RestauNax #974 the choices are dropped: the form then prices
+          // Wings + Fries alone ($14) and refuses $21.99 as not below regular.
+          await expect(
+            create.fixErrorsAlert(),
+            "the form counted the chosen gyros (no marked answers)"
+          ).toBeHidden();
+          await create.expectSaved();
+        }
+      );
 
       const dealId = await allure.step(
         "read back: Wings, Fries, one of the three gyros, $21.99",
@@ -900,7 +905,7 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
   }) => {
     test.setTimeout(SCENARIO_TEST_TIMEOUT_MS);
     await allure.description(
-      "Build: Buy one, get one → They buy: choose from Chicken / Lamb / Beef Gyro, They get: choose from the same three (both with 'Add these choices'), For a set price, They pay $1.99, Save and turn on. Read back: BOGO_FIXED_PRICE, getPrice 1.99, a BUY and a GET line with exactly the three options each. Edit: They pay → $2.49. Lima + wind: buy Beef ($13), get Chicken ($11) → the cheaper one costs $2.49: deal $15.49 (builder bar and quote), no upgrades, You're saving = $24 − $15.49."
+      "Build: Buy one, get one → They buy: Chicken Gyro with 'Let customers pick a different item here' adding Lamb and Beef Gyro, They get: the same three the same way, For a set price, They pay $1.99, Save and turn on. Read back: BOGO_FIXED_PRICE, getPrice 1.99, a BUY and a GET line with exactly the three options each. Edit: They pay → $2.49. Lima + wind: buy Beef ($13), get Chicken ($11) → the cheaper one costs $2.49: deal $15.49 (builder bar and quote), no upgrades, You're saving = $24 − $15.49."
     );
     const name = promoName("2nd gyro");
     const gyros = [chickenGyro, lambGyro, beefGyro];
@@ -987,13 +992,13 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
     }
   });
 
-  test("TC-866: @scenario S4 Any 2 medium pizzas for $19.99 — two 'Any from a category' lines; paid toppings show as upgrades", async ({
+  test("TC-866: @scenario S4 Any 2 medium pizzas for $19.99 — two 'Any item from <category>' lines; paid toppings show as upgrades", async ({
     ownerPage,
     page,
   }) => {
     test.setTimeout(SCENARIO_TEST_TIMEOUT_MS);
     await allure.description(
-      "Build: Combo price → Any from a category: the per-run pizza category, twice, $19.99, Save and turn on. Read back: two category lines on that category. Edit: price → $20.99. Lima + wind: Margherita + Extra cheese (+$1.50) and Pepperoni (the pricier pizza) + Mushrooms (+$1) → deal $20.99, upgrades $2.50 itemised, Items + Upgrades = Subtotal, You're saving = $30 − $20.99."
+      "Build: Combo price → search the per-run pizza category and pick 'Any item from' it, twice, $19.99, Save and turn on. Read back: two category lines on that category. Edit: price → $20.99. Lima + wind: Margherita + Extra cheese (+$1.50) and Pepperoni (the pricier pizza) + Mushrooms (+$1) → deal $20.99, upgrades $2.50 itemised, Items + Upgrades = Subtotal, You're saving = $30 − $20.99."
     );
     const name = promoName("Two pizzas");
     const group = "What's in the combo?";
@@ -1291,7 +1296,7 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
   }) => {
     test.setTimeout(SCENARIO_TEST_TIMEOUT_MS);
     await allure.description(
-      "Build: Combo price → Sub (one item) + Choose from these items: Cola / Lemonade / Iced Tea (with 'Add these choices'), $9.99, Save and turn on. Read back: the two lines with exactly the three drinks. Then Lemonade goes out of stock on the menu (PATCH availability, as the owner's menu toggle does). Edit: price → $10.49 (the deal still saves; the stored line keeps all three). The public v2 deal list then offers only Cola and Iced Tea, and lima + wind show only those two (both pickable, no Lemonade card). Sub + Iced Tea → deal $10.49, no upgrades, You're saving = $11.50 − $10.49."
+      "Build: Combo price → Sub + Cola with 'Let customers pick a different item here' adding Lemonade and Iced Tea, $9.99, Save and turn on. Read back: the two lines with exactly the three drinks. Then Lemonade goes out of stock on the menu (PATCH availability, as the owner's menu toggle does). Edit: price → $10.49 (the deal still saves; the stored line keeps all three). The public v2 deal list then offers only Cola and Iced Tea, and lima + wind show only those two (both pickable, no Lemonade card). Sub + Iced Tea → deal $10.49, no upgrades, You're saving = $11.50 − $10.49."
     );
     const name = promoName("Sub combo");
     const group = "What's in the combo?";

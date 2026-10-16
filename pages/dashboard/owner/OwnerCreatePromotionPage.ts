@@ -161,10 +161,18 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
   const slot = (label: string): Locator =>
     page.getByRole("group", { name: label, exact: true }).first();
 
+  /** The open "choice search" of a list line (its name carries the line). */
+  const choiceSearch = (group: Locator): Locator =>
+    group.getByRole("combobox", { name: /^Search for a choice to add to / });
+
   /**
-   * Picks menu items into a slot by searching each name. `choice: true`
-   * builds one "Choose from these items" line (the customer picks one of
-   * them); otherwise each item is its own line.
+   * Picks menu items into a slot by searching each name (one combined search
+   * for items and categories). `choice: true` builds one choose-from line the
+   * way an owner does: the first item is picked in the slot search, then
+   * "Let customers pick a different item here" opens that line's choice
+   * search and every further item is picked there. Each pick applies at once;
+   * "Done" is NOT pressed (the owner may skip it), so a Save straight after
+   * must keep every choice.
    */
   const pickItems = async (
     slotLabel: string,
@@ -172,78 +180,83 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
     opts: { choice?: boolean } = {}
   ) => {
     const group = slot(slotLabel);
-    if (opts.choice) {
-      await group
-        .getByRole("button", { name: "Choose from these items", exact: true })
-        .click();
-    }
     const search = group.getByRole("combobox", {
       name: slotLabel,
       exact: true,
     });
-    for (const item of items) {
-      await search.fill(item);
+    const pickIn = async (box: Locator, item: string) => {
+      await box.fill(item);
       await page.getByRole("option", { name: startsWith(item) }).click();
+    };
+    if (!opts.choice) {
+      for (const item of items) await pickIn(search, item);
+      return;
     }
-    if (opts.choice) {
-      await group
-        .getByRole("button", { name: "Add these choices", exact: true })
-        .click();
-      await expect(
-        group.getByText("Customer chooses one", { exact: true })
-      ).toBeVisible();
+    const [first = "", ...rest] = items;
+    await pickIn(search, first);
+    await group
+      .getByRole("button", {
+        name: `Let customers pick a different item here: ${first}`,
+        exact: true,
+      })
+      .click();
+    for (const item of rest) {
+      await pickIn(choiceSearch(group), item);
     }
+    await expect(
+      group.getByText("Customer chooses one", { exact: true })
+    ).toBeVisible();
   };
 
   /**
-   * Ticks items in a "Choose from these items" box the way an owner does —
-   * open the list, click each item, close it — and does NOT press "Add these
-   * choices" (TC-862: the ticks alone must register). `change` ticks in the
-   * box of that line's "Change" (opened first); otherwise in the slot's add
-   * box, switching its kind to "Choose from these items".
+   * Adds more choices to an existing line (its title is the item name, or the
+   * choices joined by ", ") through the line's own button — "Add another
+   * choice" on a choose-from line, "Let customers pick a different item
+   * here" on a plain item line — and picks each item in the choice search.
+   * Applies at once; "Done" is not pressed.
    */
-  const tickChoices = async (
+  const addChoices = async (
     slotLabel: string,
-    items: string[],
-    opts: { change?: string } = {}
+    lineTitle: string,
+    items: string[]
   ) => {
     const group = slot(slotLabel);
-    if (opts.change) {
-      await changeLine(slotLabel, opts.change);
-    }
-    const kindButton = group.getByRole("button", {
-      name: "Choose from these items",
+    const more = group.getByRole("button", {
+      name: `Add another choice to ${lineTitle}`,
       exact: true,
     });
-    // The Change box's toggle and search come first, the add box's last.
-    const which = (l: Locator) => (opts.change ? l.first() : l.last());
-    await which(kindButton).click();
-    const search = which(
-      group.getByRole("combobox", { name: slotLabel, exact: true })
-    );
-    await search.click();
+    if (await more.count()) {
+      await more.click();
+    } else {
+      await group
+        .getByRole("button", {
+          name: `Let customers pick a different item here: ${lineTitle}`,
+          exact: true,
+        })
+        .click();
+    }
     for (const item of items) {
-      await search.fill(item);
+      await choiceSearch(group).fill(item);
       await page.getByRole("option", { name: startsWith(item) }).click();
     }
-    await page.keyboard.press("Escape");
+  };
+
+  /** Removes one chip of a choose-from line (its "Remove <name>" button). */
+  const removeChoice = async (slotLabel: string, choiceName: string) => {
+    await slot(slotLabel)
+      .getByRole("list", { name: /^Choices for / })
+      .getByRole("button", { name: `Remove ${choiceName}`, exact: true })
+      .click();
   };
 
   /**
-   * Adds one "Any from a category" line: switches the slot's add box to that
-   * kind (when it isn't already) and picks "Any item from <category>". Call
-   * it again for a second line on the same category (combo lines allow
+   * Adds one "Any item from <category>" line: types the category into the
+   * slot's search and picks the option under "Whole categories". Call it
+   * again for a second line on the same category (combo lines allow
    * duplicates).
    */
   const pickCategory = async (slotLabel: string, categoryName: string) => {
-    const group = slot(slotLabel);
-    const kindButton = group
-      .getByRole("button", { name: "Any from a category", exact: true })
-      .last();
-    if ((await kindButton.getAttribute("aria-pressed")) !== "true") {
-      await kindButton.click();
-    }
-    const search = group
+    const search = slot(slotLabel)
       .getByRole("combobox", { name: slotLabel, exact: true })
       .last();
     await search.fill(categoryName);
@@ -264,11 +277,19 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
       .click();
   };
 
-  /** Item names of a list picker's lines, in order (from the Remove buttons). */
+  /**
+   * Item names of a list picker's lines, in order (from the row-level Remove
+   * buttons; the chips' own Remove buttons inside "Choices for …" lists are
+   * skipped).
+   */
   const lineNames = async (slotLabel: string): Promise<string[]> => {
     const labels = await slot(slotLabel)
       .getByRole("button", { name: /^Remove / })
-      .evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") ?? ""));
+      .evaluateAll((els) =>
+        els
+          .filter((e) => !e.closest('[aria-label^="Choices for "]'))
+          .map((e) => e.getAttribute("aria-label") ?? "")
+      );
     return labels.map((l) => l.replace(/^Remove /, ""));
   };
 
@@ -551,7 +572,8 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
     setWho,
     setTimeOfDay,
     pickItems,
-    tickChoices,
+    addChoices,
+    removeChoice,
     pickCategory,
     repeatLine,
     lineNames,

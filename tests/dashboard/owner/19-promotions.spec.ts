@@ -806,15 +806,16 @@ test.describe("Owner — Promotions", () => {
   });
 
   // Owner-reported on QA 2026-10-15 (RestauNax fix/combo-option-lines): the
-  // items ticked under "Choose from these items" were only kept by the box
-  // until "Add these choices" was pressed, so a Save dropped them silently and
+  // choices ticked under "Choose from these items" were only kept by the box
+  // until "Add these choices" was pressed (that UI is now "Let customers pick
+  // a different item here", where every pick applies at once), so a Save dropped them silently and
   // in Edit the same ticks said "Nothing to save". Fails against a dashboard
   // without that fix; passes once it is deployed.
-  test("TC-862: Combo with a 'Choose from these items' line — the ticked choices are saved, shown in Edit, and one more choice saves", async ({
+  test("TC-862: Combo with a choose-from line — the choices are saved without pressing Done, shown in Edit, and one more choice saves", async ({
     ownerPage,
   }) => {
     await allure.description(
-      'Create → Combo price: two fixed items, then "Choose from these items" with three items ticked (without pressing "Add these choices"), Save for later (no deal slot). The server deal has a line whose options are exactly those three items. Edit shows that line with the same choices. Changing it to four choices (one more, again only ticked) and Save changes is a change, not "Nothing to save", and the server line now has all four.'
+      'Create → Combo price: two fixed items, then a third item with "Let customers pick a different item here" and two more picked as its choices (Done is never pressed), Save for later (no deal slot). The server deal has a line whose options are exactly those three items. Edit shows that line with the same choices. Changing it to four choices (one more, via the line\'s Add another choice button, Done again not pressed) and Save changes is a change, not "Nothing to save", and the server line now has all four.'
     );
     const name = promoName("Choices");
     const create = createOwnerCreatePromotionPage(ownerPage);
@@ -833,9 +834,10 @@ test.describe("Owner — Promotions", () => {
       await create.goto(restaurantId);
       await create.pickCard("Combo price");
       await create.pickItems(group, [itemA.name, itemB.name]);
-      await create.tickChoices(
+      await create.pickItems(
         group,
-        choices.map((c) => c.name)
+        choices.map((c) => c.name),
+        { choice: true }
       );
       await create.setAmount("Combo price", "20");
       await create.setName(name);
@@ -846,12 +848,9 @@ test.describe("Owner — Promotions", () => {
       expect(row, `listPromotions has ${name}`).toBeTruthy();
       expect(row!.status).toBe("INACTIVE");
 
-      await allure.step(
-        "the server deal keeps every ticked choice",
-        async () => {
-          expect(await optionLines(row!.id)).toEqual([ids(choices)]);
-        }
-      );
+      await allure.step("the server deal keeps every choice", async () => {
+        expect(await optionLines(row!.id)).toEqual([ids(choices)]);
+      });
 
       await allure.step("Edit shows the same choices", async () => {
         await list.goto(restaurantId);
@@ -868,11 +867,9 @@ test.describe("Owner — Promotions", () => {
 
       await allure.step("one more choice in Edit saves", async () => {
         const more = [...choices, drink];
-        await create.tickChoices(
-          group,
-          more.map((c) => c.name),
-          { change: choices.map((c) => c.name).join(", ") }
-        );
+        await create.addChoices(group, choices.map((c) => c.name).join(", "), [
+          drink.name,
+        ]);
         await create.save();
         await create.expectSaved();
         // Back on the list: the save went through, so no "Nothing to save".
