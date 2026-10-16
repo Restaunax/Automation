@@ -49,6 +49,7 @@ import {
   generateRunId,
   LIMA_ORDERING_URL,
   readRestaurantId,
+  readSharedState,
 } from "../../../utils/testData";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
@@ -560,30 +561,29 @@ test.describe("Owner — Promotion preview (API)", () => {
       expect(listBody.deals.some((d) => d.isPreview)).toBe(false);
       expect(list.headers()["cache-control"] ?? "").not.toContain("no-store");
 
-      // (b) /quote on the seed prices exactly like a request without the
-      // header — the preview deal is unknown there, so both are refused alike.
+      // (b) /quote on the seed prices a normal cart exactly like a request
+      // without the header: the token belongs to another restaurant.
+      const { menuItemId: seedItemId } = readSharedState();
       const quoteBody = {
         orderType: "PICKUP",
-        items: [],
-        deals: [
-          { dealId, quantity: 1, selections: [{ menuItemId: item(0).id }] },
-        ],
+        items: [{ menuItemId: seedItemId, quantity: 1 }],
+        deals: [],
       };
-      const withHeader = await apiRequestRaw(
+      const withHeader = await apiRequestRaw<{ quote: unknown }>(
         "POST",
         `/api/order/${seedId}/quote`,
         quoteBody,
         undefined,
         previewHeader(created.token)
       );
-      const plain = await apiRequestRaw(
+      const plain = await apiRequestRaw<{ quote: unknown }>(
         "POST",
         `/api/order/${seedId}/quote`,
         quoteBody
       );
-      expect(withHeader.status, JSON.stringify(withHeader.data)).not.toBe(200);
-      expect(withHeader.status).toBe(plain.status);
-      expect(withHeader.data).toEqual(plain.data);
+      expect(withHeader.status, JSON.stringify(withHeader.data)).toBe(200);
+      expect(plain.status, JSON.stringify(plain.data)).toBe(200);
+      expect(withHeader.data.quote).toEqual(plain.data.quote);
 
       // (c) The site resolver answers with the token's own restaurant only.
       const site = await apiRequestRaw<{
@@ -610,6 +610,9 @@ test.describe("Owner — Promotion preview (API)", () => {
         previewHeader(created.token)
       );
       expect(reservation.status, JSON.stringify(reservation.data)).toBe(403);
+      expect((reservation.data as { errorCode?: string }).errorCode).toBe(
+        "PROMOTION_PREVIEW_NOT_ORDERABLE"
+      );
       const payBalance = await apiRequestRaw(
         "POST",
         `/api/pay-balance/AUTO-NO-SUCH-ORDER/AUTO-NO-SUCH-TOKEN/payment-intent`,
@@ -618,6 +621,9 @@ test.describe("Owner — Promotion preview (API)", () => {
         previewHeader(created.token)
       );
       expect(payBalance.status, JSON.stringify(payBalance.data)).toBe(403);
+      expect((payBalance.data as { errorCode?: string }).errorCode).toBe(
+        "PROMOTION_PREVIEW_NOT_ORDERABLE"
+      );
     } finally {
       await endPreviewRaw(created.token);
     }
