@@ -493,7 +493,7 @@ automatic spend offer the suite may run there: `19-promotions` TC-826 saves
 its free item "Only with a code".
 `dashboard/owner/25-promotion-scenarios` runs no automatic spend offer either (its
 free item is code-only) and keeps its carts under $55; its S8 publishes the
-Automation Chain's location A for the lima step only (restored in `finally`).
+Automation Chain's location A for the lima step only — via `utils/publishBackstop`, which writes `publish-restore.tmp.json` with the original value BEFORE publishing; the test's `finally` restores it, and globalTeardown / the next globalSetup restore anything a crashed or killed run left listed there.
 `customer-lima/14-promotions` seeds the same set (labelled "Lima") WITHOUT the
 free item: a spend-triggered gift is offered to every cart over its threshold,
 so a second one would compete with wind's for each other's carts.

@@ -23,6 +23,7 @@ import {
   BACKEND_URL,
 } from "./utils/apiHelper";
 import { deletePromotionRaw, listChainPromotions } from "./utils/promotionsApi";
+import { restoreLeftoverPublishes } from "./utils/publishBackstop";
 import { assertSafeTargets } from "./utils/targetGuard";
 import {
   STATE_FILE,
@@ -64,6 +65,11 @@ export default async function globalTeardown(): Promise<void> {
       console.warn("[globalTeardown] Admin login failed:", err);
     }
   }
+
+  // 0. A test that published a fixture location and died before its own
+  //    finally (crash, SIGINT, timeout) left a marker: put the original
+  //    published value back first — a published location takes real orders.
+  if (adminToken) await restoreLeftoverPublishes(adminToken, "globalTeardown");
 
   // 1. Delete the seed menu item + group created by globalSetup, plus any
   //    automation-created categories/coupons — this run's AND leftovers from
