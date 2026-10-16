@@ -141,10 +141,37 @@ export const createCustomerDealPage = (page: Page) => {
       .filter({
         has: page.getByRole("heading", { name: itemName, exact: true }),
       });
-  /** Pick `itemName` for the slot and confirm the modal's "Add to Deal". */
-  const pickChoice = async (slotIndex: number, itemName: string) => {
+  /**
+   * Pick `itemName` for the slot and confirm the modal's "Add to Deal".
+   * `customize` runs with the modal open, before "Add to Deal" (pick a size,
+   * tick paid extras, …).
+   */
+  const pickChoice = async (
+    slotIndex: number,
+    itemName: string,
+    customize?: () => Promise<void>
+  ) => {
     await choiceCard(slotIndex, itemName).click();
+    if (customize) {
+      await expect(addToDealButton()).toBeVisible({ timeout: 10_000 });
+      await customize();
+    }
     await clickAddToDeal();
+  };
+
+  /**
+   * An option the customer can't pick (out of stock / off the menu): its
+   * card is aria-disabled and reads "Unavailable".
+   */
+  const expectChoiceUnavailable = async (
+    slotIndex: number,
+    itemName: string
+  ) => {
+    const card = choiceCard(slotIndex, itemName);
+    await expect(card).toHaveAttribute("aria-disabled", "true", {
+      timeout: 15_000,
+    });
+    await expect(card).toContainText("Unavailable");
   };
 
   // ── DealProgress (sticky bar): Keep shopping (complete deals only) sits
@@ -232,6 +259,7 @@ export const createCustomerDealPage = (page: Page) => {
     choiceSlots,
     choiceCard,
     pickChoice,
+    expectChoiceUnavailable,
     keepShoppingButton,
     progressDealPrice,
     partOfDealLabels,

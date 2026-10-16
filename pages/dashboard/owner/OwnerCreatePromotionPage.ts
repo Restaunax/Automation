@@ -229,6 +229,31 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
     await page.keyboard.press("Escape");
   };
 
+  /**
+   * Adds one "Any from a category" line: switches the slot's add box to that
+   * kind (when it isn't already) and picks "Any item from <category>". Call
+   * it again for a second line on the same category (combo lines allow
+   * duplicates).
+   */
+  const pickCategory = async (slotLabel: string, categoryName: string) => {
+    const group = slot(slotLabel);
+    const kindButton = group
+      .getByRole("button", { name: "Any from a category", exact: true })
+      .last();
+    if ((await kindButton.getAttribute("aria-pressed")) !== "true") {
+      await kindButton.click();
+    }
+    const search = group
+      .getByRole("combobox", { name: slotLabel, exact: true })
+      .last();
+    await search.fill(categoryName);
+    await page
+      .getByRole("option", {
+        name: startsWith(`Any item from ${categoryName}`),
+      })
+      .click();
+  };
+
   /** A line's "Add the same item again" — the same item as one more line. */
   const repeatLine = async (itemName: string) => {
     await page
@@ -391,15 +416,32 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
       await waitForSlot();
-      const [res] = await Promise.all([
-        page.waitForResponse(
-          (r) =>
-            r.request().method() === "POST" &&
-            /^\/api\/deals\/restaurant\/[^/]+$/.test(new URL(r.url()).pathname),
-          { timeout: 30_000 }
-        ),
-        turnOnButton().click(),
+      const posted = page.waitForResponse(
+        (r) =>
+          r.request().method() === "POST" &&
+          /^\/api\/deals\/restaurant\/[^/]+$/.test(new URL(r.url()).pathname),
+        { timeout: 30_000 }
+      );
+      await turnOnButton().click();
+      // The form may refuse before posting (it marks answers instead): then
+      // no POST ever comes, and expectSaved reports the marked form.
+      const res = await Promise.race([
+        posted,
+        fixErrorsAlert()
+          .waitFor({ state: "visible", timeout: 30_000 })
+          .then(
+            () => null,
+            // No marked answers: leave the outcome to the POST wait (which
+            // fails on its own when nothing is posted either).
+            () => new Promise<never>(() => {})
+          ),
       ]);
+      if (!res) {
+        // The POST wait is abandoned on purpose: the form never sent one.
+        posted.catch(() => {});
+        await settle();
+        return;
+      }
       const body = (await res.json().catch(() => ({}))) as { error?: string };
       const capped =
         res.status() === 400 && body.error === "MAX_ACTIVE_DEALS_REACHED";
@@ -509,6 +551,7 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
     setTimeOfDay,
     pickItems,
     tickChoices,
+    pickCategory,
     repeatLine,
     lineNames,
     changeLine,

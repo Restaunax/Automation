@@ -102,14 +102,40 @@ export const createLimaDealPage = (page: Page) => {
    * Click an option → its item modal → "Add to Deal". An option card ignores
    * clicks while its availability is still loading (aria-disabled="true"), so
    * wait for it to be enabled first — a click before that is silently lost.
+   * `customize` runs with the modal open, before "Add to Deal" (pick a size,
+   * tick paid extras, …).
    */
-  const pickChoice = async (slot: number, itemName: string) => {
+  const pickChoice = async (
+    slot: number,
+    itemName: string,
+    customize?: () => Promise<void>
+  ) => {
     const card = choiceCard(slot, itemName);
     await expect(card).toHaveAttribute("aria-disabled", "false", {
       timeout: 15_000,
     });
     await card.click();
+    if (customize) {
+      await expect(addToDealButton()).toBeVisible();
+      await customize();
+    }
     await clickAddToDeal();
+  };
+
+  /**
+   * An option the customer can't pick (out of stock / off the menu): the card
+   * is aria-disabled, tagged deal-option-unavailable and reads "Unavailable".
+   */
+  const expectChoiceUnavailable = async (slot: number, itemName: string) => {
+    const card = choiceCard(slot, itemName);
+    await expect(card).toHaveAttribute("aria-disabled", "true", {
+      timeout: 15_000,
+    });
+    await expect(card).toHaveAttribute(
+      "data-testid",
+      "deal-option-unavailable"
+    );
+    await expect(card).toContainText("Unavailable");
   };
 
   /** "Keep shopping" — DealProgress renders it only once the deal is complete. */
@@ -148,6 +174,7 @@ export const createLimaDealPage = (page: Page) => {
     choiceSlots,
     choiceCard,
     pickChoice,
+    expectChoiceUnavailable,
     keepShoppingButton,
     progressDealPrice,
     cardScheduleSummary,

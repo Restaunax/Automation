@@ -1569,6 +1569,12 @@ export interface ApiDealItem {
   sortOrder: number;
   /** Guided deal types — absent on a pre-deploy backend. */
   role?: DealItemRole;
+  /** "Choose from these items" line (promotions v2): the options, resolved. */
+  options?: {
+    menuItemId: string;
+    name?: string;
+    price?: number;
+  }[];
   menuItem?: {
     id: string;
     name: string;
@@ -1644,6 +1650,10 @@ export interface ApiDeal {
   availabilityLabel?: string | null;
   /** Owner list only (Plan 1). */
   liveStatus?: DealLiveStatus;
+  /** Promotions v2: how customers get it, its code, BOGO_FIXED_PRICE's price. */
+  applyMode?: "AUTOMATIC" | "CODE" | "BOTH";
+  code?: string | null;
+  getPrice?: number | null;
   items?: ApiDealItem[];
 }
 
