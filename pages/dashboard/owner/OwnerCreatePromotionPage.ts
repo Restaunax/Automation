@@ -11,9 +11,9 @@ import { type Locator, type Page, expect } from "@playwright/test";
  * title, with the type label and "From your menu" inside),
  * "Set it up" (the type's own questions, then the collapsible rule cards)
  * and "Name and code"; a live preview panel on the side; the primary save
- * ("Turn on", being renamed "Save and turn on" — RestauNax #972) and the
- * paused save ("Save as paused", being renamed "Save for later") in a sticky
- * bar. Both old and new labels are accepted until #972 deploys. English copy:
+ * ("Save and turn on") and the paused save ("Save for later") in a sticky
+ * bar (labels as of RestauNax #972; the Promotions LIST row action "Turn on"
+ * is a different control). English copy:
  * restaunax-frontend/public/locales/en/promotions.json.
  *
  * Locator strategy: no test ids. Every amount field is a textbox whose
@@ -205,6 +205,41 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
       .click();
   };
 
+  /** Item names of a list picker's lines, in order (from the Remove buttons). */
+  const lineNames = async (slotLabel: string): Promise<string[]> => {
+    const labels = await slot(slotLabel)
+      .getByRole("button", { name: /^Remove / })
+      .evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") ?? ""));
+    return labels.map((l) => l.replace(/^Remove /, ""));
+  };
+
+  /** Opens "Change <item>" on a list line (its search replaces the row). */
+  const changeLine = async (slotLabel: string, itemName: string) => {
+    await slot(slotLabel)
+      .getByRole("button", { name: `Change ${itemName}`, exact: true })
+      .click();
+  };
+
+  /** "Keep <item>" while a line is being changed: cancels, line unchanged. */
+  const keepLine = async (slotLabel: string, itemName: string) => {
+    await slot(slotLabel)
+      .getByRole("button", { name: `Keep ${itemName}`, exact: true })
+      .click();
+  };
+
+  /**
+   * With a line's Change open, picks `newItem` in its search; the pick
+   * replaces that line in place. The line's own search sits above the slot's
+   * add search, so it is the first combobox.
+   */
+  const pickReplacement = async (slotLabel: string, newItem: string) => {
+    const search = slot(slotLabel)
+      .getByRole("combobox", { name: slotLabel, exact: true })
+      .first();
+    await search.fill(newItem);
+    await page.getByRole("option", { name: startsWith(newItem) }).click();
+  };
+
   /** Goal chip of the examples gallery ("Sell items together", …). */
   const pickGoal = async (goal: string) => {
     const chip = page
@@ -278,7 +313,7 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
     expect(previewPanel()).toContainText(text);
 
   /**
-   * Waits for the outcome of Turn on / Save: back on the list, or the page
+   * Waits for the outcome of Save and turn on / Save for later: back on the list, or the page
    * marked an answer, or the server refused. Handles the chain fan-out
    * confirm ("Heads up — chain-wide change") on the way.
    */
@@ -296,14 +331,11 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
     }
   };
 
-  /**
-   * The create bar's primary button. QA is renaming it "Turn on" → "Save and
-   * turn on"; accept both until the rename is deployed, then drop "Turn on".
-   */
+  /** The create bar's primary button, "Save and turn on". */
   const turnOnButton = () =>
-    page.getByRole("button", { name: /^(Save and turn on|Turn on)$/ });
+    page.getByRole("button", { name: "Save and turn on", exact: true });
 
-  /** Create mode: Turn on. Does not assert success — see expectSaved. */
+  /** Create mode: Save and turn on. Does not assert success — see expectSaved. */
   const turnOn = async () => {
     await turnOnButton().click();
     await settle();
@@ -314,7 +346,7 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
    * whose 10-ACTIVE-deal cap other files share: `waitForSlot` runs before
    * each click, and when the server still answers MAX_ACTIVE_DEALS_REACHED
    * (another worker took the slot between the check and the click) it waits
-   * and clicks Turn on again. Any other answer settles exactly as turnOn
+   * and clicks Save and turn on again. Any other answer settles exactly as turnOn
    * does, so expectSaved still asserts the outcome; after `timeoutMs` the
    * refusal is left on screen for expectSaved to fail on.
    */
@@ -344,18 +376,17 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
       // The refusal is shown and the form keeps every answer: try again.
       await expect(serverErrorAlert()).toBeVisible();
       console.warn(
-        "[OwnerCreatePromotionPage] Turn on refused at the deal cap — waiting for a slot and retrying"
+        "[OwnerCreatePromotionPage] Save and turn on refused at the deal cap — waiting for a slot and retrying"
       );
     }
   };
 
   /**
-   * The create bar's paused save: the promotion is stored INACTIVE (no deal
-   * slot used). QA is renaming "Save as paused" → "Save for later"; accept
-   * both until the rename (RestauNax #972) is deployed, then drop the old one.
+   * The create bar's paused save, "Save for later": the promotion is stored
+   * INACTIVE (no deal slot used).
    */
   const saveForLaterButton = () =>
-    page.getByRole("button", { name: /^(Save for later|Save as paused)$/ });
+    page.getByRole("button", { name: "Save for later", exact: true });
 
   /** Create mode: save paused. Does not assert success — see expectSaved. */
   const saveForLater = async () => {
@@ -444,6 +475,10 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
     setTimeOfDay,
     pickItems,
     repeatLine,
+    lineNames,
+    changeLine,
+    keepLine,
+    pickReplacement,
     previewPanel,
     expectPreviewText,
     settle,

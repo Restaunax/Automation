@@ -133,10 +133,6 @@ test.describe("Owner — Promotions send", () => {
   test('TC-857: the list\'s Send confirms with "Promotion sent."', async ({
     ownerPage,
   }) => {
-    test.fixme(
-      true,
-      'BUG: sending from the Promotions list row never shows the "Promotion sent." toast — PromotionsSection keys SendPromotionDialog on the row id, so closing it remounts the dialog and drops the dialog\'s own Snackbar (restaunax-frontend PromotionsSection.tsx ~L250). The send itself succeeds (TC-852).'
-    );
     await allure.description(
       "After Send in the row's Send a promotion dialog, the owner sees the success toast."
     );
