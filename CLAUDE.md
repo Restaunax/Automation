@@ -356,7 +356,10 @@ traces out of the hosted report. Before these, every report stayed in git histor
 and by 2026-10 `gh-pages` had reached 12 GiB over 243 deploys (about 80% trace
 zips), even though the current tree was under 1 GB. Traces are still in the 14-day
 `test-results-<run>` artifact. Clone with `--single-branch --branch qa` so you
-never fetch `gh-pages`.
+never fetch `gh-pages`. **Older local clones still hold the old ~14 GiB
+`gh-pages` history in `.git`** — if asked to fix storage / repo size, follow
+`docs/LOCAL_CLONE_STORAGE.md` (`bash scripts/slim-clone.sh --check`, then
+without `--check`).
 
 **When the suite runs (four triggers):**
 
