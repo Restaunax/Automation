@@ -1263,7 +1263,27 @@ test.describe("Deals → Storefront hand-off", () => {
           const card = deals.dealsGridCard(title, d.name);
           await expect(card).toBeVisible();
           await expect(card).toContainText(`$${d.dealPrice!.toFixed(2)}`);
-          if ((d.originalPrice ?? 0) > (d.dealPrice ?? 0))
+          // A pick-priced BOGO (a BOGO type with an option or category line —
+          // e.g. another file's live "2nd for $1.99" deal) costs whatever the
+          // customer picks: wind shows its offer label and "From $dealPrice",
+          // never a struck original (template-wind dealsGridCard.ts).
+          const pickPriced =
+            ["BOGO_FREE", "BOGO_PERCENT_OFF", "BOGO_FIXED_PRICE"].includes(
+              d.dealType ?? ""
+            ) &&
+            (d.items ?? []).some(
+              (i) =>
+                !i.menuItemId &&
+                ((i.options?.length ?? 0) > 0 || !!i.menuGroupId)
+            );
+          if (pickPriced) {
+            await expect(card).toContainText(
+              new RegExp(
+                `Buy \\d+, get \\d+ .*From\\s*\\$${d.dealPrice!.toFixed(2).replace(".", "\\.")}`
+              )
+            );
+            await expect(card.locator(".line-through")).toHaveCount(0);
+          } else if ((d.originalPrice ?? 0) > (d.dealPrice ?? 0))
             await expect(card).toContainText(`$${d.originalPrice!.toFixed(2)}`);
           for (const item of d.items ?? [])
             await expect(card).toContainText(`1x ${item.itemName}`);

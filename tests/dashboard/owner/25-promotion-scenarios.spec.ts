@@ -32,9 +32,8 @@
  * utils/publishBackstop (restored in finally, else by globalTeardown / the
  * next globalSetup). Tagged @scenario (nightly lane, not @smoke).
  *
- * App bugs a scenario exposes: the step that hits one records it with its
- * evidence, the scenario finishes every other check, then ends as
- * test.fixme("BUG: …") — and passes again on its own once the fix ships.
+ * "You're saving" is asserted strictly from the customer's picks on both
+ * storefronts (the cheapest-choice bug was fixed by template-wind #125).
  */
 
 import * as allure from "allure-js-commons";
@@ -162,13 +161,6 @@ interface ExpectedDealCheckout {
   upcharge: number;
   /** Regular BASE price of the picked items (the "You're saving" base). */
   regular: number;
-  /**
-   * For a combo with a choose-from / any-from-category line: the deal's
-   * stored regular price (each pick line at its CHEAPEST choice). Known bug
-   * (see KNOWN_BUGS.comboSavingFromCheapest): both storefronts compute
-   * "You're saving" from this instead of the customer's picks.
-   */
-  fromRegular?: number;
   /** Itemised upgrade text the summary must list, e.g. "10 pc +$3.00". */
   upgradeDetails?: string[];
 }
@@ -477,8 +469,7 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
     page: Page,
     quotes: QuoteTracker,
     quote: PageQuote,
-    want: ExpectedDealCheckout,
-    bugs: string[]
+    want: ExpectedDealCheckout
   ) => {
     const line = quote.body.quote?.deals?.find((d) => d.dealId === want.dealId);
     expect(line, JSON.stringify(quote.body)).toBeTruthy();
@@ -540,37 +531,19 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
 
     const savingRow =
       app === "lima" ? lima.youAreSavingRow() : windDeals.youAreSavingRow();
+    // From the customer's actual picks — never the deal's stored "from"
+    // regular (each pick line at its cheapest choice); template-wind #125.
     const saving = Math.max(0, cents(want.regular) - cents(want.dealPrice));
-    const fromSaving =
-      want.fromRegular === undefined
-        ? null
-        : Math.max(0, cents(want.fromRegular) - cents(want.dealPrice));
     // A row the page should show is waited for, never read as absent early.
     let shownSaving = 0;
-    if (saving > 0 || (fromSaving ?? 0) > 0) {
+    if (saving > 0) {
       await expect(savingRow).toBeVisible({ timeout: 15_000 });
       shownSaving = cents(await readMoney(savingRow));
     } else {
       await expect(savingRow).toHaveCount(0);
     }
     await allure.parameter(`${app} you're saving`, money(shownSaving / 100));
-    if (
-      shownSaving !== saving &&
-      fromSaving !== null &&
-      shownSaving === fromSaving
-    ) {
-      // The known bug, exactly: recorded, reported by the scenario at its end.
-      bugs.push(
-        `${app}: "You're saving" shows ${money(shownSaving / 100)} (cheapest choice's regular price ${money(want.fromRegular!)} − ${money(want.dealPrice)}) instead of ${money(saving / 100)} (the picked items' regular ${money(want.regular)} − ${money(want.dealPrice)})`
-      );
-      await allure.attachment(
-        `${app} you're saving (bug evidence)`,
-        await page.screenshot({ fullPage: true }),
-        "image/png"
-      );
-    } else {
-      expect(shownSaving, `${app} "You're saving"`).toBe(saving);
-    }
+    expect(shownSaving, `${app} "You're saving"`).toBe(saving);
 
     const total = await expectShownMatchesLatestQuote(
       app === "lima" ? lima.readTotal : wind.readOrderTotal,
@@ -593,7 +566,6 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
     quotes: QuoteTracker,
     dealName: string,
     want: ExpectedDealCheckout,
-    bugs: string[],
     at = slug
   ) => {
     const lima = createLimaStorefrontPage(page);
@@ -616,14 +588,7 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
       page.waitForResponse(quoteWithDeal(want.dealId), { timeout: 30_000 }),
       checkout.goToCheckout(),
     ]);
-    await expectCheckoutMoney(
-      "lima",
-      page,
-      quotes,
-      await readQuote(res),
-      want,
-      bugs
-    );
+    await expectCheckoutMoney("lima", page, quotes, await readQuote(res), want);
   };
 
   /**
@@ -635,8 +600,7 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
     page: Page,
     quotes: QuoteTracker,
     dealName: string,
-    want: ExpectedDealCheckout,
-    bugs: string[]
+    want: ExpectedDealCheckout
   ) => {
     const menu = createCustomerMenuPage(page);
     const deals = createCustomerDealPage(page);
@@ -656,24 +620,7 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
     await expect(deals.dealSummaryRow(dealName)).toBeVisible({
       timeout: 15_000,
     });
-    await expectCheckoutMoney(
-      "wind",
-      page,
-      quotes,
-      await readQuote(res),
-      want,
-      bugs
-    );
-  };
-
-  /**
-   * Ends a scenario whose storefront steps recorded known app bugs: every
-   * other assertion has passed by now, so the scenario is reported as fixme
-   * with the bugs (screenshots attached where recorded). A scenario with no
-   * recorded bug simply passes — the check heals itself once the fix ships.
-   */
-  const reportBugs = (bugs: string[]) => {
-    test.fixme(bugs.length > 0, `BUG: ${bugs.join(" | ")}`);
+    await expectCheckoutMoney("wind", page, quotes, await readQuote(res), want);
   };
 
   // ── Scenarios ────────────────────────────────────────────────────────────
@@ -691,7 +638,6 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
     const gyros = [chickenGyro, lambGyro, beefGyro];
     const create = createOwnerCreatePromotionPage(ownerPage);
     const quotes = trackQuotes(page);
-    const bugs: string[] = [];
     try {
       await allure.step(
         "build it in the dashboard (choices only, no Done)",
@@ -756,7 +702,6 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
         dealPrice: 22.49,
         upcharge: 3,
         regular: wings.price + fries.price + lambGyro.price,
-        fromRegular: wings.price + fries.price + chickenGyro.price,
         upgradeDetails: [`${WINGS_10} +$3.00`],
       };
 
@@ -782,7 +727,7 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
           await deals.clickAddToDeal();
           await deals.openIncompleteSlot(fries.name);
           await deals.clickAddToDeal();
-          await limaKeepShoppingToCheckout(page, quotes, name, want, bugs);
+          await limaKeepShoppingToCheckout(page, quotes, name, want);
         }
       );
 
@@ -809,16 +754,13 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
           await deals.clickAddToDeal();
           await deals.openIncompleteSlot(fries.name);
           await deals.clickAddToDeal();
-          await windKeepShoppingToCheckout(
-            page,
-            quotes,
-            name,
-            { ...want, upcharge: 0, upgradeDetails: [] },
-            bugs
-          );
+          await windKeepShoppingToCheckout(page, quotes, name, {
+            ...want,
+            upcharge: 0,
+            upgradeDetails: [],
+          });
         }
       );
-      reportBugs(bugs);
     } finally {
       await cleanup(name);
     }
@@ -836,7 +778,6 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
     const group = "What's in the combo?";
     const create = createOwnerCreatePromotionPage(ownerPage);
     const quotes = trackQuotes(page);
-    const bugs: string[] = [];
     try {
       await allure.step("build it in the dashboard", async () => {
         await create.goto(restaurantId);
@@ -901,7 +842,7 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
             deals.fixedSteps(it.name).getByTestId("deal-step-status")
           ).toHaveText("✓ Included", { timeout: 15_000 });
         await deals.assertDealComplete();
-        await limaKeepShoppingToCheckout(page, quotes, name, want, bugs);
+        await limaKeepShoppingToCheckout(page, quotes, name, want);
       });
 
       await allure.step("wind: the three items → checkout", async () => {
@@ -913,9 +854,8 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
             deals.fixedSteps(it.name).getByTestId("deal-step-status")
           ).toHaveText("✓ Included", { timeout: 15_000 });
         await deals.assertDealComplete();
-        await windKeepShoppingToCheckout(page, quotes, name, want, bugs);
+        await windKeepShoppingToCheckout(page, quotes, name, want);
       });
-      reportBugs(bugs);
     } finally {
       await cleanup(name);
     }
@@ -933,7 +873,6 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
     const gyros = [chickenGyro, lambGyro, beefGyro];
     const create = createOwnerCreatePromotionPage(ownerPage);
     const quotes = trackQuotes(page);
-    const bugs: string[] = [];
     try {
       await allure.step("build it in the dashboard", async () => {
         await create.goto(restaurantId);
@@ -993,7 +932,7 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
         await deals.pickChoice(1, chickenGyro.name);
         await deals.assertDealComplete();
         await expect(deals.progressDealPrice()).toHaveText(money(15.49));
-        await limaKeepShoppingToCheckout(page, quotes, name, want, bugs);
+        await limaKeepShoppingToCheckout(page, quotes, name, want);
       });
 
       await allure.step("wind: buy Beef, get Chicken → checkout", async () => {
@@ -1006,9 +945,8 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
         await deals.pickChoice(1, chickenGyro.name);
         await deals.assertDealComplete();
         await expect(deals.progressDealPrice()).toHaveText(money(15.49));
-        await windKeepShoppingToCheckout(page, quotes, name, want, bugs);
+        await windKeepShoppingToCheckout(page, quotes, name, want);
       });
-      reportBugs(bugs);
     } finally {
       await cleanup(name);
     }
@@ -1026,7 +964,6 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
     const group = "What's in the combo?";
     const create = createOwnerCreatePromotionPage(ownerPage);
     const quotes = trackQuotes(page);
-    const bugs: string[] = [];
     try {
       await allure.step("build it in the dashboard", async () => {
         await create.goto(restaurantId);
@@ -1079,7 +1016,6 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
         dealPrice: 20.99,
         upcharge: 2.5,
         regular: margherita.price + pepperoni.price,
-        fromRegular: 2 * margherita.price,
         upgradeDetails: [`${CHEESE} +$1.50`, `${MUSHROOMS} +$1.00`],
       };
 
@@ -1095,7 +1031,7 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
           await deals.pickChoice(1, pepperoni.name, () =>
             lima.modifierOption(MUSHROOMS).check()
           );
-          await limaKeepShoppingToCheckout(page, quotes, name, want, bugs);
+          await limaKeepShoppingToCheckout(page, quotes, name, want);
         }
       );
 
@@ -1111,10 +1047,9 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
           await deals.pickChoice(1, pepperoni.name, () =>
             modal.selectOption(MUSHROOMS)
           );
-          await windKeepShoppingToCheckout(page, quotes, name, want, bugs);
+          await windKeepShoppingToCheckout(page, quotes, name, want);
         }
       );
-      reportBugs(bugs);
     } finally {
       await cleanup(name);
     }
@@ -1333,7 +1268,6 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
     const drinks = [cola, lemonade, icedTea];
     const create = createOwnerCreatePromotionPage(ownerPage);
     const quotes = trackQuotes(page);
-    const bugs: string[] = [];
     try {
       await allure.step("build it in the dashboard", async () => {
         await create.goto(restaurantId);
@@ -1396,7 +1330,6 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
         dealPrice: 10.49,
         upcharge: 0,
         regular: sub.price + icedTea.price,
-        fromRegular: sub.price + cola.price,
       };
 
       await allure.step(
@@ -1413,7 +1346,7 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
           await expect(deals.choiceCard(0, lemonade.name)).toHaveCount(0);
           await deals.pickChoice(0, icedTea.name);
           await deals.completeFixedSteps();
-          await limaKeepShoppingToCheckout(page, quotes, name, want, bugs);
+          await limaKeepShoppingToCheckout(page, quotes, name, want);
         }
       );
 
@@ -1434,10 +1367,9 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
           await expect(deals.choiceCard(0, lemonade.name)).toHaveCount(0);
           await deals.pickChoice(0, icedTea.name);
           await deals.completeFixedSteps();
-          await windKeepShoppingToCheckout(page, quotes, name, want, bugs);
+          await windKeepShoppingToCheckout(page, quotes, name, want);
         }
       );
-      reportBugs(bugs);
     } finally {
       await cleanup(name);
     }
@@ -1455,7 +1387,6 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
     const group = "What's in the combo?";
     const create = createOwnerCreatePromotionPage(ownerPage);
     const quotes = trackQuotes(page);
-    const bugs: string[] = [];
 
     const tz = await getRestaurantTimeZonePublic(restaurantId);
     expect(tz, "the backend reports the restaurant's zone").toBeTruthy();
@@ -1620,16 +1551,15 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
           0
         );
         await deals.completeFixedSteps();
-        await limaKeepShoppingToCheckout(page, quotes, name, want, bugs);
+        await limaKeepShoppingToCheckout(page, quotes, name, want);
       });
 
       await allure.step("wind: offered today → checkout", async () => {
         const deals = await windOpenDeal(page, name);
         await expect(deals.builderAvailabilityLabel()).toHaveCount(0);
         await deals.completeFixedSteps();
-        await windKeepShoppingToCheckout(page, quotes, name, want, bugs);
+        await windKeepShoppingToCheckout(page, quotes, name, want);
       });
-      reportBugs(bugs);
     } finally {
       await cleanup(name);
     }
@@ -1670,7 +1600,6 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
     const promos = createOwnerPromotionsPage(ownerPage);
     const create = createOwnerCreatePromotionPage(ownerPage);
     const quotes = trackQuotes(page);
-    const bugs: string[] = [];
     const chainItems: Item[] = [];
     let chainCategory = "";
     const fanOut = ownerPage
@@ -1763,7 +1692,7 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
       await allure.step("location A on wind → checkout", async () => {
         const deals = await windOpenDeal(page, name, locA);
         await deals.completeFixedSteps();
-        await windKeepShoppingToCheckout(page, quotes, name, want, bugs);
+        await windKeepShoppingToCheckout(page, quotes, name, want);
       });
 
       await allure.step("location A on lima → checkout", async () => {
@@ -1775,19 +1704,11 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
         try {
           const deals = await limaOpenDeal(page, name, chainSlug, locAName);
           await deals.completeFixedSteps();
-          await limaKeepShoppingToCheckout(
-            page,
-            quotes,
-            name,
-            want,
-            bugs,
-            chainSlug
-          );
+          await limaKeepShoppingToCheckout(page, quotes, name, want, chainSlug);
         } finally {
           await restore();
         }
       });
-      reportBugs(bugs);
     } finally {
       await cleanupChain(chainGroupId, name);
       for (const it of chainItems) {
