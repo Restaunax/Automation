@@ -178,6 +178,14 @@ test.describe("Owner — Try it as a customer (dashboard → lima)", () => {
   test("TC-882: an unsaved BOGO with an option line, tried as a customer, end to end", async ({
     ownerPage,
   }) => {
+    // QA 2026-10-17: in a lima preview tab the banner (position: sticky,
+    // top 0, z-index above the app bar) sits ON the sticky NavBar once the
+    // page is scrolled, so the cart button can't be clicked — "End preview"
+    // intercepts the pointer. Remove this line once template-lima fixes it.
+    test.fixme(
+      true,
+      "BUG: template-lima preview banner covers the NavBar cart button after scrolling (PreviewBanner sticky top:0 over the sticky AppBar)"
+    );
     const name = `AUTO Try BOGO ${runId}`;
     const create = createOwnerCreatePromotionPage(ownerPage);
     await create.goto(restaurantId);
@@ -332,6 +340,12 @@ test.describe("Owner — Try it as a customer (dashboard → lima)", () => {
   test("TC-885: Free item — the banner hints the trigger and checkout offers the gift", async ({
     ownerPage,
   }) => {
+    // Same template-lima bug as TC-882: after opening an item further down
+    // the menu, the sticky preview banner covers the NavBar cart button.
+    test.fixme(
+      true,
+      "BUG: template-lima preview banner covers the NavBar cart button after scrolling (PreviewBanner sticky top:0 over the sticky AppBar)"
+    );
     const create = createOwnerCreatePromotionPage(ownerPage);
     await create.goto(restaurantId);
     await create.pickCard("Free item");

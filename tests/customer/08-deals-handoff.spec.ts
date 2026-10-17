@@ -292,7 +292,7 @@ test.describe("Deals → Storefront hand-off", () => {
   }) => {
     await allure.description(
       "Builder for burger ×2 + fries @ $21: header 'Save 21%' + 'You save $5.50' + 'Available: All days, All " +
-        "day' (validDays = every day), two fixed steps ('2 × <burger>' and the fries), 'All set' from the start; " +
+        "day' (validDays = every day), three fixed steps (the burger ×2 is stored as two unit rows → two '<burger>' steps, plus the fries), 'All set' from the start; " +
         "one 'Add deal to cart'. Checkout: 3× 'Part of deal', '1x <deal>' row, 'You're saving $5.50', proceed " +
         "button is the normal 'Proceed to Payment', and the POST /quote the page issues carries orderDeals " +
         "and comes back with dealsSubtotal 21 / subtotal 21."
@@ -308,17 +308,26 @@ test.describe("Deals → Storefront hand-off", () => {
     await expect(deals.youSaveChip()).toHaveText("You save $5.50");
     // Unrestricted deal: no schedule line at all (scheduleSummary is null).
     await expect(deals.availabilityLine()).toHaveCount(0);
-    // Fixed items without options, included from the start: the burger line
-    // of 2 is ONE step headed "2 × <burger>", the fries another.
-    await expect(deals.fixedSteps(burger.name)).toHaveCount(1, {
+    // Fixed items without options, included from the start. The backend
+    // stores every DealItem at quantity 1 (splitDealItemsToUnitQuantity), so
+    // "burger ×2" is persisted as TWO burger rows and the builder shows one
+    // fixed step per row, each headed "<burger>" and "✓ Included" (the
+    // "2 × <item>" heading only applies to a legacy row with quantity > 1).
+    // Then one step for the fries: three fixed steps in all.
+    await expect(deals.fixedSteps(burger.name)).toHaveCount(2, {
       timeout: 20_000,
     });
-    await expect(
-      deals
-        .fixedSteps(burger.name)
-        .getByRole("heading", { name: `2 × ${burger.name}`, exact: true })
-    ).toBeVisible();
+    for (const i of [0, 1]) {
+      const step = deals.fixedSteps(burger.name).nth(i);
+      await expect(
+        step.getByRole("heading", { name: burger.name, exact: true })
+      ).toBeVisible();
+      await expect(step.getByTestId("deal-step-status")).toHaveText(
+        "✓ Included"
+      );
+    }
     await expect(deals.fixedSteps(fries.name)).toHaveCount(1);
+    await expect(deals.allFixedSteps()).toHaveCount(3);
     await expect(deals.choiceSlots()).toHaveCount(0);
     await deals.completeFixedSteps();
     await deals.assertDealComplete();
@@ -669,8 +678,11 @@ test.describe("Deals → Storefront hand-off", () => {
     // A pick step (burger or pizza) + fries, so there are options to lock.
     const { deal } = await windowDeal("Later", w!, { choice: true });
     try {
+      // The deal has an option line (burger or pizza): the public list only
+      // returns it to a client that says it renders the new mechanics
+      // (X-Promotions-Version: 2), as wind does — old clients never see it.
       const listed = (
-        await getActiveDealsPublic(restaurantId)
+        await getActiveDealsPublic(restaurantId, { v2: true })
       ).data.deals?.find((d) => d.id === deal.id);
       expect(listed?.availableNow).toBe(false);
       requireScheduling("wind", await windShipsScheduleUi(page, deal.name));
@@ -746,6 +758,9 @@ test.describe("Deals → Storefront hand-off", () => {
       const slot = await checkout.chooseScheduledSlot((iso) =>
         isInsideWindow(tz, iso, w!)
       );
+      // On the skip path nobody awaits the listener; don't let its
+      // "Test ended" rejection fail the skipped test.
+      if (!slot) quoted.catch(() => {});
       test.skip(
         !slot,
         "The storefront offers no slot inside the window today (prep time / lead time)"
@@ -798,6 +813,9 @@ test.describe("Deals → Storefront hand-off", () => {
         return m < w!.startMinute || m >= w!.endMinute;
       };
       const slot = await checkout.chooseScheduledSlot(outside);
+      // On the skip path nobody awaits the listener; don't let its
+      // "Test ended" rejection fail the skipped test.
+      if (!slot) refused.catch(() => {});
       test.skip(
         !slot,
         "The storefront offers no slot outside the deal's window"
