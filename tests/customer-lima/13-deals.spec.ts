@@ -121,7 +121,7 @@ test.describe("Lima — deals", () => {
     await allure.label("severity", "critical");
   });
 
-  /** Menu → View Deal → fill both slots → Deal Complete. */
+  /** Menu → View Deal → (fixed items included) → one Add. */
   const buildDeal = async (page: Parameters<typeof createLimaDealPage>[0]) => {
     const lima = createLimaStorefrontPage(page);
     const deals = createLimaDealPage(page);
@@ -135,13 +135,11 @@ test.describe("Lima — deals", () => {
     await expect(deals.builderHeading(deal.name)).toBeVisible({
       timeout: 20_000,
     });
-    await deals.assertProgress(0, 2);
-    await deals.openIncompleteSlot(wrap.name);
-    await deals.clickAddToDeal();
-    await deals.assertProgress(1, 2);
-    await deals.openIncompleteSlot(soup.name);
-    await deals.clickAddToDeal();
+    // Two fixed items: included from the start; only items that need options
+    // ask for them. One Add puts the whole deal in the cart.
+    await deals.completeFixedSteps();
     await deals.assertDealComplete();
+    await deals.addDealToCart();
     return { lima, deals };
   };
 
@@ -162,7 +160,7 @@ test.describe("Lima — deals", () => {
     await expect(card).toContainText("$11.00");
   });
 
-  test("TC-L61: the Lima deal builder fills each slot through 'Add to Deal' and 'View Cart' lands on the tenant's cart with the deal", async ({
+  test("TC-L61: the Lima deal builder adds the whole deal with one Add and 'View Cart' lands on the tenant's cart with the deal", async ({
     page,
   }) => {
     const { deals } = await buildDeal(page);

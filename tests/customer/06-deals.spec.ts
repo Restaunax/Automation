@@ -97,14 +97,13 @@ test.describe("Customer — Deals", () => {
     await allure.label("severity", "critical");
   });
 
-  test("TC-195: the deal builder auto-adds the deal and completing its slot enables checkout @smoke", async ({
+  test("TC-195: the deal builder adds the deal with one Add and checkout proceeds @smoke", async ({
     page,
   }) => {
     await withDeal(async () => {
       await allure.description(
-        "Opening /deals/<id> auto-adds the deal to the cart and shows per-slot progress " +
-          "('0 of 1 items added'); picking the slot item via 'Add to Deal' completes it " +
-          "('Deal Complete!') and checkout offers the normal Proceed to Payment button."
+        "Opening the deal adds nothing; the fixed item is included ('All set'); one 'Add deal to cart' " +
+          "puts the deal in the cart and checkout offers the normal Proceed to Payment button."
       );
 
       const restaurantId = readRestaurantId();
@@ -112,16 +111,22 @@ test.describe("Customer — Deals", () => {
       const dealPage = createCustomerDealPage(page);
       const checkoutPage = createCustomerCheckoutPage(page);
 
-      await allure.step("Open the deal builder — deal auto-added", async () => {
-        await dealPage.gotoBuilder(restaurantId, dealId);
-        await dealPage.assertProgress(0, 1);
-        await allure.parameter("Deal", dealName);
-      });
+      await allure.step(
+        "Open the deal builder — nothing added yet",
+        async () => {
+          await dealPage.gotoBuilder(restaurantId, dealId);
+          await expect(dealPage.fixedSteps(menuItemName)).toHaveCount(1, {
+            timeout: 20_000,
+          });
+          await expect(dealPage.keepShoppingButton()).toHaveCount(0);
+          await allure.parameter("Deal", dealName);
+        }
+      );
 
-      await allure.step("Fill the slot via Add to Deal", async () => {
-        await dealPage.openSlot(menuItemName);
-        await dealPage.clickAddToDeal();
+      await allure.step("Add the deal (one Add)", async () => {
+        await dealPage.completeFixedSteps();
         await dealPage.assertDealComplete();
+        await dealPage.addDealToCart();
       });
 
       await allure.step(
@@ -137,13 +142,14 @@ test.describe("Customer — Deals", () => {
     });
   });
 
-  test("TC-196: an incomplete deal blocks checkout with 'Complete Deals to Continue'", async ({
+  test("TC-196: an incomplete deal never reaches the cart — opening the builder adds nothing, so checkout has no deal to complete", async ({
     page,
   }) => {
     await withDeal(async () => {
       await allure.description(
-        "With the deal auto-added but its slot unfilled, the checkout proceed button is disabled " +
-          "and labeled 'Complete Deals to Continue'."
+        "Guided deal choices: a deal reaches the cart only when it is complete, through the one Add. " +
+          "Opening the builder and leaving puts nothing in the cart, so checkout shows no deal and no " +
+          "'Complete Deals to Continue' button."
       );
 
       const restaurantId = readRestaurantId();
@@ -151,14 +157,17 @@ test.describe("Customer — Deals", () => {
       const checkoutPage = createCustomerCheckoutPage(page);
 
       await dealPage.gotoBuilder(restaurantId, dealId);
-      await dealPage.assertProgress(0, 1);
-
-      await checkoutPage.gotoCheckoutEmpty(restaurantId);
-      const blockedButton = page.getByRole("button", {
-        name: "Complete Deals to Continue",
+      await expect(dealPage.addDealToCartButton()).toBeVisible({
+        timeout: 20_000,
       });
-      await expect(blockedButton).toBeVisible({ timeout: 15_000 });
-      await expect(blockedButton).toBeDisabled();
+
+      // The cart rides sessionStorage into this navigation: still empty.
+      await checkoutPage.gotoCheckoutEmpty(restaurantId);
+      await checkoutPage.assertEmptyCart();
+      await expect(
+        page.getByRole("button", { name: "Complete Deals to Continue" })
+      ).toHaveCount(0);
+      await expect(dealPage.dealSummaryRow(dealName)).toHaveCount(0);
     });
   });
 
@@ -174,7 +183,6 @@ test.describe("Customer — Deals", () => {
       );
 
       const restaurantId = readRestaurantId();
-      const { menuItemName } = readSharedState();
       const dealPage = createCustomerDealPage(page);
       const checkoutPage = createCustomerCheckoutPage(page);
       const couponCode = generateCouponCode();
@@ -200,10 +208,9 @@ test.describe("Customer — Deals", () => {
 
       await allure.step("Put a completed deal in the cart", async () => {
         await dealPage.gotoBuilder(restaurantId, dealId);
-        await dealPage.assertProgress(0, 1);
-        await dealPage.openSlot(menuItemName);
-        await dealPage.clickAddToDeal();
+        await dealPage.completeFixedSteps();
         await dealPage.assertDealComplete();
+        await dealPage.addDealToCart();
       });
 
       await allure.step("Apply the coupon at checkout — refused", async () => {

@@ -198,20 +198,24 @@ test.describe("Owner — Try it as a customer (dashboard → lima)", () => {
         { timeout: 20_000 }
       );
 
-      await allure.step("the builder: one pick per slot", async () => {
-        const deal = createLimaDealPage(tab);
-        await expect(deal.builderHeading(name)).toBeVisible({
-          timeout: 20_000,
-        });
-        await deal.pickChoice(0, gyroB.name);
-        await deal.pickChoice(1, gyroA.name);
-        await deal.assertDealComplete();
-        // Equal-or-lesser: Lamb $13 at full price, Chicken $12 at $1.99.
-        await expect(deal.progressDealPrice()).toHaveText(money(13 + 1.99));
-        await deal.keepShoppingButton().click();
-        await expect(tab).toHaveURL(PREVIEW_MENU_URL);
-        await expect(preview.previewChip().first()).toBeVisible();
-      });
+      await allure.step(
+        "the builder: one pick per step, then one Add",
+        async () => {
+          const deal = createLimaDealPage(tab);
+          await expect(deal.builderHeading(name)).toBeVisible({
+            timeout: 20_000,
+          });
+          await deal.pickChoice(0, gyroB.name);
+          await deal.pickChoice(1, gyroA.name);
+          await deal.assertDealComplete();
+          // Equal-or-lesser: Lamb $13 at full price, Chicken $12 at $1.99.
+          await expect(deal.progressDealPrice()).toHaveText(money(13 + 1.99));
+          await deal.addDealToCart();
+          await deal.keepShoppingButton().click();
+          await expect(tab).toHaveURL(PREVIEW_MENU_URL);
+          await expect(preview.previewChip().first()).toBeVisible();
+        }
+      );
 
       await allure.step(
         "add a soda → checkout total = the latest /quote; ordering blocked",

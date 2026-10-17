@@ -1,4 +1,4 @@
-import { type Page, expect } from "@playwright/test";
+import { type Page, type Locator, expect } from "@playwright/test";
 
 // Single source of truth for the storefront host (defaults to the QA Template
 // Wind storefront, wind.restaunax.com — NOT qa.restaunax.com, the marketing site).
@@ -11,22 +11,40 @@ import { TEMPLATE_WIND_URL } from "../../utils/testData";
  *   the public /active list is empty). Each DealCard: name, "Save X%" badge,
  *   "Includes:" chips "1x <item>", struck original + deal price, "View Deal"
  *   → /deals/<id>.
- * - `/deals/[dealId]` (the builder): auto-adds the deal to the cart on first
- *   mount; DealBuilderHeader (name, "Save X%", "You save $X.XX", "Available:
- *   <days>, <times>"); ONE DealItemCard per DealItem row (a qty-2 slot is two
- *   cards of the same item — "Need 1", footer "Click to customize & add" →
- *   "Added - Click to customize"); DealProgress ("X of N items added" /
- *   "Deal Complete!", "View Cart" → /checkout). Clicking a card opens the
- *   ItemModal in deal mode whose confirm reads "Add to Deal — $x" (same
- *   data-testid="add-to-cart"). An inactive / deleted / 86'd
- *   deal → "Deal not found" + "Return to Menu". Since deal scheduling (Plan 4) a
- *   deal that is off for now but on later today stays listed with
- *   deal-availability-label and disabled slots.
+ * - `/deals/[dealId]` (the builder; guided deal choices, template-wind
+ *   feat/deal-choice-ux, spec restaunax
+ *   docs/superpowers/specs/2026-10-17-deal-choice-guidance-design.md):
+ *   opening it adds NOTHING to the cart. DealBuilderHeader (h1 name, "Save
+ *   X%", "You save $X.XX", "Available: <days>, <times>"); intro
+ *   data-testid="deal-intro" ("Pick one option in each step, then add to
+ *   cart." / "Everything below is included."); numbered steps in sortOrder
+ *   (a BOGO groups them under h2 "You buy" / "You get …"). Every step root
+ *   is role="group" named by its h2 heading. A pick step is
+ *   data-testid="deal-choice-slot" holding a radiogroup named by the heading
+ *   ("Pick 1: A or B", "Pick 1 from Gyros", "… (1 of 2)"); each option is
+ *   role="radio" named "<item>, <Included | +$x | Sold out today>[,
+ *   Selected]" with aria-checked and an explicit aria-disabled. A fixed item
+ *   is data-testid="deal-fixed-step" (heading "<item>" / "2 × <item>").
+ *   data-testid="deal-step-status": "Required" → "✓ Done" / "✓ Included".
+ *   An item with options shows data-testid="deal-step-customize" ("Choose
+ *   options" when required, else "Customize"); the ItemModal's
+ *   data-testid="add-to-cart" reads "Done" and adds nothing to the cart.
+ *   Sticky bar (DealStepsBar): deal-progress ("{x} of {y} steps done" → "All
+ *   set"), deal-bar-price, deal-add-to-cart ("Add deal to cart · $x") — the
+ *   only way into the cart. An incomplete Add shows role="alert" "Pick one
+ *   to continue." (data-testid="deal-step-error") in the first unfinished
+ *   step. After the Add: deal-keep-shopping → /menu?dealAdded=<id> and
+ *   "View Cart" → /checkout. An inactive / deleted / 86'd deal → "Deal not
+ *   found" + "Return to Menu". Since deal scheduling (Plan 4) a deal that is
+ *   off for now but on later today stays listed with deal-availability-label,
+ *   inert step cards and a disabled Add.
  * - `/checkout` OrderSummary: claimed items say "Part of deal"; deal rows read
  *   "<qty>x <deal name>" (expandable to "1x <item> (+$x.xx)"); "You're saving
  *   $X.XX"; an "Items / Upgrades +$X.XX / Subtotal" build-up when a deal
- *   carries upgrades (CustomerCheckoutPage summary*Row); the proceed button
- *   turns into "Complete Deals to Continue" while a deal is incomplete.
+ *   carries upgrades (CustomerCheckoutPage summary*Row); a complete deal
+ *   has "Edit" (data-testid="cart-deal-edit", aria-label "Edit <deal
+ *   name>"); the proceed button turns into "Complete Deals to Continue"
+ *   while a (legacy, saved-cart) deal is incomplete.
  */
 export const createCustomerDealPage = (page: Page) => {
   // Same ?restaurantId= QA override as every other customer route.
@@ -84,87 +102,176 @@ export const createCustomerDealPage = (page: Page) => {
   const returnToMenuButton = () =>
     page.getByRole("button", { name: "Return to Menu" });
 
-  const assertProgress = (completed: number, total: number) =>
-    expect(page.getByText(`${completed} of ${total} items added`)).toBeVisible({
-      timeout: 15_000,
+  // ── Steps ──────────────────────────────────────────────────────────────
+  /** Pick steps only, in display order (each repeated unit is its own step). */
+  const choiceSlots = (): Locator => page.getByTestId("deal-choice-slot");
+  /**
+   * A pick step's option radio by item name (its accessible name is
+   * "<item>, <Included | +$x | Sold out today>", wind appends ", Selected").
+   */
+  const choiceCard = (slot: number, itemName: string): Locator =>
+    choiceSlots()
+      .nth(slot)
+      .getByRole("radio", { name: new RegExp(`^${escapeRe(itemName)}, `) });
+  /** "Required" → "✓ Done" on a pick step. */
+  const stepStatus = (slot: number): Locator =>
+    choiceSlots().nth(slot).getByTestId("deal-step-status");
+  /** "Pick one to continue." after an incomplete Add, in the first unfinished step. */
+  const stepError = (slot: number): Locator =>
+    choiceSlots().nth(slot).getByRole("alert");
+  const allFixedSteps = (): Locator => page.getByTestId("deal-fixed-step");
+  /**
+   * Fixed-item steps for an item (a fixed line of 2 is ONE step headed
+   * "2 × <item>"; the same item on two lines is two steps).
+   */
+  const fixedSteps = (itemName: string): Locator =>
+    allFixedSteps().filter({
+      has: page.getByText(itemName, { exact: true }),
     });
-
-  const assertDealComplete = () =>
-    expect(page.getByText("Deal Complete!")).toBeVisible({ timeout: 15_000 });
-
-  // The whole DealItemCard is the click target; its item-name text is the
-  // stable way in (names are the seed item's, unique on this page).
-  const openSlot = (itemName: string) =>
-    page.getByText(itemName, { exact: true }).first().click();
+  /** A step's "Choose options" (the item needs options) / "Customize" button. */
+  const customizeButton = (step: Locator): Locator =>
+    step.getByTestId("deal-step-customize");
 
   /**
-   * The next UNFILLED card for an item (a qty-2 slot renders two cards for the
-   * same item; the filled one's footer flips to "Added - Click to customize").
+   * The steps are rendered and the menus are in: every fixed item has its
+   * default pick ("✓ Included", or "Required" with "Choose options"). Before
+   * the menus load a fixed step reads "Required" with no button.
    */
-  // Card root = the DealItemCard's motion.div — the only element that carries
-  // both the "Need N" badge and the click-hint footer, and the `cursor-pointer`
-  // class (its ancestors are grid/section wrappers without it).
-  const slotCardRoot = () =>
-    page.locator("div.cursor-pointer").filter({ hasText: /^Need \d+/ });
-  const slotCards = (itemName: string) =>
-    slotCardRoot().filter({ has: page.getByText(itemName, { exact: true }) });
-  const incompleteSlotCard = (itemName: string) =>
-    slotCards(itemName).filter({ hasText: "Click to customize & add" }).first();
-  const openIncompleteSlot = (itemName: string) =>
-    incompleteSlotCard(itemName).click();
-
-  const addToDealButton = () =>
-    page
-      .getByTestId("add-to-cart")
-      .or(page.getByRole("button", { name: /add to deal/i }))
-      .first();
-
-  const clickAddToDeal = async () => {
-    await expect(addToDealButton()).toContainText(/Add to Deal/i, {
-      timeout: 10_000,
+  const waitForSteps = async () => {
+    await expect(choiceSlots().or(allFixedSteps()).first()).toBeVisible({
+      timeout: 20_000,
     });
-    await addToDealButton().click();
-    await expect(addToDealButton()).toBeHidden({ timeout: 10_000 });
+    await expect(
+      allFixedSteps()
+        .filter({
+          has: page.getByTestId("deal-step-status").getByText("Required"),
+        })
+        .filter({ hasNot: page.getByTestId("deal-step-customize") })
+    ).toHaveCount(0, { timeout: 15_000 });
   };
 
-  const viewCartButton = () =>
-    page.getByRole("button", { name: "View Cart", exact: true });
+  // ── Item modal (deal mode) ────────────────────────────────────────────
+  /** The item modal's confirm (data-testid="add-to-cart") — reads "Done" in deal mode and adds nothing to the cart. */
+  const doneButton = (): Locator =>
+    page.getByTestId("add-to-cart").filter({ hasText: /^Done$/ });
+  let modalExpected = false;
+  /** Press the item modal's Done — a no-op when no modal was opened. */
+  const clickAddToDeal = async () => {
+    if (!modalExpected && !(await doneButton().isVisible())) return;
+    modalExpected = false;
+    await expect(doneButton()).toBeVisible({ timeout: 15_000 });
+    await doneButton().click();
+    await expect(doneButton()).toBeHidden({ timeout: 10_000 });
+  };
 
-  // ── Pick slots ("one of these items" / category lines, promotions v2):
-  // one data-testid="deal-choice-slot" per line, headed "Choose one", with a
-  // data-testid="deal-slot-card" per option ("Choose this one" → "Your pick").
-  const choiceSlots = () => page.getByTestId("deal-choice-slot");
-  const choiceCard = (slotIndex: number, itemName: string) =>
-    choiceSlots()
-      .nth(slotIndex)
-      .getByTestId("deal-slot-card")
-      .filter({
-        has: page.getByRole("heading", { name: itemName, exact: true }),
-      });
   /**
-   * Pick `itemName` for the slot and confirm the modal's "Add to Deal".
-   * `customize` runs with the modal open, before "Add to Deal" (pick a size,
-   * tick paid extras, …).
+   * Pick `itemName` in pick step `slot` (0-based, display order). Clicking an
+   * item that needs options opens its modal by itself; it is confirmed with
+   * Done. `customize` (pick a size, tick paid extras, …) runs with the modal
+   * open — opened through the step's "Customize" when the click did not open
+   * it — then Done.
    */
   const pickChoice = async (
-    slotIndex: number,
+    slot: number,
     itemName: string,
     customize?: () => Promise<void>
   ) => {
-    await choiceCard(slotIndex, itemName).click();
+    const step = choiceSlots().nth(slot);
+    const card = choiceCard(slot, itemName);
+    await expect(card).toHaveAttribute("aria-disabled", "false", {
+      timeout: 15_000,
+    });
+    await card.click();
+    await expect(card).toHaveAttribute("aria-checked", "true");
+    // Settles one way: the modal opens (the item needs options), or the step
+    // reads "✓ Done" (it does not).
+    const stepDone = step
+      .getByTestId("deal-step-status")
+      .filter({ hasText: /^✓ Done$/ });
+    await expect(doneButton().or(stepDone)).toBeVisible({ timeout: 15_000 });
+    const opened = await doneButton().isVisible();
     if (customize) {
-      await expect(addToDealButton()).toBeVisible({ timeout: 10_000 });
+      if (!opened) await customizeButton(step).click();
+      await expect(doneButton()).toBeVisible({ timeout: 15_000 });
       await customize();
     }
-    await clickAddToDeal();
+    if (opened || customize) {
+      modalExpected = true;
+      await clickAddToDeal();
+    }
   };
 
-  // ── DealProgress (sticky bar): Keep shopping (complete deals only) sits
-  // in the same action group as the deal price and View Cart.
-  const keepShoppingButton = () => page.getByTestId("deal-keep-shopping");
-  /** The bar's deal price ("$14.99") — the bold primary price in the action group. */
-  const progressDealPrice = () =>
-    keepShoppingButton().locator("xpath=..").locator("p.text-xl");
+  /**
+   * A fixed item's options: its "Choose options" / "Customize" opens the
+   * modal (follow with clickAddToDeal). The item itself is already included,
+   * so for an item without options this is a no-op (and so is the
+   * clickAddToDeal after it).
+   */
+  const openIncompleteSlot = async (itemName: string) => {
+    await waitForSteps();
+    const step = fixedSteps(itemName).first();
+    await expect(step).toBeVisible({ timeout: 15_000 });
+    const button = customizeButton(step);
+    if ((await button.count()) === 0) return;
+    await button.click();
+    modalExpected = true;
+  };
+
+  /** Every fixed item that still needs options: open it and confirm its defaults with Done. */
+  const completeFixedSteps = async () => {
+    await waitForSteps();
+    const pending = allFixedSteps().filter({
+      has: page.getByTestId("deal-step-customize").filter({
+        hasText: /^Choose options$/,
+      }),
+    });
+    for (let guard = 0; guard < 10 && (await pending.count()) > 0; guard++) {
+      await customizeButton(pending.first()).click();
+      modalExpected = true;
+      await clickAddToDeal();
+    }
+    await expect(pending).toHaveCount(0);
+  };
+
+  // ── Bar ────────────────────────────────────────────────────────────────
+  const progress = (): Locator => page.getByTestId("deal-progress");
+  /**
+   * "{done} of {total} steps done", or "All set" once done = total. Only
+   * steps that ask for something count: every pick step, and a fixed item
+   * that needs options.
+   */
+  const assertProgress = (done: number, total: number) =>
+    expect(progress()).toHaveText(
+      done >= total ? "All set" : `${done} of ${total} steps done`,
+      { timeout: 15_000 }
+    );
+  const assertDealComplete = () =>
+    expect(progress()).toHaveText("All set", { timeout: 15_000 });
+  /** "Add deal to cart · $x" — the only control that puts the deal in the cart. */
+  const addDealToCartButton = (): Locator =>
+    page.getByTestId("deal-add-to-cart");
+  /** After the Add: "Keep shopping" (absent until the deal is added). */
+  const keepShoppingButton = (): Locator =>
+    page.getByTestId("deal-keep-shopping");
+  /** After the Add: "View Cart" (no test id). */
+  const viewCartButton = (): Locator =>
+    page.getByRole("button", { name: "View Cart", exact: true });
+  /** The ONE Add of a complete deal: the deal goes to the cart; Keep shopping / View Cart appear. */
+  const addDealToCart = async () => {
+    await expect(addDealToCartButton()).toHaveText(/^Add deal to cart · \$/, {
+      timeout: 15_000,
+    });
+    await addDealToCartButton().click();
+    await expect(keepShoppingButton()).toBeVisible({ timeout: 15_000 });
+  };
+  /** The bar's price ("$14.98"): one bundle of the current picks. */
+  const progressDealPrice = (): Locator => page.getByTestId("deal-bar-price");
+
+  /** A complete deal's "Edit" in the cart / checkout summary (back to its builder, pre-filled). */
+  const cartDealEditButton = (dealName: string): Locator =>
+    page
+      .getByTestId("cart-deal-edit")
+      .and(page.getByLabel(`Edit ${dealName}`, { exact: true }));
 
   // ── Checkout OrderSummary ──────────────────────────────────────────────────
   const partOfDealLabels = () =>
@@ -188,8 +295,15 @@ export const createCustomerDealPage = (page: Page) => {
     dealCard(dealName).getByTestId("deal-availability-label");
   const builderAvailabilityLabel = () =>
     page.getByTestId("deal-availability-label").first();
-  /** Builder slot cards by testid (aria-disabled="true" while the deal isn't available). */
-  const slotCardHooks = () => page.getByTestId("deal-slot-card");
+  /**
+   * Every builder step root (pick + fixed). They carry no aria-disabled: while
+   * the deal isn't available it is the option radios (aria-disabled="true")
+   * and the disabled Add that lock the deal.
+   */
+  const slotCardHooks = () =>
+    page.locator(
+      '[data-testid="deal-choice-slot"], [data-testid="deal-fixed-step"]'
+    );
 
   // ── DealsGridBlock (block type "deals_grid", placed on a restaurant page) ───
   /** /catering renders brandingConfig.restaurantPages.catering.blocks whether or not the nav links it. */
@@ -232,20 +346,26 @@ export const createCustomerDealPage = (page: Page) => {
     availabilityLine,
     dealNotFound,
     returnToMenuButton,
-    assertProgress,
-    assertDealComplete,
-    openSlot,
-    incompleteSlotCard,
-    openIncompleteSlot,
-    slotCards,
-    addToDealButton,
-    clickAddToDeal,
-    viewCartButton,
     choiceSlots,
     choiceCard,
+    stepStatus,
+    stepError,
+    fixedSteps,
+    doneButton,
+    addToDealButton: doneButton,
+    clickAddToDeal,
     pickChoice,
+    openIncompleteSlot,
+    completeFixedSteps,
+    assertProgress,
+    assertStepsDone: assertProgress,
+    assertDealComplete,
+    addDealToCartButton,
+    addDealToCart,
     keepShoppingButton,
+    viewCartButton,
     progressDealPrice,
+    cartDealEditButton,
     partOfDealLabels,
     dealSummaryRow,
     youAreSavingRow,

@@ -8,7 +8,7 @@
  * Every scenario, in one test:
  *   1. build it in the dashboard UI (Create promotion → card → editors →
  *      rules → Save and turn on), without helpers that confirm steps an owner
- *      might skip (S1 builds its choices through "Let customers pick a different item here" and never presses Done);
+ *      might skip (S1 builds its choices through "+ Add an option" and never presses Done);
  *   2. read it back from the server — lines, option ids, category ids,
  *      prices, rules — exactly;
  *   3. edit one meaningful thing in the dashboard, save, read back again;
@@ -600,6 +600,7 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
     const deals = createLimaDealPage(page);
     const checkout = createLimaCheckoutPage(page);
     await deals.assertDealComplete();
+    await deals.addDealToCart();
     await deals.keepShoppingButton().click();
     await expect(page).toHaveURL(new RegExp(`/${at}/menu`), {
       timeout: 15_000,
@@ -640,6 +641,7 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
     const menu = createCustomerMenuPage(page);
     const deals = createCustomerDealPage(page);
     await deals.assertDealComplete();
+    await deals.addDealToCart();
     await deals.keepShoppingButton().click();
     await expect(page).toHaveURL(/\/menu/, { timeout: 15_000 });
     await expect(menu.dealAddedConfirmation()).toHaveText(
@@ -682,7 +684,7 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
   }) => {
     test.setTimeout(SCENARIO_TEST_TIMEOUT_MS);
     await allure.description(
-      "The owner-reported combo. Build: Combo price → Wings, Fries, then Chicken Gyro with 'Let customers pick a different item here' adding Lamb and Beef Gyro as choices (each applies at once; Done is never pressed), $21.99, Save and turn on. Read back: three lines, the third with exactly the three gyro options. Edit: price → $22.49. Lima: Wings 10 pc (+$3 over the 8 pc default) and Lamb (pricier than the cheapest gyro) → deal $22.49, upgrades $3.00. Wind: the customer leaves the default 8 pc and picks Lamb → deal $22.49, upcharge $0, no upgrades line. Both: You're saving = $26 regular − $22.49. Expected to FAIL at the build on a dashboard without RestauNax #974 (the choices are dropped, so the form prices Wings + Fries alone at $14 and refuses $21.99); not fixme'd — it goes green with that fix."
+      "The owner-reported combo. Build: Combo price → Wings, Fries, then Chicken Gyro with '+ Add an option' adding Lamb and Beef Gyro as options (each applies at once; Done is never pressed), $21.99, Save and turn on. Read back: three lines, the third with exactly the three gyro options. Edit: price → $22.49. Lima: Wings 10 pc (+$3 over the 8 pc default) and Lamb (pricier than the cheapest gyro) → deal $22.49, upgrades $3.00. Wind: the customer leaves the default 8 pc and picks Lamb → deal $22.49, upcharge $0, no upgrades line. Both: You're saving = $26 regular − $22.49. Expected to FAIL at the build on a dashboard without RestauNax #974 (the choices are dropped, so the form prices Wings + Fries alone at $14 and refuses $21.99); not fixme'd — it goes green with that fix."
     );
     const name = promoName("Wings combo");
     const group = "What's in the combo?";
@@ -697,8 +699,8 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
           await create.goto(restaurantId);
           await create.pickCard("Combo price");
           await create.pickItems(group, [wings.name, fries.name]);
-          // The first gyro is a line; "Let customers pick a different item
-          // here" adds the others as choices. Done is never pressed.
+          // The first gyro is a line; "+ Add an option" adds the others as
+          // options. Done is never pressed.
           await create.pickItems(
             group,
             gyros.map((g) => g.name),
@@ -764,6 +766,14 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
           const deals = await limaOpenDeal(page, name);
           const lima = createLimaStorefrontPage(page);
           await expect(deals.choiceSlots()).toHaveCount(1);
+          await expect(
+            deals.choiceSlots().first().getByRole("radiogroup")
+          ).toHaveAccessibleName(
+            `Pick 1: ${gyros
+              .map((g) => g.name)
+              .slice(0, 2)
+              .join(", ")} or ${gyros[2]!.name}`
+          );
           for (const g of gyros)
             await expect(deals.choiceCard(0, g.name)).toBeVisible();
           await deals.pickChoice(0, lambGyro.name);
@@ -782,6 +792,14 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
           const deals = await windOpenDeal(page, name);
           const modal = createCustomerItemModal(page);
           await expect(deals.choiceSlots()).toHaveCount(1);
+          await expect(
+            deals.choiceSlots().first().getByRole("radiogroup")
+          ).toHaveAccessibleName(
+            `Pick 1: ${gyros
+              .map((g) => g.name)
+              .slice(0, 2)
+              .join(", ")} or ${gyros[2]!.name}`
+          );
           for (const g of gyros)
             await expect(deals.choiceCard(0, g.name)).toBeVisible();
           await deals.pickChoice(0, lambGyro.name);
@@ -876,21 +894,25 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
 
       await allure.step("lima: the three items → checkout", async () => {
         const deals = await limaOpenDeal(page, name);
-        await deals.assertProgress(0, 3);
-        for (const it of items) {
-          await deals.openIncompleteSlot(it.name);
-          await deals.clickAddToDeal();
-        }
+        // Three fixed items without options: nothing to choose, each is
+        // "✓ Included" and the page reads "All set" from the start.
+        for (const it of items)
+          await expect(
+            deals.fixedSteps(it.name).getByTestId("deal-step-status")
+          ).toHaveText("✓ Included", { timeout: 15_000 });
+        await deals.assertDealComplete();
         await limaKeepShoppingToCheckout(page, quotes, name, want, bugs);
       });
 
       await allure.step("wind: the three items → checkout", async () => {
         const deals = await windOpenDeal(page, name);
-        await deals.assertProgress(0, 3);
-        for (const it of items) {
-          await deals.openIncompleteSlot(it.name);
-          await deals.clickAddToDeal();
-        }
+        // Three fixed items without options: nothing to choose, each is
+        // "✓ Included" and the page reads "All set" from the start.
+        for (const it of items)
+          await expect(
+            deals.fixedSteps(it.name).getByTestId("deal-step-status")
+          ).toHaveText("✓ Included", { timeout: 15_000 });
+        await deals.assertDealComplete();
         await windKeepShoppingToCheckout(page, quotes, name, want, bugs);
       });
       reportBugs(bugs);
@@ -905,7 +927,7 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
   }) => {
     test.setTimeout(SCENARIO_TEST_TIMEOUT_MS);
     await allure.description(
-      "Build: Buy one, get one → They buy: Chicken Gyro with 'Let customers pick a different item here' adding Lamb and Beef Gyro, They get: the same three the same way, For a set price, They pay $1.99, Save and turn on. Read back: BOGO_FIXED_PRICE, getPrice 1.99, a BUY and a GET line with exactly the three options each. Edit: They pay → $2.49. Lima + wind: buy Beef ($13), get Chicken ($11) → the cheaper one costs $2.49: deal $15.49 (builder bar and quote), no upgrades, You're saving = $24 − $15.49."
+      "Build: Buy one, get one → They buy: Chicken Gyro with '+ Add an option' adding Lamb and Beef Gyro, They get: the same three the same way, For a set price, They pay $1.99, Save and turn on. Read back: BOGO_FIXED_PRICE, getPrice 1.99, a BUY and a GET line with exactly the three options each. Edit: They pay → $2.49. Lima + wind: buy Beef ($13), get Chicken ($11) → the cheaper one costs $2.49: deal $15.49 (builder bar and quote), no upgrades, You're saving = $24 − $15.49."
     );
     const name = promoName("2nd gyro");
     const gyros = [chickenGyro, lambGyro, beefGyro];
@@ -998,7 +1020,7 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
   }) => {
     test.setTimeout(SCENARIO_TEST_TIMEOUT_MS);
     await allure.description(
-      "Build: Combo price → search the per-run pizza category and pick 'Any item from' it, twice, $19.99, Save and turn on. Read back: two category lines on that category. Edit: price → $20.99. Lima + wind: Margherita + Extra cheese (+$1.50) and Pepperoni (the pricier pizza) + Mushrooms (+$1) → deal $20.99, upgrades $2.50 itemised, Items + Upgrades = Subtotal, You're saving = $30 − $20.99."
+      "Build: Combo price → search the per-run pizza category and pick 'Any item from' it, twice (each line reads 'Customer picks 1 from <category> · 2 items'), $19.99, Save and turn on. Read back: two category lines on that category. Edit: price → $20.99. Lima + wind: Margherita + Extra cheese (+$1.50) and Pepperoni (the pricier pizza) + Mushrooms (+$1) → deal $20.99, upgrades $2.50 itemised, Items + Upgrades = Subtotal, You're saving = $30 − $20.99."
     );
     const name = promoName("Two pizzas");
     const group = "What's in the combo?";
@@ -1011,6 +1033,14 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
         await create.pickCard("Combo price");
         await create.pickCategory(group, pizzaGroupName);
         await create.pickCategory(group, pizzaGroupName);
+        // Each category line reads as a pick for the customer, with its size
+        // (the per-run pizza category holds Margherita and Pepperoni).
+        const titles = create.categoryLineTitles(group, pizzaGroupName);
+        await expect(titles).toHaveCount(2);
+        await expect(titles).toHaveText([
+          `Customer picks 1 from ${pizzaGroupName} · 2 items`,
+          `Customer picks 1 from ${pizzaGroupName} · 2 items`,
+        ]);
         await create.setAmount("Combo price", "19.99");
         await create.setName(name);
         await create.turnOnDealWhenSlotFree(() =>
@@ -1296,7 +1326,7 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
   }) => {
     test.setTimeout(SCENARIO_TEST_TIMEOUT_MS);
     await allure.description(
-      "Build: Combo price → Sub + Cola with 'Let customers pick a different item here' adding Lemonade and Iced Tea, $9.99, Save and turn on. Read back: the two lines with exactly the three drinks. Then Lemonade goes out of stock on the menu (PATCH availability, as the owner's menu toggle does). Edit: price → $10.49 (the deal still saves; the stored line keeps all three). The public v2 deal list then offers only Cola and Iced Tea, and lima + wind show only those two (both pickable, no Lemonade card). Sub + Iced Tea → deal $10.49, no upgrades, You're saving = $11.50 − $10.49."
+      "Build: Combo price → Sub + Cola with '+ Add an option' adding Lemonade and Iced Tea, $9.99, Save and turn on. Read back: the two lines with exactly the three drinks. Then Lemonade goes out of stock on the menu (PATCH availability, as the owner's menu toggle does). Edit: price → $10.49 (the deal still saves; the stored line keeps all three). The public v2 deal list then offers only Cola and Iced Tea, and lima + wind show only those two (both pickable, no Lemonade card). Sub + Iced Tea → deal $10.49, no upgrades, You're saving = $11.50 − $10.49."
     );
     const name = promoName("Sub combo");
     const group = "What's in the combo?";
@@ -1382,8 +1412,7 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
             );
           await expect(deals.choiceCard(0, lemonade.name)).toHaveCount(0);
           await deals.pickChoice(0, icedTea.name);
-          await deals.openIncompleteSlot(sub.name);
-          await deals.clickAddToDeal();
+          await deals.completeFixedSteps();
           await limaKeepShoppingToCheckout(page, quotes, name, want, bugs);
         }
       );
@@ -1395,15 +1424,16 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
           await expect(deals.choiceSlots()).toHaveCount(1);
           for (const d of [cola, icedTea]) {
             await expect(deals.choiceCard(0, d.name)).toBeVisible();
-            await expect(deals.choiceCard(0, d.name)).not.toHaveAttribute(
+            // Wind's option radios carry an explicit aria-disabled.
+            await expect(deals.choiceCard(0, d.name)).toHaveAttribute(
               "aria-disabled",
-              "true"
+              "false",
+              { timeout: 15_000 }
             );
           }
           await expect(deals.choiceCard(0, lemonade.name)).toHaveCount(0);
           await deals.pickChoice(0, icedTea.name);
-          await deals.openIncompleteSlot(sub.name);
-          await deals.clickAddToDeal();
+          await deals.completeFixedSteps();
           await windKeepShoppingToCheckout(page, quotes, name, want, bugs);
         }
       );
@@ -1589,20 +1619,14 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
         await expect(page.getByTestId("deal-availability-label")).toHaveCount(
           0
         );
-        for (const it of [riceBowl, fries]) {
-          await deals.openIncompleteSlot(it.name);
-          await deals.clickAddToDeal();
-        }
+        await deals.completeFixedSteps();
         await limaKeepShoppingToCheckout(page, quotes, name, want, bugs);
       });
 
       await allure.step("wind: offered today → checkout", async () => {
         const deals = await windOpenDeal(page, name);
         await expect(deals.builderAvailabilityLabel()).toHaveCount(0);
-        for (const it of [riceBowl, fries]) {
-          await deals.openIncompleteSlot(it.name);
-          await deals.clickAddToDeal();
-        }
+        await deals.completeFixedSteps();
         await windKeepShoppingToCheckout(page, quotes, name, want, bugs);
       });
       reportBugs(bugs);
@@ -1738,10 +1762,7 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
 
       await allure.step("location A on wind → checkout", async () => {
         const deals = await windOpenDeal(page, name, locA);
-        for (const it of [wrap, drink]) {
-          await deals.openIncompleteSlot(it.name);
-          await deals.clickAddToDeal();
-        }
+        await deals.completeFixedSteps();
         await windKeepShoppingToCheckout(page, quotes, name, want, bugs);
       });
 
@@ -1753,10 +1774,7 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
         const restore = await publishTemporarily(adminToken(), locA);
         try {
           const deals = await limaOpenDeal(page, name, chainSlug, locAName);
-          for (const it of [wrap, drink]) {
-            await deals.openIncompleteSlot(it.name);
-            await deals.clickAddToDeal();
-          }
+          await deals.completeFixedSteps();
           await limaKeepShoppingToCheckout(
             page,
             quotes,
