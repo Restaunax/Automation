@@ -58,6 +58,7 @@ import {
 import { STRIPE_CARDS } from "../../utils/stripeCards";
 import { fillStripePaymentElement } from "../../utils/stripeHelper";
 import {
+  LIMA_ORDERING_URL,
   generateRunId,
   generateSeedPhone,
   generateUserEmail,
@@ -548,5 +549,98 @@ test.describe("Lima — Promotions", () => {
     expect(order.data.couponId).toBe(set.orderCode.id);
     expect(order.data.discountAmount).toBe(quoted.appliedPromotion!.savings);
     expect(order.data.total).toBe(payTotal);
+  });
+
+  test("TC-890: an incomplete deal never reaches the Lima cart — Add with a step unpicked points at the first missing step and adds nothing, leaving mid-build leaves no partial deal, and the complete deal is added once", async ({
+    page,
+  }) => {
+    await allure.description(
+      "Guided deal choices (spec §5): the deal page adds ONE complete deal with one Add. Opening the deal adds nothing; " +
+        "an Add with nothing picked, and again with only some steps picked, shows 'Pick one to continue.' (role=alert) in the " +
+        "first unfinished step (status 'Required', the step root focused) and the cart stays empty; walking away mid-build " +
+        "leaves no partial deal in the cart; after picking every step one Add puts exactly one complete deal in the cart."
+    );
+    await withStorefrontBogo(dealCtx(), async (bogo) => {
+      const lima = createLimaStorefrontPage(page);
+      const deals = createLimaDealPage(page);
+      const { gyroA, gyroB } = set.items;
+
+      const assertCartEmpty = async () => {
+        await page.goto(`${LIMA_ORDERING_URL}/${restaurantSlug}/cart`, {
+          waitUntil: "domcontentloaded",
+        });
+        await expect(
+          page.getByRole("heading", { name: "Your Cart is Empty" })
+        ).toBeVisible({ timeout: 15_000 });
+        await expect(lima.cartButton()).toHaveAccessibleName(/with 0 items/i);
+        await expect(page.getByText(bogo.name)).toHaveCount(0);
+        await expect(page.getByText("Add items to activate")).toHaveCount(0);
+      };
+
+      await allure.step(
+        "Add with nothing picked: nothing is added",
+        async () => {
+          await deals.gotoBuilder(restaurantSlug, bogo.dealId);
+          await expect(deals.builderHeading(bogo.name)).toBeVisible({
+            timeout: 20_000,
+          });
+          await expect(deals.stepStatus(0)).toHaveText("Required");
+          await deals.assertStepsDone(0, 2);
+          await deals.addDealToCartButton().click();
+          await expect(deals.stepError(0)).toHaveText("Pick one to continue.");
+          await expect(deals.stepStatus(0)).toHaveText("Required");
+          // Lima focuses the step's root.
+          await expect(deals.choiceSlots().first()).toBeFocused();
+          await expect(deals.keepShoppingButton()).toHaveCount(0);
+        }
+      );
+
+      await allure.step("the cart is empty", assertCartEmpty);
+
+      await allure.step(
+        "Add with one step left: still nothing, the message moves to it",
+        async () => {
+          await deals.gotoBuilder(restaurantSlug, bogo.dealId);
+          await expect(deals.builderHeading(bogo.name)).toBeVisible({
+            timeout: 20_000,
+          });
+          await deals.pickChoice(0, gyroA.name);
+          await deals.assertStepsDone(1, 2);
+          await deals.addDealToCartButton().click();
+          await expect(deals.stepError(1)).toHaveText("Pick one to continue.");
+          await expect(deals.stepStatus(1)).toHaveText("Required");
+          await expect(deals.stepStatus(0)).toHaveText("✓ Done");
+          await expect(deals.choiceSlots().nth(1)).toBeFocused();
+          await expect(deals.keepShoppingButton()).toHaveCount(0);
+        }
+      );
+
+      await allure.step(
+        "leaving the page mid-build leaves no partial deal in the cart",
+        async () => {
+          await lima.gotoMenu(restaurantSlug);
+          await assertCartEmpty();
+        }
+      );
+
+      await allure.step("complete it: one Add, one complete deal", async () => {
+        await deals.gotoBuilder(restaurantSlug, bogo.dealId);
+        await expect(deals.builderHeading(bogo.name)).toBeVisible({
+          timeout: 20_000,
+        });
+        await deals.pickChoice(0, gyroA.name);
+        await deals.pickChoice(1, gyroB.name);
+        await deals.assertDealComplete();
+        await deals.addDealToCart();
+        await deals.viewCartButton().click();
+        await expect(page).toHaveURL(new RegExp(`/${restaurantSlug}/cart`), {
+          timeout: 15_000,
+        });
+        await expect(page.getByText(bogo.name).first()).toBeVisible({
+          timeout: 15_000,
+        });
+        await expect(page.getByText("Add items to activate")).toHaveCount(0);
+      });
+    });
   });
 });

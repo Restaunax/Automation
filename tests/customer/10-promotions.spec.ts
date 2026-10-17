@@ -623,4 +623,88 @@ test.describe("Storefront — Promotions (template-wind)", () => {
     expect(order.data.discountAmount).toBe(quoted.appliedPromotion!.savings);
     expect(order.data.total).toBe(payTotal);
   });
+
+  test("TC-891: an incomplete deal never reaches the wind cart — Add with a step unpicked points at the first missing step and adds nothing, leaving mid-build leaves no partial deal, and the complete deal is added once", async ({
+    page,
+  }) => {
+    await allure.description(
+      "Guided deal choices (spec §5) on template-wind: opening the deal adds nothing (the old page auto-added it); an Add " +
+        "with nothing picked, and again with only some steps picked, shows 'Pick one to continue.' (role=alert) in the " +
+        "first unfinished step (status 'Required') and adds nothing; checkout then has no deal and no " +
+        "'Complete Deals to Continue'; walking away mid-build leaves no partial deal; after every step is picked one Add " +
+        "puts the complete deal in the cart. Focus is not asserted (wind focuses the step's control)."
+    );
+    await withStorefrontBogo(dealCtx(), async (bogo) => {
+      const deals = createCustomerDealPage(page);
+      const checkout = createCustomerCheckoutPage(page);
+      const { gyroA, gyroB } = set.items;
+
+      const assertCartEmpty = async () => {
+        await checkout.gotoCheckoutEmpty(restaurantId);
+        await checkout.assertEmptyCart();
+        await expect(
+          page.getByRole("button", { name: "Complete Deals to Continue" })
+        ).toHaveCount(0);
+        await expect(deals.dealSummaryRow(bogo.name)).toHaveCount(0);
+      };
+
+      await allure.step(
+        "Add with nothing picked: nothing is added",
+        async () => {
+          await deals.gotoBuilder(restaurantId, bogo.dealId);
+          await expect(deals.builderHeading(bogo.name)).toBeVisible({
+            timeout: 20_000,
+          });
+          await expect(deals.stepStatus(0)).toHaveText("Required");
+          await deals.addDealToCartButton().click();
+          await expect(deals.stepError(0)).toHaveText("Pick one to continue.");
+          await expect(deals.stepStatus(0)).toHaveText("Required");
+          await expect(deals.keepShoppingButton()).toHaveCount(0);
+        }
+      );
+
+      await allure.step("the cart is empty", assertCartEmpty);
+
+      await allure.step(
+        "Add with one step left: still nothing, the message moves to it",
+        async () => {
+          await deals.gotoBuilder(restaurantId, bogo.dealId);
+          await expect(deals.builderHeading(bogo.name)).toBeVisible({
+            timeout: 20_000,
+          });
+          await deals.pickChoice(0, gyroA.name);
+          await deals.addDealToCartButton().click();
+          await expect(deals.stepError(1)).toHaveText("Pick one to continue.");
+          await expect(deals.stepStatus(1)).toHaveText("Required");
+          await expect(deals.stepStatus(0)).toHaveText("✓ Done");
+          await expect(deals.keepShoppingButton()).toHaveCount(0);
+        }
+      );
+
+      await allure.step(
+        "leaving the page mid-build leaves no partial deal in the cart",
+        assertCartEmpty
+      );
+
+      await allure.step(
+        "complete it: one Add, the deal is in the cart",
+        async () => {
+          await deals.gotoBuilder(restaurantId, bogo.dealId);
+          await expect(deals.builderHeading(bogo.name)).toBeVisible({
+            timeout: 20_000,
+          });
+          await deals.pickChoice(0, gyroA.name);
+          await deals.pickChoice(1, gyroB.name);
+          await deals.assertDealComplete();
+          await deals.addDealToCart();
+          await deals.viewCartButton().click();
+          await expect(page).toHaveURL(/\/checkout/, { timeout: 15_000 });
+          await expect(deals.dealSummaryRow(bogo.name)).toBeVisible({
+            timeout: 15_000,
+          });
+          await expect(deals.completeDealsToContinueButton()).toHaveCount(0);
+        }
+      );
+    });
+  });
 });
