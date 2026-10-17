@@ -238,6 +238,8 @@ test.describe("Lima — deals", () => {
   test("TC-893: Lima — a combo with 2 of the same item that has options is ONE '2 × <item>' step with a Customize row per unit — customising Burger 2 leaves Burger 1 on its defaults, an Add with Burger 2's required options missing is refused, and the quote carries one line per unit", async ({
     page,
   }) => {
+    // createDealApiCapSafe may wait for a free deal slot (CAP_WAIT_MS).
+    test.setTimeout(DEAL_SLOT_TEST_TIMEOUT_MS);
     await allure.description(
       "Spec §13 on template-lima. Combo @ $30 = 2 × Lima Units Burger ($10, optional 'Bacon' +$1.50) + 2 × " +
         "Lima Units Melt ($8, REQUIRED 'Sauce': Ranch $0 / Chipotle +$0.75); the backend stores four " +
