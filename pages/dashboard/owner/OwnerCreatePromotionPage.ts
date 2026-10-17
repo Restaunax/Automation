@@ -242,12 +242,33 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
       await box.fill(item);
       await page.getByRole("option", { name: startsWith(item) }).click();
     };
+    /**
+     * A pick from the slot's main search must add a line. Right after the
+     * type card is chosen the form is still loading the menu: when it lands,
+     * the example cards above re-render taller and shift the page, so a click
+     * aimed at the open option can hit the shifted layout instead and add
+     * nothing (seen on QA under 3 workers, TC-862). Confirm the pick landed
+     * — a list slot gained a line, or a one-item slot replaced its search
+     * with the pick — and only if it did not, pick again.
+     */
+    const pickLine = async (item: string) => {
+      const before = (await lineNames(slotLabel)).length;
+      const landed = async () =>
+        (await lineNames(slotLabel)).length > before ||
+        !(await search.isVisible());
+      await expect(async () => {
+        // A previous attempt's pick may have rendered after its check.
+        if (await landed()) return;
+        await pickIn(search, item);
+        expect(await landed(), `${item} picked in ${slotLabel}`).toBe(true);
+      }).toPass({ timeout: 20_000 });
+    };
     if (!opts.choice) {
-      for (const item of items) await pickIn(search, item);
+      for (const item of items) await pickLine(item);
       return;
     }
     const [first = "", ...rest] = items;
-    await pickIn(search, first);
+    await pickLine(first);
     await group
       .getByRole("button", { name: /^Add an option to line \d+$/ })
       .last()

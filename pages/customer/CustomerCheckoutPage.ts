@@ -538,10 +538,21 @@ export const createCustomerCheckoutPage = (page: Page) => {
     maxDates = 3
   ): Promise<string | null> => {
     if (!(await scheduledOption().isChecked())) await scheduledOption().check();
+    // The date and time lists fill in after the page computes the slots;
+    // reading them on the first frame can see only the placeholder. Wait for
+    // a real option (bounded) — a store with no slot at all stays empty.
+    const firstReal = (select: ReturnType<typeof page.locator>) =>
+      select
+        .locator('option:not([value=""])')
+        .first()
+        .waitFor({ state: "attached", timeout: 15_000 })
+        .catch(() => {});
+    await firstReal(scheduleDateSelect());
     const dates = (await optionValues(scheduleDateSelect())).slice(0, maxDates);
     for (const date of dates) {
       await scheduleDateSelect().selectOption(date);
       await expect(scheduleTimeSelect()).toBeEnabled();
+      await firstReal(scheduleTimeSelect());
       const hit = (await optionValues(scheduleTimeSelect())).find(accept);
       if (hit) {
         await scheduleTimeSelect().selectOption(hit);

@@ -121,8 +121,9 @@ export const createCustomerDealPage = (page: Page) => {
     choiceSlots().nth(slot).getByRole("alert");
   const allFixedSteps = (): Locator => page.getByTestId("deal-fixed-step");
   /**
-   * Fixed-item steps for an item (a fixed line of 2 is ONE step headed
-   * "2 × <item>"; the same item on two lines is two steps).
+   * Fixed-item steps for an item. The backend persists every DealItem at
+   * quantity 1, so "2 of <item>" arrives as two rows = two steps headed
+   * "<item>"; only a legacy row with quantity > 1 is ONE step "2 × <item>".
    */
   const fixedSteps = (itemName: string): Locator =>
     allFixedSteps().filter({
@@ -350,6 +351,7 @@ export const createCustomerDealPage = (page: Page) => {
     choiceCard,
     stepStatus,
     stepError,
+    allFixedSteps,
     fixedSteps,
     doneButton,
     addToDealButton: doneButton,
