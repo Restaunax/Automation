@@ -29,6 +29,19 @@ import { TEMPLATE_WIND_URL } from "../../utils/testData";
  *   An item with options shows data-testid="deal-step-customize" ("Choose
  *   options" when required, else "Customize"); the ItemModal's
  *   data-testid="add-to-cart" reads "Done" and adds nothing to the cart.
+ *   Identical fixed items next to each other in the same role are ONE step
+ *   "{qty} × {name}" (spec §13 — the server stores "2 burgers" as two
+ *   DealItem rows). When that item has options the step lists one row per
+ *   unit instead of a step-level Customize: data-testid="deal-unit-rows"
+ *   (ul) → "deal-unit-row" (li, data-unit-key="<dealItemId>:<i>") with
+ *   "deal-unit-label" ("Burger 2"), "deal-unit-options" (option names;
+ *   absent while unchanged or still needed), "deal-unit-price" ("+$1.50" /
+ *   "Included") and "deal-unit-customize" (button "Customize" / "Choose
+ *   options", accessible name "Customize Burger 2" / "Choose options for
+ *   Burger 2"; not rendered while the item is sold out). An item without
+ *   options has no rows. An Add with a unit's required options missing
+ *   says "Choose options for Burger 2" (deal-step-error) and focuses that
+ *   unit's button.
  *   Sticky bar (DealStepsBar): deal-progress ("{x} of {y} steps done" → "All
  *   set"), deal-bar-price, deal-add-to-cart ("Add deal to cart · $x") — the
  *   only way into the cart. An incomplete Add shows role="alert" "Pick one
@@ -121,17 +134,71 @@ export const createCustomerDealPage = (page: Page) => {
     choiceSlots().nth(slot).getByRole("alert");
   const allFixedSteps = (): Locator => page.getByTestId("deal-fixed-step");
   /**
-   * Fixed-item steps for an item. The backend persists every DealItem at
-   * quantity 1, so "2 of <item>" arrives as two rows = two steps headed
-   * "<item>"; only a legacy row with quantity > 1 is ONE step "2 × <item>".
+   * Fixed-item steps for an item, by their heading: "<item>", or
+   * "{qty} × <item>" for identical units grouped into one step (spec §13 —
+   * the backend stores "2 of <item>" as two quantity-1 rows, and the page
+   * shows them as ONE step "2 × <item>").
    */
   const fixedSteps = (itemName: string): Locator =>
     allFixedSteps().filter({
-      has: page.getByText(itemName, { exact: true }),
+      has: page.getByRole("heading", {
+        name: new RegExp(`^(\\d+ × )?${escapeRe(itemName)}$`),
+      }),
     });
   /** A step's "Choose options" (the item needs options) / "Customize" button. */
   const customizeButton = (step: Locator): Locator =>
     step.getByTestId("deal-step-customize");
+  /** Any options button on a step: the step's own, or a unit row's. */
+  const anyCustomizeButton = (): Locator =>
+    page.locator(
+      '[data-testid="deal-step-customize"], [data-testid="deal-unit-customize"]'
+    );
+
+  // ── "{qty} × {name}" steps: one row per unit (spec §13) ────────────────
+  /** A step (pick or fixed) by its exact heading, e.g. "2 × Burger". */
+  const stepByHeading = (heading: string): Locator =>
+    slotCardHooks().and(
+      page.getByRole("group", { name: heading, exact: true })
+    );
+  /** The role="alert" of a step after an incomplete Add ("Choose options for Burger 2"). */
+  const stepAlert = (heading: string): Locator =>
+    stepByHeading(heading).getByRole("alert");
+  /** The unit rows of a "{qty} × {name}" step (none when the item has no options). */
+  const unitRows = (stepHeading: string): Locator =>
+    stepByHeading(stepHeading).getByTestId("deal-unit-row");
+  /** Unit `unit` (1-based — the n of its "<item> n" label) of a step. */
+  const unitRow = (stepHeading: string, unit: number): Locator =>
+    unitRows(stepHeading).nth(unit - 1);
+  /** A unit row by its data-unit-key ("<dealItemId>:<i>"). */
+  const unitRowByKey = (unitKey: string): Locator =>
+    page
+      .getByTestId("deal-unit-row")
+      .and(page.locator(`[data-unit-key="${unitKey}"]`));
+  /** "<item> n". */
+  const unitLabel = (stepHeading: string, unit: number): Locator =>
+    unitRow(stepHeading, unit).getByTestId("deal-unit-label");
+  /** The unit's option names (absent while unchanged, or while still needed). */
+  const unitOptions = (stepHeading: string, unit: number): Locator =>
+    unitRow(stepHeading, unit).getByTestId("deal-unit-options");
+  /** "+$1.50", or "Included" while the unit's options add nothing. */
+  const unitPrice = (stepHeading: string, unit: number): Locator =>
+    unitRow(stepHeading, unit).getByTestId("deal-unit-price");
+  /** The unit's "Customize" / "Choose options" button. */
+  const unitCustomizeButton = (stepHeading: string, unit: number): Locator =>
+    unitRow(stepHeading, unit).getByTestId("deal-unit-customize");
+  /** The unit's option names, or null when the row shows none. */
+  const readUnitOptions = async (
+    stepHeading: string,
+    unit: number
+  ): Promise<string | null> => {
+    const el = unitOptions(stepHeading, unit);
+    return (await el.count()) > 0 ? (await el.innerText()).trim() : null;
+  };
+  /** The unit's price label ("Included" / "+$1.50"). */
+  const readUnitPrice = async (
+    stepHeading: string,
+    unit: number
+  ): Promise<string> => (await unitPrice(stepHeading, unit).innerText()).trim();
 
   /**
    * The steps are rendered and the menus are in: every fixed item has its
@@ -147,7 +214,7 @@ export const createCustomerDealPage = (page: Page) => {
         .filter({
           has: page.getByTestId("deal-step-status").getByText("Required"),
         })
-        .filter({ hasNot: page.getByTestId("deal-step-customize") })
+        .filter({ hasNot: anyCustomizeButton() })
     ).toHaveCount(0, { timeout: 15_000 });
   };
 
@@ -213,21 +280,53 @@ export const createCustomerDealPage = (page: Page) => {
     const step = fixedSteps(itemName).first();
     await expect(step).toBeVisible({ timeout: 15_000 });
     const button = customizeButton(step);
-    if ((await button.count()) === 0) return;
+    if ((await button.count()) === 0) {
+      // A "{qty} × {name}" step with options has a button per unit, never
+      // one for the step: say so rather than silently skip the options.
+      if ((await step.getByTestId("deal-unit-row").count()) > 0)
+        throw new Error(
+          `"${itemName}" is a "{qty} × {name}" step with one row per unit — use customizeUnit(heading, n)`
+        );
+      return;
+    }
     await button.click();
     modalExpected = true;
   };
 
-  /** Every fixed item that still needs options: open it and confirm its defaults with Done. */
+  /**
+   * Customise ONE unit of a "{qty} × {name}" step: its row's button opens the
+   * item modal for that unit only. `customize` (tick an extra, pick a
+   * required option, …) runs with the modal open, then Done; without it the
+   * modal stays open for the caller (follow with clickAddToDeal).
+   */
+  const customizeUnit = async (
+    stepHeading: string,
+    unit: number,
+    customize?: () => Promise<void>
+  ) => {
+    await waitForSteps();
+    const button = unitCustomizeButton(stepHeading, unit);
+    await expect(button).toBeEnabled({ timeout: 15_000 });
+    await button.click();
+    modalExpected = true;
+    await expect(doneButton()).toBeVisible({ timeout: 15_000 });
+    if (customize) {
+      await customize();
+      await clickAddToDeal();
+    }
+  };
+
+  /**
+   * Every fixed item (or unit of a "{qty} × {name}" step) that still needs
+   * options: open it and confirm its defaults with Done.
+   */
   const completeFixedSteps = async () => {
     await waitForSteps();
-    const pending = allFixedSteps().filter({
-      has: page.getByTestId("deal-step-customize").filter({
-        hasText: /^Choose options$/,
-      }),
-    });
+    const pending = allFixedSteps()
+      .locator(anyCustomizeButton())
+      .filter({ hasText: /^Choose options$/ });
     for (let guard = 0; guard < 10 && (await pending.count()) > 0; guard++) {
-      await customizeButton(pending.first()).click();
+      await pending.first().click();
       modalExpected = true;
       await clickAddToDeal();
     }
@@ -353,6 +452,18 @@ export const createCustomerDealPage = (page: Page) => {
     stepError,
     allFixedSteps,
     fixedSteps,
+    stepByHeading,
+    stepAlert,
+    unitRows,
+    unitRow,
+    unitRowByKey,
+    unitLabel,
+    unitOptions,
+    unitPrice,
+    unitCustomizeButton,
+    readUnitOptions,
+    readUnitPrice,
+    customizeUnit,
     doneButton,
     addToDealButton: doneButton,
     clickAddToDeal,
