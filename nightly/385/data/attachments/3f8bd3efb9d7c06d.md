@@ -1,0 +1,438 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: dashboard/owner/18-tables-floor.spec.ts >> Owner — Tables & Floor >> TC-437: inspector — select the placed table on a fresh load, change capacity + bookable, Save details; API confirms
+- Location: tests/dashboard/owner/18-tables-floor.spec.ts:299:7
+
+# Error details
+
+```
+TimeoutError: locator.click: Timeout 15000ms exceeded.
+Call log:
+  - waiting for getByRole('tab', { name: 'Main 03e9a43c', exact: true })
+
+```
+
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - generic [ref=e4]:
+    - banner [ref=e5]:
+      - generic [ref=e8]:
+        - generic [ref=e10]:
+          - generic [ref=e11]:
+            - img [ref=e12]
+            - generic [ref=e14]: LOCATION
+          - generic [ref=e15]: Automation Owner2 Store 03e9a43c — Miami — Tables & Floor
+        - generic [ref=e17]:
+          - generic [ref=e19]:
+            - img [ref=e20]
+            - generic [ref=e22]:
+              - paragraph [ref=e23]: Automation Owner2 Store 03e9a43c
+              - generic [ref=e24]: Miami, FL
+          - button "Account settings" [ref=e26] [cursor=pointer]:
+            - generic [ref=e27]: A
+          - button "Select Language" [ref=e29] [cursor=pointer]:
+            - img [ref=e31]
+            - text: EN
+          - button [ref=e37] [cursor=pointer]:
+            - img [ref=e38]
+    - navigation "mailbox folders" [ref=e40]:
+      - generic [ref=e42]:
+        - button "Collapse sidebar" [ref=e44] [cursor=pointer]:
+          - img [ref=e45]
+        - generic [ref=e48]:
+          - button "Analytics" [ref=e49] [cursor=pointer]:
+            - img [ref=e51]
+            - paragraph [ref=e53]: Analytics
+          - button "Orders" [ref=e54] [cursor=pointer]:
+            - img [ref=e56]
+            - paragraph [ref=e58]: Orders
+          - button "Menu" [ref=e59] [cursor=pointer]:
+            - img [ref=e61]
+            - paragraph [ref=e63]: Menu
+          - button "Customers" [ref=e64] [cursor=pointer]:
+            - img [ref=e66]
+            - paragraph [ref=e68]: Customers
+          - button "Billing" [ref=e69] [cursor=pointer]:
+            - img [ref=e71]
+            - paragraph [ref=e73]: Billing
+          - button "Image Library" [ref=e74] [cursor=pointer]:
+            - img [ref=e76]
+            - paragraph [ref=e78]: Image Library
+          - button "Store Settings" [ref=e79] [cursor=pointer]:
+            - img [ref=e81]
+            - paragraph [ref=e83]: Store Settings
+          - button "Store Operations" [ref=e85] [cursor=pointer]:
+            - img [ref=e87]
+            - paragraph [ref=e89]: Store Operations
+            - img [ref=e91]
+          - button "Job Applications" [ref=e93] [cursor=pointer]:
+            - img [ref=e95]
+            - paragraph [ref=e97]: Job Applications
+          - button "Restaurant Staff" [ref=e98] [cursor=pointer]:
+            - img [ref=e100]
+            - paragraph [ref=e102]: Restaurant Staff
+          - button "Coupons" [ref=e104] [cursor=pointer]:
+            - img [ref=e106]
+            - paragraph [ref=e108]: Coupons
+            - img [ref=e110]
+          - button "Deals" [ref=e113] [cursor=pointer]:
+            - img [ref=e115]
+            - paragraph [ref=e117]: Deals
+            - img [ref=e119]
+          - button "Print Shop" [ref=e121] [cursor=pointer]:
+            - img [ref=e123]
+            - paragraph [ref=e125]: Print Shop
+        - button "Owner Settings" [ref=e128] [cursor=pointer]:
+          - img [ref=e130]
+          - paragraph [ref=e133]: Owner Settings
+    - main [ref=e134]:
+      - generic [ref=e136]:
+        - img [ref=e137]
+        - paragraph [ref=e139]:
+          - generic [ref=e140]: "Managing:"
+          - text: Automation Owner2 Store 03e9a43c
+      - generic [ref=e142]:
+        - generic [ref=e143]:
+          - img [ref=e145]
+          - heading "Tables & Floor" [level=1] [ref=e147]
+        - generic [ref=e148]:
+          - group "Tables view" [ref=e149]:
+            - button "Floor plan" [pressed] [ref=e150] [cursor=pointer]:
+              - img [ref=e151]
+              - text: Floor plan
+            - button "Sections & tables" [ref=e153] [cursor=pointer]:
+              - img [ref=e154]
+              - text: Sections & tables
+          - generic [ref=e157]:
+            - generic [ref=e158]:
+              - tablist [ref=e162]:
+                - tab "No section" [selected] [ref=e163] [cursor=pointer]
+              - button "Add section" [ref=e164] [cursor=pointer]:
+                - img [ref=e166]
+                - text: Add section
+            - generic "Floor plan canvas. Use arrow keys to move the selected tables; press ? for all shortcuts." [ref=e169]:
+              - generic "Horizontal ruler" [ref=e171]:
+                - img [ref=e172]:
+                  - generic [ref=e175]: "0"
+                  - generic [ref=e177]: "250"
+                  - generic [ref=e179]: "500"
+                  - generic [ref=e181]: "750"
+                  - generic [ref=e183]: "1000"
+                  - generic [ref=e185]: "1250"
+                  - generic [ref=e187]: "1500"
+                  - generic [ref=e189]: "1750"
+                  - generic [ref=e191]: "2000"
+              - generic "Vertical ruler" [ref=e192]:
+                - img [ref=e193]:
+                  - generic [ref=e196]: "0"
+                  - generic [ref=e198]: "250"
+                  - generic [ref=e200]: "500"
+                  - generic [ref=e202]: "750"
+                  - generic [ref=e204]: "1000"
+              - generic [ref=e205]:
+                - generic [ref=e206]:
+                  - button "Zoom out" [ref=e207] [cursor=pointer]:
+                    - img [ref=e208]
+                  - button "Zoom to 100%" [ref=e210] [cursor=pointer]: 25%
+                  - button "Zoom in" [ref=e211] [cursor=pointer]:
+                    - img [ref=e212]
+                  - button "Fit to screen" [ref=e215] [cursor=pointer]:
+                    - img [ref=e216]
+                - generic:
+                  - generic [ref=e218]:
+                    - generic "Undo (Ctrl+Z)" [ref=e219]:
+                      - button "Undo (Ctrl+Z)" [disabled]:
+                        - img
+                    - generic "Redo (Shift+Ctrl+Z)" [ref=e220]:
+                      - button "Redo (Shift+Ctrl+Z)" [disabled]:
+                        - img
+                    - separator [ref=e221]
+                    - button "Rulers" [pressed] [ref=e222] [cursor=pointer]:
+                      - img [ref=e223]
+                    - button "Grid" [pressed] [ref=e225] [cursor=pointer]:
+                      - img [ref=e226]
+                    - button "Snap to grid" [pressed] [ref=e228] [cursor=pointer]:
+                      - img [ref=e229]
+                    - button "Smart guides" [pressed] [ref=e231] [cursor=pointer]:
+                      - img [ref=e232]
+                    - button "Seats" [ref=e234] [cursor=pointer]:
+                      - img [ref=e235]
+                    - separator [ref=e237]
+                    - button "Keyboard shortcuts" [ref=e238] [cursor=pointer]:
+                      - img [ref=e239]
+                    - button "Full screen" [ref=e241] [cursor=pointer]:
+                      - img [ref=e242]
+                  - generic [ref=e244]:
+                    - generic [ref=e245]:
+                      - heading "Add table" [level=6] [ref=e246]
+                      - button "Hide panel" [ref=e247] [cursor=pointer]:
+                        - img [ref=e248]
+                    - generic [ref=e250]:
+                      - button "Add Table, 2 seats" [ref=e251]:
+                        - img [ref=e252]
+                        - generic [ref=e256]: 2 seats
+                      - button "Add Round table, 2 seats" [ref=e257]:
+                        - img [ref=e258]
+                        - generic [ref=e262]: 2 seats
+                      - button "Add Table, 4 seats" [ref=e263]:
+                        - img [ref=e264]
+                        - generic [ref=e270]: 4 seats
+                      - button "Add Round table, 4 seats" [ref=e271]:
+                        - img [ref=e272]
+                        - generic [ref=e278]: 4 seats
+                      - button "Add Table, 6 seats" [ref=e279]:
+                        - img [ref=e280]
+                        - generic [ref=e288]: 6 seats
+                      - button "Add Round table, 6 seats" [ref=e289]:
+                        - img [ref=e290]
+                        - generic [ref=e298]: 6 seats
+                      - button "Add Table, 8 seats" [ref=e299]:
+                        - img [ref=e300]
+                        - generic [ref=e310]: 8 seats
+                      - button "Add Round table, 8 seats" [ref=e311]:
+                        - img [ref=e312]
+                        - generic [ref=e322]: 8 seats
+                    - button "All tables" [ref=e323] [cursor=pointer]:
+                      - img [ref=e325]
+                      - generic [ref=e327]: All tables
+                - generic [ref=e329]:
+                  - img [ref=e331]
+                  - generic [ref=e333]:
+                    - heading "Set up your floor plan" [level=6] [ref=e334]
+                    - paragraph [ref=e335]: "Sections are the rooms of your restaurant: main dining room, patio, bar. Create one, then add its tables."
+                  - list [ref=e336]:
+                    - listitem [ref=e337]:
+                      - generic [ref=e338]: "1"
+                      - paragraph [ref=e339]: Create a section
+                    - listitem [ref=e340]:
+                      - generic [ref=e341]: "2"
+                      - paragraph [ref=e342]: Add tables from the panel on the left
+                    - listitem [ref=e343]:
+                      - generic [ref=e344]: "3"
+                      - paragraph [ref=e345]: Drag them into place and save the layout
+                  - generic [ref=e346]:
+                    - button "Create \"Main dining room\"" [ref=e347] [cursor=pointer]:
+                      - img [ref=e349]
+                      - text: Create "Main dining room"
+                    - button "Name it yourself" [ref=e351] [cursor=pointer]
+                  - generic [ref=e352]:
+                    - img [ref=e353]
+                    - generic [ref=e355]: Only one room? You can also add tables straight to "No section" from the panel on the left.
+  - button "Open chat" [ref=e363] [cursor=pointer]:
+    - img [ref=e364]
+```
+
+# Test source
+
+```ts
+  203 | 
+  204 |     const t1Res = await floorPage.createTable(table1, { sectionName });
+  205 |     expect(t1Res.status()).toBe(201);
+  206 |     const t2Res = await floorPage.createTable(table2, { sectionName });
+  207 |     expect(t2Res.status()).toBe(201);
+  208 | 
+  209 |     await expect(floorPage.tableRow(table1)).toBeVisible({ timeout: 10_000 });
+  210 |     await expect(floorPage.tableRow(table2)).toBeVisible();
+  211 |     // TablesListPanel groups by section — its own subtitle heading for the
+  212 |     // group repeats the section's name above that section's table.
+  213 |     await expect(
+  214 |       session.page.getByText(sectionName, { exact: true }).first()
+  215 |     ).toBeVisible();
+  216 | 
+  217 |     const list = unwrap(await listTablesOwnerRaw(ownerToken, restaurantId)) as {
+  218 |       tables: Record<string, unknown>[];
+  219 |     };
+  220 |     const row1 = list.tables.find((t) => t.name === table1);
+  221 |     const row2 = list.tables.find((t) => t.name === table2);
+  222 |     expect(row1?.sectionId).toBeTruthy();
+  223 |     expect(row1?.sectionId).toBe(row2?.sectionId);
+  224 |   });
+  225 | 
+  226 |   // ── Floor editor (Konva canvas) ──────────────────────────────────────────
+  227 | 
+  228 |   test("TC-436: floor editor — place T1 from the All tables browser, Save layout, reload → still placed", async () => {
+  229 |     await allure.description(
+  230 |       "Floor editor rework (2026-10-07): the Unplaced tray is gone — an " +
+  231 |         "unplaced table is placed by clicking it in the 'All tables' browser, " +
+  232 |         "which drops it at the nearest free spot to the visible centre and " +
+  233 |         "selects it. 'Save layout' sends PATCH .../tables/layout; after a " +
+  234 |         "reload the browser lists T1 as 'On floor' and the API carries real " +
+  235 |         "geometry at the default rectangle size."
+  236 |     );
+  237 |     await floorPage.gotoTab(restaurantId);
+  238 |     await floorPage.assertLoaded();
+  239 |     await floorPage.showView("floor");
+  240 |     await floorPage.sectionTab(sectionName).click();
+  241 |     await expect(await floorPage.openTablesBrowserRow(table1)).toContainText(
+  242 |       "Not placed"
+  243 |     );
+  244 | 
+  245 |     await floorPage.pickTableInBrowser(table1);
+  246 | 
+  247 |     await expect(floorPage.saveLayoutButton()).toBeVisible({ timeout: 5_000 });
+  248 |     const [saveRes] = await Promise.all([
+  249 |       session.page.waitForResponse(
+  250 |         (r) =>
+  251 |           /\/tables\/layout$/.test(r.url()) && r.request().method() === "PATCH",
+  252 |         { timeout: 15_000 }
+  253 |       ),
+  254 |       floorPage.saveLayoutButton().click(),
+  255 |     ]);
+  256 |     expect(saveRes.status()).toBe(200);
+  257 |     await expect(floorPage.saveLayoutButton()).toBeHidden({ timeout: 5_000 });
+  258 | 
+  259 |     await session.page.reload({ waitUntil: "domcontentloaded" });
+  260 |     await floorPage.assertLoaded();
+  261 |     await floorPage.sectionTab(sectionName).click();
+  262 |     await expect(await floorPage.openTablesBrowserRow(table1)).toContainText(
+  263 |       "On floor"
+  264 |     );
+  265 | 
+  266 |     const RECT = { width: 160, height: 100 }; // floorGeometry DEFAULT_RECT_SIZE
+  267 |     const list = unwrap(await listTablesOwnerRaw(ownerToken, restaurantId)) as {
+  268 |       tables: Record<string, unknown>[];
+  269 |     };
+  270 |     const row = list.tables.find((t) => t.name === table1) as
+  271 |       | {
+  272 |           geometry?: {
+  273 |             posX: number | null;
+  274 |             posY: number | null;
+  275 |             width: number | null;
+  276 |             height: number | null;
+  277 |             rotation: number;
+  278 |           };
+  279 |           shape?: string;
+  280 |         }
+  281 |       | undefined;
+  282 |     expect(row?.shape).toBe("RECTANGLE");
+  283 |     expect(row?.geometry).toMatchObject({
+  284 |       width: RECT.width,
+  285 |       height: RECT.height,
+  286 |       rotation: 0,
+  287 |     });
+  288 |     // Free-spot placement: exact coordinates depend on the viewport — assert
+  289 |     // the table landed on the 2000x1200 canvas, fully inside it.
+  290 |     const { posX, posY } = row!.geometry!;
+  291 |     expect(typeof posX).toBe("number");
+  292 |     expect(typeof posY).toBe("number");
+  293 |     expect(posX!).toBeGreaterThanOrEqual(0);
+  294 |     expect(posY!).toBeGreaterThanOrEqual(0);
+  295 |     expect(posX! + RECT.width).toBeLessThanOrEqual(2000);
+  296 |     expect(posY! + RECT.height).toBeLessThanOrEqual(1200);
+  297 |   });
+  298 | 
+  299 |   test("TC-437: inspector — select the placed table on a fresh load, change capacity + bookable, Save details; API confirms", async () => {
+  300 |     await floorPage.gotoTab(restaurantId);
+  301 |     await floorPage.assertLoaded();
+  302 |     await floorPage.showView("floor");
+> 303 |     await floorPage.sectionTab(sectionName).click();
+      |                                             ^ TimeoutError: locator.click: Timeout 15000ms exceeded.
+  304 |     await expect(floorPage.floorCanvas()).toBeVisible({ timeout: 10_000 });
+  305 | 
+  306 |     // A placed row in the browser selects the table and opens the inspector.
+  307 |     await floorPage.pickTableInBrowser(table1);
+  308 | 
+  309 |     await floorPage.floorTableCapacityInput().fill("6");
+  310 |     await floorPage.floorTableBookableSwitch().uncheck();
+  311 | 
+  312 |     const [res] = await Promise.all([
+  313 |       session.page.waitForResponse(
+  314 |         (r) =>
+  315 |           /\/tables\/[^/]+$/.test(r.url()) && r.request().method() === "PATCH",
+  316 |         { timeout: 15_000 }
+  317 |       ),
+  318 |       floorPage.floorDetailsSaveButton().click(),
+  319 |     ]);
+  320 |     expect(res.status()).toBe(200);
+  321 |     await expect(floorPage.snackbar("Table details saved.")).toBeVisible({
+  322 |       timeout: 5_000,
+  323 |     });
+  324 | 
+  325 |     const list = unwrap(await listTablesOwnerRaw(ownerToken, restaurantId)) as {
+  326 |       tables: Record<string, unknown>[];
+  327 |     };
+  328 |     const row = list.tables.find((t) => t.name === table1) as
+  329 |       | { capacity?: number; isBookable?: boolean }
+  330 |       | undefined;
+  331 |     expect(row?.capacity).toBe(6);
+  332 |     expect(row?.isBookable).toBe(false);
+  333 |   });
+  334 | 
+  335 |   // ── Merge + deactivate/delete ────────────────────────────────────────────
+  336 | 
+  337 |   test("TC-438: 'Merge into…' — an API-seeded junk table merges into T2 through the UI; list + API confirm", async () => {
+  338 |     const junkName = `Junk ${runId}`;
+  339 |     const junk = unwrap(
+  340 |       await createTableOwnerRaw(ownerToken, restaurantId, { name: junkName })
+  341 |     );
+  342 | 
+  343 |     await floorPage.gotoTab(restaurantId);
+  344 |     await floorPage.assertLoaded();
+  345 |     await floorPage.showView("manage");
+  346 |     await expect(floorPage.tableRow(junkName)).toBeVisible({ timeout: 10_000 });
+  347 | 
+  348 |     const mergeRes = await floorPage.mergeTableInto(junkName, table2);
+  349 |     expect(mergeRes.status()).toBe(200);
+  350 |     await expect(floorPage.snackbar("Table merged.")).toBeVisible({
+  351 |       timeout: 5_000,
+  352 |     });
+  353 |     await expect(floorPage.tableRow(junkName)).toHaveCount(0);
+  354 |     await expect(floorPage.tableRow(table2)).toBeVisible();
+  355 | 
+  356 |     const list = unwrap(await listTablesOwnerRaw(ownerToken, restaurantId)) as {
+  357 |       tables: Record<string, unknown>[];
+  358 |     };
+  359 |     expect(list.tables.some((t) => t.id === junk.id)).toBe(false);
+  360 |     expect(list.tables.some((t) => t.name === table2)).toBe(true);
+  361 |   });
+  362 | 
+  363 |   test("TC-439: deactivate then delete an API-seeded table via the row menu; list updates; API confirms isActive/absence", async () => {
+  364 |     const t4Name = `T4 ${runId}`;
+  365 |     const t4 = unwrap(
+  366 |       await createTableOwnerRaw(ownerToken, restaurantId, { name: t4Name })
+  367 |     );
+  368 | 
+  369 |     await floorPage.gotoTab(restaurantId);
+  370 |     await floorPage.assertLoaded();
+  371 |     await floorPage.showView("manage");
+  372 |     await expect(floorPage.tableRow(t4Name)).toBeVisible({ timeout: 10_000 });
+  373 | 
+  374 |     const deactivateRes = await floorPage.deactivateTableViaMenu(t4Name);
+  375 |     expect(deactivateRes.status()).toBe(200);
+  376 |     await expect(floorPage.tableRowStatusChip(t4Name)).toHaveText("Inactive");
+  377 | 
+  378 |     let list = unwrap(await listTablesOwnerRaw(ownerToken, restaurantId)) as {
+  379 |       tables: Record<string, unknown>[];
+  380 |     };
+  381 |     expect(
+  382 |       (list.tables.find((t) => t.id === t4.id) as { isActive?: boolean })
+  383 |         ?.isActive
+  384 |     ).toBe(false);
+  385 | 
+  386 |     const deleteRes = await floorPage.deleteTableViaMenu(t4Name);
+  387 |     expect(deleteRes.status()).toBe(200);
+  388 |     await expect(floorPage.tableRow(t4Name)).toHaveCount(0);
+  389 | 
+  390 |     list = unwrap(await listTablesOwnerRaw(ownerToken, restaurantId)) as {
+  391 |       tables: Record<string, unknown>[];
+  392 |     };
+  393 |     expect(list.tables.some((t) => t.id === t4.id)).toBe(false);
+  394 |   });
+  395 | 
+  396 |   // ── Floor editor rework (2026-10-07) ─────────────────────────────────────
+  397 | 
+  398 |   type OwnerTableRow = {
+  399 |     id: string;
+  400 |     name: string;
+  401 |     shape: string;
+  402 |     capacity: number | null;
+  403 |     sectionId: string | null;
+```

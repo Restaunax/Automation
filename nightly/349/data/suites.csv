@@ -1,0 +1,3 @@
+"DESCRIPTION","DURATION IN MS","NAME","PARENT SUITE","START TIME","STATUS","STOP TIME","SUB SUITE","SUITE","TEST CLASS","TEST METHOD"
+"","3583","TC-664: at 1024px the Staff tab bar reaches every tab and the page fits the screen","dashboard","2026-10-08","passed","2026-10-08","Owner — UX-audit fixes in the Staff area (UI)","","",""
+"","3529","TC-664: at 390px the Staff tab bar reaches every tab and the page fits the screen","dashboard","2026-10-08","passed","2026-10-08","Owner — UX-audit fixes in the Staff area (UI)","","",""
