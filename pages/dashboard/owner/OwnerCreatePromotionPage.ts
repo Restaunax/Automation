@@ -179,14 +179,40 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
   const choiceSearch = (group: Locator): Locator =>
     group.getByRole("combobox", { name: /^Search for a choice to add to / });
 
+  /** The combo editor's lines slot — the only picker that shows the group note (ruling F4). */
+  const COMBO_SLOT = "What's in the combo?";
+  const GROUP_NOTE =
+    "Same combo price. Extras like a bigger size still add on.";
+
+  /**
+   * A line's "+ Add an option" (accessible name "Add an option to line <n>",
+   * n = the line's 1-based position in the slot; item and "Customer picks 1"
+   * lines have one, category lines do not).
+   */
+  const addOptionButton = (slotLabel: string, n: number): Locator =>
+    slot(slotLabel).getByRole("button", {
+      name: `Add an option to line ${n}`,
+      exact: true,
+    });
+
+  /** "Customer picks 1" — the title of every 2+-item line in a combo / BOGO slot. */
+  const groupTitles = (slotLabel: string): Locator =>
+    slot(slotLabel).getByText("Customer picks 1", { exact: true });
+
+  /** The combo-only note under a "Customer picks 1" group. */
+  const groupNotes = (slotLabel: string): Locator =>
+    slot(slotLabel).getByText(GROUP_NOTE, { exact: true });
+
   /**
    * Picks menu items into a slot by searching each name (one combined search
-   * for items and categories). `choice: true` builds one choose-from line the
-   * way an owner does: the first item is picked in the slot search, then
-   * "Let customers pick a different item here" opens that line's choice
-   * search and every further item is picked there. Each pick applies at once;
-   * "Done" is NOT pressed (the owner may skip it), so a Save straight after
-   * must keep every choice.
+   * for items and categories). `choice: true` builds one "Customer picks 1"
+   * line the way an owner does: the first item is picked in the slot search
+   * (it becomes the LAST line), then that line's "+ Add an option" (named
+   * "Add an option to line <n>") opens its option search and every further
+   * item is picked there. Each pick applies at once; "Done" is NOT pressed
+   * (the owner may skip it), so a Save straight after must keep every option.
+   * The "Same combo price…" note is checked on the combo slot only; a BOGO
+   * slot must not show it (ruling F4).
    */
   const pickItems = async (
     slotLabel: string,
@@ -209,24 +235,25 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
     const [first = "", ...rest] = items;
     await pickIn(search, first);
     await group
-      .getByRole("button", {
-        name: `Let customers pick a different item here: ${first}`,
-        exact: true,
-      })
+      .getByRole("button", { name: /^Add an option to line \d+$/ })
+      .last()
       .click();
     for (const item of rest) {
       await pickIn(choiceSearch(group), item);
     }
-    await expect(
-      group.getByText("Customer chooses one", { exact: true })
-    ).toBeVisible();
+    await expect(groupTitles(slotLabel).last()).toBeVisible();
+    if (slotLabel === COMBO_SLOT) {
+      await expect(groupNotes(slotLabel).last()).toBeVisible();
+    } else {
+      await expect(groupNotes(slotLabel)).toHaveCount(0);
+    }
   };
 
   /**
-   * Adds more choices to an existing line (its title is the item name, or the
-   * choices joined by ", ") through the line's own button — "Add another
-   * choice" on a choose-from line, "Let customers pick a different item
-   * here" on a plain item line — and picks each item in the choice search.
+   * Adds more options to an existing line (its title is the item name, or
+   * the options joined by ", " — the name its "Remove …" button carries)
+   * through the line's own "+ Add an option" ("Add an option to line <n>",
+   * n = its 1-based position) and picks each item in the option search.
    * Applies at once; "Done" is not pressed.
    */
   const addChoices = async (
@@ -235,20 +262,9 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
     items: string[]
   ) => {
     const group = slot(slotLabel);
-    const more = group.getByRole("button", {
-      name: `Add another choice to ${lineTitle}`,
-      exact: true,
-    });
-    if (await more.count()) {
-      await more.click();
-    } else {
-      await group
-        .getByRole("button", {
-          name: `Let customers pick a different item here: ${lineTitle}`,
-          exact: true,
-        })
-        .click();
-    }
+    const n = (await lineNames(slotLabel)).indexOf(lineTitle) + 1;
+    expect(n, `a line titled ${lineTitle} in ${slotLabel}`).toBeGreaterThan(0);
+    await addOptionButton(slotLabel, n).click();
     for (const item of items) {
       await choiceSearch(group).fill(item);
       await page.getByRole("option", { name: startsWith(item) }).click();
@@ -694,6 +710,9 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
     setTimeOfDay,
     pickItems,
     addChoices,
+    addOptionButton,
+    groupTitles,
+    groupNotes,
     removeChoice,
     pickCategory,
     repeatLine,
