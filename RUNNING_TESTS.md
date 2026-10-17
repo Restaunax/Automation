@@ -11,6 +11,8 @@ the Restaunax E2E suite. For conventions and how to _write_ tests, see
 Requires **Node 22+**. No Java needed unless you want Allure reports (see §4).
 
 ```bash
+# --single-branch keeps the gh-pages report branch out of your clone
+git clone --single-branch --branch qa https://github.com/Restaunax/Automation.git
 npm install                          # dependencies + husky git hooks
 npx playwright install chromium      # the only browser the suite uses
 ```
@@ -19,6 +21,9 @@ Create `.env` in the repo root with the QA credentials and URLs — the full
 variable list is in [`TEST_PLAN.md`](./TEST_PLAN.md#environment-variables) and
 [`CLAUDE.md`](./CLAUDE.md#environment-variables). Credentials are never
 checked in; ask the team for the QA values.
+
+> **Older clone with a ~14 GB `.git`?** Run `bash scripts/slim-clone.sh` — see
+> [`docs/LOCAL_CLONE_STORAGE.md`](./docs/LOCAL_CLONE_STORAGE.md).
 
 Sanity check the setup:
 
