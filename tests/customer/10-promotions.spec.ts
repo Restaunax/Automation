@@ -197,6 +197,16 @@ test.describe("Storefront — Promotions (template-wind)", () => {
           timeout: 20_000,
         });
         await expect(deals.choiceSlots()).toHaveCount(2);
+        // Each card's price label (in its accessible name): the cheaper gyro
+        // is "Included", the other costs the deal-price difference — with the
+        // other step at the cheaper gyro, the 2nd-at-$1.99 rule makes that
+        // exactly the item-price difference.
+        const [cheap, dear] =
+          gyroA.price <= gyroB.price ? [gyroA, gyroB] : [gyroB, gyroA];
+        const priceLabel = (item: typeof gyroA) =>
+          item === cheap
+            ? "Included"
+            : `+$${(dear.price - cheap.price).toFixed(2)}`;
         for (const slot of [0, 1]) {
           for (const item of [gyroA, gyroB]) {
             await expect(deals.choiceCard(slot, item.name)).toBeVisible();
@@ -204,6 +214,9 @@ test.describe("Storefront — Promotions (template-wind)", () => {
               "aria-checked",
               "false"
             );
+            await expect(
+              deals.choiceCard(slot, item.name)
+            ).toHaveAccessibleName(`${item.name}, ${priceLabel(item)}`);
           }
         }
         await expect(deals.stepStatus(0)).toHaveText("Required");
@@ -520,10 +533,13 @@ test.describe("Storefront — Promotions (template-wind)", () => {
       const burgerOptions = deals
         .fixedSteps(burger.name)
         .getByTestId("deal-step-options");
-      await expect(burgerOptions).toContainText(`Large ${runId}`);
-      await expect(burgerOptions).toContainText(`Bacon ${runId}`);
-      await expect(burgerOptions).toContainText(
-        `· +$${(P.burgerLarge - P.burger + P.bacon).toFixed(2)}`
+      // optionsSummaryOf: the picked options in order, then the upcharge.
+      await expect(burgerOptions).toHaveText(
+        `Large ${runId}, Bacon ${runId} · +$${(
+          P.burgerLarge -
+          P.burger +
+          P.bacon
+        ).toFixed(2)}`
       );
       await deals.assertDealComplete();
 

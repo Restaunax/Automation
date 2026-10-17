@@ -253,11 +253,24 @@ test.describe("Lima — Promotions", () => {
           timeout: 20_000,
         });
         await expect(deals.choiceSlots()).toHaveCount(2);
+        // Each card's price label (in its accessible name): the cheaper gyro
+        // is "Included", the other costs the deal-price difference — with the
+        // other step at the cheaper gyro, the 2nd-at-$1.99 rule makes that
+        // exactly the item-price difference.
+        const [cheap, dear] =
+          gyroA.price <= gyroB.price ? [gyroA, gyroB] : [gyroB, gyroA];
+        const priceLabel = (item: typeof gyroA) =>
+          item === cheap
+            ? "Included"
+            : `+$${(dear.price - cheap.price).toFixed(2)}`;
         for (const slot of [0, 1]) {
           for (const item of [gyroA, gyroB]) {
             const card = deals.choiceCard(slot, item.name);
             await expect(card).toBeVisible();
             await expect(card).toHaveAttribute("aria-checked", "false");
+            await expect(card).toHaveAccessibleName(
+              `${item.name}, ${priceLabel(item)}`
+            );
           }
         }
         await expect(deals.stepStatus(0)).toHaveText("Required");
