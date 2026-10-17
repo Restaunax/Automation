@@ -100,6 +100,8 @@ test.describe("Deals → Storefront hand-off", () => {
   let combo: ApiDeal; // burger ×2 + fries @ 21 (orig 26.50, save 5.50 = 21%)
   let pizzaDeal: ApiDeal; // pizza + fries @ 15 (orig 18.50)
   const dealIds: string[] = [];
+  // TC-892's own items (created in the test, cleaned up in afterAll).
+  const unitItems: ApiMenuItem[] = [];
 
   const freshToken = async () =>
     (await apiLogin(OWNER_EMAIL, OWNER_PASSWORD)).accessToken;
@@ -184,11 +186,11 @@ test.describe("Deals → Storefront hand-off", () => {
   test.afterAll(async () => {
     if (!token) return;
     const t = await freshToken().catch(() => token);
-    for (const it of [burger, fries, pizza].filter(Boolean))
+    for (const it of [burger, fries, pizza, ...unitItems].filter(Boolean))
       await setAvailability(t, it.id, false).catch(() => {});
     for (const id of dealIds) await deleteDealApi(t, id).catch(() => {});
     if (adminToken)
-      for (const it of [burger, fries, pizza].filter(Boolean))
+      for (const it of [burger, fries, pizza, ...unitItems].filter(Boolean))
         await permanentlyDeleteMenuItemApi(adminToken, it.id).catch(() => {});
     if (groupId) await deleteTestMenuGroup(t, groupId).catch(() => {});
   });
@@ -292,7 +294,9 @@ test.describe("Deals → Storefront hand-off", () => {
   }) => {
     await allure.description(
       "Builder for burger ×2 + fries @ $21: header 'Save 21%' + 'You save $5.50' + 'Available: All days, All " +
-        "day' (validDays = every day), three fixed steps (the burger ×2 is stored as two unit rows → two '<burger>' steps, plus the fries), 'All set' from the start; " +
+        "day' (validDays = every day), two fixed steps: ONE '2 × <burger>' step (the burger ×2 is stored as two unit rows, " +
+        "grouped into one step per spec §13; the burger has no options, so no unit rows and no Customize) plus the fries, " +
+        "'All set' from the start; " +
         "one 'Add deal to cart'. Checkout: 3× 'Part of deal', '1x <deal>' row, 'You're saving $5.50', proceed " +
         "button is the normal 'Proceed to Payment', and the POST /quote the page issues carries orderDeals " +
         "and comes back with dealsSubtotal 21 / subtotal 21."
@@ -310,24 +314,26 @@ test.describe("Deals → Storefront hand-off", () => {
     await expect(deals.availabilityLine()).toHaveCount(0);
     // Fixed items without options, included from the start. The backend
     // stores every DealItem at quantity 1 (splitDealItemsToUnitQuantity), so
-    // "burger ×2" is persisted as TWO burger rows and the builder shows one
-    // fixed step per row, each headed "<burger>" and "✓ Included" (the
-    // "2 × <item>" heading only applies to a legacy row with quantity > 1).
-    // Then one step for the fries: three fixed steps in all.
-    await expect(deals.fixedSteps(burger.name)).toHaveCount(2, {
+    // "burger ×2" is persisted as TWO burger rows; the builder groups those
+    // identical units into ONE step "2 × <burger>" (spec §13), "✓ Included".
+    // The burger has no options, so the step has no unit rows and no
+    // Customize. Then one step for the fries: two fixed steps in all — never
+    // the old "1. <burger>" / "2. <burger>" pair.
+    const burgerStep = `2 × ${burger.name}`;
+    await expect(deals.fixedSteps(burger.name)).toHaveCount(1, {
       timeout: 20_000,
     });
-    for (const i of [0, 1]) {
-      const step = deals.fixedSteps(burger.name).nth(i);
-      await expect(
-        step.getByRole("heading", { name: burger.name, exact: true })
-      ).toBeVisible();
-      await expect(step.getByTestId("deal-step-status")).toHaveText(
-        "✓ Included"
-      );
-    }
+    const step = deals.stepByHeading(burgerStep);
+    await expect(step).toBeVisible();
+    await expect(step.getByTestId("deal-step-status")).toHaveText("✓ Included");
+    await expect(deals.unitRows(burgerStep)).toHaveCount(0);
+    await expect(step.getByTestId("deal-unit-customize")).toHaveCount(0);
+    await expect(step.getByTestId("deal-step-customize")).toHaveCount(0);
+    await expect(
+      page.getByRole("heading", { name: burger.name, exact: true })
+    ).toHaveCount(0);
     await expect(deals.fixedSteps(fries.name)).toHaveCount(1);
-    await expect(deals.allFixedSteps()).toHaveCount(3);
+    await expect(deals.allFixedSteps()).toHaveCount(2);
     await expect(deals.choiceSlots()).toHaveCount(0);
     await deals.completeFixedSteps();
     await deals.assertDealComplete();
@@ -435,6 +441,331 @@ test.describe("Deals → Storefront hand-off", () => {
     await expect(
       page.getByText("Subtotal", { exact: true }).locator("..")
     ).toContainText("$17.00");
+  });
+
+  test("TC-892: a combo with 2 of the same item that has options is ONE '2 × <item>' step with a Customize row per unit — customising Burger 2 leaves Burger 1 on its defaults, an Add with Burger 2's required options missing is refused, and the quote carries one line per unit", async ({
+    page,
+  }) => {
+    // A slot wait (up to CAP_WAIT_MS) runs inside this test.
+    test.setTimeout(DEAL_SLOT_TEST_TIMEOUT_MS);
+    await allure.description(
+      "Spec §13 (identical fixed items as one '{qty} × {name}' step). Combo @ $30 = 2 × Units Burger ($10, " +
+        "optional 'Bacon' +$1.50) + 2 × Units Melt ($8, REQUIRED 'Sauce': Ranch $0 / Chipotle +$0.75); the " +
+        "backend stores four quantity-1 rows. The builder shows two steps: '2 × <burger>' ✓ Included and " +
+        "'2 × <melt>' Required, each with two unit rows ('<item> 1', '<item> 2', 'Included', own button " +
+        "'Customize <item> n' / 'Choose options for <item> n'). Customising Burger 2 with Bacon: row 2 shows " +
+        "'Bacon' + '+$1.50', row 1 stays 'Included' with no options. Melt 1 → Ranch, then Add → refused: alert " +
+        "'Choose options for <melt> 2', focus on that unit's button, nothing added. Melt 2 → Chipotle → bar " +
+        "$32.25 → one Add. The checkout /quote carries one orderDeals item per DealItem row (each its own " +
+        "dealItemId) with upchargeAmount 0 / 1.50 (burgers) and 0 / 0.75 (melts); the server answers upcharge " +
+        "2.25, lineTotal 32.25, subtotal 32.25; the summary shows two '1x <burger>' and two '1x <melt>' cart " +
+        "lines ('Part of deal' ×4) with '+ Bacon', '+ Ranch', '+ Chipotle' once each."
+    );
+    const deals = createCustomerDealPage(page);
+    const modal = createCustomerItemModal(page);
+    const checkout = createCustomerCheckoutPage(page);
+    const unitsBurger = await createMenuItemFull(
+      token,
+      groupId,
+      `Units Burger ${runId}`,
+      10,
+      {
+        description: "spec 13 unit rows: optional extra",
+        modifierGroups: [
+          {
+            name: `Extras ${runId}`,
+            pricingMode: "ADJUSTS_PRICE",
+            minSelections: 0,
+            maxSelections: null,
+            modifiers: [{ name: `Bacon ${runId}`, price: 1.5 }],
+          },
+        ],
+      }
+    );
+    unitItems.push(unitsBurger);
+    const unitsMelt = await createMenuItemFull(
+      token,
+      groupId,
+      `Units Melt ${runId}`,
+      8,
+      {
+        description: "spec 13 unit rows: required option",
+        modifierGroups: [
+          {
+            name: `Sauce ${runId}`,
+            pricingMode: "ADJUSTS_PRICE",
+            minSelections: 1,
+            maxSelections: 1,
+            modifiers: [
+              { name: `Ranch ${runId}`, price: 0 },
+              { name: `Chipotle ${runId}`, price: 0.75 },
+            ],
+          },
+        ],
+      }
+    );
+    unitItems.push(unitsMelt);
+    const unitsDeal = await createDealApiCapSafe(
+      token,
+      restaurantId,
+      `AUTO Handoff Units ${runId}`,
+      30,
+      [
+        { id: unitsBurger.id, name: unitsBurger.name, price: 10, quantity: 2 },
+        { id: unitsMelt.id, name: unitsMelt.name, price: 8, quantity: 2 },
+      ],
+      { description: "two burgers and two melts", validDays: ALL_DAYS }
+    );
+    dealIds.push(unitsDeal.id);
+    try {
+      const burgerStep = `2 × ${unitsBurger.name}`;
+      const meltStep = `2 × ${unitsMelt.name}`;
+      const rows = (await getDealApi(token, unitsDeal.id)).items ?? [];
+      // The backend splits each quantity-2 line into two quantity-1 rows.
+      expect(rows, JSON.stringify(rows)).toHaveLength(4);
+
+      await allure.step(
+        "One '2 × <item>' step per item, a row per unit",
+        async () => {
+          await deals.gotoBuilder(restaurantId, unitsDeal.id);
+          await expect(deals.builderHeading(unitsDeal.name)).toBeVisible({
+            timeout: 20_000,
+          });
+          await expect(deals.unitRows(meltStep)).toHaveCount(2, {
+            timeout: 20_000,
+          });
+          await expect(deals.allFixedSteps()).toHaveCount(2);
+          await expect(deals.fixedSteps(unitsBurger.name)).toHaveCount(1);
+          await expect(deals.fixedSteps(unitsMelt.name)).toHaveCount(1);
+          await expect(
+            deals.stepByHeading(burgerStep).getByTestId("deal-step-status")
+          ).toHaveText("✓ Included");
+          await expect(
+            deals.stepByHeading(meltStep).getByTestId("deal-step-status")
+          ).toHaveText("Required");
+          // Rows replace the step-level Customize and options summary.
+          for (const h of [burgerStep, meltStep]) {
+            await expect(
+              deals.stepByHeading(h).getByTestId("deal-step-customize")
+            ).toHaveCount(0);
+            await expect(
+              deals.stepByHeading(h).getByTestId("deal-step-options")
+            ).toHaveCount(0);
+          }
+          await expect(deals.unitRows(burgerStep)).toHaveCount(2);
+          for (const n of [1, 2]) {
+            await expect(deals.unitLabel(burgerStep, n)).toHaveText(
+              `${unitsBurger.name} ${n}`
+            );
+            await expect(deals.unitPrice(burgerStep, n)).toHaveText("Included");
+            await expect(deals.unitOptions(burgerStep, n)).toHaveCount(0);
+            await expect(deals.unitCustomizeButton(burgerStep, n)).toHaveText(
+              "Customize"
+            );
+            await expect(
+              deals.unitCustomizeButton(burgerStep, n)
+            ).toHaveAccessibleName(`Customize ${unitsBurger.name} ${n}`);
+            await expect(deals.unitLabel(meltStep, n)).toHaveText(
+              `${unitsMelt.name} ${n}`
+            );
+            await expect(deals.unitCustomizeButton(meltStep, n)).toHaveText(
+              "Choose options"
+            );
+            await expect(
+              deals.unitCustomizeButton(meltStep, n)
+            ).toHaveAccessibleName(`Choose options for ${unitsMelt.name} ${n}`);
+          }
+          // Each row is its own unit: four distinct unit keys.
+          const keys = await page
+            .getByTestId("deal-unit-row")
+            .evaluateAll((els) =>
+              els.map((e) => e.getAttribute("data-unit-key"))
+            );
+          expect(new Set(keys).size, JSON.stringify(keys)).toBe(4);
+          // Only the melt step asks for something.
+          await deals.assertProgress(0, 1);
+          await expect(deals.progressDealPrice()).toHaveText("$30.00");
+        }
+      );
+
+      await allure.step(
+        "Customise Burger 2 only → Burger 1 keeps its defaults",
+        async () => {
+          await deals.customizeUnit(burgerStep, 2, async () => {
+            await modal.selectOption(`Bacon ${runId}`);
+            await modal.assertOptionChecked(`Bacon ${runId}`);
+          });
+          await expect(deals.unitOptions(burgerStep, 2)).toHaveText(
+            `Bacon ${runId}`
+          );
+          await expect(deals.unitPrice(burgerStep, 2)).toHaveText("+$1.50");
+          await expect(deals.unitPrice(burgerStep, 1)).toHaveText("Included");
+          await expect(deals.unitOptions(burgerStep, 1)).toHaveCount(0);
+          await expect(deals.progressDealPrice()).toHaveText("$31.50");
+          // Burger 1 reopens on its defaults: no Bacon carried over.
+          await deals.customizeUnit(burgerStep, 1);
+          await modal.assertOptionUnchecked(`Bacon ${runId}`);
+          await deals.clickAddToDeal();
+          await expect(deals.unitOptions(burgerStep, 1)).toHaveCount(0);
+          await expect(deals.unitOptions(burgerStep, 2)).toHaveText(
+            `Bacon ${runId}`
+          );
+        }
+      );
+
+      await allure.step(
+        "Melt 1 answered, Melt 2 not → the Add is refused and names Melt 2",
+        async () => {
+          await deals.customizeUnit(meltStep, 1, async () => {
+            await modal.selectOption(`Ranch ${runId}`);
+            await modal.assertOptionChecked(`Ranch ${runId}`);
+          });
+          await expect(deals.unitOptions(meltStep, 1)).toHaveText(
+            `Ranch ${runId}`
+          );
+          await expect(deals.unitPrice(meltStep, 1)).toHaveText("Included");
+          await expect(deals.unitCustomizeButton(meltStep, 1)).toHaveText(
+            "Customize"
+          );
+          await expect(
+            deals.stepByHeading(meltStep).getByTestId("deal-step-status")
+          ).toHaveText("Required");
+          await deals.assertProgress(0, 1);
+          await deals.addDealToCartButton().click();
+          await expect(deals.stepAlert(meltStep)).toHaveText(
+            `Choose options for ${unitsMelt.name} 2`
+          );
+          await expect(deals.unitCustomizeButton(meltStep, 2)).toBeFocused();
+          await expect(deals.keepShoppingButton()).toHaveCount(0);
+          // The burger step has nothing to flag.
+          await expect(deals.stepAlert(burgerStep)).toHaveCount(0);
+        }
+      );
+
+      await allure.step("Melt 2 answered → All set → one Add", async () => {
+        await deals.customizeUnit(meltStep, 2, async () => {
+          await modal.selectOption(`Chipotle ${runId}`);
+          await modal.assertOptionChecked(`Chipotle ${runId}`);
+        });
+        await expect(deals.stepAlert(meltStep)).toHaveCount(0);
+        await expect(deals.unitOptions(meltStep, 2)).toHaveText(
+          `Chipotle ${runId}`
+        );
+        await expect(deals.unitPrice(meltStep, 2)).toHaveText("+$0.75");
+        await expect(
+          deals.stepByHeading(meltStep).getByTestId("deal-step-status")
+        ).toHaveText("✓ Included");
+        // Earlier choices untouched.
+        await expect(deals.unitOptions(burgerStep, 2)).toHaveText(
+          `Bacon ${runId}`
+        );
+        await expect(deals.unitOptions(burgerStep, 1)).toHaveCount(0);
+        await expect(deals.unitOptions(meltStep, 1)).toHaveText(
+          `Ranch ${runId}`
+        );
+        await deals.assertDealComplete();
+        await expect(deals.progressDealPrice()).toHaveText("$32.25");
+        await expect(deals.addDealToCartButton()).toHaveText(
+          "Add deal to cart · $32.25"
+        );
+        await deals.addDealToCart();
+      });
+
+      await allure.step(
+        "Checkout: one line per unit, priced by the server",
+        async () => {
+          const [quoteRes] = await Promise.all([
+            page.waitForResponse(
+              (r) =>
+                /\/api\/order\/[^/]+\/quote$/.test(r.url()) &&
+                r.request().method() === "POST" &&
+                r.status() === 200,
+              { timeout: 30_000 }
+            ),
+            deals.viewCartButton().click(),
+          ]);
+          await expect(page).toHaveURL(/\/checkout/, { timeout: 15_000 });
+          const req = quoteRes.request().postDataJSON() as {
+            orderDeals?: {
+              dealId: string;
+              items: {
+                dealItemId?: string;
+                menuItemId: string;
+                quantity: number;
+                upchargeAmount: number;
+              }[];
+            }[];
+          };
+          const sent = req.orderDeals?.find((d) => d.dealId === unitsDeal.id);
+          expect(sent, JSON.stringify(req.orderDeals)).toBeTruthy();
+          // One entry per DealItem row, each naming its own row.
+          expect(sent!.items.map((i) => i.dealItemId).sort()).toEqual(
+            rows.map((r) => r.id).sort()
+          );
+          const upchargesOf = (menuItemId: string) =>
+            sent!.items
+              .filter((i) => i.menuItemId === menuItemId)
+              .map((i) => {
+                expect(i.quantity).toBe(1);
+                return i.upchargeAmount;
+              })
+              .sort((a, b) => a - b);
+          expect(upchargesOf(unitsBurger.id)).toEqual([0, 1.5]);
+          expect(upchargesOf(unitsMelt.id)).toEqual([0, 0.75]);
+          const quote = (await quoteRes.json()) as {
+            quote?: {
+              subtotal?: number;
+              deals?: {
+                dealId?: string;
+                dealPrice: number;
+                upcharge: number;
+                lineTotal: number;
+              }[];
+            };
+          };
+          expect(quote.quote?.deals?.[0]).toMatchObject({
+            dealPrice: 30,
+            upcharge: 2.25,
+            lineTotal: 32.25,
+          });
+          expect(quote.quote?.subtotal).toBe(32.25);
+
+          await expect(
+            page.getByRole("heading", {
+              name: `1x ${unitsBurger.name}`,
+              exact: true,
+            })
+          ).toHaveCount(2);
+          await expect(
+            page.getByRole("heading", {
+              name: `1x ${unitsMelt.name}`,
+              exact: true,
+            })
+          ).toHaveCount(2);
+          await expect(deals.partOfDealLabels()).toHaveCount(4);
+          for (const mod of [
+            `Bacon ${runId}`,
+            `Ranch ${runId}`,
+            `Chipotle ${runId}`,
+          ])
+            await expect(
+              page.getByText(`+ ${mod}`, { exact: true })
+            ).toHaveCount(1);
+          await expect(checkout.summaryItemsRow()).toContainText("$30.00");
+          await expect(checkout.summaryUpgradesRow()).toContainText("+$2.25");
+          await expect(checkout.summaryUpgradeDetails()).toContainText(
+            `Bacon ${runId} +$1.50`
+          );
+          await expect(checkout.summaryUpgradeDetails()).toContainText(
+            `Chipotle ${runId} +$0.75`
+          );
+          await expect(checkout.subtotalRow()).toContainText("$32.25");
+        }
+      );
+    } finally {
+      // Give the seed restaurant's deal slot back right away.
+      await deleteDealApi(token, unitsDeal.id).catch(() => {}); // best effort; AUTO sweep backstops
+    }
   });
 
   test("TC-370: 86'ing a required slot item pulls the whole deal from the storefront; restoring it brings the deal back", async ({
