@@ -157,7 +157,7 @@ test.describe("Storefront — Promotions (template-wind)", () => {
     );
   });
 
-  test("TC-837: the BOGO builder offers each slot's options; two picks show the deal's server price, and the deal lands in the cart", async ({
+  test("TC-837: the BOGO builder offers each step's options; two picks show the deal's server price, and one Add puts the deal in the cart", async ({
     page,
   }) => {
     await withStorefrontBogo(dealCtx(), async (bogo) => {
@@ -200,16 +200,19 @@ test.describe("Storefront — Promotions (template-wind)", () => {
         for (const slot of [0, 1]) {
           for (const item of [gyroA, gyroB]) {
             await expect(deals.choiceCard(slot, item.name)).toBeVisible();
-            await expect(deals.choiceCard(slot, item.name)).toContainText(
-              money(item.price)
+            await expect(deals.choiceCard(slot, item.name)).toHaveAttribute(
+              "aria-checked",
+              "false"
             );
           }
         }
+        await expect(deals.stepStatus(0)).toHaveText("Required");
         await deals.assertProgress(0, 2);
       });
 
       await allure.step("pick one option per slot", async () => {
         await deals.pickChoice(0, gyroA.name);
+        await expect(deals.stepStatus(0)).toHaveText("✓ Done");
         await deals.assertProgress(1, 2);
         await deals.pickChoice(1, gyroB.name);
         await deals.assertDealComplete();
@@ -217,6 +220,7 @@ test.describe("Storefront — Promotions (template-wind)", () => {
       });
 
       await allure.step("the cart holds the deal at that price", async () => {
+        await deals.addDealToCart();
         const [quoteRes] = await Promise.all([
           page.waitForResponse(isQuoteResponse, { timeout: 30_000 }),
           deals.viewCartButton().click(),
@@ -394,6 +398,7 @@ test.describe("Storefront — Promotions (template-wind)", () => {
           await deals.openIncompleteSlot(burger.name);
           await deals.clickAddToDeal();
           await deals.assertDealComplete();
+          await deals.addDealToCart();
           const [quoteRes] = await Promise.all([
             page.waitForResponse(isQuoteResponse, { timeout: 30_000 }),
             deals.viewCartButton().click(),
@@ -435,7 +440,7 @@ test.describe("Storefront — Promotions (template-wind)", () => {
     );
   });
 
-  test("TC-842: Keep shopping after completing a deal lands on the menu with '<deal> added to your cart' — once; a crafted dealAdded id shows nothing", async ({
+  test("TC-842: Keep shopping after adding a deal lands on the menu with '<deal> added to your cart' — once; a crafted dealAdded id shows nothing", async ({
     page,
   }) => {
     await withStorefrontBogo(dealCtx(), async (bogo) => {
@@ -443,12 +448,15 @@ test.describe("Storefront — Promotions (template-wind)", () => {
       const menu = createCustomerMenuPage(page);
       const expected = `${bogo.name} added to your cart`;
 
-      await allure.step("complete the deal → Keep shopping", async () => {
+      await allure.step("complete the deal → Add → Keep shopping", async () => {
         await deals.gotoBuilder(restaurantId, bogo.dealId);
         await expect(deals.keepShoppingButton()).toHaveCount(0);
         await deals.pickChoice(0, set.items.gyroA.name);
         await deals.pickChoice(1, set.items.gyroB.name);
         await deals.assertDealComplete();
+        // Complete is not added: Keep shopping appears only after the Add.
+        await expect(deals.keepShoppingButton()).toHaveCount(0);
+        await deals.addDealToCart();
         await deals.keepShoppingButton().click();
         await expect(page).toHaveURL(/\/menu/, { timeout: 15_000 });
         await expect(menu.dealAddedConfirmation()).toHaveText(expected, {
@@ -505,10 +513,21 @@ test.describe("Storefront — Promotions (template-wind)", () => {
       await deals.openIncompleteSlot(burger.name);
       await modal.selectOption(`Large ${runId}`);
       await modal.selectOption(`Bacon ${runId}`);
-      await modal.assertPrice((P.burgerLarge + P.bacon).toFixed(2));
+      // The deal modal's confirm is "Done" (no price); the step shows the
+      // chosen options and their upcharge instead.
+      await expect(modal.addToCartButton()).toHaveText("Done");
       await deals.clickAddToDeal();
+      const burgerOptions = deals
+        .fixedSteps(burger.name)
+        .getByTestId("deal-step-options");
+      await expect(burgerOptions).toContainText(`Large ${runId}`);
+      await expect(burgerOptions).toContainText(`Bacon ${runId}`);
+      await expect(burgerOptions).toContainText(
+        `· +$${(P.burgerLarge - P.burger + P.bacon).toFixed(2)}`
+      );
       await deals.assertDealComplete();
 
+      await deals.addDealToCart();
       const [quoteRes] = await Promise.all([
         page.waitForResponse(isQuoteResponse, { timeout: 30_000 }),
         deals.viewCartButton().click(),

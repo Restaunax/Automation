@@ -199,6 +199,20 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
   const groupTitles = (slotLabel: string): Locator =>
     slot(slotLabel).getByText("Customer picks 1", { exact: true });
 
+  /**
+   * A combo / BOGO category line's title, "Customer picks 1 from <category>"
+   * plus " · <n> item(s)" once the category's size is known.
+   */
+  const categoryLineTitles = (
+    slotLabel: string,
+    categoryName: string
+  ): Locator =>
+    slot(slotLabel).getByText(
+      new RegExp(
+        `^Customer picks 1 from ${escapeRegex(categoryName)}( · \\d+ items?)?$`
+      )
+    );
+
   /** The combo-only note under a "Customer picks 1" group. */
   const groupNotes = (slotLabel: string): Locator =>
     slot(slotLabel).getByText(GROUP_NOTE, { exact: true });
@@ -280,10 +294,11 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
   };
 
   /**
-   * Adds one "Any item from <category>" line: types the category into the
-   * slot's search and picks the option under "Whole categories". Call it
-   * again for a second line on the same category (combo lines allow
-   * duplicates).
+   * Adds one category line: types the category into the slot's search and
+   * picks its "Any item from <category>" option under "Whole categories". In
+   * a combo / BOGO slot the line then reads "Customer picks 1 from
+   * <category> · <n> items" (categoryLineTitles). Call it again for a second
+   * line on the same category (combo lines allow duplicates).
    */
   const pickCategory = async (slotLabel: string, categoryName: string) => {
     const search = slot(slotLabel)
@@ -713,6 +728,7 @@ export const createOwnerCreatePromotionPage = (page: Page) => {
     addOptionButton,
     groupTitles,
     groupNotes,
+    categoryLineTitles,
     removeChoice,
     pickCategory,
     repeatLine,

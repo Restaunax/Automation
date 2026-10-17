@@ -212,7 +212,7 @@ test.describe("Lima — Promotions", () => {
     );
   });
 
-  test("TC-L65: the Lima BOGO builder offers each slot's options as 'Pick 1' cards; two picks show the deal's server price, and checkout quotes the deal at it", async ({
+  test("TC-L65: the Lima BOGO builder offers each step's options as radios ('Required' → '✓ Done'); two picks, then one Add, show the deal's server price, and checkout quotes the deal at it", async ({
     page,
   }) => {
     await withStorefrontBogo(dealCtx(), async (bogo) => {
@@ -257,25 +257,28 @@ test.describe("Lima — Promotions", () => {
           for (const item of [gyroA, gyroB]) {
             const card = deals.choiceCard(slot, item.name);
             await expect(card).toBeVisible();
-            await expect(card).toContainText(money(item.price));
-            await expect(card).toContainText("Pick 1");
+            await expect(card).toHaveAttribute("aria-checked", "false");
           }
         }
+        await expect(deals.stepStatus(0)).toHaveText("Required");
         await deals.assertProgress(0, 2);
       });
 
       await allure.step("pick one option per slot", async () => {
         await deals.pickChoice(0, gyroA.name);
         await deals.assertProgress(1, 2);
-        await expect(deals.choiceCard(0, gyroA.name)).toContainText(
-          "Your pick"
+        await expect(deals.choiceCard(0, gyroA.name)).toHaveAttribute(
+          "aria-checked",
+          "true"
         );
+        await expect(deals.stepStatus(0)).toHaveText("✓ Done");
         await deals.pickChoice(1, gyroB.name);
         await deals.assertDealComplete();
         await expect(deals.progressDealPrice()).toHaveText(money(dealPrice!));
       });
 
       await allure.step("checkout quotes the deal at that price", async () => {
+        await deals.addDealToCart();
         await deals.viewCartButton().click();
         await expect(page).toHaveURL(new RegExp(`/${restaurantSlug}/cart`), {
           timeout: 15_000,
@@ -370,7 +373,7 @@ test.describe("Lima — Promotions", () => {
     });
   });
 
-  test("TC-L68: Keep shopping after completing a deal lands on the Lima menu with '<deal> added to your cart' — once — and the deal is in the cart", async ({
+  test("TC-L68: Keep shopping after adding a deal lands on the Lima menu with '<deal> added to your cart' — once — and the deal is in the cart", async ({
     page,
   }) => {
     await withStorefrontBogo(dealCtx(), async (bogo) => {
@@ -378,16 +381,19 @@ test.describe("Lima — Promotions", () => {
       const deals = createLimaDealPage(page);
       const expected = `${bogo.name} added to your cart`;
 
-      await allure.step("complete the deal → Keep shopping", async () => {
+      await allure.step("complete the deal → Add → Keep shopping", async () => {
         await deals.gotoBuilder(restaurantSlug, bogo.dealId);
         await expect(deals.builderHeading(bogo.name)).toBeVisible({
           timeout: 20_000,
         });
-        // Only a complete deal offers it.
+        // Only an added deal offers it.
         await expect(deals.keepShoppingButton()).toHaveCount(0);
         await deals.pickChoice(0, set.items.gyroA.name);
         await deals.pickChoice(1, set.items.gyroB.name);
         await deals.assertDealComplete();
+        // Complete is not added: Keep shopping appears only after the Add.
+        await expect(deals.keepShoppingButton()).toHaveCount(0);
+        await deals.addDealToCart();
         await deals.keepShoppingButton().click();
         await expect(page).toHaveURL(new RegExp(`/${restaurantSlug}/menu`), {
           timeout: 15_000,
@@ -439,6 +445,7 @@ test.describe("Lima — Promotions", () => {
       await lima.modifierOption(`Bacon ${runId}`).check();
       await deals.clickAddToDeal();
       await deals.assertDealComplete();
+      await deals.addDealToCart();
       await deals.viewCartButton().click();
       await expect(page).toHaveURL(new RegExp(`/${restaurantSlug}/cart`), {
         timeout: 15_000,

@@ -273,15 +273,6 @@ export const createCustomerDealPage = (page: Page) => {
       .getByTestId("cart-deal-edit")
       .and(page.getByLabel(`Edit ${dealName}`, { exact: true }));
 
-  /**
-   * @deprecated Removed in Z2 (guided deal choices) — kept so this commit
-   * typechecks. Opening a step no longer adds anything; use
-   * openIncompleteSlot / completeFixedSteps.
-   */
-  const openSlot = (itemName: string) => openIncompleteSlot(itemName);
-  /** @deprecated Removed in Z2 — use fixedSteps (a fixed line of N is ONE step). */
-  const slotCards = (itemName: string) => fixedSteps(itemName);
-
   // ── Checkout OrderSummary ──────────────────────────────────────────────────
   const partOfDealLabels = () =>
     page.getByText("Part of deal", { exact: true });
@@ -304,7 +295,11 @@ export const createCustomerDealPage = (page: Page) => {
     dealCard(dealName).getByTestId("deal-availability-label");
   const builderAvailabilityLabel = () =>
     page.getByTestId("deal-availability-label").first();
-  /** Builder step cards (aria-disabled options while the deal isn't available). */
+  /**
+   * Every builder step root (pick + fixed). They carry no aria-disabled: while
+   * the deal isn't available it is the option radios (aria-disabled="true")
+   * and the disabled Add that lock the deal.
+   */
   const slotCardHooks = () =>
     page.locator(
       '[data-testid="deal-choice-slot"], [data-testid="deal-fixed-step"]'
@@ -371,8 +366,6 @@ export const createCustomerDealPage = (page: Page) => {
     viewCartButton,
     progressDealPrice,
     cartDealEditButton,
-    openSlot,
-    slotCards,
     partOfDealLabels,
     dealSummaryRow,
     youAreSavingRow,

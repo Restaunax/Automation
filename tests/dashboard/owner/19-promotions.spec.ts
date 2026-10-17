@@ -807,15 +807,16 @@ test.describe("Owner — Promotions", () => {
 
   // Owner-reported on QA 2026-10-15 (RestauNax fix/combo-option-lines): the
   // choices ticked under "Choose from these items" were only kept by the box
-  // until "Add these choices" was pressed (that UI is now "Let customers pick
-  // a different item here", where every pick applies at once), so a Save dropped them silently and
+  // until "Add these choices" was pressed (that UI is now the line's "+ Add
+  // an option", where every pick applies at once and the line becomes a
+  // "Customer picks 1" group), so a Save dropped them silently and
   // in Edit the same ticks said "Nothing to save". Fails against a dashboard
   // without that fix; passes once it is deployed.
   test("TC-862: Combo with a choose-from line — the choices are saved without pressing Done, shown in Edit, and one more choice saves", async ({
     ownerPage,
   }) => {
     await allure.description(
-      'Create → Combo price: two fixed items, then a third item with "Let customers pick a different item here" and two more picked as its choices (Done is never pressed), Save for later (no deal slot). The server deal has a line whose options are exactly those three items. Edit shows that line with the same choices. Changing it to four choices (one more, via the line\'s Add another choice button, Done again not pressed) and Save changes is a change, not "Nothing to save", and the server line now has all four.'
+      'Create → Combo price: two fixed items, then a third item with "+ Add an option" and two more picked as its options — the line becomes a "Customer picks 1" group (Done is never pressed), Save for later (no deal slot). The server deal has a line whose options are exactly those three items. Edit shows that line with the same choices. Changing it to four choices (one more, via the line\'s "+ Add an option" button, Done again not pressed) and Save changes is a change, not "Nothing to save", and the server line now has all four.'
     );
     const name = promoName("Choices");
     const create = createOwnerCreatePromotionPage(ownerPage);

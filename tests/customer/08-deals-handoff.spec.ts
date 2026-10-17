@@ -287,18 +287,17 @@ test.describe("Deals → Storefront hand-off", () => {
     );
   });
 
-  test("TC-368: a multi-slot deal is built slot by slot; checkout shows 'Part of deal', the deal line, 'You're saving', and the /quote the page makes prices it at the deal price", async ({
+  test("TC-368: a multi-item deal is added with one Add; checkout shows 'Part of deal', the deal line, 'You're saving', and the /quote the page makes prices it at the deal price", async ({
     page,
   }) => {
     await allure.description(
       "Builder for burger ×2 + fries @ $21: header 'Save 21%' + 'You save $5.50' + 'Available: All days, All " +
-        "day' (validDays = every day), three slot cards, '0 of 3 items added'. Each 'Add to Deal' fills a slot " +
-        "→ 'Deal Complete!'. Checkout: 3× 'Part of deal', '1x <deal>' row, 'You're saving $5.50', proceed " +
+        "day' (validDays = every day), two fixed steps ('2 × <burger>' and the fries), 'All set' from the start; " +
+        "one 'Add deal to cart'. Checkout: 3× 'Part of deal', '1x <deal>' row, 'You're saving $5.50', proceed " +
         "button is the normal 'Proceed to Payment', and the POST /quote the page issues carries orderDeals " +
         "and comes back with dealsSubtotal 21 / subtotal 21."
     );
     const deals = createCustomerDealPage(page);
-    const modal = createCustomerItemModal(page);
     const checkout = createCustomerCheckoutPage(page);
 
     await deals.gotoBuilder(restaurantId, combo.id);
@@ -309,21 +308,21 @@ test.describe("Deals → Storefront hand-off", () => {
     await expect(deals.youSaveChip()).toHaveText("You save $5.50");
     // Unrestricted deal: no schedule line at all (scheduleSummary is null).
     await expect(deals.availabilityLine()).toHaveCount(0);
-    await deals.assertProgress(0, 3);
-    await expect(deals.slotCards(burger.name)).toHaveCount(2);
-    await expect(deals.slotCards(fries.name)).toHaveCount(1);
-
-    await deals.openIncompleteSlot(burger.name);
-    await modal.assertAddToCartEnabled();
-    await expect(modal.addToCartButton()).toContainText("Add to Deal");
-    await deals.clickAddToDeal();
-    await deals.assertProgress(1, 3);
-    await deals.openIncompleteSlot(burger.name);
-    await deals.clickAddToDeal();
-    await deals.assertProgress(2, 3);
-    await deals.openIncompleteSlot(fries.name);
-    await deals.clickAddToDeal();
+    // Fixed items without options, included from the start: the burger line
+    // of 2 is ONE step headed "2 × <burger>", the fries another.
+    await expect(deals.fixedSteps(burger.name)).toHaveCount(1, {
+      timeout: 20_000,
+    });
+    await expect(
+      deals
+        .fixedSteps(burger.name)
+        .getByRole("heading", { name: `2 × ${burger.name}`, exact: true })
+    ).toBeVisible();
+    await expect(deals.fixedSteps(fries.name)).toHaveCount(1);
+    await expect(deals.choiceSlots()).toHaveCount(0);
+    await deals.completeFixedSteps();
     await deals.assertDealComplete();
+    await deals.addDealToCart();
 
     const [quoteRes] = await Promise.all([
       page.waitForResponse(
@@ -379,16 +378,19 @@ test.describe("Deals → Storefront hand-off", () => {
     await expect(deals.builderHeading(pizzaDeal.name)).toBeVisible({
       timeout: 20_000,
     });
-    await deals.assertProgress(0, 2);
+    // The pizza's extras are optional: its step is included and offers
+    // "Customize"; the chosen extra shows on the step with its upcharge.
     await deals.openIncompleteSlot(pizza.name);
     await modal.selectOption(`Extra Cheese ${runId}`);
     await modal.assertOptionChecked(`Extra Cheese ${runId}`);
-    await expect(modal.addToCartButton()).toContainText("$14.00");
+    await expect(modal.addToCartButton()).toHaveText("Done");
     await deals.clickAddToDeal();
-    await deals.assertProgress(1, 2);
-    await deals.openIncompleteSlot(fries.name);
-    await deals.clickAddToDeal();
+    await expect(
+      deals.fixedSteps(pizza.name).getByTestId("deal-step-options")
+    ).toHaveText(`Extra Cheese ${runId} · +$2.00`);
+    await deals.completeFixedSteps();
     await deals.assertDealComplete();
+    await deals.addDealToCart();
     const [quoteRes] = await Promise.all([
       page.waitForResponse(
         (r) =>
@@ -480,12 +482,9 @@ test.describe("Deals → Storefront hand-off", () => {
 
     await allure.step("Build the deal and reach checkout", async () => {
       await deals.gotoBuilder(restaurantId, combo.id);
-      await deals.assertProgress(0, 3);
-      for (const name of [burger.name, burger.name, fries.name]) {
-        await deals.openIncompleteSlot(name);
-        await deals.clickAddToDeal();
-      }
+      await deals.completeFixedSteps();
       await deals.assertDealComplete();
+      await deals.addDealToCart();
       await deals.viewCartButton().click();
       await expect(page).toHaveURL(/\/checkout/, { timeout: 15_000 });
       await checkout.assertFormVisible();
@@ -577,18 +576,49 @@ test.describe("Deals → Storefront hand-off", () => {
       (await getBusinessHoursRaw(token, restaurantId)).data.businessHours ?? [];
     return openSpanOn(hours, localDateKey(tz));
   };
-  /** A deal on burger + fries limited to `w`, plus what seedCartWithDeal needs. */
-  const windowDeal = async (label: string, w: LocalWindow) => {
+  /**
+   * A deal on burger + fries limited to `w`, plus what seedCartWithDeal needs.
+   * `choice`: the first line is "one of burger / pizza" instead of the burger
+   * (a pick step on the deal page; its cart slots are then not seedable).
+   */
+  const windowDeal = async (
+    label: string,
+    w: LocalWindow,
+    opts: { choice?: boolean } = {}
+  ) => {
+    const lines = [
+      { id: burger.id, name: burger.name, price: 10 },
+      { id: fries.id, name: fries.name, price: 6.5 },
+    ];
+    const choiceItems = opts.choice
+      ? {
+          items: [
+            {
+              optionMenuItemIds: [burger.id, pizza.id],
+              quantity: 1,
+              isRequired: true,
+              itemName: "",
+              itemPrice: 0,
+              sortOrder: 0,
+            },
+            {
+              menuItemId: fries.id,
+              quantity: 1,
+              itemName: fries.name,
+              itemPrice: 6.5,
+              isRequired: true,
+              sortOrder: 1,
+            },
+          ],
+        }
+      : {};
     const deal = await createDealApiCapSafe(
       token,
       restaurantId,
       `AUTO Handoff ${label} ${runId}`,
       14,
-      [
-        { id: burger.id, name: burger.name, price: 10 },
-        { id: fries.id, name: fries.name, price: 6.5 },
-      ],
-      { validTimeStart: w.start, validTimeEnd: w.end }
+      lines,
+      { validTimeStart: w.start, validTimeEnd: w.end, ...choiceItems }
     );
     dealIds.push(deal.id);
     const slots = ((await getDealApi(token, deal.id)).items ?? []).map((s) => ({
@@ -620,7 +650,7 @@ test.describe("Deals → Storefront hand-off", () => {
     return (await deals.cardScheduleSummary(dealName).count()) > 0;
   };
 
-  test("TC-535: a deal that starts later today is offered with 'Available from <time>' and its schedule, but its builder slots are disabled until then", async ({
+  test("TC-535: a deal that starts later today is offered with 'Available from <time>' and its schedule, but its builder's options and Add are disabled until then", async ({
     page,
   }) => {
     // A slot wait (up to CAP_WAIT_MS) runs inside this test: size its budget so
@@ -636,7 +666,8 @@ test.describe("Deals → Storefront hand-off", () => {
       !w,
       "No hour-long window left in the seed restaurant's business hours today"
     );
-    const { deal } = await windowDeal("Later", w!);
+    // A pick step (burger or pizza) + fries, so there are options to lock.
+    const { deal } = await windowDeal("Later", w!, { choice: true });
     try {
       const listed = (
         await getActiveDealsPublic(restaurantId)
@@ -657,10 +688,16 @@ test.describe("Deals → Storefront hand-off", () => {
         timeout: 20_000,
       });
       await expect(deals.builderAvailabilityLabel()).toBeVisible();
-      const slots = deals.slotCardHooks();
-      await expect(slots).toHaveCount(2);
-      for (const slot of await slots.all())
-        await expect(slot).toHaveAttribute("aria-disabled", "true");
+      // Two steps: the pick (burger or pizza) and the fixed fries.
+      await expect(deals.slotCardHooks()).toHaveCount(2);
+      await expect(deals.choiceSlots()).toHaveCount(1);
+      // Nothing can be picked or added until the window opens.
+      const options = deals.choiceSlots().getByRole("radio");
+      await expect(options).toHaveCount(2);
+      for (const option of await options.all())
+        await expect(option).toHaveAttribute("aria-disabled", "true");
+      await expect(deals.addDealToCartButton()).toBeDisabled();
+      await expect(deals.keepShoppingButton()).toHaveCount(0);
     } finally {
       // Free the shared seed restaurant's cap slot right away, not in afterAll.
       await deleteDealApi(await freshToken(), deal.id).catch(() => {}); // best effort; AUTO sweep backstops
