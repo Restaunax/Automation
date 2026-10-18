@@ -212,8 +212,9 @@ tests/
     owner/          — Restaurant client manages their own restaurant(s)
     employee/       — Company-side setup staff (publish/tax/create restaurant)
     staff/          — Thin /staff PIN-card stub (web)
-  customer/         — Customer ordering (project: customer, baseURL TEMPLATE_WIND_URL)
-  pos/              — Device In Store / POS — API-level placeholder (not a project)
+  customer/         — Customer ordering on template-wind (project: customer, baseURL TEMPLATE_WIND_URL)
+  customer-lima/    — Embedded ordering on template-lima (project: customer-lima, baseURL LIMA_ORDERING_URL)
+  pos/              — Device In Store / POS, API level (project: pos — tablet device token, no browser UI)
 
 pages/
   dashboard/
@@ -348,6 +349,18 @@ siblings of the run folders first — a report parked at another suite's level g
 wiped). All Pages steps are `if: always()` so a failing run still publishes its
 report.
 
+**Keep `gh-pages` small.** Two settings stop the repo from bloating, so don't
+remove either one: `force_orphan: true` on the peaceiris step makes every deploy a
+single commit with no history, and the step that strips Playwright trace zips leaves
+traces out of the hosted report. Before these, every report stayed in git history,
+and by 2026-10 `gh-pages` had reached 12 GiB over 243 deploys (about 80% trace
+zips), even though the current tree was under 1 GB. Traces are still in the 14-day
+`test-results-<run>` artifact. Clone with `--single-branch --branch qa` so you
+never fetch `gh-pages`. **Older local clones still hold the old ~14 GiB
+`gh-pages` history in `.git`** — if asked to fix storage / repo size, follow
+`docs/LOCAL_CLONE_STORAGE.md` (`bash scripts/slim-clone.sh --check`, then
+without `--check`).
+
 **When the suite runs (four triggers):**
 
 - **Nightly** 06:00 UTC (`e2e.yml` schedule) — the daily safety net for QA
@@ -369,10 +382,11 @@ report.
   `e2e.yml` runs **only `--project=customer`** for it (one storefront changed —
   no need for the full suite) and publishes to the `wind-deploy/` report. Needs
   the same `AUTOMATION_DISPATCH_TOKEN` secret on the template-wind repo.
-  template-lima is deliberately NOT wired (no lima tests exist; decision
-  2026-07-19).
+  template-lima has no deploy dispatch yet: its specs (`--project=customer-lima`)
+  run in the nightly full suite and on demand.
 - **Manual** `workflow_dispatch` (Actions tab → e2e → Run workflow;
-  optional `grep` / `project` inputs).
+  optional `grep` / `project` inputs; `project` is one of all, dashboard,
+  customer, customer-lima, pos).
 
 **Do NOT rebuild the Grafana pipeline.** `scripts/publish-results.ts` still POSTs
 to a backend ingest endpoint that was removed (backend migration

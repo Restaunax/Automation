@@ -189,11 +189,11 @@ test.describe("Customer — Checkout", () => {
   });
 });
 
-// ── Coupon auto-revalidation on cart change — CouponSection re-POSTs
-// /api/coupons/validate (500ms debounce) whenever the cart changes and
-// removes the coupon if the server now rejects it. Driven here with a
-// minOrderAmount coupon: two cart lines clear the minimum, removing one
-// drops below it.
+// ── Coupon re-check on cart change — every cart change re-quotes the cart
+// (/quote), and a code that no longer qualifies stays in the box with an
+// ERROR issue that blocks Pay until it is removed (Promotions: the code is no
+// longer silently auto-removed). Driven here with a minOrderAmount coupon: two
+// cart lines clear the minimum, removing one drops below it.
 test.describe("Customer — Checkout coupon revalidation", () => {
   test.skip(
     !TEMPLATE_WIND_URL || !OWNER_EMAIL || !OWNER_PASSWORD,
@@ -205,13 +205,13 @@ test.describe("Customer — Checkout coupon revalidation", () => {
     await allure.label("severity", "critical");
   });
 
-  test("TC-187: a coupon is auto-removed when the cart drops below its minimum order amount", async ({
+  test("TC-187: a coupon stops applying and blocks Pay when the cart drops below its minimum order amount", async ({
     page,
   }) => {
     await allure.description(
       "A minOrderAmount coupon applies while two cart lines clear the minimum; removing one line " +
-        "triggers CouponSection's debounced revalidation, the backend 400s ('Order must be at " +
-        "least $X'), and the coupon is auto-removed with an explanatory error."
+        "re-quotes the cart, the server drops the discount with an ERROR issue on the code ('Your " +
+        "order doesn't meet the minimum for that coupon.'), and Pay is blocked until the code is removed."
     );
 
     const restaurantId = readRestaurantId();
@@ -254,24 +254,33 @@ test.describe("Customer — Checkout coupon revalidation", () => {
 
     await allure.step("Apply the coupon — accepted", async () => {
       await checkoutPage.applyCoupon(couponCode);
-      await checkoutPage.assertCouponApplied(couponCode);
+      await checkoutPage.assertCouponApplied(couponCode, "10% off your order");
     });
 
     await allure.step(
-      "Remove one line — revalidation strips the coupon",
+      "Remove one line — the code no longer applies and blocks Pay",
       async () => {
         await checkoutPage.removeFirstCartItem();
-        // Assert the auto-removal itself (applied "Saving $" block gone, box
-        // back to code-entry state) — NOT the explanatory error copy: the
-        // backend's "Order must be at least $X" message renders only
-        // transiently before another revalidation cycle clears it (confirmed
-        // via CI error-context snapshot, run 29692228760).
+        // spec: PROMOTIONS.md "Clients as built (plan 3)" → Storefronts — a
+        // quote issue with severity ERROR blocks Pay ("Review your order");
+        // when the entered code is the blocker its sentence sits next to the
+        // code with "Remove the code to continue". The code is no longer
+        // auto-removed (before Promotions CouponSection stripped it); what is
+        // still proven: below the minimum the discount is gone and the
+        // customer can't pay with it.
         await expect(page.getByText(/Saving \$\d/)).toHaveCount(0, {
           timeout: 15_000,
         });
-        await expect(checkoutPage.couponCodeInput()).toBeVisible({
-          timeout: 15_000,
-        });
+        await expect(page.getByText("10% off your order")).toHaveCount(0);
+        await expect(
+          page.getByText(/doesn't meet the minimum for that coupon/i)
+        ).toBeVisible({ timeout: 15_000 });
+        await expect(
+          page.getByRole("button", { name: "Remove the code to continue" })
+        ).toBeVisible();
+        await expect(
+          page.getByRole("button", { name: "Review your order", exact: true })
+        ).toBeDisabled();
       }
     );
   });
@@ -435,7 +444,7 @@ test.describe("Customer — Checkout coupon & delivery", () => {
 
     await allure.step(`Apply valid coupon ${couponCode}`, async () => {
       await checkoutPage.applyCoupon(couponCode);
-      await checkoutPage.assertCouponApplied(couponCode);
+      await checkoutPage.assertCouponApplied(couponCode, "10% off your order");
       await allure.parameter("Coupon", couponCode);
     });
 
@@ -730,7 +739,7 @@ test.describe("Customer — Checkout gift card", () => {
 
     await allure.step("Apply both the coupon and the gift card", async () => {
       await checkoutPage.applyCoupon(couponCode);
-      await checkoutPage.assertCouponApplied(couponCode);
+      await checkoutPage.assertCouponApplied(couponCode, "10% off your order");
       await checkoutPage.applyGiftCard(giftCardCode);
       await checkoutPage.assertGiftCardApplied();
     });

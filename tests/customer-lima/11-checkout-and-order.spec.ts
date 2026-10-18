@@ -112,15 +112,17 @@ test.describe("Lima — checkout and payment", () => {
   });
 
   test("TC-L42: an invalid coupon is rejected", async ({ page }) => {
-    // Lima validates coupons on the CART (ShoppingCart → POST
-    // /api/coupons/validate); checkout has no coupon box.
+    // Lima validates codes on the CART; checkout has no coupon box.
+    // spec: PROMOTIONS.md "Codes" + "Clients as built (plan 3)" — every client
+    // looks every code up through POST /api/promotions/redeem-code (was
+    // POST /api/coupons/validate, kept only for old clients).
     const { checkout } = await reachCart(page);
 
     const before = await checkout.readCartTotal();
     const [resp] = await Promise.all([
       page.waitForResponse(
         (r) =>
-          r.url().includes("/api/coupons/validate") &&
+          r.url().includes("/api/promotions/redeem-code") &&
           r.request().method() === "POST"
       ),
       checkout.applyCoupon("DEFINITELY-NOT-A-REAL-CODE"),

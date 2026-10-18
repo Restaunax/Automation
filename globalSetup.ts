@@ -30,6 +30,7 @@ import {
   BACKEND_URL,
 } from "./utils/apiHelper";
 import { readProcessStartedAt } from "./utils/deployGuard";
+import { restoreLeftoverPublishes } from "./utils/publishBackstop";
 import { assertSafeTargets } from "./utils/targetGuard";
 import {
   STATE_FILE,
@@ -263,6 +264,10 @@ export default async function globalSetup(): Promise<void> {
         ADMIN_EMAIL && ADMIN_PASSWORD
           ? (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken
           : undefined;
+      // A previous run that never reached teardown may have left a fixture
+      // location published (utils/publishBackstop): restore it first.
+      if (adminAccessToken)
+        await restoreLeftoverPublishes(adminAccessToken, "globalSetup");
       chain = await ensureAutomationChain(
         accessToken,
         ownerUserId,

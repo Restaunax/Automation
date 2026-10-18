@@ -49,7 +49,7 @@ const msg = (body: unknown): string =>
 const unwrap = (res: { data: unknown }): any => (res.data as any)?.data;
 
 // MM/DD/YYYY digits for the DatePicker's sectioned keyboard input — same
-// convention as OwnerCouponPage's setStartDate/setEndDate (07-coupons.spec.ts).
+// convention the retired coupon form's date fields used.
 const formatMMDDYYYY = (date: Date) =>
   `${String(date.getMonth() + 1).padStart(2, "0")}${String(
     date.getDate()
@@ -103,16 +103,19 @@ test.describe("Owner — Reservations", () => {
   test.beforeAll(async ({ browser }) => {
     if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return;
     adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
-    const tenant = await createSecondOwner(adminToken, runId);
+    // alwaysFresh: this file grants a feature override and seeds bookings, so
+    // it must never run on OWNER2's persistent restaurant.
+    const tenant = await createSecondOwner(adminToken, runId, {
+      alwaysFresh: true,
+    });
     if (!tenant.restaurantId)
       throw new Error(
         "[reservations] could not mint the throwaway tenant restaurant"
       );
     restaurantId = tenant.restaurantId;
     ownerToken = tenant.accessToken;
-    const ownerEmail = process.env.OWNER2_EMAIL || tenant.email;
-    const ownerPassword =
-      process.env.OWNER2_PASSWORD || "Automation!Owner2-" + runId;
+    const ownerEmail = tenant.email;
+    const ownerPassword = "Automation!Owner2-" + runId;
 
     // Grant BEFORE first navigation — the tab gates client-side at mount.
     const grant = await setFeatureOverrideAdminRaw(
@@ -144,16 +147,15 @@ test.describe("Owner — Reservations", () => {
 
   test.afterAll(async () => {
     if (!adminToken) return;
-    // Best-effort — the whole throwaway restaurant is about to be deleted
-    // (or already provisioned externally via OWNER2_EMAIL), so a transient
-    // revoke failure here would only mask the results above.
+    // Best-effort — the whole throwaway restaurant is about to be deleted,
+    // so a transient revoke failure here would only mask the results above.
     await deleteFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,
       "TABLE_RESERVATIONS"
     ).catch(() => {});
     // Best-effort — the whole throwaway restaurant is archived regardless.
-    if (restaurantId && !process.env.OWNER2_EMAIL)
+    if (restaurantId)
       await deleteTestRestaurant(adminToken, restaurantId).catch(() => {});
     // Closed last, after the API cleanup above, and guarded — a throw
     // closing the browser context must never skip that cleanup.

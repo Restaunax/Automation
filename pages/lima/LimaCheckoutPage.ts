@@ -39,6 +39,14 @@ export const createLimaCheckoutPage = (page: Page) => {
     return match?.[1] ? parseFloat(match[1].replace(/,/g, "")) : null;
   };
 
+  /**
+   * The cart's applied-code chip ("Coupon: <CODE>" + Remove). The cart has no
+   * quote, so under it Lima says "Savings shown at checkout"; the code box
+   * itself is gone while a code is applied.
+   */
+  const appliedCodeChip = (code: string): Locator =>
+    page.getByText(`Coupon: ${code}`, { exact: true });
+
   const applyCouponButton = (): Locator =>
     page.getByRole("button", { name: /^apply$/i }).first();
 
@@ -172,6 +180,57 @@ export const createLimaCheckoutPage = (page: Page) => {
     return match?.[1] ? parseFloat(match[1].replace(/,/g, "")) : null;
   };
 
+  // ── Order summary: promotions + upgrade build-up ──────────────────────────
+  // OrderSummary renders the server's promotion outcome as a plain row (label
+  // = quote.appliedPromotion.title, amount "-$x.xx") and the entered code as
+  // "Code <CODE>" with "Saving $x.xx" under it; neither has a testid.
+
+  /** The food promotion row, found by its title (the server's). */
+  const promotionLine = (title: string): Locator =>
+    page.getByText(title, { exact: true }).locator("xpath=..");
+
+  /** The entered code's row: "Code <CODE>" + the server's outcome line. */
+  const codeRow = (code: string): Locator =>
+    page.getByText(`Code ${code}`, { exact: true }).locator("xpath=../..");
+
+  // UpgradeBuildup (shown when a deal carries upgrades): Items, Upgrades, the
+  // itemised upgrade line, then Subtotal — the same testids on cart and
+  // checkout.
+  const summaryItemsRow = (): Locator => page.getByTestId("summary-items");
+  const summaryUpgradesRow = (): Locator =>
+    page.getByTestId("summary-upgrades");
+  const summaryUpgradeDetails = (): Locator =>
+    page.getByTestId("summary-upgrade-details");
+  const summarySubtotalRow = (): Locator =>
+    page.getByTestId("summary-subtotal");
+
+  /**
+   * The plain "Subtotal" row when there is no upgrade build-up, else the
+   * build-up's summary-subtotal row.
+   */
+  const subtotalRow = (): Locator =>
+    page
+      .getByTestId("summary-subtotal")
+      .or(page.getByText("Subtotal", { exact: true }).locator(".."))
+      .first();
+
+  /** "You're saving $x.xx" — the summary's deal-savings row (client-computed). */
+  const youAreSavingRow = (): Locator =>
+    page.getByText("You're saving", { exact: true }).locator("xpath=../..");
+
+  /** "You've earned a free <item> — Add it" (the quote's freeItemOffer). */
+  const freeItemOfferButton = (): Locator =>
+    page.getByRole("button", { name: /^You've earned a free / });
+
+  /** The first $ amount inside a row. */
+  const readMoney = async (row: Locator): Promise<number> => {
+    await expect(row).toContainText(/\$\s?[\d,]+\.\d{2}/, { timeout: 15_000 });
+    const match = /\$\s?([\d,]+\.\d{2})/.exec(await row.innerText());
+    if (!match?.[1])
+      throw new Error(`no $ amount in "${await row.innerText()}"`);
+    return parseFloat(match[1].replace(/,/g, ""));
+  };
+
   const errorAlert = (): Locator =>
     page.getByRole("alert").filter({ hasText: /.+/ }).first();
 
@@ -186,6 +245,7 @@ export const createLimaCheckoutPage = (page: Page) => {
     emptyCartMessage,
     couponInput,
     readCartTotal,
+    appliedCodeChip,
     applyCouponButton,
     applyCoupon,
     goToCheckout,
@@ -199,6 +259,16 @@ export const createLimaCheckoutPage = (page: Page) => {
     placeOrderButton,
     placeOrder,
     readTotal,
+    promotionLine,
+    codeRow,
+    summaryItemsRow,
+    summaryUpgradesRow,
+    summaryUpgradeDetails,
+    summarySubtotalRow,
+    subtotalRow,
+    youAreSavingRow,
+    freeItemOfferButton,
+    readMoney,
     errorAlert,
     assertOnCheckout,
     assertOrderConfirmed,

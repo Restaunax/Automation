@@ -5,7 +5,7 @@
  * TEMPLATE_WIND_URL) and `ownerPage` (restored owner dashboard session). Proves
  * what the owner tab tests can't: the deal the owner creates / toggles / 86s
  * is what the customer is offered, builds, is quoted, PAYS for, and what the
- * owner's usage counters then report. See docs/DEALS_TAB_TEST_STRATEGY.md §4
+ * owner's usage counters then report. See docs/PROMOTIONS_TEST_STRATEGY.md §4
  * (Layer 3). Own data: a per-run "Automation Deals Storefront <id>" category on
  * the seed restaurant (Burger 10 · Fries 6.50 · Pizza 12 with an ADJUSTS_PRICE
  * "Extra Cheese" +2 modifier) and AUTO deals; everything deleted / hard-deleted
@@ -19,11 +19,8 @@ import { createCustomerDealPage } from "../../pages/customer/CustomerDealPage";
 import { createCustomerItemModal } from "../../pages/customer/CustomerItemModal";
 import { createCustomerCheckoutPage } from "../../pages/customer/CustomerCheckoutPage";
 import { createCustomerOrderConfirmationPage } from "../../pages/customer/CustomerOrderConfirmationPage";
-import {
-  createOwnerDealsPage,
-  DEAL_STATUS_TEXT,
-} from "../../pages/dashboard/owner/OwnerDealsPage";
-import { createDealAnalyticsPage } from "../../pages/dashboard/owner/DealAnalyticsPage";
+import { createOwnerPromotionsPage } from "../../pages/dashboard/owner/OwnerPromotionsPage";
+import { createOwnerPromotionResultsPage } from "../../pages/dashboard/owner/OwnerPromotionResultsPage";
 import { STRIPE_CARDS } from "../../utils/stripeCards";
 import { requireScheduling } from "../../utils/dealScheduleGate";
 import {
@@ -62,8 +59,12 @@ import {
   getBrandingAdminRaw,
   putBrandingAdminRaw,
   getOrderByIdRaw,
+  waitForFreeDealSlot,
+  CAP_WAIT_MS,
   type ApiDeal,
   type ApiMenuItem,
+  DEAL_SLOT_TEST_TIMEOUT_MS,
+  DEAL_SLOT_TWO_TEST_TIMEOUT_MS,
 } from "../../utils/apiHelper";
 
 const TEMPLATE_WIND_URL = process.env.TEMPLATE_WIND_URL ?? "";
@@ -99,11 +100,16 @@ test.describe("Deals → Storefront hand-off", () => {
   let combo: ApiDeal; // burger ×2 + fries @ 21 (orig 26.50, save 5.50 = 21%)
   let pizzaDeal: ApiDeal; // pizza + fries @ 15 (orig 18.50)
   const dealIds: string[] = [];
+  // TC-892's own items (created in the test, cleaned up in afterAll).
+  const unitItems: ApiMenuItem[] = [];
 
   const freshToken = async () =>
     (await apiLogin(OWNER_EMAIL, OWNER_PASSWORD)).accessToken;
 
   test.beforeAll(async () => {
+    // A slot wait (up to CAP_WAIT_MS) runs inside this test: size its budget so
+    // starvation fails with the helper's message, not a bare test timeout.
+    test.setTimeout(DEAL_SLOT_TWO_TEST_TIMEOUT_MS);
     if (!TEMPLATE_WIND_URL || !OWNER_EMAIL || !OWNER_PASSWORD) return;
     restaurantId = readSharedState().restaurantId;
     token = await freshToken();
@@ -180,11 +186,11 @@ test.describe("Deals → Storefront hand-off", () => {
   test.afterAll(async () => {
     if (!token) return;
     const t = await freshToken().catch(() => token);
-    for (const it of [burger, fries, pizza].filter(Boolean))
+    for (const it of [burger, fries, pizza, ...unitItems].filter(Boolean))
       await setAvailability(t, it.id, false).catch(() => {});
     for (const id of dealIds) await deleteDealApi(t, id).catch(() => {});
     if (adminToken)
-      for (const it of [burger, fries, pizza].filter(Boolean))
+      for (const it of [burger, fries, pizza, ...unitItems].filter(Boolean))
         await permanentlyDeleteMenuItemApi(adminToken, it.id).catch(() => {});
     if (groupId) await deleteTestMenuGroup(t, groupId).catch(() => {});
   });
@@ -195,19 +201,22 @@ test.describe("Deals → Storefront hand-off", () => {
     token = await freshToken();
   });
 
-  test("TC-367: 'Today's Deals' on /menu offers the owner's deal; toggling it OFF in Manage Deals removes it, ON brings it back", async ({
+  test("TC-367: 'Today's Deals' on /menu offers the owner's deal; pausing it in Promotions removes it, Turn on brings it back", async ({
     page,
     ownerPage,
   }) => {
+    // A slot wait (up to CAP_WAIT_MS) runs inside this test: size its budget so
+    // starvation fails with the helper's message, not a bare test timeout.
+    test.setTimeout(DEAL_SLOT_TEST_TIMEOUT_MS);
     await allure.description(
       "Storefront /menu renders the DealCard for the API-seeded combo (name, 'Save 21%', 'Includes:' one " +
         "'1x' chip per slot row, struck $26.50 / $21.00, 'View Deal' → /deals/<id>). The owner flips the " +
-        "row's switch OFF in ?tab=deals → the storefront no longer offers it (public /active hides INACTIVE); " +
-        "ON → back."
+        "row's menu → Pause in ?tab=promotions (row reads Paused) → the storefront no longer offers it (public " +
+        "/active hides INACTIVE); Turn on (row reads Live) → back."
     );
     const menu = createCustomerMenuPage(page);
     const deals = createCustomerDealPage(page);
-    const dashboard = createOwnerDealsPage(ownerPage);
+    const promotions = createOwnerPromotionsPage(ownerPage);
 
     await allure.step("Storefront lists the deal card", async () => {
       await menu.goto(restaurantId);
@@ -235,36 +244,43 @@ test.describe("Deals → Storefront hand-off", () => {
       });
     });
 
-    await allure.step(
-      "Owner deactivates it → storefront drops it",
-      async () => {
-        await dashboard.gotoManageDeals(restaurantId);
-        await dashboard.search(combo.name);
-        const off = await dashboard.toggleStatus(combo.name);
-        expect(off.status).toBe(200);
-        await expect(dashboard.rowStatusText(combo.name)).toHaveText(
-          DEAL_STATUS_TEXT.inactive
-        );
-        await menu.goto(restaurantId);
-        await menu.assertPageLoaded();
-        // Positive control: our second (still active) deal is offered.
-        await expect(deals.dealCard(pizzaDeal.name)).toBeVisible({
-          timeout: 30_000,
-        });
-        await expect(deals.dealCard(combo.name)).toHaveCount(0);
-        await deals.gotoBuilder(restaurantId, combo.id);
-        await expect(deals.dealNotFound()).toBeVisible({ timeout: 20_000 });
-        await expect(deals.returnToMenuButton()).toBeVisible();
-      }
-    );
+    await allure.step("Owner pauses it → storefront drops it", async () => {
+      await promotions.goto(restaurantId);
+      const off = await promotions.setStatusFromMenu(combo.name, "Pause");
+      expect(off.status, JSON.stringify(off.body)).toBe(200);
+      await promotions.expectRowStatus(combo.name, "Paused");
+      await menu.goto(restaurantId);
+      await menu.assertPageLoaded();
+      // Positive control: our second (still active) deal is offered.
+      await expect(deals.dealCard(pizzaDeal.name)).toBeVisible({
+        timeout: 30_000,
+      });
+      await expect(deals.dealCard(combo.name)).toHaveCount(0);
+      await deals.gotoBuilder(restaurantId, combo.id);
+      await expect(deals.dealNotFound()).toBeVisible({ timeout: 20_000 });
+      await expect(deals.returnToMenuButton()).toBeVisible();
+    });
 
     await allure.step(
-      "Owner re-activates → storefront offers it again",
+      "Owner turns it on → storefront offers it again",
       async () => {
-        // Cap-tolerant: 11-deals may hold the seed restaurant at 10 active for a
-        // few seconds (its cap-banner test) — retry until a slot frees.
-        const on = await dashboard.activateWithRetry(combo.name);
-        expect(on.status, JSON.stringify(on.body)).toBe(200);
+        // Cap-tolerant: other files may hold the seed restaurant at 10 active
+        // deals for a moment — a refused Turn on (cap dialog) is retried once
+        // a slot frees, until CAP_WAIT_MS.
+        const deadline = Date.now() + CAP_WAIT_MS;
+        for (;;) {
+          await waitForFreeDealSlot(token, restaurantId);
+          const on = await promotions.setStatusFromMenu(combo.name, "Turn on");
+          if (on.status === 200) break;
+          expect(on.body?.error, JSON.stringify(on.body)).toBe(
+            "MAX_ACTIVE_DEALS_REACHED"
+          );
+          await promotions.confirmDialog("OK");
+          expect(Date.now(), "a deal slot freed in time").toBeLessThan(
+            deadline
+          );
+        }
+        await promotions.expectRowStatus(combo.name, "Live");
         await menu.goto(restaurantId);
         await expect(deals.dealCard(combo.name)).toBeVisible({
           timeout: 30_000,
@@ -273,18 +289,19 @@ test.describe("Deals → Storefront hand-off", () => {
     );
   });
 
-  test("TC-368: a multi-slot deal is built slot by slot; checkout shows 'Part of deal', the deal line, 'You're saving', and the /quote the page makes prices it at the deal price", async ({
+  test("TC-368: a multi-item deal is added with one Add; checkout shows 'Part of deal', the deal line, 'You're saving', and the /quote the page makes prices it at the deal price", async ({
     page,
   }) => {
     await allure.description(
       "Builder for burger ×2 + fries @ $21: header 'Save 21%' + 'You save $5.50' + 'Available: All days, All " +
-        "day' (validDays = every day), three slot cards, '0 of 3 items added'. Each 'Add to Deal' fills a slot " +
-        "→ 'Deal Complete!'. Checkout: 3× 'Part of deal', '1x <deal>' row, 'You're saving $5.50', proceed " +
+        "day' (validDays = every day), two fixed steps: ONE '2 × <burger>' step (the burger ×2 is stored as two unit rows, " +
+        "grouped into one step per spec §13; the burger has no options, so no unit rows and no Customize) plus the fries, " +
+        "'All set' from the start; " +
+        "one 'Add deal to cart'. Checkout: 3× 'Part of deal', '1x <deal>' row, 'You're saving $5.50', proceed " +
         "button is the normal 'Proceed to Payment', and the POST /quote the page issues carries orderDeals " +
         "and comes back with dealsSubtotal 21 / subtotal 21."
     );
     const deals = createCustomerDealPage(page);
-    const modal = createCustomerItemModal(page);
     const checkout = createCustomerCheckoutPage(page);
 
     await deals.gotoBuilder(restaurantId, combo.id);
@@ -295,21 +312,32 @@ test.describe("Deals → Storefront hand-off", () => {
     await expect(deals.youSaveChip()).toHaveText("You save $5.50");
     // Unrestricted deal: no schedule line at all (scheduleSummary is null).
     await expect(deals.availabilityLine()).toHaveCount(0);
-    await deals.assertProgress(0, 3);
-    await expect(deals.slotCards(burger.name)).toHaveCount(2);
-    await expect(deals.slotCards(fries.name)).toHaveCount(1);
-
-    await deals.openIncompleteSlot(burger.name);
-    await modal.assertAddToCartEnabled();
-    await expect(modal.addToCartButton()).toContainText("Add to Deal");
-    await deals.clickAddToDeal();
-    await deals.assertProgress(1, 3);
-    await deals.openIncompleteSlot(burger.name);
-    await deals.clickAddToDeal();
-    await deals.assertProgress(2, 3);
-    await deals.openIncompleteSlot(fries.name);
-    await deals.clickAddToDeal();
+    // Fixed items without options, included from the start. The backend
+    // stores every DealItem at quantity 1 (splitDealItemsToUnitQuantity), so
+    // "burger ×2" is persisted as TWO burger rows; the builder groups those
+    // identical units into ONE step "2 × <burger>" (spec §13), "✓ Included".
+    // The burger has no options, so the step has no unit rows and no
+    // Customize. Then one step for the fries: two fixed steps in all — never
+    // the old "1. <burger>" / "2. <burger>" pair.
+    const burgerStep = `2 × ${burger.name}`;
+    await expect(deals.fixedSteps(burger.name)).toHaveCount(1, {
+      timeout: 20_000,
+    });
+    const step = deals.stepByHeading(burgerStep);
+    await expect(step).toBeVisible();
+    await expect(step.getByTestId("deal-step-status")).toHaveText("✓ Included");
+    await expect(deals.unitRows(burgerStep)).toHaveCount(0);
+    await expect(step.getByTestId("deal-unit-customize")).toHaveCount(0);
+    await expect(step.getByTestId("deal-step-customize")).toHaveCount(0);
+    await expect(
+      page.getByRole("heading", { name: burger.name, exact: true })
+    ).toHaveCount(0);
+    await expect(deals.fixedSteps(fries.name)).toHaveCount(1);
+    await expect(deals.allFixedSteps()).toHaveCount(2);
+    await expect(deals.choiceSlots()).toHaveCount(0);
+    await deals.completeFixedSteps();
     await deals.assertDealComplete();
+    await deals.addDealToCart();
 
     const [quoteRes] = await Promise.all([
       page.waitForResponse(
@@ -353,25 +381,31 @@ test.describe("Deals → Storefront hand-off", () => {
   }) => {
     await allure.description(
       "Pizza + fries @ $15; the pizza slot is customised with 'Extra Cheese' (+$2.00, ADJUSTS_PRICE). Checkout " +
-        "shows 'Modifiers/Upgrades +$2.00', the expanded deal lists '1x <pizza> (+$2.00)', and the page's own " +
+        "shows the upgrade build-up (Items $15.00, Upgrades +$2.00 itemised 'Extra Cheese +$2.00', Subtotal " +
+        "$17.00 — template-wind #117 replaced the old 'Modifiers/Upgrades' row), the expanded deal lists " +
+        "'1x <pizza> (+$2.00)', and the page's own " +
         "/quote returns upcharge 2 / lineTotal 17 / subtotal 17 — the client's number is recomputed server-side."
     );
     const deals = createCustomerDealPage(page);
     const modal = createCustomerItemModal(page);
+    const checkout = createCustomerCheckoutPage(page);
     await deals.gotoBuilder(restaurantId, pizzaDeal.id);
     await expect(deals.builderHeading(pizzaDeal.name)).toBeVisible({
       timeout: 20_000,
     });
-    await deals.assertProgress(0, 2);
+    // The pizza's extras are optional: its step is included and offers
+    // "Customize"; the chosen extra shows on the step with its upcharge.
     await deals.openIncompleteSlot(pizza.name);
     await modal.selectOption(`Extra Cheese ${runId}`);
     await modal.assertOptionChecked(`Extra Cheese ${runId}`);
-    await expect(modal.addToCartButton()).toContainText("$14.00");
+    await expect(modal.addToCartButton()).toHaveText("Done");
     await deals.clickAddToDeal();
-    await deals.assertProgress(1, 2);
-    await deals.openIncompleteSlot(fries.name);
-    await deals.clickAddToDeal();
+    await expect(
+      deals.fixedSteps(pizza.name).getByTestId("deal-step-options")
+    ).toHaveText(`Extra Cheese ${runId} · +$2.00`);
+    await deals.completeFixedSteps();
     await deals.assertDealComplete();
+    await deals.addDealToCart();
     const [quoteRes] = await Promise.all([
       page.waitForResponse(
         (r) =>
@@ -394,7 +428,11 @@ test.describe("Deals → Storefront hand-off", () => {
       lineTotal: 17,
     });
     expect(quote.quote?.subtotal).toBe(17);
-    await expect(deals.modifiersUpgradesRow()).toContainText("+$2.00");
+    await expect(checkout.summaryItemsRow()).toContainText("$15.00");
+    await expect(checkout.summaryUpgradesRow()).toContainText("+$2.00");
+    await expect(checkout.summaryUpgradeDetails()).toHaveText(
+      `Extra Cheese ${runId} +$2.00`
+    );
     await deals.dealSummaryRow(pizzaDeal.name).click();
     await expect(deals.dealItemUpchargeLine(pizza.name)).toBeVisible();
     await expect(deals.dealItemUpchargeLine(pizza.name)).toContainText(
@@ -403,6 +441,331 @@ test.describe("Deals → Storefront hand-off", () => {
     await expect(
       page.getByText("Subtotal", { exact: true }).locator("..")
     ).toContainText("$17.00");
+  });
+
+  test("TC-892: a combo with 2 of the same item that has options is ONE '2 × <item>' step with a Customize row per unit — customising Burger 2 leaves Burger 1 on its defaults, an Add with Burger 2's required options missing is refused, and the quote carries one line per unit", async ({
+    page,
+  }) => {
+    // A slot wait (up to CAP_WAIT_MS) runs inside this test.
+    test.setTimeout(DEAL_SLOT_TEST_TIMEOUT_MS);
+    await allure.description(
+      "Spec §13 (identical fixed items as one '{qty} × {name}' step). Combo @ $30 = 2 × Units Burger ($10, " +
+        "optional 'Bacon' +$1.50) + 2 × Units Melt ($8, REQUIRED 'Sauce': Ranch $0 / Chipotle +$0.75); the " +
+        "backend stores four quantity-1 rows. The builder shows two steps: '2 × <burger>' ✓ Included and " +
+        "'2 × <melt>' Required, each with two unit rows ('<item> 1', '<item> 2', 'Included', own button " +
+        "'Customize <item> n' / 'Choose options for <item> n'). Customising Burger 2 with Bacon: row 2 shows " +
+        "'Bacon' + '+$1.50', row 1 stays 'Included' with no options. Melt 1 → Ranch, then Add → refused: alert " +
+        "'Choose options for <melt> 2', focus on that unit's button, nothing added. Melt 2 → Chipotle → bar " +
+        "$32.25 → one Add. The checkout /quote carries one orderDeals item per DealItem row (each its own " +
+        "dealItemId) with upchargeAmount 0 / 1.50 (burgers) and 0 / 0.75 (melts); the server answers upcharge " +
+        "2.25, lineTotal 32.25, subtotal 32.25; the summary shows two '1x <burger>' and two '1x <melt>' cart " +
+        "lines ('Part of deal' ×4) with '+ Bacon', '+ Ranch', '+ Chipotle' once each."
+    );
+    const deals = createCustomerDealPage(page);
+    const modal = createCustomerItemModal(page);
+    const checkout = createCustomerCheckoutPage(page);
+    const unitsBurger = await createMenuItemFull(
+      token,
+      groupId,
+      `Units Burger ${runId}`,
+      10,
+      {
+        description: "spec 13 unit rows: optional extra",
+        modifierGroups: [
+          {
+            name: `Extras ${runId}`,
+            pricingMode: "ADJUSTS_PRICE",
+            minSelections: 0,
+            maxSelections: null,
+            modifiers: [{ name: `Bacon ${runId}`, price: 1.5 }],
+          },
+        ],
+      }
+    );
+    unitItems.push(unitsBurger);
+    const unitsMelt = await createMenuItemFull(
+      token,
+      groupId,
+      `Units Melt ${runId}`,
+      8,
+      {
+        description: "spec 13 unit rows: required option",
+        modifierGroups: [
+          {
+            name: `Sauce ${runId}`,
+            pricingMode: "ADJUSTS_PRICE",
+            minSelections: 1,
+            maxSelections: 1,
+            modifiers: [
+              { name: `Ranch ${runId}`, price: 0 },
+              { name: `Chipotle ${runId}`, price: 0.75 },
+            ],
+          },
+        ],
+      }
+    );
+    unitItems.push(unitsMelt);
+    const unitsDeal = await createDealApiCapSafe(
+      token,
+      restaurantId,
+      `AUTO Handoff Units ${runId}`,
+      30,
+      [
+        { id: unitsBurger.id, name: unitsBurger.name, price: 10, quantity: 2 },
+        { id: unitsMelt.id, name: unitsMelt.name, price: 8, quantity: 2 },
+      ],
+      { description: "two burgers and two melts", validDays: ALL_DAYS }
+    );
+    dealIds.push(unitsDeal.id);
+    try {
+      const burgerStep = `2 × ${unitsBurger.name}`;
+      const meltStep = `2 × ${unitsMelt.name}`;
+      const rows = (await getDealApi(token, unitsDeal.id)).items ?? [];
+      // The backend splits each quantity-2 line into two quantity-1 rows.
+      expect(rows, JSON.stringify(rows)).toHaveLength(4);
+
+      await allure.step(
+        "One '2 × <item>' step per item, a row per unit",
+        async () => {
+          await deals.gotoBuilder(restaurantId, unitsDeal.id);
+          await expect(deals.builderHeading(unitsDeal.name)).toBeVisible({
+            timeout: 20_000,
+          });
+          await expect(deals.unitRows(meltStep)).toHaveCount(2, {
+            timeout: 20_000,
+          });
+          await expect(deals.allFixedSteps()).toHaveCount(2);
+          await expect(deals.fixedSteps(unitsBurger.name)).toHaveCount(1);
+          await expect(deals.fixedSteps(unitsMelt.name)).toHaveCount(1);
+          await expect(
+            deals.stepByHeading(burgerStep).getByTestId("deal-step-status")
+          ).toHaveText("✓ Included");
+          await expect(
+            deals.stepByHeading(meltStep).getByTestId("deal-step-status")
+          ).toHaveText("Required");
+          // Rows replace the step-level Customize and options summary.
+          for (const h of [burgerStep, meltStep]) {
+            await expect(
+              deals.stepByHeading(h).getByTestId("deal-step-customize")
+            ).toHaveCount(0);
+            await expect(
+              deals.stepByHeading(h).getByTestId("deal-step-options")
+            ).toHaveCount(0);
+          }
+          await expect(deals.unitRows(burgerStep)).toHaveCount(2);
+          for (const n of [1, 2]) {
+            await expect(deals.unitLabel(burgerStep, n)).toHaveText(
+              `${unitsBurger.name} ${n}`
+            );
+            await expect(deals.unitPrice(burgerStep, n)).toHaveText("Included");
+            await expect(deals.unitOptions(burgerStep, n)).toHaveCount(0);
+            await expect(deals.unitCustomizeButton(burgerStep, n)).toHaveText(
+              "Customize"
+            );
+            await expect(
+              deals.unitCustomizeButton(burgerStep, n)
+            ).toHaveAccessibleName(`Customize ${unitsBurger.name} ${n}`);
+            await expect(deals.unitLabel(meltStep, n)).toHaveText(
+              `${unitsMelt.name} ${n}`
+            );
+            await expect(deals.unitCustomizeButton(meltStep, n)).toHaveText(
+              "Choose options"
+            );
+            await expect(
+              deals.unitCustomizeButton(meltStep, n)
+            ).toHaveAccessibleName(`Choose options for ${unitsMelt.name} ${n}`);
+          }
+          // Each row is its own unit: four distinct unit keys.
+          const keys = await page
+            .getByTestId("deal-unit-row")
+            .evaluateAll((els) =>
+              els.map((e) => e.getAttribute("data-unit-key"))
+            );
+          expect(new Set(keys).size, JSON.stringify(keys)).toBe(4);
+          // Only the melt step asks for something.
+          await deals.assertProgress(0, 1);
+          await expect(deals.progressDealPrice()).toHaveText("$30.00");
+        }
+      );
+
+      await allure.step(
+        "Customise Burger 2 only → Burger 1 keeps its defaults",
+        async () => {
+          await deals.customizeUnit(burgerStep, 2, async () => {
+            await modal.selectOption(`Bacon ${runId}`);
+            await modal.assertOptionChecked(`Bacon ${runId}`);
+          });
+          await expect(deals.unitOptions(burgerStep, 2)).toHaveText(
+            `Bacon ${runId}`
+          );
+          await expect(deals.unitPrice(burgerStep, 2)).toHaveText("+$1.50");
+          await expect(deals.unitPrice(burgerStep, 1)).toHaveText("Included");
+          await expect(deals.unitOptions(burgerStep, 1)).toHaveCount(0);
+          await expect(deals.progressDealPrice()).toHaveText("$31.50");
+          // Burger 1 reopens on its defaults: no Bacon carried over.
+          await deals.customizeUnit(burgerStep, 1);
+          await modal.assertOptionUnchecked(`Bacon ${runId}`);
+          await deals.clickAddToDeal();
+          await expect(deals.unitOptions(burgerStep, 1)).toHaveCount(0);
+          await expect(deals.unitOptions(burgerStep, 2)).toHaveText(
+            `Bacon ${runId}`
+          );
+        }
+      );
+
+      await allure.step(
+        "Melt 1 answered, Melt 2 not → the Add is refused and names Melt 2",
+        async () => {
+          await deals.customizeUnit(meltStep, 1, async () => {
+            await modal.selectOption(`Ranch ${runId}`);
+            await modal.assertOptionChecked(`Ranch ${runId}`);
+          });
+          await expect(deals.unitOptions(meltStep, 1)).toHaveText(
+            `Ranch ${runId}`
+          );
+          await expect(deals.unitPrice(meltStep, 1)).toHaveText("Included");
+          await expect(deals.unitCustomizeButton(meltStep, 1)).toHaveText(
+            "Customize"
+          );
+          await expect(
+            deals.stepByHeading(meltStep).getByTestId("deal-step-status")
+          ).toHaveText("Required");
+          await deals.assertProgress(0, 1);
+          await deals.addDealToCartButton().click();
+          await expect(deals.stepAlert(meltStep)).toHaveText(
+            `Choose options for ${unitsMelt.name} 2`
+          );
+          await expect(deals.unitCustomizeButton(meltStep, 2)).toBeFocused();
+          await expect(deals.keepShoppingButton()).toHaveCount(0);
+          // The burger step has nothing to flag.
+          await expect(deals.stepAlert(burgerStep)).toHaveCount(0);
+        }
+      );
+
+      await allure.step("Melt 2 answered → All set → one Add", async () => {
+        await deals.customizeUnit(meltStep, 2, async () => {
+          await modal.selectOption(`Chipotle ${runId}`);
+          await modal.assertOptionChecked(`Chipotle ${runId}`);
+        });
+        await expect(deals.stepAlert(meltStep)).toHaveCount(0);
+        await expect(deals.unitOptions(meltStep, 2)).toHaveText(
+          `Chipotle ${runId}`
+        );
+        await expect(deals.unitPrice(meltStep, 2)).toHaveText("+$0.75");
+        await expect(
+          deals.stepByHeading(meltStep).getByTestId("deal-step-status")
+        ).toHaveText("✓ Included");
+        // Earlier choices untouched.
+        await expect(deals.unitOptions(burgerStep, 2)).toHaveText(
+          `Bacon ${runId}`
+        );
+        await expect(deals.unitOptions(burgerStep, 1)).toHaveCount(0);
+        await expect(deals.unitOptions(meltStep, 1)).toHaveText(
+          `Ranch ${runId}`
+        );
+        await deals.assertDealComplete();
+        await expect(deals.progressDealPrice()).toHaveText("$32.25");
+        await expect(deals.addDealToCartButton()).toHaveText(
+          "Add deal to cart · $32.25"
+        );
+        await deals.addDealToCart();
+      });
+
+      await allure.step(
+        "Checkout: one line per unit, priced by the server",
+        async () => {
+          const [quoteRes] = await Promise.all([
+            page.waitForResponse(
+              (r) =>
+                /\/api\/order\/[^/]+\/quote$/.test(r.url()) &&
+                r.request().method() === "POST" &&
+                r.status() === 200,
+              { timeout: 30_000 }
+            ),
+            deals.viewCartButton().click(),
+          ]);
+          await expect(page).toHaveURL(/\/checkout/, { timeout: 15_000 });
+          const req = quoteRes.request().postDataJSON() as {
+            orderDeals?: {
+              dealId: string;
+              items: {
+                dealItemId?: string;
+                menuItemId: string;
+                quantity: number;
+                upchargeAmount: number;
+              }[];
+            }[];
+          };
+          const sent = req.orderDeals?.find((d) => d.dealId === unitsDeal.id);
+          expect(sent, JSON.stringify(req.orderDeals)).toBeTruthy();
+          // One entry per DealItem row, each naming its own row.
+          expect(sent!.items.map((i) => i.dealItemId).sort()).toEqual(
+            rows.map((r) => r.id).sort()
+          );
+          const upchargesOf = (menuItemId: string) =>
+            sent!.items
+              .filter((i) => i.menuItemId === menuItemId)
+              .map((i) => {
+                expect(i.quantity).toBe(1);
+                return i.upchargeAmount;
+              })
+              .sort((a, b) => a - b);
+          expect(upchargesOf(unitsBurger.id)).toEqual([0, 1.5]);
+          expect(upchargesOf(unitsMelt.id)).toEqual([0, 0.75]);
+          const quote = (await quoteRes.json()) as {
+            quote?: {
+              subtotal?: number;
+              deals?: {
+                dealId?: string;
+                dealPrice: number;
+                upcharge: number;
+                lineTotal: number;
+              }[];
+            };
+          };
+          expect(quote.quote?.deals?.[0]).toMatchObject({
+            dealPrice: 30,
+            upcharge: 2.25,
+            lineTotal: 32.25,
+          });
+          expect(quote.quote?.subtotal).toBe(32.25);
+
+          await expect(
+            page.getByRole("heading", {
+              name: `1x ${unitsBurger.name}`,
+              exact: true,
+            })
+          ).toHaveCount(2);
+          await expect(
+            page.getByRole("heading", {
+              name: `1x ${unitsMelt.name}`,
+              exact: true,
+            })
+          ).toHaveCount(2);
+          await expect(deals.partOfDealLabels()).toHaveCount(4);
+          for (const mod of [
+            `Bacon ${runId}`,
+            `Ranch ${runId}`,
+            `Chipotle ${runId}`,
+          ])
+            await expect(
+              page.getByText(`+ ${mod}`, { exact: true })
+            ).toHaveCount(1);
+          await expect(checkout.summaryItemsRow()).toContainText("$30.00");
+          await expect(checkout.summaryUpgradesRow()).toContainText("+$2.25");
+          await expect(checkout.summaryUpgradeDetails()).toContainText(
+            `Bacon ${runId} +$1.50`
+          );
+          await expect(checkout.summaryUpgradeDetails()).toContainText(
+            `Chipotle ${runId} +$0.75`
+          );
+          await expect(checkout.subtotalRow()).toContainText("$32.25");
+        }
+      );
+    } finally {
+      // Give the seed restaurant's deal slot back right away.
+      await deleteDealApi(token, unitsDeal.id).catch(() => {}); // best effort; AUTO sweep backstops
+    }
   });
 
   test("TC-370: 86'ing a required slot item pulls the whole deal from the storefront; restoring it brings the deal back", async ({
@@ -436,7 +799,7 @@ test.describe("Deals → Storefront hand-off", () => {
     });
   });
 
-  test("TC-371: paying for a deal order records the deal on the order and bumps the owner's usage counters (stats API, Manage Deals row, Deal Analytics)", async ({
+  test("TC-371: paying for a deal order records the deal on the order and bumps the owner's usage counters (stats API, Promotions row, Results)", async ({
     page,
     ownerPage,
   }) => {
@@ -444,26 +807,24 @@ test.describe("Deals → Storefront hand-off", () => {
       "Builds the combo, checks out as a pickup guest with the Stripe VISA test card → 'Order Confirmed!'. " +
         "The order (owner GET /api/order/:id) carries orderDeals[0] {dealId, dealPrice 21, quantity 1} and " +
         "3 orderDealItems; on payment processDealStatistics increments Deal.timesUsed / totalRevenue → the " +
-        "/stats summary moves by +1 / +21, the Manage Deals row reads '1 times' + '$21.00', and Deal " +
-        "Analytics' Top Performing Deals lists it. Leaves one real paid order on QA (as TC-26 does)."
+        "/stats summary moves by +1 / +21; the Promotions list row reads one more use and the $5.50 saved, " +
+        "and Results' Top promotions lists it with the same numbers. Leaves one real paid order on QA (as " +
+        "TC-26 does)."
     );
     const deals = createCustomerDealPage(page);
     const checkout = createCustomerCheckoutPage(page);
     const confirmation = createCustomerOrderConfirmationPage(page);
-    const dashboard = createOwnerDealsPage(ownerPage);
-    const analytics = createDealAnalyticsPage(ownerPage);
+    const promotions = createOwnerPromotionsPage(ownerPage);
+    const results = createOwnerPromotionResultsPage(ownerPage);
 
     const before = (await getDealStatsRaw(token, restaurantId)).data.summary!;
     const dealBefore = await getDealApi(token, combo.id);
 
     await allure.step("Build the deal and reach checkout", async () => {
       await deals.gotoBuilder(restaurantId, combo.id);
-      await deals.assertProgress(0, 3);
-      for (const name of [burger.name, burger.name, fries.name]) {
-        await deals.openIncompleteSlot(name);
-        await deals.clickAddToDeal();
-      }
+      await deals.completeFixedSteps();
       await deals.assertDealComplete();
+      await deals.addDealToCart();
       await deals.viewCartButton().click();
       await expect(page).toHaveURL(/\/checkout/, { timeout: 15_000 });
       await checkout.assertFormVisible();
@@ -533,23 +894,19 @@ test.describe("Deals → Storefront hand-off", () => {
       );
     });
 
-    await allure.step(
-      "Manage Deals row and Deal Analytics show it",
-      async () => {
-        await dashboard.gotoManageDeals(restaurantId);
-        await dashboard.search(combo.name);
-        const row = dashboard.row(combo.name);
-        await expect(row).toContainText(
-          `${(dealBefore.timesUsed ?? 0) + 1} times`
-        );
-        await expect(row).toContainText("$21.00");
-        await dashboard.gotoTab(restaurantId, "deal-analytics");
-        await analytics.assertLoaded();
-        const top = analytics.topDealRow(combo.name);
-        await expect(top).toBeVisible({ timeout: 15_000 });
-        await expect(top).toContainText("$21.00");
-      }
-    );
+    await allure.step("Promotions list row and Results show it", async () => {
+      const uses = (dealBefore.timesUsed ?? 0) + 1;
+      await promotions.goto(restaurantId);
+      await promotions.expectRowUses(combo.name, uses);
+      // The deal's saving on this order (dealDiscountAmount 5.5 above).
+      await promotions.expectRowSavings(combo.name, "$5.50");
+      await results.goto(restaurantId);
+      await results.expectLoaded();
+      const top = results.topRow(combo.name);
+      await expect(top).toBeVisible({ timeout: 15_000 });
+      await expect(top.getByRole("cell").nth(3)).toHaveText(String(uses));
+      await expect(top.getByRole("cell").nth(4)).toHaveText("$5.50");
+    });
   });
 
   // ── Deal scheduling on the storefront (Plans 1 + 4) ───────────────────────
@@ -559,18 +916,49 @@ test.describe("Deals → Storefront hand-off", () => {
       (await getBusinessHoursRaw(token, restaurantId)).data.businessHours ?? [];
     return openSpanOn(hours, localDateKey(tz));
   };
-  /** A deal on burger + fries limited to `w`, plus what seedCartWithDeal needs. */
-  const windowDeal = async (label: string, w: LocalWindow) => {
+  /**
+   * A deal on burger + fries limited to `w`, plus what seedCartWithDeal needs.
+   * `choice`: the first line is "one of burger / pizza" instead of the burger
+   * (a pick step on the deal page; its cart slots are then not seedable).
+   */
+  const windowDeal = async (
+    label: string,
+    w: LocalWindow,
+    opts: { choice?: boolean } = {}
+  ) => {
+    const lines = [
+      { id: burger.id, name: burger.name, price: 10 },
+      { id: fries.id, name: fries.name, price: 6.5 },
+    ];
+    const choiceItems = opts.choice
+      ? {
+          items: [
+            {
+              optionMenuItemIds: [burger.id, pizza.id],
+              quantity: 1,
+              isRequired: true,
+              itemName: "",
+              itemPrice: 0,
+              sortOrder: 0,
+            },
+            {
+              menuItemId: fries.id,
+              quantity: 1,
+              itemName: fries.name,
+              itemPrice: 6.5,
+              isRequired: true,
+              sortOrder: 1,
+            },
+          ],
+        }
+      : {};
     const deal = await createDealApiCapSafe(
       token,
       restaurantId,
       `AUTO Handoff ${label} ${runId}`,
       14,
-      [
-        { id: burger.id, name: burger.name, price: 10 },
-        { id: fries.id, name: fries.name, price: 6.5 },
-      ],
-      { validTimeStart: w.start, validTimeEnd: w.end }
+      lines,
+      { validTimeStart: w.start, validTimeEnd: w.end, ...choiceItems }
     );
     dealIds.push(deal.id);
     const slots = ((await getDealApi(token, deal.id)).items ?? []).map((s) => ({
@@ -602,9 +990,12 @@ test.describe("Deals → Storefront hand-off", () => {
     return (await deals.cardScheduleSummary(dealName).count()) > 0;
   };
 
-  test("TC-535: a deal that starts later today is offered with 'Available from <time>' and its schedule, but its builder slots are disabled until then", async ({
+  test("TC-535: a deal that starts later today is offered with 'Available from <time>' and its schedule, but its builder's options and Add are disabled until then", async ({
     page,
   }) => {
+    // A slot wait (up to CAP_WAIT_MS) runs inside this test: size its budget so
+    // starvation fails with the helper's message, not a bare test timeout.
+    test.setTimeout(DEAL_SLOT_TEST_TIMEOUT_MS);
     const tz = await getRestaurantTimeZonePublic(restaurantId);
     requireScheduling("backend", Boolean(tz));
     const span = await todaySpan(tz);
@@ -615,10 +1006,14 @@ test.describe("Deals → Storefront hand-off", () => {
       !w,
       "No hour-long window left in the seed restaurant's business hours today"
     );
-    const { deal } = await windowDeal("Later", w!);
+    // A pick step (burger or pizza) + fries, so there are options to lock.
+    const { deal } = await windowDeal("Later", w!, { choice: true });
     try {
+      // The deal has an option line (burger or pizza): the public list only
+      // returns it to a client that says it renders the new mechanics
+      // (X-Promotions-Version: 2), as wind does — old clients never see it.
       const listed = (
-        await getActiveDealsPublic(restaurantId)
+        await getActiveDealsPublic(restaurantId, { v2: true })
       ).data.deals?.find((d) => d.id === deal.id);
       expect(listed?.availableNow).toBe(false);
       requireScheduling("wind", await windShipsScheduleUi(page, deal.name));
@@ -636,10 +1031,16 @@ test.describe("Deals → Storefront hand-off", () => {
         timeout: 20_000,
       });
       await expect(deals.builderAvailabilityLabel()).toBeVisible();
-      const slots = deals.slotCardHooks();
-      await expect(slots).toHaveCount(2);
-      for (const slot of await slots.all())
-        await expect(slot).toHaveAttribute("aria-disabled", "true");
+      // Two steps: the pick (burger or pizza) and the fixed fries.
+      await expect(deals.slotCardHooks()).toHaveCount(2);
+      await expect(deals.choiceSlots()).toHaveCount(1);
+      // Nothing can be picked or added until the window opens.
+      const options = deals.choiceSlots().getByRole("radio");
+      await expect(options).toHaveCount(2);
+      for (const option of await options.all())
+        await expect(option).toHaveAttribute("aria-disabled", "true");
+      await expect(deals.addDealToCartButton()).toBeDisabled();
+      await expect(deals.keepShoppingButton()).toHaveCount(0);
     } finally {
       // Free the shared seed restaurant's cap slot right away, not in afterAll.
       await deleteDealApi(await freshToken(), deal.id).catch(() => {}); // best effort; AUTO sweep backstops
@@ -649,6 +1050,9 @@ test.describe("Deals → Storefront hand-off", () => {
   test("TC-536: choosing a scheduled pickup inside the deal's window unlocks it — the quote with scheduledFor prices the deal", async ({
     page,
   }) => {
+    // A slot wait (up to CAP_WAIT_MS) runs inside this test: size its budget so
+    // starvation fails with the helper's message, not a bare test timeout.
+    test.setTimeout(DEAL_SLOT_TEST_TIMEOUT_MS);
     const tz = await getRestaurantTimeZonePublic(restaurantId);
     requireScheduling("backend", Boolean(tz));
     const span = await todaySpan(tz);
@@ -685,6 +1089,9 @@ test.describe("Deals → Storefront hand-off", () => {
       const slot = await checkout.chooseScheduledSlot((iso) =>
         isInsideWindow(tz, iso, w!)
       );
+      // On the skip path nobody awaits the listener; don't let its
+      // "Test ended" rejection fail the skipped test.
+      if (!slot) quoted.catch(() => {});
       test.skip(
         !slot,
         "The storefront offers no slot inside the window today (prep time / lead time)"
@@ -710,6 +1117,9 @@ test.describe("Deals → Storefront hand-off", () => {
   test("TC-537: a scheduled pickup outside the deal's window shows the server's DEAL_NOT_AVAILABLE_AT_TIME message naming the deal, with Remove deal / Change time — Remove deal drops it and checkout continues", async ({
     page,
   }) => {
+    // A slot wait (up to CAP_WAIT_MS) runs inside this test: size its budget so
+    // starvation fails with the helper's message, not a bare test timeout.
+    test.setTimeout(DEAL_SLOT_TEST_TIMEOUT_MS);
     const tz = await getRestaurantTimeZonePublic(restaurantId);
     requireScheduling("backend", Boolean(tz));
     const w = liveNowWindow(tz);
@@ -734,6 +1144,9 @@ test.describe("Deals → Storefront hand-off", () => {
         return m < w!.startMinute || m >= w!.endMinute;
       };
       const slot = await checkout.chooseScheduledSlot(outside);
+      // On the skip path nobody awaits the listener; don't let its
+      // "Test ended" rejection fail the skipped test.
+      if (!slot) refused.catch(() => {});
       test.skip(
         !slot,
         "The storefront offers no slot outside the deal's window"
@@ -763,6 +1176,9 @@ test.describe("Deals → Storefront hand-off", () => {
   test("TC-538: the Deals grid block shows each deal's real price, struck original, item names and schedule text — exactly what the page's own /active returned", async ({
     page,
   }) => {
+    // A slot wait (up to CAP_WAIT_MS) runs inside this test: size its budget so
+    // starvation fails with the helper's message, not a bare test timeout.
+    test.setTimeout(DEAL_SLOT_TEST_TIMEOUT_MS);
     await allure.description(
       "DealsGridBlock (block type deals_grid) is placed on no page by default. An ADMIN puts one on the seed " +
         "restaurant's catering page (PUT /api/admin/restaurants/:id/branding with restaurantPages only — the " +
@@ -847,7 +1263,27 @@ test.describe("Deals → Storefront hand-off", () => {
           const card = deals.dealsGridCard(title, d.name);
           await expect(card).toBeVisible();
           await expect(card).toContainText(`$${d.dealPrice!.toFixed(2)}`);
-          if ((d.originalPrice ?? 0) > (d.dealPrice ?? 0))
+          // A pick-priced BOGO (a BOGO type with an option or category line —
+          // e.g. another file's live "2nd for $1.99" deal) costs whatever the
+          // customer picks: wind shows its offer label and "From $dealPrice",
+          // never a struck original (template-wind dealsGridCard.ts).
+          const pickPriced =
+            ["BOGO_FREE", "BOGO_PERCENT_OFF", "BOGO_FIXED_PRICE"].includes(
+              d.dealType ?? ""
+            ) &&
+            (d.items ?? []).some(
+              (i) =>
+                !i.menuItemId &&
+                ((i.options?.length ?? 0) > 0 || !!i.menuGroupId)
+            );
+          if (pickPriced) {
+            await expect(card).toContainText(
+              new RegExp(
+                `Buy \\d+, get \\d+ .*From\\s*\\$${d.dealPrice!.toFixed(2).replace(".", "\\.")}`
+              )
+            );
+            await expect(card.locator(".line-through")).toHaveCount(0);
+          } else if ((d.originalPrice ?? 0) > (d.dealPrice ?? 0))
             await expect(card).toContainText(`$${d.originalPrice!.toFixed(2)}`);
           for (const item of d.items ?? [])
             await expect(card).toContainText(`1x ${item.itemName}`);

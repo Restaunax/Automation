@@ -55,7 +55,7 @@ on:
       project:
         description: "Playwright project to run"
         type: choice
-        options: [all, dashboard, customer]
+        options: [all, dashboard, customer, customer-lima, pos]
         default: all
 
 # The suite mutates a single shared QA environment: two runs at once interfere
@@ -257,6 +257,16 @@ jobs:
         if: always() && env.LANE != 'smoke'
         run: sudo rm -rf allure-history/.git allure-history/last-history allure-history/[0-9]*
 
+      # Keep Playwright trace zips OUT of the published site. They were ~80% of
+      # every report (10+ GiB of gh-pages by Oct 2026) and pushed the Pages site
+      # toward GitHub's 1 GB limit. Full traces still ship in the 14-day
+      # test-results-<run> / allure-<run> Actions artifacts; in the hosted report
+      # a trace attachment link 404s — download the artifact instead.
+      # Sweeps every retained run folder, not just this run's.
+      - name: Strip Playwright trace zips from the published report
+        if: always() && env.LANE != 'smoke'
+        run: sudo find allure-history -path '*/data/attachments/*.zip' -type f -delete
+
       # The documented URL is the site root; keep it working now that reports
       # live in subfolders. sudo tee, NOT a plain redirect (>): simple-elf's
       # container creates allure-history/ contents as root, so an unprivileged
@@ -293,6 +303,12 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_branch: gh-pages
           publish_dir: allure-history
+          # One commit per deploy, no history. Without this every deploy stacked
+          # on the last, so each report ever published (incl. trace zips) stayed
+          # in git forever even after keep_reports pruned it — gh-pages grew to
+          # 12 GiB across 243 deploys. Trend data lives in history/*.json inside
+          # the report, not in git history, so nothing is lost.
+          force_orphan: true
 
       - name: Link hosted report in run summary
         if: always() && env.LANE != 'smoke'

@@ -19,8 +19,11 @@ import {
   deleteAutomationDeals,
   deleteRecordedUsers,
   freezeGiftCardApi,
+  isAutomationPromotion,
   BACKEND_URL,
 } from "./utils/apiHelper";
+import { deletePromotionRaw, listChainPromotions } from "./utils/promotionsApi";
+import { restoreLeftoverPublishes } from "./utils/publishBackstop";
 import { assertSafeTargets } from "./utils/targetGuard";
 import {
   STATE_FILE,
@@ -63,11 +66,21 @@ export default async function globalTeardown(): Promise<void> {
     }
   }
 
+  // 0. A test that published a fixture location and died before its own
+  //    finally (crash, SIGINT, timeout) left a marker: put the original
+  //    published value back first — a published location takes real orders.
+  if (adminToken) await restoreLeftoverPublishes(adminToken, "globalTeardown");
+
   // 1. Delete the seed menu item + group created by globalSetup, plus any
   //    automation-created categories/coupons — this run's AND leftovers from
   //    interrupted runs. The restaurant itself is an existing owner
   //    restaurant — do NOT delete it. Each step has its own try/catch so one
   //    failure can't skip the rest of the cleanup.
+  const promotionSweep = {
+    couponsRemoved: 0,
+    dealsRemoved: 0,
+    chainRemoved: 0,
+  };
   if (OWNER_EMAIL && OWNER_PASSWORD && fs.existsSync(STATE_FILE)) {
     const state = readSharedState();
     const { menuItemId, menuGroupId, restaurantId, restaurantName } = state;
@@ -78,6 +91,57 @@ export default async function globalTeardown(): Promise<void> {
       console.warn("[globalTeardown] Owner login failed:", err);
     }
 
+    // Promotions first: a live deal on an item makes the backend refuse that
+    // item's delete (409), and the menu sweeps below would then leak the
+    // item and its category.
+    if (accessToken && restaurantId) {
+      // Sweep AUTO* coupons the coupon tests created (never cleaned before —
+      // they accumulated and risked duplicate-code collisions).
+      try {
+        promotionSweep.couponsRemoved = await deleteAutomationCoupons(
+          accessToken,
+          restaurantId
+        );
+      } catch (err) {
+        console.warn("[globalTeardown] Coupon sweep failed:", err);
+      }
+
+      // Sweep AUTO* deals the customer deal tests created (mirrors the coupon
+      // sweep — the deal spec deletes its own in afterAll, this catches
+      // interrupted runs).
+      try {
+        promotionSweep.dealsRemoved = await deleteAutomationDeals(
+          accessToken,
+          restaurantId
+        );
+      } catch (err) {
+        console.warn("[globalTeardown] Deal sweep failed:", err);
+      }
+    }
+
+    // Sweep AUTO* promotions owned by the persistent chain fixture (chain
+    // promotion specs delete their own in `finally`; this catches interrupted
+    // runs). A chain promotion is one row owned by the group, so deleting it
+    // removes it at every member location.
+    if (accessToken && state.chainGroupId) {
+      try {
+        const rows = (
+          await listChainPromotions(accessToken, state.chainGroupId)
+        ).filter((row) => isAutomationPromotion(row));
+        for (const row of rows) {
+          const res = await deletePromotionRaw(accessToken, row);
+          if (res.ok) {
+            promotionSweep.chainRemoved++;
+          } else {
+            console.warn(
+              `[globalTeardown] Failed to delete chain ${row.source} ${row.id} (${row.name}) → ${res.status}`
+            );
+          }
+        }
+      } catch (err) {
+        console.warn("[globalTeardown] Chain promotion sweep failed:", err);
+      }
+    }
     if (accessToken && menuItemId) {
       try {
         if (adminToken) {
@@ -149,40 +213,9 @@ export default async function globalTeardown(): Promise<void> {
           );
         }
       }
-
-      // Sweep AUTO* coupons the coupon tests created (never cleaned before —
-      // they accumulated and risked duplicate-code collisions).
-      try {
-        const couponsDeleted = await deleteAutomationCoupons(
-          accessToken,
-          restaurantId
-        );
-        if (couponsDeleted) {
-          console.log(
-            `[globalTeardown] Deleted ${couponsDeleted} automation coupon(s)`
-          );
-        }
-      } catch (err) {
-        console.warn("[globalTeardown] Coupon sweep failed:", err);
-      }
-
-      // Sweep AUTO* deals the customer deal tests created (mirrors the coupon
-      // sweep — the deal spec deletes its own in afterAll, this catches
-      // interrupted runs).
-      try {
-        const dealsDeleted = await deleteAutomationDeals(
-          accessToken,
-          restaurantId
-        );
-        if (dealsDeleted) {
-          console.log(
-            `[globalTeardown] Deleted ${dealsDeleted} automation deal(s)`
-          );
-        }
-      } catch (err) {
-        console.warn("[globalTeardown] Deal sweep failed:", err);
-      }
     }
+
+    console.log("[globalTeardown] Promotion sweep:", promotionSweep);
   } else {
     console.warn(
       "[globalTeardown] Skipping menu cleanup (missing owner credentials or state file)"
