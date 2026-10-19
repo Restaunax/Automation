@@ -7107,8 +7107,9 @@ export function approvalLogSummaryRaw(
   );
 }
 
-/** Owner self-serve add-ons: GET `/restaurant/:rid/addons` (data.addons[])
- *  and POST { addonId, billingInterval? } to buy one. */
+/** Owner Billing → Add-ons: GET `/restaurant/:rid/addons` (data.features[],
+ *  data.addons[]). The owner POST that bought one is gone since restaunax #998
+ *  (404) — owners send a request instead (ownerAddonRequestRaw). */
 export function ownerAddonsRaw(
   token: string,
   restaurantId: string,
@@ -7464,8 +7465,8 @@ export function adminAddonsRaw<T = { data?: LooseJson; message?: string }>(
   return apiRequestRaw(method, `/api/admin/addons${path}`, body, token);
 }
 
-/** DELETE `/restaurant/:rid/addons/:instanceId` — the owner removes a
- *  self-serve add-on (at the end of the paid period). */
+/** DELETE `/restaurant/:rid/addons/:instanceId` — the old owner removal;
+ *  404 since restaunax #998 (owners request a removal instead). */
 export function ownerAddonRemoveRaw(
   token: string,
   restaurantId: string,
@@ -7474,6 +7475,37 @@ export function ownerAddonRemoveRaw(
   return apiRequestRaw(
     "DELETE",
     `/restaurant/${restaurantId}/addons/${instanceId}`,
+    undefined,
+    token
+  );
+}
+
+/** POST `/restaurant/:rid/addons/requests` { addonId, kind: ADD|REMOVE,
+ *  note? } — ask RestauNax to turn an add-on on (or keep one whose removal is
+ *  scheduled) or off. 201 new, 200 = the request already open (restaunax #998). */
+export function ownerAddonRequestRaw(
+  token: string,
+  restaurantId: string,
+  body: unknown
+): Promise<RawResponse<{ data?: LooseJson; message?: string }>> {
+  return apiRequestRaw(
+    "POST",
+    `/restaurant/${restaurantId}/addons/requests`,
+    body,
+    token
+  );
+}
+
+/** DELETE `/restaurant/:rid/addons/requests/:requestId` — the owner cancels an
+ *  OPEN add-on request (409 once handled or cancelled). */
+export function ownerAddonRequestCancelRaw(
+  token: string,
+  restaurantId: string,
+  requestId: string
+): Promise<RawResponse<{ data?: LooseJson; message?: string }>> {
+  return apiRequestRaw(
+    "DELETE",
+    `/restaurant/${restaurantId}/addons/requests/${requestId}`,
     undefined,
     token
   );
