@@ -55,6 +55,7 @@ import {
   loginRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
+import { addonRequestsLive } from "../../../utils/addonRequestGate";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
@@ -592,8 +593,11 @@ test.describe("UX-audit fixes (API)", () => {
     expect(by.get("PAYROLL")?.source ?? null).toBeNull();
     const tips = by.get("TIP_MANAGEMENT");
     expect(tips?.source ?? null).toBeNull();
-    // Either it can be added, or the owner is told to talk to us — never neither.
-    expect(Boolean(tips?.canAdd) || Boolean(tips?.contactUs)).toBe(true);
+    // Either it can be requested (restaunax #998; added, before it), or the
+    // owner is told to talk to us — never neither.
+    const live = await addonRequestsLive(adminToken);
+    const ADD = live ? "canRequestAdd" : "canAdd";
+    expect(Boolean(tips?.[ADD]) || Boolean(tips?.contactUs)).toBe(true);
 
     await setFeatureOverrideAdminRaw(adminToken, restaurantId, "PAYROLL", true);
     try {
@@ -601,7 +605,7 @@ test.describe("UX-audit fixes (API)", () => {
       expect(by.get("TIP_MANAGEMENT")).toMatchObject({
         source: "INCLUDED_WITH",
         includedWith: "PAYROLL",
-        canAdd: false,
+        [ADD]: false,
       });
     } finally {
       await deleteFeatureOverrideAdminRaw(adminToken, restaurantId, "PAYROLL");

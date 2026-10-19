@@ -46,8 +46,10 @@ import {
   reportsRaw,
   createRestaurantRaw,
   ownerAddonsRaw,
+  ownerAddonRequestRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
+import { addonRequestsLive } from "../../../utils/addonRequestGate";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
@@ -467,11 +469,23 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
       }`,
     });
     if (tips) {
-      expect(tips).toMatchObject({ status: "INCLUDED", canAdd: false });
+      // Since restaunax #998 owners only request add-ons: the row has no
+      // request button while it's included, and the old purchase route is
+      // gone (404). Before #998: canAdd false and the purchase refused (400).
+      const live = await addonRequestsLive(adminToken);
+      expect(tips).toMatchObject(
+        live
+          ? {
+              status: "INCLUDED",
+              canRequestAdd: false,
+              canRequestRemove: false,
+            }
+          : { status: "INCLUDED", canAdd: false }
+      );
       const bought = await ownerAddonsRaw(ownerToken, restaurantId, "POST", {
         addonId: tips.id,
       });
-      expect(bought.status, JSON.stringify(bought.data)).toBe(400);
+      expect(bought.status, JSON.stringify(bought.data)).toBe(live ? 404 : 400);
     }
 
     // TIMECARDS is a component: never granted alone…
@@ -553,13 +567,28 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
       const forHome = await offered(adminToken, homeId);
       expect(forHome.map((x) => x.feature)).toEqual([]);
       const forStore = await offered(ownerToken, restaurantId);
-      for (const addon of forStore) {
-        const bought = await ownerAddonsRaw(adminToken, homeId, "POST", {
-          addonId: addon.id,
-        });
-        expect(bought.status, `${addon.feature} sold to a home seller`).toBe(
-          400
+      // Since restaunax #998 every active add-on is offered to a storefront
+      // and the owner REQUESTS it; a home seller's request for a back-office
+      // add-on is refused (404 "isn't available"). Before #998 the purchase
+      // route refused it (400).
+      const live = await addonRequestsLive(adminToken);
+      if (live)
+        expect(forStore.map((x) => x.feature)).toEqual(
+          expect.arrayContaining(["SCHEDULING", "TIP_MANAGEMENT"])
         );
+      for (const addon of forStore) {
+        const bought = live
+          ? await ownerAddonRequestRaw(adminToken, homeId, {
+              addonId: addon.id,
+              kind: "ADD",
+            })
+          : await ownerAddonsRaw(adminToken, homeId, "POST", {
+              addonId: addon.id,
+            });
+        expect(
+          bought.status,
+          `${addon.feature} offered to a home seller: ${JSON.stringify(bought.data)}`
+        ).toBe(live ? 404 : 400);
       }
       test.info().annotations.push({
         type: "catalogue",
