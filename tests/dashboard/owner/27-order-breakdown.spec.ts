@@ -166,7 +166,16 @@ test.describe("Order money breakdown — one order, every surface", () => {
     created.createdCoupons!.push(coupon.id);
 
     phone = generateSeedPhone();
-    await seedRewardMember(adminToken, restaurantId, phone, POINTS);
+    // The confirmation email goes to the linked Customer's email (the reward
+    // member's), not to the address typed at checkout: seed it with ours.
+    customerEmail = generateUserEmail("breakdown");
+    await seedRewardMember(
+      adminToken,
+      restaurantId,
+      phone,
+      POINTS,
+      customerEmail
+    );
     const card = await seedFundedGiftCard(
       adminToken,
       restaurantId,
@@ -174,7 +183,6 @@ test.describe("Order money breakdown — one order, every surface", () => {
     );
     recordGiftCardForCleanup(card.id);
     giftCardCode = card.code;
-    customerEmail = generateUserEmail("breakdown");
 
     device = await createTabletDevice(
       token,

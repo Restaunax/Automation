@@ -23,11 +23,17 @@ export async function seedRewardMember(
   restaurantId: string,
   phone: string,
   points: number,
+  /**
+   * The member's account email. A paid order's confirmation email goes to the
+   * linked Customer's email, not to the address typed at checkout, so a test
+   * that reads that email must seed the member with it.
+   */
+  email = "",
   name = "Breakdown Member"
 ): Promise<SeededRewardMember> {
   const csv =
     "Name,Email,Phone,Created,Last Ordered On,Following Email,Following SMS,Points Remaining\r\n" +
-    `${name},,${phone},,,,,${points}\r\n`;
+    `${name},${email},${phone},,,,,${points}\r\n`;
   const form = new FormData();
   form.append("file", new Blob([csv], { type: "text/csv" }), `members.csv`);
   form.append("uploadType", "reward_members");
