@@ -12,6 +12,7 @@
  * minutes of test execution — re-login instead.
  */
 
+import type { ApiBreakdown } from "./orderBreakdown";
 import {
   readUsersForCleanup,
   clearUsersForCleanup,
@@ -2326,6 +2327,10 @@ export function getOrderByIdRaw(
       }[];
     }[];
     orderItems?: { menuItemId: string; quantity: number }[];
+    /** The one money breakdown every surface renders (ORDER_MONEY_BREAKDOWN.md). */
+    breakdown?: ApiBreakdown;
+    receiptNumber?: number | string;
+    orderNumber?: number | string;
   }>
 > {
   return apiRequestRaw("GET", `/api/order/${orderId}`, undefined, accessToken);
@@ -2727,6 +2732,7 @@ export interface ApiOrder {
   paymentStatus?: string;
   orderType?: string;
   total?: number;
+  breakdown?: ApiBreakdown;
 }
 
 export interface SeedOrderItem {

@@ -16,7 +16,15 @@ export type Line = { kind?: string; label: string; amount: number };
 
 /** The slice of `MoneyBreakdown` (restaunax-backend) these helpers read. */
 export type ApiBreakdown = {
-  items?: { amount: number }[];
+  items?: {
+    key?: string;
+    name?: string;
+    quantity?: number;
+    amount: number;
+    marker?: string;
+    markerLabel?: string;
+  }[];
+  info?: { kind: string; label: string; amount: number }[];
   totals?: { kind: string; label: string; amount: number }[];
   refunds?: {
     lines: { kind: string; label: string; amount: number }[];
