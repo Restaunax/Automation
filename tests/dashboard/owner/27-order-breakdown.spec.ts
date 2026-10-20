@@ -9,11 +9,14 @@
  * owner dashboard's order sheet, the POS live feed and the confirmation email
  * must each show exactly its (label, amount) lines.
  *
- * Not covered here, by design: a combo/deal item (DEAL_SAVINGS) and
- * delivery/FREE_DELIVERY. A FREE_ITEM promotion and a combo cannot share an
- * order (PROMOTIONS.md "Which promotion wins"), and wind's delivery address
- * needs a Google Places suggestion that QA does not return — those are the
- * backend table tests' job.
+ * A FREE_ITEM promotion and a combo cannot share an order (PROMOTIONS.md
+ * "Which promotion wins"), so the combo is its own order: TC-899 (a second
+ * describe, independent of TC-898's serial chain) pays a CODE-only combo on
+ * wind and checks the deal row with its contents and the "You saved $X with
+ * …" info line, which is shown but never summed. Wind's delivery address
+ * needs a Google Places suggestion that QA does not return, so delivery is
+ * API-only: TC-900 quotes a delivery order with and without a FREE_DELIVERY
+ * code and reads DELIVERY_FEE / FREE_DELIVERY off `quote.breakdown`.
  *
  * The free item is an AUTOMATIC FREE_ITEM triggered by buying this run's own
  * item (never a spend offer: only customer/10-promotions may run one on the
@@ -21,7 +24,9 @@
  * named and deleted in afterAll (shared serial setup); the gift card is
  * recorded for the teardown freeze. The imported reward member is named
  * "AUTO Breakdown Member <runId>" and stays: customers have no delete endpoint.
- * No deal is created, so no active-deal slot is held (TEST_PLAN footprint).
+ * TC-898 creates no deal; TC-899 holds one active-deal slot for its own
+ * duration only (withStorefrontCombo: cap-safe, deleted in its finally —
+ * TEST_PLAN footprint).
  *
  * FREE marker: asserted where the surface draws item rows from the breakdown
  * (backend, wind confirmation, dashboard sheet, email). The wind checkout's
@@ -32,20 +37,26 @@
  * MAILPIT_BASE_URL is unset.
  */
 
+import type { Page, TestInfo } from "@playwright/test";
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
 import { createCustomerCheckoutPage } from "../../../pages/customer/CustomerCheckoutPage";
+import { createCustomerDealPage } from "../../../pages/customer/CustomerDealPage";
 import { createCustomerOrderConfirmationPage } from "../../../pages/customer/CustomerOrderConfirmationPage";
 import { createCustomerRewardSection } from "../../../pages/customer/CustomerRewardSection";
 import { createOwnerOrdersPage } from "../../../pages/dashboard/owner/OwnerOrdersPage";
 import {
   apiLogin,
+  apiRequestRaw,
   createMenuGroupNamed,
   createMenuItemFull,
   createTabletDevice,
+  DEAL_SLOT_TEST_TIMEOUT_MS,
   deactivateTabletDeviceRaw,
   getCurrentOrders,
   getOrderByIdRaw,
+  getRestaurantDetailsPublicRaw,
+  quoteOrderRaw,
   seedFundedGiftCard,
   tabletLogin,
   type TabletDevice,
@@ -63,16 +74,27 @@ import {
   type ApiBreakdown,
   type Line,
 } from "../../../utils/orderBreakdown";
-import { cleanupStorefrontPromotions } from "../../../utils/promotionFixtures";
-import type { SeededItem } from "../../../utils/promotionFixtures";
+import {
+  cleanupStorefrontPromotions,
+  seedStorefrontPromotions,
+  STOREFRONT_PRICES,
+  withStorefrontCombo,
+} from "../../../utils/promotionFixtures";
+import type {
+  SeededItem,
+  StorefrontDealContext,
+  StorefrontPromotionSet,
+} from "../../../utils/promotionFixtures";
 import { createCouponPromotion } from "../../../utils/promotionsApi";
 import {
   expectShownMatchesLatestQuote,
+  isQuoteResponse,
   trackQuotes,
 } from "../../../utils/quoteTracker";
 import { seedRewardMember } from "../../../utils/rewardsApi";
 import { STRIPE_CARDS } from "../../../utils/stripeCards";
 import {
+  generateCouponCode,
   generateRunId,
   generateSeedPhone,
   generateUserEmail,
@@ -92,6 +114,80 @@ const GIFT_PRICE = 4;
 const GIFT_CARD_BALANCE = 10;
 const POINTS = 200;
 const REDEEM_POINTS = 100;
+
+/**
+ * Pays the wind checkout with the Stripe test card and waits for "Order
+ * Confirmed!". One retry of the Stripe step (Link/Element flake), only when
+ * the first attempt provably did not go through; then fail with screenshots.
+ */
+async function payWithTestCard(page: Page, testInfo: TestInfo): Promise<void> {
+  const checkout = createCustomerCheckoutPage(page);
+  const confirmation = createCustomerOrderConfirmationPage(page);
+  await allure.step("pay with the Stripe test card", async () => {
+    const confirmedHeading = page.getByRole("heading", {
+      name: "Order Confirmed!",
+    });
+    const shot = async (name: string) =>
+      testInfo.attach(name, {
+        body: await page.screenshot({ fullPage: true }),
+        contentType: "image/png",
+      });
+    const paymentError = async () => {
+      const box = page
+        .getByRole("heading", { name: "Payment Error" })
+        .locator("xpath=following-sibling::p");
+      return (await box.count()) > 0 ? (await box.innerText()).trim() : "";
+    };
+    const pay = async () => {
+      await checkout.fillStripeCard(STRIPE_CARDS.VISA_SUCCESS);
+      await checkout.completeOrder();
+      return confirmation
+        .assertConfirmed()
+        .then(() => true)
+        .catch(() => false);
+    };
+
+    if (await pay()) return;
+    await shot("payment-attempt-1");
+
+    // Resubmitting a payment that is in flight or went through would charge
+    // the card twice. Retry only when the page is back to an idle checkout:
+    // still on /checkout, no "Payment Successful!" panel, no "Processing...",
+    // and "Complete Order" enabled again.
+    const firstError = await paymentError();
+    if (/payment processed/i.test(firstError)) {
+      throw new Error(
+        `payment went through but the order was not confirmed: "${firstError}" (url ${page.url()})`
+      );
+    }
+    const completeOrder = page.getByRole("button", {
+      name: "Complete Order",
+    });
+    const idle =
+      new URL(page.url()).pathname.startsWith("/checkout") &&
+      !(await page
+        .getByRole("heading", { name: "Payment Successful!" })
+        .isVisible()) &&
+      !(await page
+        .getByRole("button", { name: "Processing..." })
+        .isVisible()) &&
+      (await completeOrder.isVisible()) &&
+      (await completeOrder.isEnabled());
+    if (!idle) {
+      await expect(
+        confirmedHeading,
+        `first payment attempt is in flight or went through; not resubmitting (url ${page.url()}, error "${firstError}")`
+      ).toBeVisible({ timeout: 45_000 });
+      return;
+    }
+
+    if (await pay()) return;
+    await shot("payment-attempt-2");
+    throw new Error(
+      `payment did not reach 'Order Confirmed!' after one retry (url ${page.url()}, error "${await paymentError()}")`
+    );
+  });
+}
 
 test.describe("Order money breakdown — one order, every surface", () => {
   test.skip(
@@ -234,7 +330,6 @@ test.describe("Order money breakdown — one order, every surface", () => {
   }, testInfo) => {
     const checkout = createCustomerCheckoutPage(page);
     const rewards = createCustomerRewardSection(page);
-    const confirmation = createCustomerOrderConfirmationPage(page);
     const quotes = trackQuotes(page);
 
     await checkout.seedCartItems(restaurantId, [
@@ -312,72 +407,7 @@ test.describe("Order money breakdown — one order, every surface", () => {
     await checkout.clickProceedToPayment();
     await checkout.assertPaymentSectionVisible();
 
-    // One retry of the Stripe step (Link/Element flake), only when the first
-    // attempt provably did not go through; then fail with screenshots.
-    await allure.step("pay with the Stripe test card", async () => {
-      const confirmedHeading = page.getByRole("heading", {
-        name: "Order Confirmed!",
-      });
-      const shot = async (name: string) =>
-        testInfo.attach(name, {
-          body: await page.screenshot({ fullPage: true }),
-          contentType: "image/png",
-        });
-      const paymentError = async () => {
-        const box = page
-          .getByRole("heading", { name: "Payment Error" })
-          .locator("xpath=following-sibling::p");
-        return (await box.count()) > 0 ? (await box.innerText()).trim() : "";
-      };
-      const pay = async () => {
-        await checkout.fillStripeCard(STRIPE_CARDS.VISA_SUCCESS);
-        await checkout.completeOrder();
-        return confirmation
-          .assertConfirmed()
-          .then(() => true)
-          .catch(() => false);
-      };
-
-      if (await pay()) return;
-      await shot("payment-attempt-1");
-
-      // Resubmitting a payment that is in flight or went through would charge
-      // the card twice. Retry only when the page is back to an idle checkout:
-      // still on /checkout, no "Payment Successful!" panel, no "Processing...",
-      // and "Complete Order" enabled again.
-      const firstError = await paymentError();
-      if (/payment processed/i.test(firstError)) {
-        throw new Error(
-          `payment went through but the order was not confirmed: "${firstError}" (url ${page.url()})`
-        );
-      }
-      const completeOrder = page.getByRole("button", {
-        name: "Complete Order",
-      });
-      const idle =
-        new URL(page.url()).pathname.startsWith("/checkout") &&
-        !(await page
-          .getByRole("heading", { name: "Payment Successful!" })
-          .isVisible()) &&
-        !(await page
-          .getByRole("button", { name: "Processing..." })
-          .isVisible()) &&
-        (await completeOrder.isVisible()) &&
-        (await completeOrder.isEnabled());
-      if (!idle) {
-        await expect(
-          confirmedHeading,
-          `first payment attempt is in flight or went through; not resubmitting (url ${page.url()}, error "${firstError}")`
-        ).toBeVisible({ timeout: 45_000 });
-        return;
-      }
-
-      if (await pay()) return;
-      await shot("payment-attempt-2");
-      throw new Error(
-        `payment did not reach 'Order Confirmed!' after one retry (url ${page.url()}, error "${await paymentError()}")`
-      );
-    });
+    await payWithTestCard(page, testInfo);
 
     orderId =
       page.url().match(/order-confirmation\/([0-9a-f-]{36})/)?.[1] ?? "";
@@ -547,5 +577,311 @@ test.describe("Order money breakdown — one order, every surface", () => {
       timeoutMs: 60_000,
     });
     expect(mail.subject).toMatch(/Receipt #/);
+  });
+});
+
+test.describe("Order money breakdown — combo order and delivery quote", () => {
+  test.skip(
+    !TEMPLATE_WIND_URL || !OWNER_EMAIL || !OWNER_PASSWORD,
+    "TEMPLATE_WIND_URL and OWNER_* must be set in .env"
+  );
+
+  const runId = generateRunId();
+  let restaurantId = "";
+  let set: StorefrontPromotionSet;
+  const created: Partial<StorefrontPromotionSet> & {
+    createdItems?: SeededItem[];
+    createdCoupons?: string[];
+    createdDeals?: string[];
+  } = {};
+
+  const ownerToken = async () =>
+    (await apiLogin(OWNER_EMAIL, OWNER_PASSWORD)).accessToken;
+
+  test.beforeAll(async () => {
+    if (!TEMPLATE_WIND_URL || !OWNER_EMAIL || !OWNER_PASSWORD) return;
+    restaurantId = readRestaurantId();
+    // The storefront set without its spend free item: only
+    // customer/10-promotions may run an automatic spend offer here. The
+    // set's automatic sale and order code touch only this run's items.
+    set = await seedStorefrontPromotions(
+      await ownerToken(),
+      restaurantId,
+      runId,
+      created,
+      { label: "Breakdown", withFreeItem: false }
+    );
+  });
+
+  test.afterAll(async () => {
+    if (!OWNER_EMAIL || !restaurantId) return;
+    // Backstop for a deal / coupon a test's finally could not delete, plus
+    // the menu and the set's coupons. A leaked deal holds an active slot.
+    const failures = await cleanupStorefrontPromotions(
+      await ownerToken(),
+      created
+    );
+    expect(failures, "combo/delivery cleanup").toEqual([]);
+  });
+
+  test.beforeEach(async () => {
+    await allure.label("feature", "Order Breakdown");
+    await allure.label("severity", "critical");
+  });
+
+  test("TC-899: a paid wind combo order shows the deal row with its contents and a 'You saved' info line that is never summed — the same on the confirmation, the backend and the dashboard", async ({
+    page,
+    ownerPage,
+  }, testInfo) => {
+    // A deal-slot wait (up to CAP_WAIT_MS) plus a real Stripe checkout.
+    test.setTimeout(DEAL_SLOT_TEST_TIMEOUT_MS + 120_000);
+    const token = await ownerToken();
+    const dealCtx: StorefrontDealContext = {
+      token,
+      restaurantId,
+      set,
+      createdDeals: (created.createdDeals ??= []),
+    };
+    await withStorefrontCombo(dealCtx, async (combo) => {
+      const { platter, burger } = set.items;
+      const deals = createCustomerDealPage(page);
+      const checkout = createCustomerCheckoutPage(page);
+      const quotes = trackQuotes(page);
+
+      await allure.step("build the combo from its code", async () => {
+        await deals.gotoBuilder(restaurantId, combo.dealId, combo.code);
+        await expect(deals.builderHeading(combo.name)).toBeVisible({
+          timeout: 20_000,
+        });
+        await deals.openIncompleteSlot(platter.name);
+        await deals.clickAddToDeal();
+        await deals.openIncompleteSlot(burger.name);
+        await deals.clickAddToDeal();
+        await deals.assertDealComplete();
+        await deals.addDealToCart();
+        // The checkout prices the cart once it lands: wait for that first
+        // /quote so the tracker has one before anything reads it.
+        await Promise.all([
+          page.waitForResponse(isQuoteResponse, { timeout: 30_000 }),
+          deals.viewCartButton().click(),
+        ]);
+        await expect(page).toHaveURL(/\/checkout/, { timeout: 20_000 });
+      });
+
+      await checkout.fillCustomerInfo(
+        "Breakdown",
+        "Combo",
+        generateUserEmail("breakdown-combo"),
+        generateSeedPhone()
+      );
+      await checkout.selectPickup();
+      await expectShownMatchesLatestQuote(checkout.readOrderTotal, quotes);
+      await expect(page.getByTestId("checkout-total")).toHaveText(/\$\d/);
+
+      let checkoutLines: Line[] = [];
+      await allure.step(
+        "checkout lines add up and equal the /quote",
+        async () => {
+          checkoutLines = await readWindCheckoutLines(page);
+          assertSums(checkoutLines);
+          const quote = (await quotes.latest()).body.quote;
+          expect(
+            quote?.breakdown,
+            "the /quote carries a breakdown"
+          ).toBeTruthy();
+          expect(
+            quote?.deals?.map((d) => d.dealId),
+            "the /quote prices the combo"
+          ).toEqual([combo.dealId]);
+          assertSameLines(
+            apiBreakdownLines({ breakdown: quote!.breakdown! }),
+            checkoutLines,
+            "wind checkout vs its own /quote breakdown"
+          );
+        }
+      );
+
+      await checkout.clickProceedToPayment();
+      await checkout.assertPaymentSectionVisible();
+      await payWithTestCard(page, testInfo);
+
+      const orderId =
+        page.url().match(/order-confirmation\/([0-9a-f-]{36})/)?.[1] ?? "";
+      expect(orderId, `order id from ${page.url()}`).toBeTruthy();
+      await allure.parameter("orderId", orderId);
+
+      const res = await getOrderByIdRaw(await ownerToken(), orderId);
+      expect(res.status, JSON.stringify(res.data)).toBe(200);
+      const order = res.data as typeof res.data & { breakdown: ApiBreakdown };
+      expect(order.breakdown, "order has a breakdown").toBeTruthy();
+      const expected = apiBreakdownLines(order);
+      const dealRow = order.breakdown.items?.find((i) =>
+        Array.isArray(i.children)
+      );
+      const saved = order.breakdown.info?.find(
+        (l) => l.kind === "DEAL_SAVINGS"
+      );
+
+      await allure.step(
+        "backend: one deal row with its contents, the info line outside the sums",
+        async () => {
+          expect(dealRow, "a deal item row").toBeTruthy();
+          expect(dealRow!.name).toBe(combo.name);
+          expect(dealRow!.amount).toBe(STOREFRONT_PRICES.comboPrice);
+          expect(dealRow!.children?.map((c) => c.name).sort()).toEqual(
+            [platter.name, burger.name].sort()
+          );
+          expect(
+            saved,
+            `DEAL_SAVINGS info line in ${JSON.stringify(order.breakdown.info)}`
+          ).toBeTruthy();
+          expect(saved!.label).toBe(
+            `You saved $${saved!.amount.toFixed(2)} with ${combo.name}`
+          );
+          expect(saved!.amount).toBeGreaterThan(0);
+          // Shown, never summed: no totals line is the info line, and the
+          // totals still add up without it.
+          expect(
+            expected.filter(
+              (l) => l.kind === "DEAL_SAVINGS" || /you saved/i.test(l.label)
+            ),
+            "the info line is not a totals line"
+          ).toEqual([]);
+          assertSums(expected, { items: order.breakdown.items });
+          assertSameLines(expected, checkoutLines, "backend vs wind checkout");
+          expect(order.total).toBe(expected.at(-1)!.amount);
+        }
+      );
+
+      await allure.step(
+        "wind confirmation: the deal row, its contents and the info line",
+        async () => {
+          await expect(
+            page.locator('[data-testid^="order-breakdown-totals-"]').first()
+          ).toBeVisible({ timeout: 20_000 });
+          const row = page.getByTestId(`order-breakdown-item-${dealRow!.key}`);
+          await expect(row).toContainText(`1x ${combo.name}`);
+          await expect(row).toContainText(`1x ${platter.name}`);
+          await expect(row).toContainText(`1x ${burger.name}`);
+          await expect(
+            page.getByTestId("order-breakdown-info-DEAL_SAVINGS")
+          ).toHaveText(saved!.label);
+          assertSameLines(
+            expected,
+            await readWindConfirmationLines(page),
+            "wind confirmation"
+          );
+        }
+      );
+
+      await allure.step(
+        "owner dashboard: the same money lines, the deal row and the info caption",
+        async () => {
+          const orders = createOwnerOrdersPage(ownerPage);
+          await orders.gotoOrderDetail(restaurantId, orderId);
+          const sheet = orders.detailSheet();
+          await expect(
+            sheet.getByText("Subtotal", { exact: true })
+          ).toBeVisible({ timeout: 20_000 });
+          assertSameLines(
+            expected,
+            await readDashboardLines(sheet),
+            "owner dashboard"
+          );
+          await expect(orders.itemRow(combo.name)).toBeVisible();
+          await expect(
+            sheet.getByText(platter.name, { exact: true })
+          ).toBeVisible();
+          await expect(
+            sheet.getByText(burger.name, { exact: true })
+          ).toBeVisible();
+          await expect(
+            sheet.getByText(saved!.label, { exact: true })
+          ).toBeVisible();
+        }
+      );
+    });
+  });
+
+  test("TC-900: a delivery quote carries the delivery fee and, with a FREE_DELIVERY code, an equal and opposite free-delivery line; without the code there is none", async () => {
+    const token = await ownerToken();
+    const details = await getRestaurantDetailsPublicRaw(restaurantId);
+    expect(details.status, JSON.stringify(details.data)).toBe(200);
+    const fee = (
+      details.data as { data?: { settings?: { baseDeliveryFee?: number } } }
+    ).data?.settings?.baseDeliveryFee;
+    expect(fee, "seed restaurant baseDeliveryFee").toBeGreaterThan(0);
+    await allure.parameter("delivery fee", String(fee));
+
+    const { platter } = set.items;
+    const body = {
+      orderType: "DELIVERY" as const,
+      deliveryFee: fee!,
+      orderItems: [{ menuItemId: platter.id, quantity: 1 }],
+    };
+    // A CODE promotion (passed by id, as wind does after redeeming the code)
+    // prices only this quote: an AUTOMATIC one would reach every delivery
+    // cart on the seed restaurant.
+    const name = `AUTO Breakdown free delivery ${runId}`;
+    const promo = await createCouponPromotion(token, restaurantId, {
+      name,
+      code: generateCouponCode(),
+      type: "FREE_DELIVERY",
+      value: 0,
+      // FREE_DELIVERY needs a minimum and a fee cap (margin guardrail); the
+      // cap covers the whole fee.
+      minOrderAmount: 1,
+      maxDiscount: 10,
+      applyMode: "CODE",
+    });
+    created.createdCoupons!.push(promo.id);
+    try {
+      await allure.step("with the FREE_DELIVERY code", async () => {
+        const res = await quoteOrderRaw(restaurantId, {
+          ...body,
+          couponId: promo.id,
+        });
+        expect(res.status, JSON.stringify(res.data)).toBe(200);
+        const breakdown = res.data.quote?.breakdown;
+        expect(breakdown, "quote.breakdown").toBeTruthy();
+        const lines = apiBreakdownLines({ breakdown });
+        assertSums(lines, { items: breakdown!.items });
+        const deliveryFee = lines.find((l) => l.kind === "DELIVERY_FEE");
+        const free = lines.find((l) => l.kind === "FREE_DELIVERY");
+        expect(deliveryFee, JSON.stringify(lines)).toBeTruthy();
+        expect(free, JSON.stringify(lines)).toBeTruthy();
+        expect(deliveryFee!.amount).toBe(fee);
+        expect(free!.amount).toBe(-deliveryFee!.amount);
+        expect(free!.label).toBe(name);
+        // Contract order: the fee line, then its waiver.
+        expect(lines.indexOf(free!)).toBe(lines.indexOf(deliveryFee!) + 1);
+      });
+
+      await allure.step("without it: the fee, no free delivery", async () => {
+        const res = await quoteOrderRaw(restaurantId, body);
+        expect(res.status, JSON.stringify(res.data)).toBe(200);
+        const breakdown = res.data.quote?.breakdown;
+        expect(breakdown, "quote.breakdown").toBeTruthy();
+        const lines = apiBreakdownLines({ breakdown });
+        assertSums(lines, { items: breakdown!.items });
+        expect(lines.find((l) => l.kind === "DELIVERY_FEE")?.amount).toBe(fee);
+        expect(
+          lines.filter((l) => l.kind === "FREE_DELIVERY"),
+          JSON.stringify(lines)
+        ).toEqual([]);
+      });
+    } finally {
+      const del = await apiRequestRaw(
+        "DELETE",
+        `/api/coupons/${promo.id}`,
+        undefined,
+        token
+      ).catch((err: unknown) => ({ ok: false, status: 0, data: String(err) }));
+      if (!del.ok && del.status !== 404) {
+        console.warn(
+          `[27-order-breakdown] free-delivery coupon ${promo.id} delete → ${del.status}; afterAll retries`
+        );
+      }
+    }
   });
 });

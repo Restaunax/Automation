@@ -957,6 +957,8 @@ export interface QuoteResponse {
       lineTotal: number;
       savings: number;
     }[];
+    /** The quote's money breakdown (ORDER_MONEY_BREAKDOWN.md §4). */
+    breakdown?: ApiBreakdown | null;
   };
   issues?: { code: string; severity: string; message: string }[];
   message?: string;
@@ -983,6 +985,8 @@ export function quoteOrderRaw(
     couponCodeId?: string | null;
     orderType?: "PICKUP" | "DELIVERY";
     scheduledFor?: string;
+    /** Legacy-body delivery fee (client-supplied until a pinned quote). */
+    deliveryFee?: number;
   }
 ): Promise<RawResponse<QuoteResponse>> {
   return apiRequestRaw("POST", `/api/order/${restaurantId}/quote`, {

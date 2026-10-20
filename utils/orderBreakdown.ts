@@ -23,6 +23,8 @@ export type ApiBreakdown = {
     amount: number;
     marker?: string;
     markerLabel?: string;
+    /** Present (possibly empty) only on a deal row: the deal's contents. */
+    children?: { name: string; quantity: number }[];
   }[];
   info?: { kind: string; label: string; amount: number }[];
   totals?: { kind: string; label: string; amount: number }[];
