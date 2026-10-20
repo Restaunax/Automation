@@ -4,6 +4,7 @@ import {
   assertSameLines,
   assertSums,
   normaliseMoney,
+  readEmailItemNames,
   readEmailLines,
   type Line,
 } from "../../utils/orderBreakdown";
@@ -142,5 +143,26 @@ test.describe("readEmailLines", () => {
   });
   test("throws when the totals table is absent", () => {
     expect(() => readEmailLines("<p>hi</p>")).toThrow(/no totals table/);
+  });
+});
+
+test.describe("readEmailItemNames", () => {
+  const html =
+    `<table role="table" width="100%"><thead><tr><th>Item</th><th>Qty</th><th class="e-money">Amount</th></tr></thead><tbody>` +
+    `<tr><td valign="top" class="e-t-pri">Platter</td><td>1</td><td class="e-money">$20.00</td></tr>` +
+    `<tr><td class="e-t-mut">+ Bacon &times;2</td><td></td><td class="e-money">$3.00</td></tr>` +
+    `<tr><td valign="top" class="e-t-pri">Cookie <span class="e-ok e-bd">Free</span></td><td>1</td>` +
+    `<td class="e-money"><span class="e-t-mut">$4.00</span><br>$4.00</td></tr>` +
+    `</tbody></table>`;
+
+  test("reads each row's name cell, badge included", () => {
+    expect(readEmailItemNames(html)).toEqual([
+      "Platter",
+      "+ Bacon ×2",
+      "Cookie Free",
+    ]);
+  });
+  test("throws when the item table is absent", () => {
+    expect(() => readEmailItemNames("<p>hi</p>")).toThrow(/no item table/);
   });
 });

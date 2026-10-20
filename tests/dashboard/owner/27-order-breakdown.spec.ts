@@ -18,8 +18,15 @@
  * The free item is an AUTOMATIC FREE_ITEM triggered by buying this run's own
  * item (never a spend offer: only customer/10-promotions may run one on the
  * seed restaurant), on a cart under $55. Everything is AUTO/"Automation Menu"
- * named, deleted in afterAll; the gift card is recorded for the teardown freeze.
+ * named and deleted in afterAll (shared serial setup); the gift card is
+ * recorded for the teardown freeze. The imported reward member is named
+ * "AUTO Breakdown Member <runId>" and stays: customers have no delete endpoint.
  * No deal is created, so no active-deal slot is held (TEST_PLAN footprint).
+ *
+ * FREE marker: asserted where the surface draws item rows from the breakdown
+ * (backend, wind confirmation, dashboard sheet, email). The wind checkout's
+ * item rows come from the local cart, not `breakdown.items`, so it shows no
+ * marker by design (exemption in TEST_CASES.md TC-898).
  *
  * The email step is @email: it needs Mailpit and is skipped when
  * MAILPIT_BASE_URL is unset.
@@ -36,7 +43,7 @@ import {
   createMenuGroupNamed,
   createMenuItemFull,
   createTabletDevice,
-  deactivateTabletDevice,
+  deactivateTabletDeviceRaw,
   getCurrentOrders,
   getOrderByIdRaw,
   seedFundedGiftCard,
@@ -49,6 +56,7 @@ import {
   assertSameLines,
   assertSums,
   readDashboardLines,
+  readEmailItemNames,
   readEmailLines,
   readWindCheckoutLines,
   readWindConfirmationLines,
@@ -114,7 +122,6 @@ test.describe("Order money breakdown — one order, every surface", () => {
 
   // Set by the placing test, read by the later surface tests.
   let orderId = "";
-  let receiptNumber: number | string | undefined;
   let checkoutLines: Line[] = [];
   let confirmationLines: Line[] = [];
 
@@ -166,15 +173,20 @@ test.describe("Order money breakdown — one order, every surface", () => {
     created.createdCoupons!.push(coupon.id);
 
     phone = generateSeedPhone();
-    // The confirmation email goes to the linked Customer's email (the reward
-    // member's), not to the address typed at checkout: seed it with ours.
+    // KNOWN BUG (TC-901): the customer confirmation email goes to the linked
+    // Customer's email (the reward member's), not to the address typed at
+    // checkout (restaunax-backend emailService.sendOrderConfirmationEmail:
+    // `to: opts.to ?? order.customer.email`; the owner copy already prefers
+    // `order.email`). Until it is fixed the member is seeded with the same
+    // address we type, so this test reads the email wherever it lands.
     customerEmail = generateUserEmail("breakdown");
     await seedRewardMember(
       adminToken,
       restaurantId,
       phone,
       POINTS,
-      customerEmail
+      customerEmail,
+      `AUTO Breakdown Member ${runId}`
     );
     const card = await seedFundedGiftCard(
       adminToken,
@@ -195,12 +207,20 @@ test.describe("Order money breakdown — one order, every surface", () => {
   test.afterAll(async () => {
     if (!OWNER_EMAIL) return;
     const token = await ownerToken();
+    const failures: string[] = [];
     if (device) {
-      await deactivateTabletDevice(token, restaurantId, device.id).catch(
-        () => undefined
-      );
+      const res = await deactivateTabletDeviceRaw(
+        token,
+        restaurantId,
+        device.id
+      ).catch((err: unknown) => ({ ok: false, status: 0, data: String(err) }));
+      if (!res.ok) {
+        failures.push(
+          `tablet device ${device.id} deactivate → ${res.status}: ${JSON.stringify(res.data)}`
+        );
+      }
     }
-    const failures = await cleanupStorefrontPromotions(token, created);
+    failures.push(...(await cleanupStorefrontPromotions(token, created)));
     expect(failures, "order-breakdown cleanup").toEqual([]);
   });
 
@@ -278,37 +298,85 @@ test.describe("Order money breakdown — one order, every surface", () => {
         ).toContain(k);
       }
       const quote = (await quotes.latest()).body.quote;
-      if (quote?.breakdown) {
-        assertSameLines(
-          apiBreakdownLines({ breakdown: quote.breakdown }),
-          checkoutLines,
-          "wind checkout vs its own /quote breakdown"
-        );
-      }
+      expect(
+        quote?.breakdown,
+        "the latest /quote carries a breakdown"
+      ).toBeTruthy();
+      assertSameLines(
+        apiBreakdownLines({ breakdown: quote!.breakdown! }),
+        checkoutLines,
+        "wind checkout vs its own /quote breakdown"
+      );
     });
 
     await checkout.clickProceedToPayment();
     await checkout.assertPaymentSectionVisible();
 
-    // One retry of the Stripe step (Link/Element flake), then fail with
-    // screenshots.
+    // One retry of the Stripe step (Link/Element flake), only when the first
+    // attempt provably did not go through; then fail with screenshots.
     await allure.step("pay with the Stripe test card", async () => {
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        await checkout.fillStripeCard(STRIPE_CARDS.VISA_SUCCESS);
-        await checkout.completeOrder();
-        const ok = await confirmation
-          .assertConfirmed()
-          .then(() => true)
-          .catch(() => false);
-        if (ok) return;
-        await testInfo.attach(`payment-attempt-${attempt}`, {
+      const confirmedHeading = page.getByRole("heading", {
+        name: "Order Confirmed!",
+      });
+      const shot = async (name: string) =>
+        testInfo.attach(name, {
           body: await page.screenshot({ fullPage: true }),
           contentType: "image/png",
         });
-        if (attempt === 2) {
-          throw new Error("payment did not reach 'Order Confirmed!' twice");
-        }
+      const paymentError = async () => {
+        const box = page
+          .getByRole("heading", { name: "Payment Error" })
+          .locator("xpath=following-sibling::p");
+        return (await box.count()) > 0 ? (await box.innerText()).trim() : "";
+      };
+      const pay = async () => {
+        await checkout.fillStripeCard(STRIPE_CARDS.VISA_SUCCESS);
+        await checkout.completeOrder();
+        return confirmation
+          .assertConfirmed()
+          .then(() => true)
+          .catch(() => false);
+      };
+
+      if (await pay()) return;
+      await shot("payment-attempt-1");
+
+      // Resubmitting a payment that is in flight or went through would charge
+      // the card twice. Retry only when the page is back to an idle checkout:
+      // still on /checkout, no "Payment Successful!" panel, no "Processing...",
+      // and "Complete Order" enabled again.
+      const firstError = await paymentError();
+      if (/payment processed/i.test(firstError)) {
+        throw new Error(
+          `payment went through but the order was not confirmed: "${firstError}" (url ${page.url()})`
+        );
       }
+      const completeOrder = page.getByRole("button", {
+        name: "Complete Order",
+      });
+      const idle =
+        new URL(page.url()).pathname.startsWith("/checkout") &&
+        !(await page
+          .getByRole("heading", { name: "Payment Successful!" })
+          .isVisible()) &&
+        !(await page
+          .getByRole("button", { name: "Processing..." })
+          .isVisible()) &&
+        (await completeOrder.isVisible()) &&
+        (await completeOrder.isEnabled());
+      if (!idle) {
+        await expect(
+          confirmedHeading,
+          `first payment attempt is in flight or went through; not resubmitting (url ${page.url()}, error "${firstError}")`
+        ).toBeVisible({ timeout: 45_000 });
+        return;
+      }
+
+      if (await pay()) return;
+      await shot("payment-attempt-2");
+      throw new Error(
+        `payment did not reach 'Order Confirmed!' after one retry (url ${page.url()}, error "${await paymentError()}")`
+      );
     });
 
     orderId =
@@ -327,12 +395,26 @@ test.describe("Order money breakdown — one order, every surface", () => {
         "wind confirmation vs checkout"
       );
     });
+
+    await allure.step(
+      "the confirmation marks the gift item with the server's label",
+      async () => {
+        const giftRow = (await oracle()).breakdown.items?.find(
+          (i) => i.name === gift.name
+        );
+        expect(giftRow?.markerLabel, "backend gift row markerLabel").toMatch(
+          /free/i
+        );
+        await expect(
+          page.getByTestId(`order-breakdown-item-${giftRow!.key}`)
+        ).toContainText(giftRow!.markerLabel!);
+      }
+    );
   });
 
   test("backend: the owner's order read carries the breakdown the customer saw, and it adds up", async () => {
     test.skip(!orderId, "no order placed");
     const order = await oracle();
-    receiptNumber = order.receiptNumber;
     const lines = apiBreakdownLines(order);
     assertSums(lines, { items: order.breakdown.items });
     assertSameLines(lines, checkoutLines, "backend vs wind checkout");
@@ -395,18 +477,75 @@ test.describe("Order money breakdown — one order, every surface", () => {
       !MAILPIT_BASE_URL,
       "MAILPIT_BASE_URL not set — email step skipped"
     );
-    const expected = apiBreakdownLines(await oracle());
+    const order = await oracle();
+    const expected = apiBreakdownLines(order);
+    expect(order.receiptNumber, "order receipt number").toBeDefined();
     const mail = await waitForEmail(customerEmail, {
       subjectPattern: /Your Order Confirmation/,
       timeoutMs: 60_000,
     });
-    if (receiptNumber !== undefined) {
-      expect(mail.subject).toContain(`Receipt #${receiptNumber}`);
-    }
+    expect(mail.subject).toContain(`Receipt #${order.receiptNumber}`);
     assertSameLines(
       expected,
       readEmailLines(mail.html_body),
       "confirmation email"
     );
+    const giftRow = order.breakdown.items?.find((i) => i.name === gift.name);
+    expect(giftRow?.markerLabel, "backend gift row markerLabel").toBeTruthy();
+    expect(readEmailItemNames(mail.html_body)).toContain(
+      `${gift.name} ${giftRow!.markerLabel}`
+    );
+  });
+
+  // KNOWN BUG: a member whose account has no email (or a different one) never
+  // gets the receipt at the address typed at checkout — the customer copy is
+  // sent to `order.customer.email` (restaunax-backend emailService
+  // sendOrderConfirmationEmail). fixme: never runs until the backend fix
+  // lands; then drop `.fixme` and it must pass.
+  test.fixme("TC-901: BUG: a member with no account email gets the confirmation at the address typed at checkout @email", async ({
+    page,
+  }) => {
+    test.skip(
+      !MAILPIT_BASE_URL,
+      "MAILPIT_BASE_URL not set — email step skipped"
+    );
+    const checkout = createCustomerCheckoutPage(page);
+    const rewards = createCustomerRewardSection(page);
+    const confirmation = createCustomerOrderConfirmationPage(page);
+    const adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD))
+      .accessToken;
+    const blankPhone = generateSeedPhone();
+    await seedRewardMember(
+      adminToken,
+      restaurantId,
+      blankPhone,
+      POINTS,
+      "",
+      `AUTO Breakdown Blank ${runId}`
+    );
+    const typedEmail = generateUserEmail("breakdown-typed");
+
+    await checkout.seedCartItems(restaurantId, [
+      { menuItemId: paid.id, name: paid.name, price: paid.price, quantity: 1 },
+    ]);
+    await checkout.fillCustomerInfo(
+      "Breakdown",
+      "Typed",
+      typedEmail,
+      blankPhone
+    );
+    await rewards.signIn(blankPhone);
+    await checkout.selectPickup();
+    await checkout.clickProceedToPayment();
+    await checkout.assertPaymentSectionVisible();
+    await checkout.fillStripeCard(STRIPE_CARDS.VISA_SUCCESS);
+    await checkout.completeOrder();
+    await confirmation.assertConfirmed();
+
+    const mail = await waitForEmail(typedEmail, {
+      subjectPattern: /Your Order Confirmation/,
+      timeoutMs: 60_000,
+    });
+    expect(mail.subject).toMatch(/Receipt #/);
   });
 });

@@ -29,7 +29,13 @@ export async function seedRewardMember(
    * that reads that email must seed the member with it.
    */
   email = "",
-  name = "Breakdown Member"
+  /**
+   * Keep the AUTOMATION_COUPON_PREFIX ("AUTO") marker so leftovers are
+   * recognisable as test data. Imported customers have no delete endpoint
+   * (only the customer's own async data-deletion request), so the row stays
+   * on QA like every seeded-order customer.
+   */
+  name = "AUTO Member"
 ): Promise<SeededRewardMember> {
   const csv =
     "Name,Email,Phone,Created,Last Ordered On,Following Email,Following SMS,Points Remaining\r\n" +

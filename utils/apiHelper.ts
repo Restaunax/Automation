@@ -3384,6 +3384,24 @@ export async function deactivateTabletDevice(
   }
 }
 
+/**
+ * Deactivate a tablet device and return the raw response, so a caller's
+ * cleanup can record a failure instead of losing it (deactivateTabletDevice
+ * only logs). The route is a toggle: call it once, on an active device.
+ */
+export function deactivateTabletDeviceRaw(
+  ownerToken: string,
+  restaurantId: string,
+  deviceId: string
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "PATCH",
+    `/api/tablet/restaurant/${restaurantId}/device/${deviceId}/toggle`,
+    undefined,
+    ownerToken
+  );
+}
+
 // ── Owner table & reservation management ─────────────────────────────────────
 //
 // Feature: table-management-reservations-eager-teacup. Owner JWT auth; paths

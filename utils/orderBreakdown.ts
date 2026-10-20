@@ -189,6 +189,7 @@ const decodeEntities = (s: string) =>
     .replace(/&#x3D;/g, "=")
     .replace(/&#x60;/g, "`")
     .replace(/&minus;/g, "−")
+    .replace(/&times;/g, "×")
     .replace(/&#x([0-9a-f]+);/gi, (_m, h: string) =>
       String.fromCodePoint(parseInt(h, 16))
     )
@@ -223,6 +224,29 @@ export function readEmailLines(html: string): Line[] {
     lines.push({ label, amount: normaliseMoney(cellText(money[2] ?? "")) });
   }
   return lines;
+}
+
+/**
+ * The name cell of every item row in a confirmation email, in order: the
+ * first `<td>` of each `<tbody>` row of `_partials/breakdownItems.html` (the
+ * `role="table"` table). An item's markerLabel badge sits in that cell after
+ * the name, so a free item reads "<name> Free". Modifier rows ("+ Bacon") are
+ * returned too; callers look for the row they care about.
+ */
+export function readEmailItemNames(html: string): string[] {
+  const table =
+    /<table[^>]*\brole="table"[^>]*>[\s\S]*?<tbody>([\s\S]*?)<\/tbody>/i.exec(
+      html
+    );
+  if (!table) {
+    throw new Error('readEmailItemNames: no item table (role="table")');
+  }
+  const names: string[] = [];
+  for (const row of (table[1] ?? "").matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
+    const first = /<td[^>]*>([\s\S]*?)<\/td>/i.exec(row[1] ?? "");
+    if (first) names.push(cellText(first[1] ?? ""));
+  }
+  return names;
 }
 
 /**
