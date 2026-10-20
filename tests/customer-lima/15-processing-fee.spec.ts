@@ -107,9 +107,35 @@ test.describe("Lima — processing fee pass-through", () => {
       const finalizeResponse = await finalize;
       expect(
         finalizeResponse.status(),
-        "finalize-surcharge must succeed — on failure the checkout falls " +
-          "through and charges the quoted (credit) amount"
+        "finalize-surcharge must succeed — the card is checked before it is charged"
       ).toBe(200);
+
+      // When the fee comes off (debit/prepaid), the checkout shows the new
+      // total and asks for one more tap before charging it (lima hotfix
+      // 2026-10-20). A credit card goes straight through.
+      const feeRemovedNotice = page.getByText(
+        /(?:not|n't) charged the processing fee/i
+      );
+      // Either the confirmation (credit) or the fee-removed notice (debit).
+      await expect
+        .poll(
+          async () =>
+            /\/order-confirmation\//.test(page.url()) ||
+            (await feeRemovedNotice.isVisible()),
+          { timeout: 30_000 }
+        )
+        .toBe(true);
+      if (!/\/order-confirmation\//.test(page.url())) {
+        await allure.step(
+          "Fee removed: the lower total is shown, then a second tap pays it",
+          async () => {
+            await expect(feeRemovedNotice).toBeVisible({ timeout: 10_000 });
+            await expect(feeLine(page)).toHaveCount(0);
+            expect((await checkout.readTotal()) ?? 0).toBeLessThan(quotedTotal);
+            await checkout.placeOrder();
+          }
+        );
+      }
 
       await checkout.assertOrderConfirmed();
       const orderId =

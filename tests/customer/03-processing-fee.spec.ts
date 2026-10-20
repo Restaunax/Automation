@@ -208,6 +208,33 @@ test.describe("Customer — Processing fee pass-through", () => {
         "application/json"
       );
 
+      // When the fee comes off (debit/prepaid), the checkout shows the new
+      // total and asks for one more tap before charging it (wind hotfix
+      // 2026-10-20) — the customer is never charged a figure they weren't
+      // shown. A credit card goes straight through.
+      const feeRemovedNotice = page.getByText(
+        /(?:not|n't) charged the processing fee/i
+      );
+      const confirmed = page.getByRole("heading", { name: "Order Confirmed!" });
+      await expect(feeRemovedNotice.or(confirmed)).toBeVisible({
+        timeout: 30_000,
+      });
+      let reconfirmed = false;
+      if (await feeRemovedNotice.isVisible()) {
+        await allure.step(
+          "Fee removed: the lower total is shown, then a second tap pays it",
+          async () => {
+            await expect
+              .poll(() => checkoutPage.readOrderTotal(), { timeout: 10_000 })
+              .toBeLessThan(quotedTotal);
+            await checkoutPage.assertNoProcessingFee();
+            await checkoutPage.completeOrder();
+            reconfirmed = true;
+          }
+        );
+      }
+      await allure.parameter("Second tap", String(reconfirmed));
+
       await confirmationPage.assertConfirmed();
       const orderId =
         page.url().match(/order-confirmation\/([0-9a-f-]{36})/)?.[1] ?? "";
@@ -221,7 +248,7 @@ test.describe("Customer — Processing fee pass-through", () => {
         JSON.stringify(order.data, null, 2),
         "application/json"
       );
-      return { quotedTotal, order: order.data };
+      return { quotedTotal, order: order.data, reconfirmed };
     } finally {
       await setPassProcessingFee(adminToken, restaurantId, false).catch(
         () => {}
