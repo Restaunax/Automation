@@ -12,6 +12,7 @@
  * minutes of test execution — re-login instead.
  */
 
+import type { ApiBreakdown } from "./orderBreakdown";
 import {
   readUsersForCleanup,
   clearUsersForCleanup,
@@ -956,6 +957,8 @@ export interface QuoteResponse {
       lineTotal: number;
       savings: number;
     }[];
+    /** The quote's money breakdown (ORDER_MONEY_BREAKDOWN.md §4). */
+    breakdown?: ApiBreakdown | null;
   };
   issues?: { code: string; severity: string; message: string }[];
   message?: string;
@@ -982,6 +985,8 @@ export function quoteOrderRaw(
     couponCodeId?: string | null;
     orderType?: "PICKUP" | "DELIVERY";
     scheduledFor?: string;
+    /** Legacy-body delivery fee (client-supplied until a pinned quote). */
+    deliveryFee?: number;
   }
 ): Promise<RawResponse<QuoteResponse>> {
   return apiRequestRaw("POST", `/api/order/${restaurantId}/quote`, {
@@ -2326,6 +2331,10 @@ export function getOrderByIdRaw(
       }[];
     }[];
     orderItems?: { menuItemId: string; quantity: number }[];
+    /** The one money breakdown every surface renders (ORDER_MONEY_BREAKDOWN.md). */
+    breakdown?: ApiBreakdown;
+    receiptNumber?: number | string;
+    orderNumber?: number | string;
   }>
 > {
   return apiRequestRaw("GET", `/api/order/${orderId}`, undefined, accessToken);
@@ -2727,6 +2736,7 @@ export interface ApiOrder {
   paymentStatus?: string;
   orderType?: string;
   total?: number;
+  breakdown?: ApiBreakdown;
 }
 
 export interface SeedOrderItem {
@@ -3376,6 +3386,24 @@ export async function deactivateTabletDevice(
       err
     );
   }
+}
+
+/**
+ * Deactivate a tablet device and return the raw response, so a caller's
+ * cleanup can record a failure instead of losing it (deactivateTabletDevice
+ * only logs). The route is a toggle: call it once, on an active device.
+ */
+export function deactivateTabletDeviceRaw(
+  ownerToken: string,
+  restaurantId: string,
+  deviceId: string
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "PATCH",
+    `/api/tablet/restaurant/${restaurantId}/device/${deviceId}/toggle`,
+    undefined,
+    ownerToken
+  );
 }
 
 // ── Owner table & reservation management ─────────────────────────────────────

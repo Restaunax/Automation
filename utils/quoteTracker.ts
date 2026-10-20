@@ -9,6 +9,7 @@
  */
 
 import { expect, type Page, type Response } from "@playwright/test";
+import type { ApiBreakdown } from "./orderBreakdown";
 
 /** The parts of the page's POST /quote the tests read. */
 export interface PageQuote {
@@ -27,7 +28,15 @@ export interface PageQuote {
         savings: number;
       } | null;
       freeItemOffer?: { menuItemId: string; name: string } | null;
-      deals?: { dealId: string; dealPrice: number; upcharge: number }[];
+      deals?: {
+        dealId: string;
+        dealPrice: number;
+        upcharge: number;
+        /** Per-bundle savings (pricingEngine dealUnitSavings). */
+        savings: number;
+      }[];
+      /** The money breakdown the checkout renders (ORDER_MONEY_BREAKDOWN.md). */
+      breakdown?: ApiBreakdown;
     };
     issues?: { code?: string; severity: string; message?: string }[];
   };
