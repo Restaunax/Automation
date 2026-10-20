@@ -15,8 +15,10 @@
  * wind and checks the deal row with its contents and the "You saved $X with
  * …" info line, which is shown but never summed. Wind's delivery address
  * needs a Google Places suggestion that QA does not return, so delivery is
- * API-only: TC-900 quotes a delivery order with and without a FREE_DELIVERY
- * code and reads DELIVERY_FEE / FREE_DELIVERY off `quote.breakdown`.
+ * API-only: TC-900 (a third describe with its own one-item menu, no wind or
+ * storefront seed needed) quotes a delivery order with and without a
+ * FREE_DELIVERY code and reads DELIVERY_FEE / FREE_DELIVERY off
+ * `quote.breakdown`.
  *
  * The free item is an AUTOMATIC FREE_ITEM triggered by buying this run's own
  * item (never a spend offer: only customer/10-promotions may run one on the
@@ -138,13 +140,21 @@ async function payWithTestCard(page: Page, testInfo: TestInfo): Promise<void> {
         .locator("xpath=following-sibling::p");
       return (await box.count()) > 0 ? (await box.innerText()).trim() : "";
     };
+    // Any failure — a late Stripe iframe timing out the card fill, the click,
+    // or the confirmation wait — returns false so the caller can screenshot
+    // and decide on the single guarded retry below.
+    let lastError = "";
     const pay = async () => {
-      await checkout.fillStripeCard(STRIPE_CARDS.VISA_SUCCESS);
-      await checkout.completeOrder();
-      return confirmation
-        .assertConfirmed()
-        .then(() => true)
-        .catch(() => false);
+      try {
+        await checkout.fillStripeCard(STRIPE_CARDS.VISA_SUCCESS);
+        await checkout.completeOrder();
+        await confirmation.assertConfirmed();
+        return true;
+      } catch (err) {
+        lastError =
+          err instanceof Error ? err.message.split("\n")[0]! : String(err);
+        return false;
+      }
     };
 
     if (await pay()) return;
@@ -163,20 +173,24 @@ async function payWithTestCard(page: Page, testInfo: TestInfo): Promise<void> {
     const completeOrder = page.getByRole("button", {
       name: "Complete Order",
     });
+    // Give a just-failed submit a moment to settle back to the form: wait
+    // (briefly, on the condition) for "Complete Order" to be enabled again,
+    // then re-check nothing is in flight or done.
+    const formBack = await expect(completeOrder)
+      .toBeEnabled({ timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false);
     const idle =
+      formBack &&
       new URL(page.url()).pathname.startsWith("/checkout") &&
       !(await page
         .getByRole("heading", { name: "Payment Successful!" })
         .isVisible()) &&
-      !(await page
-        .getByRole("button", { name: "Processing..." })
-        .isVisible()) &&
-      (await completeOrder.isVisible()) &&
-      (await completeOrder.isEnabled());
+      !(await page.getByRole("button", { name: "Processing..." }).isVisible());
     if (!idle) {
       await expect(
         confirmedHeading,
-        `first payment attempt is in flight or went through; not resubmitting (url ${page.url()}, error "${firstError}")`
+        `first payment attempt is in flight or went through; not resubmitting (url ${page.url()}, error "${firstError}", attempt 1: ${lastError})`
       ).toBeVisible({ timeout: 45_000 });
       return;
     }
@@ -184,7 +198,7 @@ async function payWithTestCard(page: Page, testInfo: TestInfo): Promise<void> {
     if (await pay()) return;
     await shot("payment-attempt-2");
     throw new Error(
-      `payment did not reach 'Order Confirmed!' after one retry (url ${page.url()}, error "${await paymentError()}")`
+      `payment did not reach 'Order Confirmed!' after one retry (url ${page.url()}, error "${await paymentError()}", attempt 2: ${lastError})`
     );
   });
 }
@@ -375,7 +389,19 @@ test.describe("Order money breakdown — one order, every surface", () => {
 
     await allure.step("checkout lines add up", async () => {
       checkoutLines = await readWindCheckoutLines(page);
-      assertSums(checkoutLines);
+      const quote = (await quotes.latest()).body.quote;
+      expect(
+        quote?.breakdown,
+        "the latest /quote carries a breakdown"
+      ).toBeTruthy();
+      // Same lines first: a surface that lost its rows fails with "[wind
+      // checkout …] read …" rather than a misleading sum.
+      assertSameLines(
+        apiBreakdownLines({ breakdown: quote!.breakdown! }),
+        checkoutLines,
+        "wind checkout vs its own /quote breakdown"
+      );
+      assertSums(checkoutLines, "wind checkout");
       const kinds = checkoutLines.map((l) => l.kind);
       for (const k of [
         "SUBTOTAL",
@@ -392,16 +418,6 @@ test.describe("Order money breakdown — one order, every surface", () => {
           `checkout lines ${JSON.stringify(checkoutLines)}`
         ).toContain(k);
       }
-      const quote = (await quotes.latest()).body.quote;
-      expect(
-        quote?.breakdown,
-        "the latest /quote carries a breakdown"
-      ).toBeTruthy();
-      assertSameLines(
-        apiBreakdownLines({ breakdown: quote!.breakdown! }),
-        checkoutLines,
-        "wind checkout vs its own /quote breakdown"
-      );
     });
 
     await checkout.clickProceedToPayment();
@@ -446,7 +462,7 @@ test.describe("Order money breakdown — one order, every surface", () => {
     test.skip(!orderId, "no order placed");
     const order = await oracle();
     const lines = apiBreakdownLines(order);
-    assertSums(lines, { items: order.breakdown.items });
+    assertSums(lines, "backend order", { items: order.breakdown.items });
     assertSameLines(lines, checkoutLines, "backend vs wind checkout");
     assertSameLines(lines, confirmationLines, "backend vs wind confirmation");
 
@@ -475,7 +491,8 @@ test.describe("Order money breakdown — one order, every surface", () => {
     ownerPage,
   }) => {
     test.skip(!orderId, "no order placed");
-    const expected = apiBreakdownLines(await oracle());
+    const order = await oracle();
+    const expected = apiBreakdownLines(order);
     const orders = createOwnerOrdersPage(ownerPage);
     await orders.gotoOrderDetail(restaurantId, orderId);
     const sheet = orders.detailSheet();
@@ -484,7 +501,11 @@ test.describe("Order money breakdown — one order, every surface", () => {
     });
     const lines = await readDashboardLines(sheet);
     assertSameLines(expected, lines, "owner dashboard");
-    await expect(orders.itemRow(gift.name)).toContainText(/free/i);
+    const giftRow = order.breakdown.items?.find((i) => i.name === gift.name);
+    expect(giftRow?.markerLabel, "backend gift row markerLabel").toBeTruthy();
+    await expect(orders.itemRow(gift.name)).toContainText(
+      giftRow!.markerLabel!
+    );
   });
 
   test("POS: the live order feed carries the same breakdown totals", async () => {
@@ -580,7 +601,7 @@ test.describe("Order money breakdown — one order, every surface", () => {
   });
 });
 
-test.describe("Order money breakdown — combo order and delivery quote", () => {
+test.describe("Order money breakdown — combo order", () => {
   test.skip(
     !TEMPLATE_WIND_URL || !OWNER_EMAIL || !OWNER_PASSWORD,
     "TEMPLATE_WIND_URL and OWNER_* must be set in .env"
@@ -621,7 +642,7 @@ test.describe("Order money breakdown — combo order and delivery quote", () => 
       await ownerToken(),
       created
     );
-    expect(failures, "combo/delivery cleanup").toEqual([]);
+    expect(failures, "combo cleanup").toEqual([]);
   });
 
   test.beforeEach(async () => {
@@ -679,11 +700,11 @@ test.describe("Order money breakdown — combo order and delivery quote", () => 
       await expect(page.getByTestId("checkout-total")).toHaveText(/\$\d/);
 
       let checkoutLines: Line[] = [];
+      let quoteSavings = 0;
       await allure.step(
         "checkout lines add up and equal the /quote",
         async () => {
           checkoutLines = await readWindCheckoutLines(page);
-          assertSums(checkoutLines);
           const quote = (await quotes.latest()).body.quote;
           expect(
             quote?.breakdown,
@@ -698,6 +719,8 @@ test.describe("Order money breakdown — combo order and delivery quote", () => 
             checkoutLines,
             "wind checkout vs its own /quote breakdown"
           );
+          assertSums(checkoutLines, "wind checkout");
+          quoteSavings = quote!.deals![0]!.savings;
         }
       );
 
@@ -738,6 +761,11 @@ test.describe("Order money breakdown — combo order and delivery quote", () => 
           expect(saved!.label).toBe(
             `You saved $${saved!.amount.toFixed(2)} with ${combo.name}`
           );
+          // The order's savings equal what the checkout's /quote priced for
+          // this deal (two surfaces compared, nothing recomputed).
+          expect(saved!.amount, "savings = the /quote's deals[0].savings").toBe(
+            quoteSavings
+          );
           expect(saved!.amount).toBeGreaterThan(0);
           // Shown, never summed: no totals line is the info line, and the
           // totals still add up without it.
@@ -747,9 +775,14 @@ test.describe("Order money breakdown — combo order and delivery quote", () => 
             ),
             "the info line is not a totals line"
           ).toEqual([]);
-          assertSums(expected, { items: order.breakdown.items });
           assertSameLines(expected, checkoutLines, "backend vs wind checkout");
-          expect(order.total).toBe(expected.at(-1)!.amount);
+          assertSums(expected, "backend order", {
+            items: order.breakdown.items,
+          });
+          // No tender on this order: Order.total is the TOTAL line.
+          const totalLine = expected.find((l) => l.kind === "TOTAL");
+          expect(totalLine, "backend TOTAL line").toBeTruthy();
+          expect(order.total).toBe(totalLine!.amount);
         }
       );
 
@@ -802,6 +835,56 @@ test.describe("Order money breakdown — combo order and delivery quote", () => 
       );
     });
   });
+});
+
+// API-only: needs no storefront and no wind, only one menu item of its own.
+test.describe("Order money breakdown — delivery quote", () => {
+  test.skip(!OWNER_EMAIL || !OWNER_PASSWORD, "OWNER_* must be set in .env");
+
+  const runId = generateRunId();
+  let restaurantId = "";
+  let item: SeededItem;
+  const created: {
+    groupId?: string;
+    createdItems?: SeededItem[];
+    createdCoupons?: string[];
+  } = { createdItems: [], createdCoupons: [] };
+
+  const ownerToken = async () =>
+    (await apiLogin(OWNER_EMAIL, OWNER_PASSWORD)).accessToken;
+
+  test.beforeAll(async () => {
+    if (!OWNER_EMAIL || !OWNER_PASSWORD) return;
+    restaurantId = readRestaurantId();
+    const token = await ownerToken();
+    const group = await createMenuGroupNamed(
+      token,
+      `Automation Menu Breakdown Delivery ${runId}`,
+      { restaurantId }
+    );
+    created.groupId = group.id;
+    const name = `Breakdown Delivery Platter ${runId}`;
+    const made = await createMenuItemFull(token, group.id, name, PAID_PRICE, {
+      description: "Automation order-breakdown item",
+    });
+    item = { id: made.id, name, price: PAID_PRICE };
+    created.createdItems!.push(item);
+  });
+
+  test.afterAll(async () => {
+    if (!OWNER_EMAIL || !restaurantId) return;
+    // Backstop for the coupon if the test's finally could not delete it.
+    const failures = await cleanupStorefrontPromotions(
+      await ownerToken(),
+      created
+    );
+    expect(failures, "delivery-quote cleanup").toEqual([]);
+  });
+
+  test.beforeEach(async () => {
+    await allure.label("feature", "Order Breakdown");
+    await allure.label("severity", "critical");
+  });
 
   test("TC-900: a delivery quote carries the delivery fee and, with a FREE_DELIVERY code, an equal and opposite free-delivery line; without the code there is none", async () => {
     const token = await ownerToken();
@@ -813,11 +896,16 @@ test.describe("Order money breakdown — combo order and delivery quote", () => 
     expect(fee, "seed restaurant baseDeliveryFee").toBeGreaterThan(0);
     await allure.parameter("delivery fee", String(fee));
 
-    const { platter } = set.items;
+    const MAX_FEE_WAIVER = 10;
+    expect(
+      fee,
+      `test-setup precondition: the seed baseDeliveryFee must be ≤ the promotion's maxDiscount (${MAX_FEE_WAIVER}) or the waiver is capped — raise MAX_FEE_WAIVER, this is not a breakdown bug`
+    ).toBeLessThanOrEqual(MAX_FEE_WAIVER);
+
     const body = {
       orderType: "DELIVERY" as const,
       deliveryFee: fee!,
-      orderItems: [{ menuItemId: platter.id, quantity: 1 }],
+      orderItems: [{ menuItemId: item.id, quantity: 1 }],
     };
     // A CODE promotion (passed by id, as wind does after redeeming the code)
     // prices only this quote: an AUTOMATIC one would reach every delivery
@@ -831,7 +919,7 @@ test.describe("Order money breakdown — combo order and delivery quote", () => 
       // FREE_DELIVERY needs a minimum and a fee cap (margin guardrail); the
       // cap covers the whole fee.
       minOrderAmount: 1,
-      maxDiscount: 10,
+      maxDiscount: MAX_FEE_WAIVER,
       applyMode: "CODE",
     });
     created.createdCoupons!.push(promo.id);
@@ -845,7 +933,9 @@ test.describe("Order money breakdown — combo order and delivery quote", () => 
         const breakdown = res.data.quote?.breakdown;
         expect(breakdown, "quote.breakdown").toBeTruthy();
         const lines = apiBreakdownLines({ breakdown });
-        assertSums(lines, { items: breakdown!.items });
+        assertSums(lines, "delivery quote with the code", {
+          items: breakdown!.items,
+        });
         const deliveryFee = lines.find((l) => l.kind === "DELIVERY_FEE");
         const free = lines.find((l) => l.kind === "FREE_DELIVERY");
         expect(deliveryFee, JSON.stringify(lines)).toBeTruthy();
@@ -863,7 +953,9 @@ test.describe("Order money breakdown — combo order and delivery quote", () => 
         const breakdown = res.data.quote?.breakdown;
         expect(breakdown, "quote.breakdown").toBeTruthy();
         const lines = apiBreakdownLines({ breakdown });
-        assertSums(lines, { items: breakdown!.items });
+        assertSums(lines, "delivery quote without the code", {
+          items: breakdown!.items,
+        });
         expect(lines.find((l) => l.kind === "DELIVERY_FEE")?.amount).toBe(fee);
         expect(
           lines.filter((l) => l.kind === "FREE_DELIVERY"),

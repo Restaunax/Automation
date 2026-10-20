@@ -28,7 +28,13 @@ export interface PageQuote {
         savings: number;
       } | null;
       freeItemOffer?: { menuItemId: string; name: string } | null;
-      deals?: { dealId: string; dealPrice: number; upcharge: number }[];
+      deals?: {
+        dealId: string;
+        dealPrice: number;
+        upcharge: number;
+        /** Per-bundle savings (pricingEngine dealUnitSavings). */
+        savings: number;
+      }[];
       /** The money breakdown the checkout renders (ORDER_MONEY_BREAKDOWN.md). */
       breakdown?: ApiBreakdown;
     };

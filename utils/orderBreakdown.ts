@@ -294,19 +294,23 @@ export function assertSameLines(
  *  (c) TOTAL plus the tenders (GIFT_CARD, STORE_CREDIT, negative) = CHARGED,
  *      and CHARGED exists exactly when a tender does;
  *  (a) optional: the item amounts add up to SUBTOTAL.
- * Tolerance is one cent.
+ * Tolerance is one cent. Every error is prefixed with `[surfaceName]`.
  */
 export function assertSums(
   lines: Line[],
+  surfaceName: string,
   opts: { items?: { amount: number }[] } = {}
 ): void {
-  if (lines.length === 0) throw new Error("assertSums: empty line list");
+  const fail: (msg: string) => never = (msg) => {
+    throw new Error(`[${surfaceName}] ${msg}`);
+  };
+  if (lines.length === 0) fail("assertSums: empty line list");
   const iTotal = lines.findIndex((l) => l.kind === "TOTAL");
-  if (iTotal < 0) throw new Error("assertSums: no TOTAL line");
+  if (iTotal < 0) fail("assertSums: no TOTAL line");
   const total = lines[iTotal]?.amount ?? NaN;
   const before = lines.slice(0, iTotal).reduce((s, l) => s + l.amount, 0);
   if (Math.abs(cents(before) - cents(total)) > 1) {
-    throw new Error(
+    fail(
       `(b) lines before TOTAL sum to ${before.toFixed(2)}, TOTAL is ${total.toFixed(2)}`
     );
   }
@@ -316,19 +320,19 @@ export function assertSums(
     .reduce((s, l) => s + l.amount, 0);
   const charged = after.find((l) => l.kind === "CHARGED");
   if (tenders !== 0 && !charged) {
-    throw new Error("(c) a tender was used but there is no CHARGED line");
+    fail("(c) a tender was used but there is no CHARGED line");
   }
   if (charged && Math.abs(cents(total + tenders) - cents(charged.amount)) > 1) {
-    throw new Error(
+    fail(
       `(c) TOTAL ${total.toFixed(2)} + tenders ${tenders.toFixed(2)} != CHARGED ${charged.amount.toFixed(2)}`
     );
   }
   if (opts.items) {
     const sub = lines.find((l) => l.kind === "SUBTOTAL");
-    if (!sub) throw new Error("(a) no SUBTOTAL line to compare the items to");
+    if (!sub) fail("(a) no SUBTOTAL line to compare the items to");
     const sum = opts.items.reduce((s, i) => s + i.amount, 0);
     if (Math.abs(cents(sum) - cents(sub.amount)) > 1) {
-      throw new Error(
+      fail(
         `(a) items sum to ${sum.toFixed(2)}, SUBTOTAL is ${sub.amount.toFixed(2)}`
       );
     }

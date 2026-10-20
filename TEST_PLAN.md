@@ -46,6 +46,10 @@ npx playwright test --project=customer       # Template Wind only
 npx playwright test                          # both
 ```
 
+> `tests/unit/` is NOT a project of the main config: pure helper tests run
+> with `npm run test:unit` (`playwright.unit.config.ts`, no browser, no QA,
+> no globalSetup) and in the static CI job.
+
 > `tests/pos/` (Device In Store / POS) is the **`pos` project** — API-level
 > order-lifecycle tests (no browser UI). Run with `--project=pos`. See
 > **Role & Permission Model** and `tests/pos/README.md`.
@@ -503,6 +507,10 @@ Automation Chain's location A for the lima step only — via `utils/publishBacks
 `customer-lima/14-promotions` seeds the same set (labelled "Lima") WITHOUT the
 free item: a spend-triggered gift is offered to every cart over its threshold,
 so a second one would compete with wind's for each other's carts.
+`dashboard/owner/27-order-breakdown` (TC-898) runs an AUTOMATIC FREE_ITEM for
+its serial run, triggered by BUYING its own per-run item (BUY_ITEM, gift = its
+own item), never by spend, so it prices no other file's cart; its carts stay
+under $55. TC-900's FREE_DELIVERY is a CODE promotion passed by id.
 
 **The contract every spec file must honor** (this is what makes parallelism
 safe against one shared QA environment):

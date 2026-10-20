@@ -55,5 +55,23 @@ export async function seedRewardMember(
   if (!res.ok) {
     throw new Error(`[seedRewardMember] import → ${res.status}: ${raw}`);
   }
+  // The import answers 200 even when the row lands in `errors` or `skipped`
+  // (a phone that already imported points, a format rejection): require the
+  // one row to be created or updated, or the member has no points and the
+  // test fails far away at "Use N points".
+  let stats:
+    | { created?: number; updated?: number; skipped?: number; errors?: number }
+    | undefined;
+  try {
+    stats = (JSON.parse(raw) as { stats?: typeof stats }).stats;
+  } catch {
+    stats = undefined;
+  }
+  const landed = (stats?.created ?? 0) + (stats?.updated ?? 0);
+  if (!stats || landed !== 1 || stats.errors !== 0 || stats.skipped !== 0) {
+    throw new Error(
+      `[seedRewardMember] expected exactly one created/updated row and no errors/skips for ${phone}: ${raw}`
+    );
+  }
   return { phone, name, points, raw };
 }

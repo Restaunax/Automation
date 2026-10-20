@@ -41,31 +41,43 @@ test.describe("normaliseMoney", () => {
 
 test.describe("assertSums", () => {
   test("accepts the reference example (a)(b)(c)", () => {
-    assertSums(REF, {
+    assertSums(REF, "Reference", {
       items: [{ amount: 21.5 }, { amount: 13.99 }, { amount: 3.99 }],
     });
   });
   test("accepts an order with no tender", () => {
-    assertSums(REF.slice(0, 9));
+    assertSums(REF.slice(0, 9), "Reference");
   });
   test("(b) rejects a total that does not add up", () => {
     const bad = REF.map((l) =>
       l.kind === "TOTAL" ? { ...l, amount: 42.68 + 0.01 } : l
     );
-    expect(() => assertSums(bad)).toThrow(/\(b\)/);
+    expect(() => assertSums(bad, "Wind checkout")).toThrow(
+      /^\[Wind checkout\] \(b\)/
+    );
   });
   test("(c) rejects a wrong CHARGED and a missing CHARGED", () => {
     const bad = REF.map((l) =>
       l.kind === "CHARGED" ? { ...l, amount: 33.67 } : l
     );
-    expect(() => assertSums(bad)).toThrow(/\(c\)/);
-    expect(() => assertSums(REF.slice(0, 10))).toThrow(/no CHARGED/);
+    expect(() => assertSums(bad, "Email")).toThrow(/^\[Email\] \(c\)/);
+    expect(() => assertSums(REF.slice(0, 10), "Email")).toThrow(/no CHARGED/);
   });
   test("(a) rejects items that do not add up to SUBTOTAL", () => {
-    expect(() => assertSums(REF, { items: [{ amount: 39 }] })).toThrow(/\(a\)/);
+    expect(() =>
+      assertSums(REF, "Backend", { items: [{ amount: 39 }] })
+    ).toThrow(/^\[Backend\] \(a\)/);
+  });
+  test("rejects a list with no TOTAL, naming the surface", () => {
+    expect(() =>
+      assertSums(
+        REF.filter((l) => l.kind !== "TOTAL"),
+        "Dashboard"
+      )
+    ).toThrow(/^\[Dashboard\] .*no TOTAL/);
   });
   test("rejects an empty list", () => {
-    expect(() => assertSums([])).toThrow(/empty/);
+    expect(() => assertSums([], "POS")).toThrow(/^\[POS\] .*empty/);
   });
 });
 
