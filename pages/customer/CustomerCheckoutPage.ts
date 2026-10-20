@@ -348,11 +348,17 @@ export const createCustomerCheckoutPage = (page: Page) => {
   // full disclosure; the absence check matches any "Processing Fee…" label so
   // a future re-wording can't turn it into a check that always passes (the
   // old exact "Processing Fee" match had silently become one).
-  const processingFeeLabel = () => page.getByText(/^Processing Fee\b/);
+  //
+  // Since template-wind #135 (2026-10-19) the summary renders the server
+  // breakdown, whose label is "Processing fee" (lower-case f) with the
+  // "(credit cards)" suffix after an &nbsp;. Both matchers are
+  // case-insensitive: the old case-sensitive absence check silently passed
+  // against the new label, so it proved nothing.
+  const processingFeeLabel = () => page.getByText(/^Processing fee\b/i);
   const assertProcessingFeeVisible = () =>
-    expect(
-      page.getByText("Processing Fee (credit cards)", { exact: true })
-    ).toBeVisible({ timeout: 20_000 });
+    expect(page.getByText(/^Processing fee\s*\(credit cards\)$/i)).toBeVisible({
+      timeout: 20_000,
+    });
   const assertNoProcessingFee = () =>
     expect(processingFeeLabel()).toHaveCount(0);
 

@@ -943,6 +943,10 @@ export interface QuoteResponse {
     tax?: number;
     amountToCharge?: number;
     total?: number;
+    grandTotal?: number;
+    /** Card processing fee passed to the customer (credit-card case). */
+    processingFee?: number;
+    giftCardApplied?: number;
     /** S1 service fee (excl. its tax) and its tax, both inside tax/total. */
     serviceFee?: number;
     serviceFeeTax?: number;
@@ -987,6 +991,10 @@ export function quoteOrderRaw(
     scheduledFor?: string;
     /** Legacy-body delivery fee (client-supplied until a pinned quote). */
     deliveryFee?: number;
+    /** Gift card tender, as the checkout sends it (legacy body: the code
+     * plus any positive amount; the server clamps to the real balance). */
+    giftCardCode?: string;
+    giftCardAmountUsed?: number;
   }
 ): Promise<RawResponse<QuoteResponse>> {
   return apiRequestRaw("POST", `/api/order/${restaurantId}/quote`, {
@@ -2309,6 +2317,9 @@ export function getOrderByIdRaw(
     status?: string;
     subtotal?: number;
     total?: number;
+    paymentStatus?: string;
+    /** Card processing fee passed to the customer (0 unless levied). */
+    processingFee?: number;
     /** The order-level promotion stored on the order (Coupon id). */
     couponId?: string | null;
     /** Order-level promotion discount the server stored. */
