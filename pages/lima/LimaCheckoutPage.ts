@@ -166,6 +166,38 @@ export const createLimaCheckoutPage = (page: Page) => {
     await button.click();
   };
 
+  /**
+   * Submit and land on the confirmation, re-pressing Order Now ONLY when the
+   * previous press never reached Stripe. placeOrder's focus step does not
+   * always win the race with the Link panel's expansion (observed on QA
+   * 2026-10-20: one press, no Stripe call, 60 s on /checkout). A press that
+   * was lost sent nothing, so pressing again cannot double-charge; once any
+   * Stripe payment call has gone out we only wait.
+   */
+  const placeOrderAndConfirm = async (): Promise<void> => {
+    let submitted = false;
+    const onRequest = (r: { url: () => string; method: () => string }) => {
+      if (
+        r.method() === "POST" &&
+        /api\.stripe\.com\/v1\/(payment_methods|payment_intents|confirmation_tokens)/.test(
+          r.url()
+        )
+      )
+        submitted = true;
+    };
+    page.on("request", onRequest);
+    try {
+      await expect(async () => {
+        if (!submitted) await placeOrder();
+        await expect(page).toHaveURL(/\/order-confirmation\//, {
+          timeout: 15_000,
+        });
+      }).toPass({ timeout: 90_000 });
+    } finally {
+      page.off("request", onRequest);
+    }
+  };
+
   /** Total as rendered, for asserting a discount actually moved it. */
   const readTotal = async (): Promise<number | null> => {
     // OrderSummary's "Total" heading + amount. Wait for the server quote to
@@ -258,6 +290,7 @@ export const createLimaCheckoutPage = (page: Page) => {
     giftCardAppliedBanner,
     placeOrderButton,
     placeOrder,
+    placeOrderAndConfirm,
     readTotal,
     promotionLine,
     codeRow,

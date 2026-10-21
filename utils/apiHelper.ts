@@ -2328,6 +2328,17 @@ export function getOrderByIdRaw(
         /** Regular unit price the server priced the pick at (since slot matching). */
         menuItemPrice?: number;
         quantity: number;
+        upchargeAmount?: number | null;
+        /** Note the customer typed on this item inside the deal (kitchen reads it). */
+        specialInstructions?: string | null;
+        /** What the customer chose on this item inside the deal (OrderDealItemModifier). */
+        selectedModifiers?: {
+          modifierId: string | null;
+          modifierName: string;
+          modifierPrice: number;
+          quantity: number;
+          parentModifierId?: string | null;
+        }[];
       }[];
     }[];
     orderItems?: { menuItemId: string; quantity: number }[];
