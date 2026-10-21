@@ -14,9 +14,10 @@
  * free "Ranch Dip") and fries, one AUTO deal (cap-safe, deleted in finally).
  * Places ONE real Stripe test-card order (as TC-371 does).
  *
- * Wind's item sheet has NO special-instructions box (ItemModal renders none,
- * on the menu or in the deal builder), so the instruction half is lima-only
- * (TC-907) — noted on the test as an annotation.
+ * The note typed in the item sheet's "Special Instructions" box (template-wind
+ * #143, in ItemModal for the menu AND the deal builder) must ride along too.
+ * The fill is unconditional: until #143 deploys to QA the box is absent and
+ * the test fails there, on purpose.
  */
 
 import * as allure from "allure-js-commons";
@@ -65,6 +66,7 @@ test.describe("Deals → the choices inside a deal reach the order (wind)", () =
   );
 
   const runId = generateRunId();
+  const instruction = `extra crispy please ${runId}`;
   let restaurantId = "";
   let token = "";
   let adminToken = "";
@@ -114,7 +116,7 @@ test.describe("Deals → the choices inside a deal reach the order (wind)", () =
   });
 
   test(
-    "TC-906: the choices made on an item inside a deal (a paid size, a nested free sauce under it, a free dip) are sent in the /quote and stored on the paid order — the deal upcharge is unchanged",
+    "TC-906: the choices made on an item inside a deal (a paid size, a nested free sauce under it, a free dip) and the note on it are sent in the /quote and stored on the paid order — the deal upcharge is unchanged",
     { tag: ["@deal-item-choices"] },
     async ({ page }) => {
       // createDealApiCapSafe may wait for a free deal slot (CAP_WAIT_MS).
@@ -122,18 +124,19 @@ test.describe("Deals → the choices inside a deal reach the order (wind)", () =
       await allure.description(
         "Wings + fries @ $14. In the deal builder the wings are customised: Size '20 PC' (+$4.99, " +
           "ADJUSTS_PRICE), then 'Buffalo' in the nested Wing Sauce group that 20 PC opens, then the free " +
-          "'Ranch Dip'. The checkout's /quote body must carry orderDeals[0].items[<wings>].selectedModifiers " +
-          "with all three modifierIds and Buffalo's parentModifierId = 20 PC; the server prices the deal at " +
+          "'Ranch Dip', and a note in the item sheet's Special Instructions box (template-wind #143). The " +
+          "checkout's /quote body must carry orderDeals[0].items[<wings>].selectedModifiers with all three " +
+          "modifierIds, Buffalo's parentModifierId = 20 PC, and specialInstructions = the note; the server prices the deal at " +
           "upcharge 4.99 / lineTotal 18.99 (pricing unchanged). Paid with the Stripe test card, the owner " +
           "read (GET /api/order/:id) must show orderDealItems[<wings>].selectedModifiers naming all three, " +
-          "Buffalo with its parentModifierId. Wind's item sheet has no special-instructions box, so the " +
-          "instruction half is covered on lima only (TC-907). Fails on QA until the template-wind + backend " +
-          "deal-item-modifiers fixes deploy."
+          "Buffalo with its parentModifierId, and specialInstructions = the note. Fails on QA until " +
+          "template-wind #143 (the note box — until then the box is not found), the template-wind " +
+          "deal-item-modifiers fix and the backend deal-item fixes deploy."
       );
       test.info().annotations.push({
         type: "note",
         description:
-          "template-wind's item sheet (ItemModal) has no special-instructions box, in the deal builder or on the menu — the instruction assertion is lima-only (TC-907).",
+          "The Special Instructions box in wind's item sheet ships with template-wind #143; until it is on QA this test fails at the box (not found).",
       });
       const deals = createCustomerDealPage(page);
       const modal = createCustomerItemModal(page);
@@ -151,7 +154,7 @@ test.describe("Deals → the choices inside a deal reach the order (wind)", () =
       );
       try {
         await allure.step(
-          "Customise the wings inside the deal: 20 PC → Buffalo → Ranch Dip",
+          "Customise the wings inside the deal: 20 PC → Buffalo → Ranch Dip + a note",
           async () => {
             await deals.gotoBuilder(restaurantId, deal.id);
             await expect(deals.builderHeading(deal.name)).toBeVisible({
@@ -168,10 +171,12 @@ test.describe("Deals → the choices inside a deal reach the order (wind)", () =
               choices.dip.name,
             ])
               await modal.assertOptionChecked(name);
-            // No note box on wind's item sheet (see the file header).
+            // Unconditional: fails here until template-wind #143 is on QA.
             await expect(
-              page.getByRole("textbox", { name: /instruction/i })
-            ).toHaveCount(0);
+              modal.specialInstructions(),
+              "the item sheet's Special Instructions box (template-wind #143)"
+            ).toBeVisible({ timeout: 10_000 });
+            await modal.specialInstructions().fill(instruction);
             await deals.clickAddToDeal();
             await expect(
               deals
@@ -227,7 +232,7 @@ test.describe("Deals → the choices inside a deal reach the order (wind)", () =
               .find((d) => d.dealId === deal.id)!
               .items.find((i) => i.menuItemId === choices.item.id);
             expect(sent, JSON.stringify(req.orderDeals)).toBeTruthy();
-            expectSentChoices(sent, choices);
+            expectSentChoices(sent, choices, instruction);
           }
         );
 
@@ -253,9 +258,15 @@ test.describe("Deals → the choices inside a deal reach the order (wind)", () =
         await allure.parameter("orderId", orderId);
 
         await allure.step(
-          "The paid order stores the choices on the deal item (owner read)",
+          "The paid order stores the choices and the note on the deal item (owner read)",
           async () => {
-            await expectStoredChoices(token, orderId, deal.id, choices);
+            await expectStoredChoices(
+              token,
+              orderId,
+              deal.id,
+              choices,
+              instruction
+            );
           }
         );
       } finally {

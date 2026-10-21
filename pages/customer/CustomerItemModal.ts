@@ -33,6 +33,12 @@ export const createCustomerItemModal = (page: Page) => {
 
   const selectOption = (name: string) => option(name).check();
 
+  // The per-item note box (template-wind #143): a <textarea
+  // id="item-special-instructions"> labelled "Special Instructions", below the
+  // modifier groups, on the menu AND in the deal builder.
+  const specialInstructions = () =>
+    page.getByRole("textbox", { name: "Special Instructions", exact: true });
+
   const assertOptionChecked = (name: string) =>
     expect(option(name)).toBeChecked({ timeout: 10_000 });
 
@@ -83,6 +89,7 @@ export const createCustomerItemModal = (page: Page) => {
     addToCartButton,
     option,
     selectOption,
+    specialInstructions,
     assertOptionChecked,
     assertOptionUnchecked,
     assertOptionDisabled,
