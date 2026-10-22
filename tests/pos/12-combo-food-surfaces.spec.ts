@@ -28,6 +28,9 @@
  * TC-910 KDS make line: components at THEIR station (grill vs bar).
  * TC-911 Uber courier manifest — fixme (manifest is not persisted; no sandbox
  *        dispatch path in the suite). See the test for the exact reason.
+ * TC-913 (runs LAST: it adds an order) a REGISTER cash sale that is ONLY the
+ *        combo (`orderItems: []`, restaunax #1018) is accepted and stored;
+ *        no items and no deals still 400s.
  * TC-912 top sellers count combo units; item revenue stays à-la-carte and
  *        net sales equal the orders' own subtotals (deal money counted once).
  *
@@ -55,6 +58,11 @@ import {
   setRestaurantPublishedApi,
   stripeTestOnboardingRaw,
   stripeConfigRaw,
+  setOwnerPosPin,
+  tabletStaffSignIn,
+  openRegisterSessionPos,
+  closeRegisterSessionPosRaw,
+  createTabletOrderRaw,
   type ApiDeal,
   type ApiMenuItem,
   type TabletDevice,
@@ -660,6 +668,119 @@ test.describe("Combo food on every surface (@combo-food)", () => {
       expect(b.subtotal).toBe(round2(COMBO + FRIES * FRIES_QTY_B));
       expect(res.data.totalOrders).toBe(2);
       expect(res.data.totalRevenue).toBe(round2(a.subtotal + b.subtotal));
+    }
+  );
+  test(
+    "TC-913: a register cash sale of ONLY the combo (orderItems: [], one orderDeal) is accepted and stored with the deal, its items and the burger's picks, foodItemCount 3 — and no items AND no deals still 400s",
+    { tag: ["@combo-food"] },
+    async () => {
+      // restaunax #1018: create-order used to refuse orderItems: [] outright.
+      // A REGISTER device (ADMIN-created) + the owner's POS PIN + an open
+      // drawer, as in pos/11-promotions — cash needs a register session.
+      const register = await createTabletDevice(
+        adminToken,
+        restaurantId,
+        `Automation Combo Register ${runId}`
+      );
+      const tablet = await tabletLogin(register.name, register.code);
+      const pin = "7351";
+      const staffMemberId = await setOwnerPosPin(token, restaurantId, pin);
+      const session = await tabletStaffSignIn(tablet, staffMemberId, pin);
+      await openRegisterSessionPos(tablet, session);
+      try {
+        // Shaped like the real POS request (device-in-store create-order).
+        const body = (orderDeals: unknown[]) => ({
+          restaurantId,
+          orderSource: "IN_STORE",
+          orderType: "PICKUP",
+          paymentMethod: "CASH",
+          subtotal: COMBO,
+          tax: 0,
+          tip: 0,
+          processingFee: 0,
+          total: COMBO,
+          customerPhone: "",
+          orderItems: [],
+          orderDeals,
+        });
+        const comboOnly = {
+          dealId: deal.id,
+          dealName: deal.name,
+          dealPrice: COMBO,
+          quantity: 1,
+          items: [
+            {
+              dealItemId: slotId(deal, 0),
+              menuItemId: burger.id,
+              menuItemName: burger.name,
+              menuItemPrice: BURGER,
+              quantity: 1,
+              selectedModifiers: [
+                {
+                  modifierId: double.id,
+                  modifierName: double.name,
+                  modifierPrice: 0,
+                  quantity: 1,
+                },
+              ],
+            },
+            {
+              dealItemId: slotId(deal, 1),
+              menuItemId: fries.id,
+              menuItemName: fries.name,
+              menuItemPrice: FRIES,
+              quantity: 1,
+              selectedModifiers: [],
+            },
+            {
+              dealItemId: slotId(deal, 2),
+              menuItemId: soda.id,
+              menuItemName: soda.name,
+              menuItemPrice: SODA,
+              quantity: 1,
+              selectedModifiers: [],
+            },
+          ],
+        };
+
+        const created = await createTabletOrderRaw(
+          tablet,
+          session,
+          body([comboOnly])
+        );
+        expect(created.status, JSON.stringify(created.data)).toBe(201);
+        expect(created.data.total).toBe(COMBO);
+        const order = await ownerDetail(created.data.id!);
+        expect(order.orderItems ?? []).toHaveLength(0);
+        expect(order.orderDeals, JSON.stringify(order.orderDeals)).toHaveLength(
+          1
+        );
+        const stored = order.orderDeals![0]!;
+        expect(stored).toMatchObject({ dealId: deal.id, quantity: 1 });
+        expect(
+          (stored.orderDealItems ?? []).map((i) => i.menuItemId).sort()
+        ).toEqual([burger.id, fries.id, soda.id].sort());
+        const b = stored.orderDealItems!.find(
+          (i) => i.menuItemId === burger.id
+        );
+        expect(
+          (b?.selectedModifiers ?? []).map((m) => m.modifierName),
+          JSON.stringify(b)
+        ).toEqual([double.name]);
+        expect(order.foodItemCount).toBe(3);
+
+        const empty = await createTabletOrderRaw(tablet, session, body([]));
+        expect(empty.status, JSON.stringify(empty.data)).toBe(400);
+        expect(
+          (empty.data as { message?: string }).message,
+          JSON.stringify(empty.data)
+        ).toBe("Order must have at least one item");
+      } finally {
+        await closeRegisterSessionPosRaw(tablet, session, {
+          countedCash: 1_000_000,
+        }).catch(() => {});
+        await deactivateTabletDevice(token, restaurantId, register.id);
+      }
     }
   );
 });
