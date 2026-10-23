@@ -24,6 +24,7 @@ import {
   EMPLOYEE_AUTH_FILE,
   FRONTEND_URL,
 } from "../utils/testData";
+import { armStaleBundleRecovery } from "../utils/staleBundleRecovery";
 
 // Roles that share the dashboard restaurant-management screens. Used by the
 // access-control matrix to verify who-can-reach-what without re-running the
@@ -85,6 +86,28 @@ async function loadAuthContext(
 }
 
 export const test = base.extend<Fixtures>({
+  // Every browser context this suite opens reloads a page whose bundle failed
+  // to load mid-deploy (utils/staleBundleRecovery.ts). Wrapping the worker's
+  // browser covers the built-in `page`/`context`, the role contexts below and
+  // helpers like loginViaUi that call browser.newContext() themselves.
+  browser: [
+    async ({ browser }, use) => {
+      const newContext = browser.newContext.bind(browser);
+      browser.newContext = async (...args) => {
+        const context = await newContext(...args);
+        armStaleBundleRecovery(context);
+        return context;
+      };
+      await use(browser);
+    },
+    { scope: "worker" },
+  ],
+
+  context: async ({ context }, use) => {
+    armStaleBundleRecovery(context);
+    await use(context);
+  },
+
   demoBookingPage: async ({ page }, use) => {
     await use(createDemoBookingPage(page));
   },
