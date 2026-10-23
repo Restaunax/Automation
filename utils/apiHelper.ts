@@ -1387,7 +1387,15 @@ export async function ensureAutomationChain(
 export async function createSecondOwner(
   adminToken: string,
   runId: string,
-  { alwaysFresh = false }: { alwaysFresh?: boolean } = {}
+  {
+    alwaysFresh = false,
+    restaurant = {},
+  }: {
+    alwaysFresh?: boolean;
+    /** Extra POST /restaurant/new fields (e.g. businessType, shippingEnabled).
+     * Implies a fresh owner: OWNER2's persistent restaurant can't take them. */
+    restaurant?: Record<string, unknown>;
+  } = {}
 ): Promise<{
   accessToken: string;
   userId: string;
@@ -1398,7 +1406,8 @@ export async function createSecondOwner(
 }> {
   const envEmail = process.env.OWNER2_EMAIL;
   const envPassword = process.env.OWNER2_PASSWORD;
-  if (!alwaysFresh && envEmail && envPassword) {
+  const fresh = alwaysFresh || Object.keys(restaurant).length > 0;
+  if (!fresh && envEmail && envPassword) {
     const login = await apiLogin(envEmail, envPassword);
     const owned = await getOwnerRestaurants(login.accessToken);
     return {
@@ -1429,6 +1438,7 @@ export async function createSecondOwner(
     restaurantPhone: "3055550177",
     description: "Throwaway second-owner restaurant (IDOR contract tests)",
     minimumOrderPreparationTime: 0,
+    ...restaurant,
   });
   const restaurantId =
     (res.data as { restaurant?: { id?: string } })?.restaurant?.id ?? null;
