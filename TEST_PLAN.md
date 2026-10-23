@@ -206,11 +206,13 @@ Automation/
 │   │   ├── 06-menu-handoff.spec.ts           # ✅ real — owner menu action → storefront (TC-320..322)
 │   │   ├── 08-deals-handoff.spec.ts          # ✅ real — owner deal → storefront: Today's Deals ↔ Promotions Pause/Turn on, multi-slot builder + checkout + page /quote, upcharge, 86'd slot, PAID Stripe order → orderDeals/timesUsed + Promotions row + Results, identical fixed items as one "2 × <item>" step with per-unit Customize rows (TC-367..371, TC-535..538, TC-892)
 │   │   ├── 10-promotions.spec.ts             # ✅ real — storefront promotions: sale on the menu, BOGO options, order code + Pay = /quote, bundle code + ?promo=, free item, CODE-only combo, Keep shopping, upgrade build-up, PAID code order, incomplete deal never reaches the cart (TC-836..844, TC-891)
-│   │   └── 11-deal-item-choices.spec.ts      # ✅ real — the choices made inside a deal (size, nested sauce, dip) reach /quote and the paid order (TC-906, @deal-item-choices; fails on QA until the fix deploys)
+│   │   ├── 11-deal-item-choices.spec.ts      # ✅ real — the choices made inside a deal (size, nested sauce, dip) reach /quote and the paid order (TC-906, @deal-item-choices; fails on QA until the fix deploys)
+│   │   └── 12-3ds-bank-check.spec.ts         # ✅ real — 3D Secure card (4000 0027 6000 3184): Complete / Fail in the page AND as a real full-page redirect to /checkout/return — confirmed + paid once + cart empty, or the error + nothing charged (TC-914..917, @3ds)
 │   └── customer-lima/                        # PROJECT: customer-lima (embedded template-lima storefront)
 │       ├── 13-deals.spec.ts                  # ✅ real — Lima deals render/build/checkout payload + later-today, "2 × <item>" step with per-unit Customize rows (TC-L60..L63, TC-893)
 │       ├── 14-promotions.spec.ts             # ✅ real — Lima storefront promotions: sale on the menu, BOGO options, cart code → checkout line + Total = /quote, bundle code + ?promo=, Keep shopping, upgrade build-up, PAID code order, incomplete deal never reaches the cart (TC-L64..L70, TC-890)
-│       └── 15-deal-item-choices.spec.ts      # ✅ real — the choices + item note made inside a deal reach /quote and the paid order (TC-907, @deal-item-choices; fails on QA until the fix deploys)
+│       ├── 15-deal-item-choices.spec.ts      # ✅ real — the choices + item note made inside a deal reach /quote and the paid order (TC-907, @deal-item-choices; fails on QA until the fix deploys)
+│       └── 16-3ds-bank-check.spec.ts         # ✅ real — the same four 3D Secure outcomes on lima, the redirect returning to /<slug>/checkout/return (TC-L73..L76, @3ds)
 ├── pages/                                    # Page Object Models (factory functions)
 │   ├── dashboard/
 │   │   ├── auth/{SignInPage,SignUpPage}.ts   # ✅ real

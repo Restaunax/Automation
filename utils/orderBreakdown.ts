@@ -142,12 +142,39 @@ export async function readWindCheckoutLines(page: Page): Promise<Line[]> {
   return lines;
 }
 
-/** Wind (and lima) order-confirmation page: `order-breakdown-{section}-{KIND}`. */
+/** Wind order-confirmation page: `order-breakdown-{section}-{KIND}`. */
 export async function readWindConfirmationLines(page: Page): Promise<Line[]> {
   return readTestIdRows(page.locator("body"), "order-breakdown-", [
     "totals",
     "refunds",
   ]);
+}
+
+/**
+ * Lima order-confirmation page. Same `order-breakdown-{section}-{KIND}` ids as
+ * wind, but each money row is two MUI Typography `<p>`s (label, amount) — no
+ * spans, so the wind reader finds nothing. An info row (icon + one `<p>`) is
+ * not a money line and is skipped.
+ */
+export async function readLimaConfirmationLines(page: Page): Promise<Line[]> {
+  const lines: Line[] = [];
+  for (const section of ["totals", "refunds"]) {
+    const prefix = `order-breakdown-${section}-`;
+    const rows = page.locator(`[data-testid^="${prefix}"]`);
+    const n = await rows.count();
+    for (let i = 0; i < n; i++) {
+      const row = rows.nth(i);
+      const cells = row.locator("xpath=./p");
+      if ((await cells.count()) !== 2) continue;
+      const testId = (await row.getAttribute("data-testid")) ?? "";
+      lines.push({
+        kind: testId.slice(prefix.length),
+        label: (await cells.nth(0).innerText()).trim(),
+        amount: normaliseMoney(await cells.nth(1).innerText()),
+      });
+    }
+  }
+  return lines;
 }
 
 /**
