@@ -115,6 +115,13 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"], baseURL: LIMA_URL },
     },
     {
+      // Table QR cards — owner API creates a card, the guest opens its link on
+      // the embedded-ordering host (template-lima) and orders in dine-in mode.
+      name: "table-qr",
+      testDir: "./tests/table-qr",
+      use: { ...devices["Desktop Chrome"], baseURL: LIMA_URL },
+    },
+    {
       // Device In Store / POS — API-level order lifecycle (no browser UI; the
       // POS itself is React Native, tested through the backend). baseURL is the
       // dashboard host only so a stray page.goto resolves somewhere sane.
