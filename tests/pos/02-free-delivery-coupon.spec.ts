@@ -112,8 +112,10 @@ test.describe("POS — Free-delivery coupon (validate contract)", () => {
     });
     expect(res.ok).toBe(false);
     expect(res.status).toBe(400);
+    // Backend #1020/#1021 (2026-10): "Add $X more to use this promotion
+    // (minimum $Y)." replaced "Order must be at least $Y".
     expect(String(res.data.message ?? res.data.error ?? "")).toMatch(
-      /must be at least/i
+      /^Add \$\d+\.\d{2} more to use this promotion \(minimum \$\d+\.\d{2}\)\.$/
     );
   });
 });

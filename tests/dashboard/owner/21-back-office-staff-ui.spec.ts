@@ -5,7 +5,8 @@
  * Browser. A per-run throwaway owner logs in through the UI (loginViaUi) and
  * opens Restaurant Management → Staff (?tab=staff). Add-ons are switched by
  * admin override between steps and the page reloaded:
- *   none       → People, Shifts, Breaks, Roles, Discount & void rules;
+ *   none       → People, Jobs (names only), Shifts, Breaks, Roles,
+ *                Discount & void rules;
  *   SCHEDULING → + Schedule, Requests, Timecards, Labor, Jobs & wages,
  *                Payroll settings (Timecards replaces Shifts); no tips;
  *   + PAYROLL  → + Tips, Tip policy; Payroll settings offers the three ways
@@ -33,8 +34,17 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 const DOMAIN = process.env.TEST_EMAIL_DOMAIN ?? "demomailtrap.co";
 
-// Free (no add-on): basic breaks have their own tab (packaging v2).
-const CORE = ["People", "Shifts", "Breaks", "Roles", "Discount & void rules"];
+// Free (no add-on): basic breaks have their own tab (packaging v2), and job
+// names are free for every restaurant — a names-only "Jobs" tab without
+// TIMECARDS (RestauNax #1002 roles-vs-jobs, 2026-10-19).
+const CORE = [
+  "People",
+  "Jobs",
+  "Shifts",
+  "Breaks",
+  "Roles",
+  "Discount & void rules",
+];
 
 test.describe.configure({ mode: "serial" });
 

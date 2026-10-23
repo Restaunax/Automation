@@ -257,7 +257,19 @@ export const createCustomerDealPage = (page: Page) => {
       .getByTestId("deal-step-status")
       .filter({ hasText: /^✓ Done$/ });
     await expect(doneButton().or(stepDone)).toBeVisible({ timeout: 15_000 });
-    const opened = await doneButton().isVisible();
+    let opened = await doneButton().isVisible();
+    // A pick on an item with ANY options opens the item modal, and the step
+    // can already read "✓ Done" while the modal animates in. With `customize`
+    // the item has options, so give the modal its moment before falling back
+    // to the step's Customize button (which the open modal's overlay blocks).
+    if (!opened && customize) {
+      opened = await doneButton()
+        .waitFor({ state: "visible", timeout: 5_000 })
+        .then(
+          () => true,
+          () => false
+        );
+    }
     if (customize) {
       if (!opened) await customizeButton(step).click();
       await expect(doneButton()).toBeVisible({ timeout: 15_000 });

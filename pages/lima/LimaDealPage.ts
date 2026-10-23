@@ -215,14 +215,29 @@ export const createLimaDealPage = (page: Page) => {
       timeout: 15_000,
     });
     await card.click();
-    await expect(card).toHaveAttribute("aria-checked", "true");
     // Settles one way: the modal opens (the item needs options), or the step
-    // reads "✓ Done" (it does not).
+    // reads "✓ Done" (it does not). The card's aria-checked is asserted at the
+    // END: while the options modal is open MUI hides the page behind it from
+    // the accessibility tree, so the radio cannot be found by role until the
+    // modal closes (a check here raced the modal and failed when it won).
     const stepDone = step
       .getByTestId("deal-step-status")
       .filter({ hasText: /^✓ Done$/ });
     await expect(doneButton().or(stepDone)).toBeVisible({ timeout: 15_000 });
-    const opened = await doneButton().isVisible();
+    let opened = await doneButton().isVisible();
+    // A pointer pick on an item with ANY options (optional add-ons included)
+    // opens the item modal (lima guided deal page, 2026-10-17), and the step
+    // already reads "✓ Done" as the modal animates in. With `customize` the
+    // item has options, so give the modal its moment before falling back to
+    // the step's Customize button (which the open modal would block).
+    if (!opened && customize) {
+      opened = await doneButton()
+        .waitFor({ state: "visible", timeout: 5_000 })
+        .then(
+          () => true,
+          () => false
+        );
+    }
     if (customize) {
       if (!opened) await customizeButton(step).click();
       await expect(doneButton()).toBeVisible({ timeout: 15_000 });
@@ -232,6 +247,7 @@ export const createLimaDealPage = (page: Page) => {
       modalExpected = true;
       await clickAddToDeal();
     }
+    await expect(card).toHaveAttribute("aria-checked", "true");
   };
 
   /**
