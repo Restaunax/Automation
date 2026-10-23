@@ -2,7 +2,12 @@ import * as allure from "allure-js-commons";
 import { test } from "../../fixtures/base";
 import { createCustomerCheckoutPage } from "../../pages/customer/CustomerCheckoutPage";
 import { createCustomerOrderConfirmationPage } from "../../pages/customer/CustomerOrderConfirmationPage";
-import { readSharedState, readRestaurantId } from "../../utils/testData";
+import {
+  readSharedState,
+  readRestaurantId,
+  generateUserEmail,
+  generateSeedPhone,
+} from "../../utils/testData";
 import { STRIPE_CARDS } from "../../utils/stripeCards";
 
 const TEMPLATE_WIND_URL = process.env.TEMPLATE_WIND_URL ?? "";
@@ -52,11 +57,18 @@ test.describe("Customer — Order Placement", () => {
     });
 
     await allure.step("Fill customer info", async () => {
+      // A per-run email + phone, never a fixed identity: every paid online
+      // order saves its card on the customer's Stripe Customer (card on file,
+      // setup_future_usage), and Stripe refuses the payment once one Customer
+      // holds its maximum of attached payment methods. The fixed
+      // "jane@restaunax-test.com" Customer reached that cap on QA (2026-10-23:
+      // "Customer cus_… already has the maximum number of payment methods
+      // attached"). That backend gap is reported separately.
       await checkoutPage.fillCustomerInfo(
         "Jane",
         "Tester",
-        "jane@restaunax-test.com",
-        "5559876543"
+        generateUserEmail("windpay"),
+        generateSeedPhone()
       );
     });
 
@@ -112,8 +124,8 @@ test.describe("Customer — Order Placement", () => {
       await checkoutPage.fillCustomerInfo(
         "Jane",
         "Tester",
-        "jane@restaunax-test.com",
-        "5559876543"
+        generateUserEmail("windpay"),
+        generateSeedPhone()
       );
     });
 

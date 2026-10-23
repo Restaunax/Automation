@@ -847,12 +847,15 @@ test.describe("Deals → Storefront hand-off", () => {
       await checkout.completeOrder();
       await confirmation.assertConfirmed();
       await confirmation.assertCustomerName("Dealer");
-      // The confirmation lists the deal as a line and the savings as a row.
+      // The confirmation lists the deal as a line and the savings as the
+      // server breakdown's info line (wind order-breakdown rendering replaced
+      // the old "Deal Savings | -$5.50" row).
       await expect(
         page.getByRole("heading", { name: `1x ${combo.name}` })
       ).toBeVisible();
-      await expect(page.getByText("Deal Savings")).toBeVisible();
-      await expect(page.getByText("-$5.50")).toBeVisible();
+      await expect(
+        page.getByText(`You saved $5.50 with ${combo.name}`)
+      ).toBeVisible();
     });
 
     const orderId =

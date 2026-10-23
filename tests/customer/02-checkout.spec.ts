@@ -4,6 +4,8 @@ import { createCustomerCheckoutPage } from "../../pages/customer/CustomerCheckou
 import {
   readSharedState,
   readRestaurantId,
+  generateUserEmail,
+  generateSeedPhone,
   generateCouponCode,
   generateRunId,
   recordGiftCardForCleanup,
@@ -98,11 +100,10 @@ test.describe("Customer — Checkout", () => {
       await checkoutPage.fillCustomerInfo(
         "Jane",
         "Tester",
-        "jane@restaunax-test.com",
-        "5559876543"
+        generateUserEmail("windpay"),
+        generateSeedPhone()
       );
       await allure.parameter("Name", "Jane Tester");
-      await allure.parameter("Email", "jane@restaunax-test.com");
     });
 
     await allure.step("Select Pickup service type", async () => {
@@ -210,8 +211,8 @@ test.describe("Customer — Checkout coupon revalidation", () => {
   }) => {
     await allure.description(
       "A minOrderAmount coupon applies while two cart lines clear the minimum; removing one line " +
-        "re-quotes the cart, the server drops the discount with an ERROR issue on the code ('Your " +
-        "order doesn't meet the minimum for that coupon.'), and Pay is blocked until the code is removed."
+        "re-quotes the cart, the server drops the discount with an ERROR issue on the code ('Add $X more to use this promotion " +
+        "(minimum $Y).'), and Pay is blocked until the code is removed."
     );
 
     const restaurantId = readRestaurantId();
@@ -272,8 +273,13 @@ test.describe("Customer — Checkout coupon revalidation", () => {
           timeout: 15_000,
         });
         await expect(page.getByText("10% off your order")).toHaveCount(0);
+        // Backend #1020/#1021 (2026-10) reworded the issue to name the
+        // shortfall: "Add $X more to use this promotion (minimum $Y)."
+        const shortfall = (minOrder - menuItemPrice).toFixed(2);
         await expect(
-          page.getByText(/doesn't meet the minimum for that coupon/i)
+          page.getByText(
+            `Add $${shortfall} more to use this promotion (minimum $${minOrder.toFixed(2)}).`
+          )
         ).toBeVisible({ timeout: 15_000 });
         await expect(
           page.getByRole("button", { name: "Remove the code to continue" })
@@ -369,8 +375,8 @@ test.describe("Customer — Checkout Stripe minimum", () => {
       await checkoutPage.fillCustomerInfo(
         "Jane",
         "Tester",
-        "jane@restaunax-test.com",
-        "5559876543"
+        generateUserEmail("windpay"),
+        generateSeedPhone()
       );
       await checkoutPage.selectPickup();
     });
@@ -792,8 +798,8 @@ test.describe("Customer — Checkout gift card", () => {
     await checkoutPage.fillCustomerInfo(
       "Jane",
       "Tester",
-      "jane@restaunax-test.com",
-      "5559876543"
+      generateUserEmail("windpay"),
+      generateSeedPhone()
     );
     await checkoutPage.selectPickup();
     await checkoutPage.applyGiftCard(giftCard.code);

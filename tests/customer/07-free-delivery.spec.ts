@@ -227,7 +227,12 @@ test.describe("Customer — Free-delivery coupon", () => {
 
     await allure.step(`Apply ${minOrderCouponCode} → rejected`, async () => {
       await checkoutPage.applyCoupon(minOrderCouponCode);
-      await checkoutPage.assertCouponRejected(/must be at least/i);
+      // Backend #1020/#1021 (2026-10): a code short of its minimum answers
+      // "Add $X more to use this promotion (minimum $Y)." (api:…minOrderShortBy)
+      // instead of "Order must be at least $Y".
+      await checkoutPage.assertCouponRejected(
+        /Add \$\d+\.\d{2} more to use this promotion \(minimum \$\d+\.\d{2}\)/
+      );
     });
   });
 
