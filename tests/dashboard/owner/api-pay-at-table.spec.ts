@@ -1011,6 +1011,10 @@ test.describe("Pay at the table — the guest's phone, on QA (API)", () => {
   });
 
   test("TC-688: the receipt email — once per payment, English and Spanish @email", async () => {
+    test.skip(
+      !process.env.MAILPIT_BASE_URL,
+      "MAILPIT_BASE_URL not set (Mailpit sandbox)"
+    );
     const enTo = generateUserEmail("pat-en");
     const en = await checkPayRaw("POST", tokens.C0, "/receipt", {
       legId: c0Leg(0),
