@@ -282,12 +282,9 @@ test.describe("Order money breakdown — one order, every surface", () => {
     created.createdCoupons!.push(coupon.id);
 
     phone = generateSeedPhone();
-    // KNOWN BUG (TC-901): the customer confirmation email goes to the linked
-    // Customer's email (the reward member's), not to the address typed at
-    // checkout (restaunax-backend emailService.sendOrderConfirmationEmail:
-    // `to: opts.to ?? order.customer.email`; the owner copy already prefers
-    // `order.email`). Until it is fixed the member is seeded with the same
-    // address we type, so this test reads the email wherever it lands.
+    // The member is seeded with the address TC-898 types, so its email step
+    // reads one inbox. TC-901 covers the case where the two differ (a member
+    // with no saved email): the receipt follows the typed address.
     customerEmail = generateUserEmail("breakdown");
     await seedRewardMember(
       adminToken,
@@ -547,24 +544,24 @@ test.describe("Order money breakdown — one order, every surface", () => {
     );
   });
 
-  // KNOWN BUG: a member whose account has no email (or a different one) never
-  // gets the receipt at the address typed at checkout — the customer copy is
-  // sent to `order.customer.email` (restaunax-backend emailService
-  // sendOrderConfirmationEmail). fixme: never runs until the backend fix
-  // lands; then drop `.fixme` and it must pass.
-  test.fixme("TC-901: BUG: a member with no account email gets the confirmation at the address typed at checkout @email", async ({
+  // RestauNax #1011: every customer email about an order goes to the email
+  // typed at checkout (Order.email) first, and falls back to the member's
+  // saved email only when none was typed. Before it, a member whose saved
+  // email was blank got no receipt at all.
+  test("TC-901: a member with no saved email gets the confirmation at the address typed at checkout @email", async ({
     page,
-  }) => {
+  }, testInfo) => {
     test.skip(
       !MAILPIT_BASE_URL,
       "MAILPIT_BASE_URL not set — email step skipped"
     );
     const checkout = createCustomerCheckoutPage(page);
     const rewards = createCustomerRewardSection(page);
-    const confirmation = createCustomerOrderConfirmationPage(page);
     const adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD))
       .accessToken;
     const blankPhone = generateSeedPhone();
+    // Saved email deliberately blank: the only address anywhere is the one
+    // typed at checkout.
     await seedRewardMember(
       adminToken,
       restaurantId,
@@ -584,19 +581,39 @@ test.describe("Order money breakdown — one order, every surface", () => {
       typedEmail,
       blankPhone
     );
-    await rewards.signIn(blankPhone);
+    await allure.step("sign in as the member with no saved email", async () => {
+      await rewards.signIn(blankPhone);
+    });
     await checkout.selectPickup();
     await checkout.clickProceedToPayment();
     await checkout.assertPaymentSectionVisible();
-    await checkout.fillStripeCard(STRIPE_CARDS.VISA_SUCCESS);
-    await checkout.completeOrder();
-    await confirmation.assertConfirmed();
+    await payWithTestCard(page, testInfo);
 
-    const mail = await waitForEmail(typedEmail, {
-      subjectPattern: /Your Order Confirmation/,
-      timeoutMs: 60_000,
+    const placedId =
+      page.url().match(/order-confirmation\/([0-9a-f-]{36})/)?.[1] ?? "";
+    expect(placedId, `order id from ${page.url()}`).toBeTruthy();
+    await allure.parameter("orderId", placedId);
+
+    const res = await getOrderByIdRaw(await ownerToken(), placedId);
+    expect(res.status, JSON.stringify(res.data)).toBe(200);
+    const placed = res.data as typeof res.data & {
+      email?: string | null;
+      customer?: { email?: string | null } | null;
+    };
+    await allure.step("the order is the member's and stores the typed email", async () => {
+      expect(placed.email).toBe(typedEmail);
+      expect(placed.customer?.email ?? "", "member's saved email").not.toBe(
+        typedEmail
+      );
     });
-    expect(mail.subject).toMatch(/Receipt #/);
+
+    await allure.step("the receipt arrives at the typed address", async () => {
+      const mail = await waitForEmail(typedEmail, {
+        subjectPattern: /Your Order Confirmation/,
+        timeoutMs: 60_000,
+      });
+      expect(mail.subject).toContain(`Receipt #${placed.receiptNumber}`);
+    });
   });
 });
 

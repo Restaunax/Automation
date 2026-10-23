@@ -24,9 +24,9 @@ export async function seedRewardMember(
   phone: string,
   points: number,
   /**
-   * The member's account email. A paid order's confirmation email goes to the
-   * linked Customer's email, not to the address typed at checkout, so a test
-   * that reads that email must seed the member with it.
+   * The member's saved email. A paid order's confirmation email goes to the
+   * address typed at checkout first and falls back to this one only when none
+   * was typed (RestauNax #1011; TC-901 pins it). Blank = no saved email.
    */
   email = "",
   /**

@@ -177,7 +177,7 @@ Automation/
 │   │   │   ├── 25-promotion-scenarios.spec.ts # ✅ real @scenario — eight real-world promotions end to end: dashboard UI build → exact read-back → edit → lima AND wind picks → quote-checked checkout (TC-863..870)
 │   │   │   ├── api-promotion-preview.spec.ts # ✅ real — "Try it as a customer" API (TC-872..881, TC-888, TC-889); skips while QA answers 503 PROMOTION_PREVIEW_UNAVAILABLE
 │   │   │   ├── 26-promotion-preview.spec.ts  # ✅ real — Try it as a customer, dashboard → lima (TC-882..887); skips while QA answers 503 PROMOTION_PREVIEW_UNAVAILABLE
-│   │   │   ├── 27-order-breakdown.spec.ts    # ✅ real @email (last step) — one wind order, every surface: checkout, confirmation, backend, dashboard, POS, email read the same money lines (TC-898); combo order: deal row + 'You saved' info line, never summed (TC-899); delivery quote DELIVERY_FEE / FREE_DELIVERY (TC-900, API); TC-901 fixme = known email-recipient bug
+│   │   │   ├── 27-order-breakdown.spec.ts    # ✅ real @email (last step) — one wind order, every surface: checkout, confirmation, backend, dashboard, POS, email read the same money lines (TC-898); combo order: deal row + 'You saved' info line, never summed (TC-899); delivery quote DELIVERY_FEE / FREE_DELIVERY (TC-900, API); TC-901 @email: a member with no saved email gets the receipt at the typed address (fixed in RestauNax #1011)
 │   │   │   ├── 08-payment-settings.spec.ts   # ✅ real (route mocks Stripe status/create for pre-connection + failure states)
 │   │   │   ├── 09-uber-settings.spec.ts      # ✅ real — Uber Eats delivery settings (owner-reachable, unlike publish/tax/loyalty)
 │   │   │   ├── 10-subscription.spec.ts       # ✅ real — Subscription/Billing page (permission-gated, not role-gated)
