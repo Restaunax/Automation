@@ -90,7 +90,6 @@ import type {
 import { createCouponPromotion } from "../../../utils/promotionsApi";
 import {
   expectShownMatchesLatestQuote,
-  isQuoteResponse,
   trackQuotes,
 } from "../../../utils/quoteTracker";
 import { seedRewardMember } from "../../../utils/rewardsApi";
@@ -680,12 +679,9 @@ test.describe("Order money breakdown — combo order", () => {
         await deals.clickAddToDeal();
         await deals.assertDealComplete();
         await deals.addDealToCart();
-        // The checkout prices the cart once it lands: wait for that first
-        // /quote so the tracker has one before anything reads it.
-        await Promise.all([
-          page.waitForResponse(isQuoteResponse, { timeout: 30_000 }),
-          deals.viewCartButton().click(),
-        ]);
+        // No wait for the first /quote here: the tracker waits for the
+        // checkout's quoting to settle before anything reads it.
+        await deals.viewCartButton().click();
         await expect(page).toHaveURL(/\/checkout/, { timeout: 20_000 });
       });
 

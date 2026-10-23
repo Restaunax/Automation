@@ -451,15 +451,35 @@ test.describe("Combo food on every surface (@combo-food)", () => {
       };
 
       await allure.step("Owner orders list (Orders tab grid)", async () => {
-        const res = await apiRequestRaw<{ orders: StoredOrder[] }>(
-          "GET",
-          `/api/order/statistics/management/${restaurantId}?page=1&limit=50`,
-          undefined,
-          token
-        );
-        expect(res.status, JSON.stringify(res.data)).toBe(200);
+        // The list hides INITIALIZED orders, and a paid online order only
+        // leaves INITIALIZED when Stripe's payment_intent.succeeded webhook
+        // lands (confirm-payment deliberately leaves the transition to it).
+        // So the order can be missing on a first read: poll, bounded, until
+        // both orders are listed.
+        let orders: StoredOrder[] = [];
+        await expect
+          .poll(
+            async () => {
+              const res = await apiRequestRaw<{ orders: StoredOrder[] }>(
+                "GET",
+                `/api/order/statistics/management/${restaurantId}?page=1&limit=50`,
+                undefined,
+                token
+              );
+              expect(res.status, JSON.stringify(res.data)).toBe(200);
+              orders = res.data.orders;
+              return Object.keys(expected).filter(
+                (id) => !orders.some((o) => o.id === id)
+              );
+            },
+            {
+              message: "both paid orders appear in the owner list",
+              timeout: 30_000,
+            }
+          )
+          .toEqual([]);
         for (const [id, count] of Object.entries(expected)) {
-          const row = res.data.orders.find((o) => o.id === id);
+          const row = orders.find((o) => o.id === id);
           expect(row, `order ${id} in the owner list`).toBeTruthy();
           expect(row!.foodItemCount, `owner list foodItemCount for ${id}`).toBe(
             count
