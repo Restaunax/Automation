@@ -23,9 +23,12 @@ import {
   createGiftCardBatchRaw,
   exportGiftCardBatchCsvRaw,
   freezeGiftCardBatchRaw,
+  getGiftCardBalance,
+  getOrderByIdRaw,
   type ApiMenuItem,
 } from "../../utils/apiHelper";
 import { csvToObjects } from "../../utils/csvHelper";
+import { apiBreakdownLines } from "../../utils/orderBreakdown";
 import { STRIPE_CARDS } from "../../utils/stripeCards";
 
 const TEMPLATE_WIND_URL = process.env.TEMPLATE_WIND_URL ?? "";
@@ -751,18 +754,68 @@ test.describe("Customer — Checkout gift card", () => {
     });
   });
 
-  // A gift card funded well above the order total should cover the entire
-  // charge and skip Stripe (per checkout/page.tsx's $0-total branch). Live
-  // network trace instead shows: POST /api/order/new/... succeeds (201, the
-  // order IS created), but the frontend then still attempts to create a
-  // Stripe PaymentIntent for the now-$0 remainder anyway, which the backend
-  // correctly rejects (400, "Error creating order" logged client-side) —
-  // stripe requires a minimum charge amount. The customer is left stuck on
-  // the checkout page with no confirmation, even though their order actually
-  // went through server-side. Same class of bug as TC-92 (real, not a test
-  // bug) — filed as fixme rather than asserting the broken behavior as
-  // correct. Tracked in TEST_COVERAGE.md's Known Technical Debt.
-  test.fixme("TC-177: a gift card that fully covers the order completes without a Stripe step", async () => {});
+  test("TC-177: a gift card that fully covers the order completes without a Stripe step", async ({
+    page,
+  }) => {
+    await allure.description(
+      "A gift card funded well above the order total covers the whole charge: the checkout places " +
+        "the order without asking for a card and lands on 'Order Confirmed!', and the card's balance " +
+        "drops by the order total."
+    );
+
+    const restaurantId = readRestaurantId();
+    const { menuItemId, menuItemName, menuItemPrice } = readSharedState();
+    const checkoutPage = createCustomerCheckoutPage(page);
+
+    const giftCard = await allure.step(
+      "Seed a gift card worth far more than the order",
+      async () => {
+        const card = await seedGiftCard(restaurantId, 200);
+        recordGiftCardForCleanup(card.id);
+        return card;
+      }
+    );
+
+    await checkoutPage.seedCart(
+      restaurantId,
+      menuItemId,
+      menuItemName,
+      menuItemPrice
+    );
+    await checkoutPage.fillCustomerInfo(
+      "Jane",
+      "Tester",
+      generateUserEmail("windgc"),
+      generateSeedPhone()
+    );
+    await checkoutPage.selectPickup();
+    await checkoutPage.applyGiftCard(giftCard.code);
+    await checkoutPage.assertGiftCardApplied();
+
+    await checkoutPage.clickProceedToPayment();
+    await expect(
+      page.getByRole("heading", { name: "Order Confirmed!" })
+    ).toBeVisible({ timeout: 30_000 });
+
+    await allure.step(
+      "The card paid the whole order: its balance dropped by the total",
+      async () => {
+        const orderId =
+          page.url().match(/order-confirmation\/([0-9a-f-]{36})/)?.[1] ?? "";
+        expect(orderId, `order id from ${page.url()}`).toBeTruthy();
+        const { accessToken } = await apiLogin(OWNER_EMAIL, OWNER_PASSWORD);
+        const order = await getOrderByIdRaw(accessToken, orderId);
+        expect(order.status, JSON.stringify(order.data)).toBe(200);
+        const lines = apiBreakdownLines(
+          order.data as Parameters<typeof apiBreakdownLines>[0]
+        );
+        const total = lines.find((l) => l.kind === "TOTAL")?.amount ?? NaN;
+        expect(total, JSON.stringify(lines)).toBeGreaterThan(0);
+        const after = await getGiftCardBalance(giftCard.code);
+        expect(after.currentBalance).toBeCloseTo(200 - total, 2);
+      }
+    );
+  });
 
   test("TC-178: a gift card that partially covers the order still requires Stripe payment for the remainder", async ({
     page,

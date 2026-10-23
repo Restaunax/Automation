@@ -2227,7 +2227,7 @@ Delivery had zero coverage — every prior order test used Pickup. A broken addr
 
 ## TC-165–170 — Gift Card Purchase and Balance Check
 
-**Status:** ✅ TC-167–170 passing (needs `TEMPLATE_WIND_URL` + `ADMIN_EMAIL`/`ADMIN_PASSWORD`). TC-165/TC-166 (the two Stripe-payment purchase flows) are `test.fixme` as of 2026-07-11 — intermittently blocked by Stripe Radar's invisible hCaptcha challenge on the Pay click, confirmed via live network trace, not a product or test-code bug. See TEST_COVERAGE.md's Known Technical Debt.
+**Status:** ✅ All passing (needs `TEMPLATE_WIND_URL` + `ADMIN_EMAIL`/`ADMIN_PASSWORD`). TC-165/166/169 were `test.fixme` from 2026-07-11 to 2026-10-23 (Stripe Radar's invisible hCaptcha on the Pay click); re-written on 2026-10-23, they pass repeatedly (18/18 in a `--repeat-each=3` run). Each buys a real test-mode card, checks its public balance, and records it for the teardown freeze.
 
 ### What they check
 
@@ -2248,7 +2248,7 @@ Gift cards are real revenue with real Stripe charges. An amount-validation regre
 
 ## TC-171–178 — Gift Card Redemption at Checkout
 
-**Status:** ✅ Passing, except TC-177 (`test.fixme` — real bug, see below)
+**Status:** ✅ All passing
 
 ### What they check
 
@@ -2258,9 +2258,9 @@ The checkout-side "Gift Card" box (`RewardSection`), seeded via the admin gift-c
 
 Same reasoning as coupons (TC-125) — the discount math and rejection paths are exactly the kind of thing that silently breaks and overcharges or undercharges a customer with no error anywhere.
 
-### A real bug found along the way (TC-177, `test.fixme`)
+### TC-177: a gift card that covers the whole order
 
-TC-177 set out to prove a gift card that fully covers an order's total skips Stripe entirely (per `checkout/page.tsx`'s documented $0-total branch). Live network tracing during authoring showed something different: `POST /api/order/new/...` succeeds (**201** — the order **is** created), but the frontend then still attempts to create a Stripe PaymentIntent for the now-$0 remainder anyway, which the backend correctly rejects (**400** — Stripe requires a minimum chargeable amount). The customer is left stuck on the checkout page with a console error and no confirmation screen, even though their order actually went through server-side. Filed as `test.fixme` with the real behavior documented rather than asserting the broken flow as correct — same pattern as TC-92's coupon-edit bug.
+TC-177 pays a pickup order entirely with a $200 seeded card: "Proceed to payment" goes straight to "Order Confirmed!" with no card step, and the card's balance drops by the order's TOTAL (read from the backend breakdown). It was a `test.fixme` from 2026-07 until 2026-10-23 for a real bug (the order was created, then the page tried a $0 Stripe PaymentIntent and left the customer stuck); that bug is gone on QA.
 
 ---
 
@@ -2905,7 +2905,7 @@ A 2026-07-19 pass added TC-184–188 (customer checkout quick wins: item deep li
 
 **144 passing · 21 skipped · 1 failing (env-only)** — as of 2026-07-10. The one failure (TC-58) fails only in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` set; it passes wherever those credentials exist. (Owner-side expansion on 2026-07-07 added TC-35 + TC-127–129 for the Analytics tab, TC-131–135 deepening the Orders tab, TC-136–138 for the Customers tab, TC-139–140 for the Owner Settings tab, and TC-141–142 for the Daily Report tab — all passing. A 2026-07-10 pass added TC-145–164, expanding Coupons UI coverage far beyond the original 4 tests: all three discount types, the full Manage Coupons list (search/filter/sort/copy), and row actions — duplicate, delete, edit-prefill, and disabled Send-to-Customers. Two of these (TC-147, TC-150) surfaced a real UX finding: the code and menu-item fields rely on native HTML5 `required` validation, so the app's own custom error text for those specific fields never has a chance to render — the browser's native constraint-validation UI intercepts the submit first. A same-day follow-up pass added TC-165–178, giving gift cards their first-ever coverage (purchase + checkout redemption) and expanding the customer-checkout coupon path beyond the original single combined test — this also required setting `TEMPLATE_WIND_URL` for the first time in this environment, which surfaced and fixed several previously-latent regressions in the whole customer suite: the checkout coupon Apply button colliding with the new (unconditionally-rendered) gift-card Apply button, a `seedCart()` race that could leave a prior coupon/gift-card applied across re-seeds within one test, a stale rejection-message regex, `selectPickup()` targeting a since-removed radio input (the control is now a button), and a stale order-number regex on the confirmation page.)
 
-Skipped tests fall into four groups: **route access** (TC-27, TC-28, TC-81 — publish/tax/loyalty are employee/admin-only and return Access Denied for the owner role); **covered elsewhere** (TC-44 — the item card has no delete button; deletion is on the item detail page, TC-302); **missing credentials in this environment** (TC-58, TC-97, plus TC-17/TC-18 in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD`); and **real bugs** (TC-177 — a gift card fully covering an order 201s the order but then fails a doomed $0 Stripe PaymentIntent — filed as `test.fixme` with the exact error rather than asserting broken behavior as correct; TC-92's coupon-edit 500 was fixed under RestauNax #481 and is now a passing test). TC-33 and TC-34 remain narrative-only placeholders with no test code at all — not the same as a skipped/fixme test.
+Skipped tests fall into four groups: **route access** (TC-27, TC-28, TC-81 — publish/tax/loyalty are employee/admin-only and return Access Denied for the owner role); **covered elsewhere** (TC-44 — the item card has no delete button; deletion is on the item detail page, TC-302); **missing credentials in this environment** (TC-58, TC-97, plus TC-17/TC-18 in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD`); and **real bugs**, all fixed since (TC-177's gift-card dead end and TC-92's coupon-edit 500, RestauNax #481, are passing tests now). TC-33 and TC-34 remain narrative-only placeholders with no test code at all — not the same as a skipped/fixme test.
 
 ---
 

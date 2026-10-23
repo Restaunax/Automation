@@ -1,12 +1,28 @@
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../fixtures/base";
-import { createCustomerGiftCardPage } from "../../pages/customer/CustomerGiftCardPage";
-import { readRestaurantId, generateRunId } from "../../utils/testData";
-import { getGiftCardConfig } from "../../utils/apiHelper";
+import type { Page } from "@playwright/test";
+import {
+  createCustomerGiftCardPage,
+  type CustomerGiftCardPage,
+} from "../../pages/customer/CustomerGiftCardPage";
+import {
+  readRestaurantId,
+  generateRunId,
+  generateUserEmail,
+  recordGiftCardForCleanup,
+} from "../../utils/testData";
+import {
+  apiLogin,
+  findGiftCardIdByCode,
+  getGiftCardBalance,
+  getGiftCardConfig,
+} from "../../utils/apiHelper";
+import { waitForEmail } from "../../utils/emailHelper";
 
 const TEMPLATE_WIND_URL = process.env.TEMPLATE_WIND_URL ?? "";
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
+const MAILPIT_BASE_URL = process.env.MAILPIT_BASE_URL ?? "";
 
 test.describe("Customer — Gift Cards", () => {
   test.skip(
@@ -19,27 +35,95 @@ test.describe("Customer — Gift Cards", () => {
     await allure.label("severity", "critical");
   });
 
-  // Intermittently blocked by Stripe Radar's invisible hCaptcha challenge,
-  // not a product or test bug. Live trace evidence (2026-07-11): clicking Pay
-  // fires HCaptchaInvisible network calls (checksiteconfig, getcaptcha) tied
-  // to the Payment Element's Link-enrollment fields; the PaymentIntent then
-  // never confirms (no subsequent .../confirm call) and the flow hangs at
-  // that step, so the 20s wait for "Gift card sent" times out. Reproduced
-  // deterministically across repeated runs; a real Chrome channel (vs.
-  // bundled Chromium headless shell) was tried as a possible fix and did NOT
-  // reliably avoid the challenge (passed twice, failed on a third run with
-  // the identical signature) — this is Stripe-side fraud-detection behavior
-  // against automated/headless sessions, not something fixable in test code.
-  // Filed as fixme rather than asserting a coin-flip as reliably passing.
-  // Tracked in TEST_COVERAGE.md's Known Technical Debt — needs a decision
-  // from whoever owns the Stripe account settings (e.g. disabling Radar/Link
-  // for the QA test-mode key) before this can be un-fixme'd.
-  test.fixme("TC-165: guest purchases a gift card as a Send-as-Gift preset denomination", async () => {});
+  /**
+   * A guest buys a card on wind as a gift and pays with the Stripe test card:
+   * "Gift card sent" with a code, the recipient's email in Mailpit (when the
+   * sandbox is configured), and the code's public balance equals the amount.
+   * The card is recorded for the teardown freeze.
+   */
+  const buyAsGuest = async (
+    page: Page,
+    choose: (gc: CustomerGiftCardPage) => Promise<void>,
+    amount: number
+  ) => {
+    const restaurantId = readRestaurantId();
+    const giftCardPage = createCustomerGiftCardPage(page);
+    const recipient = generateUserEmail("giftcard");
+    await giftCardPage.goto(restaurantId);
+    await choose(giftCardPage);
+    await giftCardPage.fillGiftRecipient(recipient, "Auto Recipient");
+    await giftCardPage.continueButton().click();
+    await giftCardPage.assertPaymentSectionVisible();
+    await expect(giftCardPage.payButton()).toHaveText(
+      `Pay $${amount.toFixed(2)}`
+    );
+    await giftCardPage.fillStripeCard();
+    await giftCardPage.completePurchase();
+    await giftCardPage.assertPurchaseConfirmed();
+    const code = await giftCardPage.readConfirmationCode();
+    await allure.parameter("Gift card code", code);
 
-  // Same Stripe Radar invisible-hCaptcha blocker as TC-165 above — see that
-  // test's comment for the full trace evidence and why this is filed as
-  // fixme rather than fixed in test code.
-  test.fixme("TC-166: guest purchases a gift card with a custom amount", async () => {});
+    const { accessToken } = await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD);
+    recordGiftCardForCleanup(await findGiftCardIdByCode(accessToken, code));
+
+    const balance = await getGiftCardBalance(code.replace(/-/g, ""));
+    expect(balance.status).toBe("ACTIVE");
+    expect(balance.initialBalance).toBe(amount);
+    expect(balance.currentBalance).toBe(amount);
+    return { code, recipient, giftCardPage };
+  };
+
+  test("TC-165: guest purchases a gift card as a Send-as-Gift preset denomination", async ({
+    page,
+  }) => {
+    await allure.description(
+      "A guest picks the first preset amount, sends it as a gift to an email, pays with the Stripe " +
+        "test card and sees 'Gift card sent' with a code; the card is ACTIVE with that balance."
+    );
+    const config = await getGiftCardConfig(readRestaurantId());
+    test.skip(
+      !config.isEnabled,
+      "Gift cards are not enabled for this restaurant"
+    );
+    const amount = config.presetDenominations[0];
+    test.skip(amount === undefined, "No preset denominations configured");
+
+    const { recipient } = await buyAsGuest(
+      page,
+      (gc) => gc.selectDenomination(amount!),
+      amount!
+    );
+    if (MAILPIT_BASE_URL) {
+      await allure.step("The recipient gets the gift card email", async () => {
+        const mail = await waitForEmail(recipient, { timeoutMs: 60_000 });
+        expect(mail.subject).toBeTruthy();
+      });
+    }
+  });
+
+  test("TC-166: guest purchases a gift card with a custom amount", async ({
+    page,
+  }) => {
+    await allure.description(
+      "A guest types a custom amount inside the restaurant's range, pays, and the card is minted " +
+        "for exactly that amount."
+    );
+    const config = await getGiftCardConfig(readRestaurantId());
+    test.skip(
+      !config.isEnabled,
+      "Gift cards are not enabled for this restaurant"
+    );
+    test.skip(
+      !config.allowCustomAmount,
+      "Custom amounts are not allowed for this restaurant"
+    );
+    // An in-range amount no preset uses, so the custom path is what charged.
+    const amount = Math.min(
+      config.maxCustomAmount,
+      Math.max(config.minCustomAmount, 17)
+    );
+    await buyAsGuest(page, (gc) => gc.fillCustomAmount(String(amount)), amount);
+  });
 
   test("TC-167: a custom amount below the minimum is rejected", async ({
     page,
@@ -111,12 +195,30 @@ test.describe("Customer — Gift Cards", () => {
     await expect(giftCardPage.paymentHeading()).not.toBeVisible();
   });
 
-  // Same Stripe Radar invisible-hCaptcha blocker as TC-165/166 above — this test
-  // purchases a card (completePurchase → assertPurchaseConfirmed) before it can
-  // check the balance, so it hangs at the identical Pay step. Filed as fixme
-  // until the QA Stripe key's Radar/Link setting is changed. See TC-165 for the
-  // full trace evidence.
-  test.fixme("TC-169: balance check shows the correct balance for a freshly purchased card", async () => {});
+  test("TC-169: balance check shows the correct balance for a freshly purchased card", async ({
+    page,
+  }) => {
+    await allure.description(
+      "After buying a card, the page's own 'Check a balance' tool shows its full balance."
+    );
+    const config = await getGiftCardConfig(readRestaurantId());
+    test.skip(
+      !config.isEnabled,
+      "Gift cards are not enabled for this restaurant"
+    );
+    const amount = config.presetDenominations[0];
+    test.skip(amount === undefined, "No preset denominations configured");
+
+    const { code } = await buyAsGuest(
+      page,
+      (gc) => gc.selectDenomination(amount!),
+      amount!
+    );
+    const giftCardPage = createCustomerGiftCardPage(page);
+    await giftCardPage.goto(readRestaurantId());
+    await giftCardPage.checkBalance(code);
+    await giftCardPage.assertBalanceResult(amount!);
+  });
 
   test("TC-170: balance check shows not-found for a nonexistent code", async ({
     page,

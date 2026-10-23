@@ -653,10 +653,9 @@ enforced in `utils/emailHelper.ts`:
 Negative/validation cases that never send (TC-74/75, TC-95/96, duplicate-invite
 TC-104) are untagged and keep running. Order-confirmation from a completed
 checkout (TC-26, TC-178, ~1 email each) also stays in the default run. The
-gift-card **purchase** tests (TC-165/166/169) are **not** `@email` — they're
-`test.fixme` (blocked by Stripe Radar's invisible hCaptcha; see TEST_COVERAGE →
-Known Technical Debt); the non-purchase gift-card cases (TC-167/168/170) keep
-running.
+gift-card **purchase** tests (TC-165/166/169) are **not** `@email`: they buy a
+real test-mode card and always run; TC-165 also reads the recipient's email
+when `MAILPIT_BASE_URL` is set.
 
 **CI.** `e2e.yml` runs the `@email` group along with everything else, on every
 trigger. It is the ONLY workflow that runs Playwright — `e2e-email-weekly.yml`
