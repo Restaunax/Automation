@@ -627,6 +627,29 @@ tests run in **every** invocation — including the nightly.
   nothing that seeds more than a few rows; add a test here only when its screen going
   down would be an incident. Rationale: GitHub Actions minutes — see CLAUDE.md → CI.
 
+- `@training` / `@closeout` / `@bugfix-1036` — specs for RestauNax work that lands
+  in this suite **before** it reaches QA (the Training Academy branch, PR #1038
+  close-out, PR #1036 bug batch). `npm run test:training` / `test:closeout` /
+  `test:bugfix-1036`. Finer tags inside #1036: `@branding`, `@tax`, `@invite`,
+  `@stripe-onboarding`, `@home-food`, `@health-score`, `@floor`.
+
+**Deploy gates for unreleased features** (`utils/releaseGate.ts`, same contract
+as `utils/dealScheduleGate.ts`). Each gated test probes for the capability
+(`probeTraining` / `probeCloseOut`, or the new copy/behaviour on the page) and
+calls `requireRelease(part, present)`. While `RELEASED_ON_QA[part]` is `false`
+a missing capability SKIPS with a reason, so the nightly stays green; once the
+change is confirmed on QA, flip the flag to `true` and the same check FAILS on a
+regression instead of hiding as a skip. The close-out spec never calls the
+removed owner cancel endpoint unless the close-out build is detected — on an
+older build that call would really cancel the plan.
+
+To run them before merge, point the suite at a local stack that has the change
+(`FRONTEND_URL` / `BACKEND_URL` on localhost are allowed by `targetGuard`, and
+exported variables win over `.env`). The learner specs additionally need a
+PUBLISHED training module; on an environment where every module is still DRAFT
+they skip with that reason (the HQ preview spec covers the player and quiz on
+drafts).
+
 **How selection works.** There is no `grepInvert` and no opt-in env flag. Every
 invocation — `npm test`, a bare `npx playwright test`, the nightly — runs the
 whole suite. `test:email` / `test:demo` are plain `--grep` shortcuts.

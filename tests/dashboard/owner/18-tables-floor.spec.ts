@@ -44,7 +44,9 @@ import {
   listTablesOwnerRaw,
   createTableOwnerRaw,
   createTableSectionOwnerRaw,
+  saveTableLayoutOwnerRaw,
 } from "../../../utils/apiHelper";
+import { requireRelease } from "../../../utils/releaseGate";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
@@ -534,5 +536,97 @@ test.describe("Owner — Tables & Floor", () => {
       await expect(dialog).toContainText(text);
     await dialog.getByRole("button", { name: "Close" }).first().click();
     await expect(dialog).toBeHidden({ timeout: 5_000 });
+  });
+
+  // ── Fit on open (RestauNax #1036) ─────────────────────────────────────────
+  test("TC-933: the floor opens fitted to its tables at a readable zoom — a tight cluster zooms in, an edge-to-edge spread stays at 50% or more @bugfix-1036 @floor", async () => {
+    await allure.description(
+      "RestauNax #1036 (FloorCanvas fitFloorView): the floor opens on the box around the placed tables " +
+        "plus a margin, re-fitting once the tables arrive (they load after the panel is sized), and never " +
+        "zooms out below 50% for tables (FIT_MIN_SCALE_TABLES). Two API-seeded sections: two tables side by " +
+        "side mid-floor must open zoomed in (> 100%, the whole 2000×1200 floor would be far below); two " +
+        "tables in opposite corners must open at ≥ 50%. Read from the zoom button's 'NN%' label."
+    );
+    const seedSection = async (
+      label: string,
+      spots: Array<[number, number]>
+    ) => {
+      const section = await newSection(label);
+      const rows: Record<string, unknown>[] = [];
+      for (const [i, [posX, posY]] of spots.entries()) {
+        const created = await createTableOwnerRaw(ownerToken, restaurantId, {
+          name: `${label} ${i + 1} ${runId}`,
+          sectionId: section.id,
+          capacity: 4,
+        });
+        expect(created.status, msg(created.data)).toBe(201);
+        rows.push({
+          id: unwrap(created).id,
+          posX,
+          posY,
+          width: 100,
+          height: 100,
+          rotation: 0,
+          shape: "SQUARE",
+          sectionId: section.id,
+        });
+      }
+      const layout = await saveTableLayoutOwnerRaw(
+        ownerToken,
+        restaurantId,
+        rows
+      );
+      expect(layout.status, msg(layout.data)).toBe(200);
+      return section;
+    };
+    const zoomPercent = async (): Promise<number> => {
+      // MUI's Tooltip names the button by its title ("Zoom to 100%"); the
+      // visible text is the current zoom.
+      const label = session.page.getByRole("button", {
+        name: "Zoom to 100%",
+        exact: true,
+      });
+      await expect(label).toHaveText(/^\d+%$/, { timeout: 15_000 });
+      const read = async () =>
+        Number((await label.innerText()).replace("%", ""));
+      // The view re-fits once the tables arrive: read until two reads agree.
+      let last = await read();
+      await expect
+        .poll(
+          async () => {
+            const now = await read();
+            const settled = now === last;
+            last = now;
+            return settled;
+          },
+          { intervals: [300, 300, 500, 1_000] }
+        )
+        .toBe(true);
+      return last;
+    };
+
+    const cluster = await seedSection("FitCluster", [
+      [900, 550],
+      [1010, 550],
+    ]);
+    const spread = await seedSection("FitSpread", [
+      [20, 20],
+      [1880, 1080],
+    ]);
+
+    await openSectionFloor(cluster.name);
+    const clusterZoom = await zoomPercent();
+    await openSectionFloor(spread.name);
+    const spreadZoom = await zoomPercent();
+    await allure.parameter("cluster zoom", `${clusterZoom}%`);
+    await allure.parameter("spread zoom", `${spreadZoom}%`);
+
+    requireRelease(
+      "bugBatch",
+      clusterZoom > 100 && spreadZoom >= 50,
+      `opened at ${clusterZoom}% (cluster) / ${spreadZoom}% (spread)`
+    );
+    expect(clusterZoom).toBeGreaterThan(100);
+    expect(spreadZoom).toBeGreaterThanOrEqual(50);
   });
 });
