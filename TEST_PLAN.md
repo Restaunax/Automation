@@ -193,7 +193,7 @@ Automation/
 │   │   │   ├── menu-publish.spec.ts          # scaffold (test.fixme)
 │   │   │   └── tax-settings.spec.ts          # ✅ real — moved from owner/03-tax-settings; needs EMPLOYEE_EMAIL/PASSWORD
 │   │   ├── staff/                            # thin /staff PIN-card stub (web)
-│   │   │   └── staff-portal.spec.ts          # scaffold (test.fixme)
+│   │   │   └── staff-portal.spec.ts          # TC-180: /staff team-member home
 │   │   └── access/                           # who-can-reach-what matrix (uses pageForRole)
 │   │       ├── restaurant-management-access.spec.ts  # ✅ real — owner/employee/admin reach shared screens
 │   │       ├── role-restrictions.spec.ts             # ✅ real — OWNER denied publish/tax/loyalty
@@ -766,7 +766,6 @@ repo's release-gate companion to the automated coverage below.
 | Customer checkout — physical card stock           | `customer/02-checkout.spec.ts`                                                                                                                        | TC-477: an unloaded (INACTIVE) card from a minted batch is refused at checkout — the redemption side of physical cards, next to TC-171's funded card.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 Still `test.fixme` / `test.skip` scaffolds: `dashboard/employee/menu-publish.spec.ts`,
-`dashboard/staff/staff-portal.spec.ts` (blocked — no `RESTAURANT_STAFF` credentials),
 `dashboard/owner/05-publish.spec.ts` (permanently skipped — OWNER is denied
 that route), and `TC-44` delete-item (no button on the card; deletion is on
 the item detail page, covered by TC-302).
@@ -791,7 +790,6 @@ Each remaining suite lands by filling its existing `test.fixme` placeholder
 | Suite                                           | Key cases                                                            |
 | ----------------------------------------------- | -------------------------------------------------------------------- |
 | `tests/dashboard/employee/menu-publish.spec.ts` | Employee publishes a menu; OWNER-denied already covered in `access/` |
-| `tests/dashboard/staff/staff-portal.spec.ts`    | RESTAURANT_STAFF PIN card — blocked until real credentials exist     |
 
 ### Then — deeper coverage on existing screens
 
