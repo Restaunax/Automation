@@ -26,9 +26,11 @@ export const createOwnerCreateRestaurantPage = (page: Page) => {
   const addressInput = () => page.getByPlaceholder("Enter your address");
   const phoneInput = () => page.locator('input[name="restaurantPhone"]');
   const descriptionInput = () => page.locator('input[name="description"]');
-  // Two MUI Selects on Step 0: cuisine type, then min prep time.
+  // Cuisine type is the first MUI Select on Step 0. (The minimum-prep-time
+  // select that used to follow it is now shown only for a Home-based food
+  // business — restaunax 68b78cc2a — and the second combobox is the optional
+  // "Link an onboarding quote" autocomplete.)
   const cuisineTypeSelect = () => page.getByRole("combobox").first();
-  const prepTimeSelect = () => page.getByRole("combobox").nth(1);
   const continueButton = () =>
     page.locator("#root").getByRole("button", { name: "Continue" });
 
@@ -50,22 +52,12 @@ export const createOwnerCreateRestaurantPage = (page: Page) => {
     await page.getByRole("option", { name: cuisine, exact: true }).click();
   };
 
-  // Must be explicitly chosen even though it displays a default-looking
-  // placeholder — leaving it untouched blocks submission.
-  const selectNoMinPrepTime = async () => {
-    await prepTimeSelect().click();
-    await page
-      .getByRole("option", { name: "No minimum (accept orders immediately)" })
-      .click();
-  };
-
   const fillStep0 = async (data: CreateRestaurantStep0Data) => {
     await nameInput().fill(data.name);
     await fillAddress(data.addressSearch, data.addressSuggestionText);
     await selectCuisineType(data.cuisineType);
     await phoneInput().fill(data.phone);
     await descriptionInput().fill(data.description);
-    await selectNoMinPrepTime();
   };
 
   // Submitting Step 0 POSTs /restaurant/new and redirects to the Business
@@ -145,11 +137,9 @@ export const createOwnerCreateRestaurantPage = (page: Page) => {
     phoneInput,
     descriptionInput,
     cuisineTypeSelect,
-    prepTimeSelect,
     continueButton,
     fillAddress,
     selectCuisineType,
-    selectNoMinPrepTime,
     fillStep0,
     submitStep0,
     assertBusinessHoursStepVisible,
