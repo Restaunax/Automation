@@ -600,12 +600,15 @@ test.describe("Order money breakdown — one order, every surface", () => {
       email?: string | null;
       customer?: { email?: string | null } | null;
     };
-    await allure.step("the order is the member's and stores the typed email", async () => {
-      expect(placed.email).toBe(typedEmail);
-      expect(placed.customer?.email ?? "", "member's saved email").not.toBe(
-        typedEmail
-      );
-    });
+    await allure.step(
+      "the order is the member's and stores the typed email",
+      async () => {
+        expect(placed.email).toBe(typedEmail);
+        expect(placed.customer?.email ?? "", "member's saved email").not.toBe(
+          typedEmail
+        );
+      }
+    );
 
     await allure.step("the receipt arrives at the typed address", async () => {
       const mail = await waitForEmail(typedEmail, {

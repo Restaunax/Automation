@@ -570,11 +570,6 @@ that rule for any future totals assertion (or pin a private restaurant).
   number is the App/Play Store **reviewer demo account** and the bypass is
   live in production — don't churn its points/credit from automation. Ask the
   backend to add a second, QA-scoped test phone before building the helper.
-- **Finish TC-02 (demo confirmation email)** — no longer blocked on sandbox
-  credentials (QA's Mailpit is wired into CI). The test is still `test.skip`
-  because it never submits the form: it generates an address and waits for mail.
-  Self-seed via `submitDemoRequestRaw` like the sibling demo specs, gate on
-  `MAILPIT_BASE_URL`, tag `@demo @email`.
 - **POS / tablet API harness** — largely built now: `POST /api/tablet/login` +
   order-status transitions (TC-100), the staff-session / register-session
   chain (`setOwnerPosPin` → `tabletStaffSignIn` → `openRegisterSessionPos`)
@@ -774,8 +769,8 @@ repo's release-gate companion to the automated coverage below.
 Still `test.fixme` / `test.skip` scaffolds: `dashboard/employee/menu-publish.spec.ts`,
 `dashboard/staff/staff-portal.spec.ts` (blocked — no `RESTAURANT_STAFF` credentials),
 `dashboard/owner/05-publish.spec.ts` (permanently skipped — OWNER is denied
-that route), and a few individual cases with no
-corresponding UI (`TC-42` edit-category-name, `TC-44` delete-item).
+that route), and `TC-44` delete-item (no button on the card; deletion is on
+the item detail page, covered by TC-302).
 
 **Not attempted:** the admin-side AI lead-onboarding wizard
 (`LeadOnboarding.tsx`, reached via a "Lead Onboarding" tab under
