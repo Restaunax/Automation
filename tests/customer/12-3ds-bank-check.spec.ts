@@ -258,7 +258,7 @@ test.describe("Customer — 3D Secure bank check (wind) @3ds", () => {
         await expect(
           page
             .getByText(
-              /unable to authenticate|failed authentication|payment was not completed/i
+              /unable to authenticate|failed authentication|payment was not completed|bank didn't approve this payment/i
             )
             .first()
         ).toBeVisible({ timeout: 20_000 });

@@ -19,7 +19,7 @@ test.describe("Owner — Publish Restaurant", () => {
     test.skip(
       true,
       "The publish page (/restaurant/restaurantId/:id/publish) returns Access Denied " +
-        "for the OWNER role — publishing menus is an EMPLOYEE-only action in the current platform."
+        "for the OWNER role by design: publishing menus is an EMPLOYEE/ADMIN action. TC-54 (access/role-restrictions) pins the denial; employee-side publish is TC-143/TC-144."
     );
   });
 
@@ -27,7 +27,7 @@ test.describe("Owner — Publish Restaurant", () => {
     test.skip(
       true,
       "The publish page (/restaurant/restaurantId/:id/publish) returns Access Denied " +
-        "for the OWNER role — publishing menus is an EMPLOYEE-only action in the current platform."
+        "for the OWNER role by design: publishing menus is an EMPLOYEE/ADMIN action. TC-54 (access/role-restrictions) pins the denial; employee-side publish is TC-143/TC-144."
     );
   });
 });

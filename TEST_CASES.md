@@ -79,9 +79,24 @@ This is how potential new restaurant clients first contact Restaunax. If this fo
 
 ## TC-02 — Confirmation Email Is Sent After Demo Request
 
-**Status:** ⏭️ Skipped (email testing account not connected yet)
+**Status:** ✅ Passing (`@demo @email`; skipped when `MAILPIT_BASE_URL` is unset)
 
 ### What it checks
+
+After a demo request, the person who submitted it receives a confirmation email.
+
+### How it works, step by step
+
+1. The test submits a restaurant demo request through the same API the /get-started form calls (`POST /api/demo-requests`)
+2. It waits up to 60 seconds for "Your Demo Request Has Been Received" in QA's Mailpit inbox, addressed to the submitted email
+3. It checks the email greets the requester by name
+4. It deletes the seeded demo request afterwards
+
+### Why it matters
+
+If the confirmation email is not sent, potential clients might think their request never went through and contact Restaunax again — or worse, go to a competitor.
+
+## What it checks
 
 After filling out the demo form, the person who submitted it receives a confirmation email.
 
@@ -1350,20 +1365,21 @@ If saving restaurant settings doesn't work, every change an owner makes will be 
 
 ---
 
-## TC-42 — Owner Can Edit a Menu Category Name
+## TC-42 — Owner Can Rename a Menu Category
 
-**Status:** ⏭️ Skipped — no edit button on category header in the current menu editor UI
+**Status:** ✅ Passing
 
 ### What it checks
 
-An owner can rename an existing menu category and see the updated name reflected in the menu list.
+An owner can rename an existing menu category in the menu builder and the new name sticks.
 
 ### How it works, step by step
 
-1. The test navigates to the Menu tab for the seed restaurant
-2. It clicks the edit icon on the "Test Starters" category created in TC-20
-3. It clears the name and types a new one ("Test Starters Edited")
-4. It clicks Save and confirms the renamed category is visible
+1. The test opens the menu builder for the seed restaurant and creates a throwaway category ("Test Starters <run> Rename")
+2. It clicks "Rename category" next to the category heading, types the new name and presses Enter
+3. It confirms the heading and the category tab show the new name and the old tab is gone
+4. It reloads the builder and confirms the new name is still there
+5. It deletes the renamed category (the teardown sweep catches it if the test dies first)
 
 ### Why it matters
 
@@ -1925,7 +1941,7 @@ Spec `restaunax/docs/features/ORDER_MONEY_BREAKDOWN.md`. One real Stripe test-ca
 | **TC-898** | The wind checkout lines (Subtotal, promotion, Rewards (100 pts), Tax, Tip, Total, Gift card, Charged) add up and equal the page's own /quote breakdown (required); the wind confirmation, the owner's `GET /api/order/:id`, the dashboard order sheet and the POS current feed show the same ordered (label, amount) lines; the email's totals table matches and its subject carries `Receipt #<receiptNumber>` (`@email`, needs Mailpit). FREE marker on the gift item row: backend `items[].marker` = FREE; wind confirmation `order-breakdown-item-<key>` shows the server's `markerLabel`; dashboard item row shows the server's exact `markerLabel`; email item row reads "<name> <markerLabel>". **Exempt:** the wind checkout (its item rows come from the local cart, not `breakdown.items`, and render no marker; the gift line shows its regular price and the discount is the promotion line) and the POS feed (compared on totals only; no item UI in an API read). |
 | **TC-899** | A CODE-only combo (platter $20 + burger $12 for $25) built from its code on wind and paid with the Stripe test card. Checkout lines add up and equal the page's /quote breakdown, which prices the combo. Backend `GET /api/order/:id`: one item row with `children` (name = the deal name, amount $25, children = platter + burger); `info` holds DEAL_SAVINGS labelled exactly `You saved $<amount> with <deal name>`, its amount equal to the checkout /quote's `deals[0].savings`; no totals line is that info line and the totals still sum (items = SUBTOTAL, lines = TOTAL); `Order.total` = the TOTAL line (no tender on this order). Wind confirmation: `order-breakdown-item-<key>` shows `1x <deal>`, `1x <platter>`, `1x <burger>`; `order-breakdown-info-DEAL_SAVINGS` shows the label; its money lines equal the backend's. Dashboard sheet: same money lines, the deal row, both contents and the info caption.                                                  |
 | **TC-900** | API only (own describe and one-item menu; no wind or storefront seed). Precondition, asserted first: the seed `baseDeliveryFee` ≤ the promotion's $10 cap (a capped waiver is a fixture limit, not a breakdown bug). With a CODE FREE_DELIVERY promotion (real name `AUTO Breakdown free delivery <runId>`, min $1, cap $10, passed as `couponId`) a DELIVERY quote with the seed restaurant's `baseDeliveryFee` (public `GET /restaurant/:id/details`) has DELIVERY_FEE = the fee, immediately followed by FREE_DELIVERY = −fee labelled with the promotion's name; sums hold. The same quote without the promotion has DELIVERY_FEE and no FREE_DELIVERY line. The promotion is deleted in the test's finally (afterAll backstop).                                                                                                                                                                                                                                            |
-| **TC-901** | **KNOWN BUG (fixme):** a reward member whose account has no email signs in on wind, types an email at checkout and pays; the confirmation email must arrive at the typed address. Today it is sent to `order.customer.email` (restaunax-backend `emailService.sendOrderConfirmationEmail`, `to: opts.to ?? order.customer.email`; the owner copy already prefers `order.email`), so it never arrives. `test.fixme` until the backend fix lands; TC-898 seeds its member with the typed address meanwhile.                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| **TC-901** | A reward member whose saved email is **blank** signs in on wind, types an email at checkout and pays with the Stripe test card. The order stores the typed address (`Order.email`), and the confirmation email ("Your Order Confirmation", `Receipt #<receiptNumber>`) arrives at that address in Mailpit. Pins RestauNax #1011 (`orderRecipientEmail`: the checkout email first, the saved email only as a fallback). It used to be a `test.fixme` known bug: the receipt went to `order.customer.email`, so this member got none. `@email`, skipped when `MAILPIT_BASE_URL` is unset.                                                                                                                                                                                                                                                                                                                                                                                         |
 
 ### POS — price-preview and cash orders (`pos/11-promotions.spec.ts`, throwaway tenant, acceptance set)
 
@@ -2200,7 +2216,7 @@ That choosing **Delivery** and entering an address fires the delivery-quote roun
 
 1. Seed the cart and open checkout.
 2. If the restaurant doesn't offer Delivery (pickup-only / ship-only — the Delivery button is absent), the test **skips** rather than fails.
-3. Click Delivery, type an address into the Google Places autocomplete, and pick the first suggestion. If Google Places returns no suggestion (external dependency), the test **skips** with a clear reason.
+3. Click Delivery, type an address into wind's address autocomplete (backed by the backend geo proxy, `GET /api/public/geo/autocomplete`), and pick the first suggestion. If the proxy returns no suggestion (external dependency), the test **skips** with a clear reason. (Until 2026-10-23 the POM looked for Google's `.pac-item` rows, which wind no longer renders, so this and TC-215/TC-218 always skipped.)
 4. Assert the quote resolved — the green "Delivery Available" fee box **or** the red "Delivery Not Available" box. Both prove `/api/delivery/quote` fired and the UI handled it. No Stripe, no order placed.
 
 ### Why it matters
@@ -2211,7 +2227,7 @@ Delivery had zero coverage — every prior order test used Pickup. A broken addr
 
 ## TC-165–170 — Gift Card Purchase and Balance Check
 
-**Status:** ✅ TC-167–170 passing (needs `TEMPLATE_WIND_URL` + `ADMIN_EMAIL`/`ADMIN_PASSWORD`). TC-165/TC-166 (the two Stripe-payment purchase flows) are `test.fixme` as of 2026-07-11 — intermittently blocked by Stripe Radar's invisible hCaptcha challenge on the Pay click, confirmed via live network trace, not a product or test-code bug. See TEST_COVERAGE.md's Known Technical Debt.
+**Status:** ✅ All passing (needs `TEMPLATE_WIND_URL` + `ADMIN_EMAIL`/`ADMIN_PASSWORD`). TC-165/166/169 were `test.fixme` from 2026-07-11 to 2026-10-23 (Stripe Radar's invisible hCaptcha on the Pay click); re-written on 2026-10-23, they pass repeatedly (18/18 in a `--repeat-each=3` run). Each buys a real test-mode card, checks its public balance, and records it for the teardown freeze.
 
 ### What they check
 
@@ -2232,7 +2248,7 @@ Gift cards are real revenue with real Stripe charges. An amount-validation regre
 
 ## TC-171–178 — Gift Card Redemption at Checkout
 
-**Status:** ✅ Passing, except TC-177 (`test.fixme` — real bug, see below)
+**Status:** ✅ All passing
 
 ### What they check
 
@@ -2242,9 +2258,9 @@ The checkout-side "Gift Card" box (`RewardSection`), seeded via the admin gift-c
 
 Same reasoning as coupons (TC-125) — the discount math and rejection paths are exactly the kind of thing that silently breaks and overcharges or undercharges a customer with no error anywhere.
 
-### A real bug found along the way (TC-177, `test.fixme`)
+### TC-177: a gift card that covers the whole order
 
-TC-177 set out to prove a gift card that fully covers an order's total skips Stripe entirely (per `checkout/page.tsx`'s documented $0-total branch). Live network tracing during authoring showed something different: `POST /api/order/new/...` succeeds (**201** — the order **is** created), but the frontend then still attempts to create a Stripe PaymentIntent for the now-$0 remainder anyway, which the backend correctly rejects (**400** — Stripe requires a minimum chargeable amount). The customer is left stuck on the checkout page with a console error and no confirmation screen, even though their order actually went through server-side. Filed as `test.fixme` with the real behavior documented rather than asserting the broken flow as correct — same pattern as TC-92's coupon-edit bug.
+TC-177 pays a pickup order entirely with a $200 seeded card: "Proceed to payment" goes straight to "Order Confirmed!" with no card step, and the card's balance drops by the order's TOTAL (read from the backend breakdown). It was a `test.fixme` from 2026-07 until 2026-10-23 for a real bug (the order was created, then the page tried a $0 Stripe PaymentIntent and left the customer stuck); that bug is gone on QA.
 
 ---
 
@@ -2889,7 +2905,7 @@ A 2026-07-19 pass added TC-184–188 (customer checkout quick wins: item deep li
 
 **144 passing · 21 skipped · 1 failing (env-only)** — as of 2026-07-10. The one failure (TC-58) fails only in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD` set; it passes wherever those credentials exist. (Owner-side expansion on 2026-07-07 added TC-35 + TC-127–129 for the Analytics tab, TC-131–135 deepening the Orders tab, TC-136–138 for the Customers tab, TC-139–140 for the Owner Settings tab, and TC-141–142 for the Daily Report tab — all passing. A 2026-07-10 pass added TC-145–164, expanding Coupons UI coverage far beyond the original 4 tests: all three discount types, the full Manage Coupons list (search/filter/sort/copy), and row actions — duplicate, delete, edit-prefill, and disabled Send-to-Customers. Two of these (TC-147, TC-150) surfaced a real UX finding: the code and menu-item fields rely on native HTML5 `required` validation, so the app's own custom error text for those specific fields never has a chance to render — the browser's native constraint-validation UI intercepts the submit first. A same-day follow-up pass added TC-165–178, giving gift cards their first-ever coverage (purchase + checkout redemption) and expanding the customer-checkout coupon path beyond the original single combined test — this also required setting `TEMPLATE_WIND_URL` for the first time in this environment, which surfaced and fixed several previously-latent regressions in the whole customer suite: the checkout coupon Apply button colliding with the new (unconditionally-rendered) gift-card Apply button, a `seedCart()` race that could leave a prior coupon/gift-card applied across re-seeds within one test, a stale rejection-message regex, `selectPickup()` targeting a since-removed radio input (the control is now a button), and a stale order-number regex on the confirmation page.)
 
-Skipped tests fall into four groups: **route access** (TC-27, TC-28, TC-81 — publish/tax/loyalty are employee/admin-only and return Access Denied for the owner role); **missing UI** (TC-42, TC-44 — the edit/delete buttons don't exist in the current menu editor); **missing credentials in this environment** (TC-58, TC-97, plus TC-17/TC-18 in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD`; TC-02 without `MAILPIT_BASE_URL`); and **real bugs** (TC-177 — a gift card fully covering an order 201s the order but then fails a doomed $0 Stripe PaymentIntent — filed as `test.fixme` with the exact error rather than asserting broken behavior as correct; TC-92's coupon-edit 500 was fixed under RestauNax #481 and is now a passing test). TC-33 and TC-34 remain narrative-only placeholders with no test code at all — not the same as a skipped/fixme test.
+Skipped tests fall into four groups: **route access** (TC-27, TC-28, TC-81 — publish/tax/loyalty are employee/admin-only and return Access Denied for the owner role); **covered elsewhere** (TC-44 — the item card has no delete button; deletion is on the item detail page, TC-302); **missing credentials in this environment** (TC-58, TC-97, plus TC-17/TC-18 in environments without `EMPLOYEE_EMAIL`/`EMPLOYEE_PASSWORD`); and **real bugs**, all fixed since (TC-177's gift-card dead end and TC-92's coupon-edit 500, RestauNax #481, are passing tests now). TC-33 and TC-34 remain narrative-only placeholders with no test code at all — not the same as a skipped/fixme test.
 
 ---
 

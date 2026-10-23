@@ -177,7 +177,7 @@ Automation/
 │   │   │   ├── 25-promotion-scenarios.spec.ts # ✅ real @scenario — eight real-world promotions end to end: dashboard UI build → exact read-back → edit → lima AND wind picks → quote-checked checkout (TC-863..870)
 │   │   │   ├── api-promotion-preview.spec.ts # ✅ real — "Try it as a customer" API (TC-872..881, TC-888, TC-889); skips while QA answers 503 PROMOTION_PREVIEW_UNAVAILABLE
 │   │   │   ├── 26-promotion-preview.spec.ts  # ✅ real — Try it as a customer, dashboard → lima (TC-882..887); skips while QA answers 503 PROMOTION_PREVIEW_UNAVAILABLE
-│   │   │   ├── 27-order-breakdown.spec.ts    # ✅ real @email (last step) — one wind order, every surface: checkout, confirmation, backend, dashboard, POS, email read the same money lines (TC-898); combo order: deal row + 'You saved' info line, never summed (TC-899); delivery quote DELIVERY_FEE / FREE_DELIVERY (TC-900, API); TC-901 fixme = known email-recipient bug
+│   │   │   ├── 27-order-breakdown.spec.ts    # ✅ real @email (last step) — one wind order, every surface: checkout, confirmation, backend, dashboard, POS, email read the same money lines (TC-898); combo order: deal row + 'You saved' info line, never summed (TC-899); delivery quote DELIVERY_FEE / FREE_DELIVERY (TC-900, API); TC-901 @email: a member with no saved email gets the receipt at the typed address (fixed in RestauNax #1011)
 │   │   │   ├── 08-payment-settings.spec.ts   # ✅ real (route mocks Stripe status/create for pre-connection + failure states)
 │   │   │   ├── 09-uber-settings.spec.ts      # ✅ real — Uber Eats delivery settings (owner-reachable, unlike publish/tax/loyalty)
 │   │   │   ├── 10-subscription.spec.ts       # ✅ real — Subscription/Billing page (permission-gated, not role-gated)
@@ -193,7 +193,7 @@ Automation/
 │   │   │   ├── menu-publish.spec.ts          # scaffold (test.fixme)
 │   │   │   └── tax-settings.spec.ts          # ✅ real — moved from owner/03-tax-settings; needs EMPLOYEE_EMAIL/PASSWORD
 │   │   ├── staff/                            # thin /staff PIN-card stub (web)
-│   │   │   └── staff-portal.spec.ts          # scaffold (test.fixme)
+│   │   │   └── staff-portal.spec.ts          # TC-180: /staff team-member home
 │   │   └── access/                           # who-can-reach-what matrix (uses pageForRole)
 │   │       ├── restaurant-management-access.spec.ts  # ✅ real — owner/employee/admin reach shared screens
 │   │       ├── role-restrictions.spec.ts             # ✅ real — OWNER denied publish/tax/loyalty
@@ -570,11 +570,6 @@ that rule for any future totals assertion (or pin a private restaurant).
   number is the App/Play Store **reviewer demo account** and the bypass is
   live in production — don't churn its points/credit from automation. Ask the
   backend to add a second, QA-scoped test phone before building the helper.
-- **Finish TC-02 (demo confirmation email)** — no longer blocked on sandbox
-  credentials (QA's Mailpit is wired into CI). The test is still `test.skip`
-  because it never submits the form: it generates an address and waits for mail.
-  Self-seed via `submitDemoRequestRaw` like the sibling demo specs, gate on
-  `MAILPIT_BASE_URL`, tag `@demo @email`.
 - **POS / tablet API harness** — largely built now: `POST /api/tablet/login` +
   order-status transitions (TC-100), the staff-session / register-session
   chain (`setOwnerPosPin` → `tabletStaffSignIn` → `openRegisterSessionPos`)
@@ -658,10 +653,9 @@ enforced in `utils/emailHelper.ts`:
 Negative/validation cases that never send (TC-74/75, TC-95/96, duplicate-invite
 TC-104) are untagged and keep running. Order-confirmation from a completed
 checkout (TC-26, TC-178, ~1 email each) also stays in the default run. The
-gift-card **purchase** tests (TC-165/166/169) are **not** `@email` — they're
-`test.fixme` (blocked by Stripe Radar's invisible hCaptcha; see TEST_COVERAGE →
-Known Technical Debt); the non-purchase gift-card cases (TC-167/168/170) keep
-running.
+gift-card **purchase** tests (TC-165/166/169) are **not** `@email`: they buy a
+real test-mode card and always run; TC-165 also reads the recipient's email
+when `MAILPIT_BASE_URL` is set.
 
 **CI.** `e2e.yml` runs the `@email` group along with everything else, on every
 trigger. It is the ONLY workflow that runs Playwright — `e2e-email-weekly.yml`
@@ -772,10 +766,9 @@ repo's release-gate companion to the automated coverage below.
 | Customer checkout — physical card stock           | `customer/02-checkout.spec.ts`                                                                                                                        | TC-477: an unloaded (INACTIVE) card from a minted batch is refused at checkout — the redemption side of physical cards, next to TC-171's funded card.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 Still `test.fixme` / `test.skip` scaffolds: `dashboard/employee/menu-publish.spec.ts`,
-`dashboard/staff/staff-portal.spec.ts` (blocked — no `RESTAURANT_STAFF` credentials),
 `dashboard/owner/05-publish.spec.ts` (permanently skipped — OWNER is denied
-that route), and a few individual cases with no
-corresponding UI (`TC-42` edit-category-name, `TC-44` delete-item).
+that route), and `TC-44` delete-item (no button on the card; deletion is on
+the item detail page, covered by TC-302).
 
 **Not attempted:** the admin-side AI lead-onboarding wizard
 (`LeadOnboarding.tsx`, reached via a "Lead Onboarding" tab under
@@ -797,7 +790,6 @@ Each remaining suite lands by filling its existing `test.fixme` placeholder
 | Suite                                           | Key cases                                                            |
 | ----------------------------------------------- | -------------------------------------------------------------------- |
 | `tests/dashboard/employee/menu-publish.spec.ts` | Employee publishes a menu; OWNER-denied already covered in `access/` |
-| `tests/dashboard/staff/staff-portal.spec.ts`    | RESTAURANT_STAFF PIN card — blocked until real credentials exist     |
 
 ### Then — deeper coverage on existing screens
 
