@@ -2516,9 +2516,17 @@ export async function seedFundedGiftCard(
   restaurantId: string,
   amount: number
 ): Promise<ApiGiftCard> {
-  const code = `AUTOGC${Date.now().toString(36)}${Math.random()
-    .toString(36)
-    .slice(2, 8)}`.toUpperCase();
+  // The random tail is LETTERS ONLY so digits stay under half the code. The
+  // admin search (findGiftCardIdByCode, below) reads a term with 7+ digits
+  // making up at least half its length as a PHONE number and then matches the
+  // code on its digits alone, so a digit-heavy code like AUTOGCMVL570557745H0
+  // is never found (TC-174 flaked on exactly that). At most 8 of these 20
+  // characters are digits: the base-36 timestamp.
+  const letters = Array.from(
+    { length: 6 },
+    () => "ABCDEFGHJKLMNPQRSTUVWXYZ"[Math.floor(Math.random() * 24)]
+  ).join("");
+  const code = `AUTOGC${Date.now().toString(36)}${letters}`.toUpperCase();
   const csv = `Card Number,Current Balance\r\n${code},${amount}\r\n`;
   const form = new FormData();
   form.append("file", new Blob([csv], { type: "text/csv" }), `${code}.csv`);
