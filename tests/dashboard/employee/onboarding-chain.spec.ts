@@ -11,8 +11,11 @@ import {
   deleteUserByEmail,
   findUserIdByEmail,
   assignRestaurantToUserApi,
+  getRestaurantMenusApi,
+  createMenuItemFull,
 } from "../../../utils/apiHelper";
 import { generateRunId, generateUserEmail } from "../../../utils/testData";
+import { loginViaUi } from "../../../utils/auth";
 
 const EMPLOYEE_EMAIL = process.env.EMPLOYEE_EMAIL ?? "";
 const EMPLOYEE_PASSWORD = process.env.EMPLOYEE_PASSWORD ?? "";
@@ -66,6 +69,7 @@ test.describe("Onboarding — Full chain", () => {
 
   test("TC-182: sign-up → employee creates and sets up a restaurant → admin assigns it → the new owner sees it live", async ({
     page,
+    browser,
     employeePage,
   }) => {
     await allure.description(
@@ -79,8 +83,8 @@ test.describe("Onboarding — Full chain", () => {
     const runId = generateRunId();
     const ownerEmail = generateUserEmail("onboard");
     const ownerPassword = "TestPass123!";
-    const restaurantName = `Automation Onboarding ${runId}`;
-    const categoryName = `Onboarding Category ${runId}`;
+    const restaurantName = `AUTO Employee Onboarding ${runId}`;
+    const categoryName = `AUTO Onboarding Category ${runId}`;
     let restaurantId = "";
 
     try {
@@ -137,6 +141,33 @@ test.describe("Onboarding — Full chain", () => {
       });
 
       await allure.step(
+        "Employee adds an item to that category — Menu Setup needs a group WITH items",
+        async () => {
+          // The publish checklist's menu rule (onboardingChecklistService.ts:
+          // "at least one menu group with menu items") is not met by an empty
+          // category. The item is added over the API with the EMPLOYEE's own
+          // token — the add-item UI is covered by the owner menu suite.
+          const { accessToken: employeeToken } = await apiLogin(
+            EMPLOYEE_EMAIL,
+            EMPLOYEE_PASSWORD
+          );
+          const { menus } = await getRestaurantMenusApi(restaurantId, {
+            accessToken: employeeToken,
+          });
+          const group = menus
+            .flatMap((m) => m.groups)
+            .find((g) => g.name === categoryName);
+          expect(group, `category "${categoryName}" in the menu`).toBeTruthy();
+          await createMenuItemFull(
+            employeeToken,
+            (group as { id: string }).id,
+            `AUTO Onboarding Item ${runId}`,
+            9.99
+          );
+        }
+      );
+
+      await allure.step(
         "Employee reaches the Publish checklist — Hours/Menu/Info satisfied, Payment Processing is not, Publish is blocked",
         async () => {
           const publishPage = createOwnerPublishPage(employeePage);
@@ -164,17 +195,22 @@ test.describe("Onboarding — Full chain", () => {
       );
 
       await allure.step(
-        "The new owner (still signed in from sign-up) sees the restaurant in My Restaurants",
+        "The new owner signs in and sees the restaurant in My Restaurants",
         async () => {
-          // No separate sign-in needed: sign-up already left `page` on an
-          // authenticated session for this account. Navigating /sign-in
-          // while already authenticated races an auto-redirect back to the
-          // dashboard (confirmed live — the sign-in submit click flaked
-          // with "element detached from DOM" as that redirect fired), so
-          // this reuses the existing session directly instead.
-          const listPage = createOwnerRestaurantListPage(page);
-          await listPage.goto();
-          await listPage.assertCardVisible(restaurantName);
+          // A FRESH sign-in, in its own context. The sign-up session was
+          // minted while the account was still Role.USER (no permissions);
+          // reusing it after the USER→OWNER promotion was flaky — sometimes
+          // /restaurant/stores rendered "Access Denied — Current Role: OWNER"
+          // because the cached permission list was still the USER one. The
+          // real journey is the new owner signing in once assigned.
+          const session = await loginViaUi(browser, ownerEmail, ownerPassword);
+          try {
+            const listPage = createOwnerRestaurantListPage(session.page);
+            await listPage.goto();
+            await listPage.assertCardVisible(restaurantName);
+          } finally {
+            await session.context.close();
+          }
         }
       );
     } finally {
@@ -183,8 +219,15 @@ test.describe("Onboarding — Full chain", () => {
       if (ADMIN_EMAIL && ADMIN_PASSWORD) {
         try {
           const { accessToken } = await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD);
-          if (restaurantId)
-            await deleteTestRestaurant(accessToken, restaurantId);
+          if (restaurantId) {
+            const removal = await deleteTestRestaurant(
+              accessToken,
+              restaurantId
+            );
+            console.log(
+              `[onboarding-chain] restaurant ${restaurantId} ${removal}`
+            );
+          }
           await deleteUserByEmail(accessToken, ownerEmail);
         } catch (err) {
           console.warn(

@@ -178,17 +178,24 @@ export async function setPassProcessingFee(
 /**
  * Deletes a restaurant by ID using an admin-role token.
  * Requires ADMIN role — pass the admin access token.
+ *
+ * The backend decides how (RestaurantStatusService.removeRestaurant): a
+ * restaurant with no orders, menus, coupons, deals, reward program, invoices
+ * or payments is PURGED (hard cascade delete); anything else is only
+ * ARCHIVED (soft delete, still in the database). Returns which one happened,
+ * so a test that must leave nothing behind can assert "purged".
  */
 export async function deleteTestRestaurant(
   adminAccessToken: string,
   restaurantId: string
-): Promise<void> {
-  await apiRequest<unknown>(
+): Promise<"purged" | "archived" | undefined> {
+  const data = await apiRequest<{ action?: "purged" | "archived" }>(
     "DELETE",
     `/api/admin/restaurants/${restaurantId}`,
     undefined,
     adminAccessToken
   );
+  return data?.action;
 }
 
 /**
