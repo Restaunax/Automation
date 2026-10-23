@@ -30,6 +30,12 @@ export const STRIPE_CARDS = {
 
   /** Dispute immediately after charge */
   DISPUTED: "4000000000000259",
+
+  /** Visa DEBIT (card.funding = "debit") — never surcharged */
+  VISA_DEBIT: "4000056655665556",
+
+  /** Mastercard PREPAID (card.funding = "prepaid") — never surcharged */
+  MASTERCARD_PREPAID: "5105105105105100",
 } as const;
 
 /** Common expiry/CVC/ZIP values that pass Stripe validation */
