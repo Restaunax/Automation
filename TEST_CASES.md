@@ -2216,7 +2216,7 @@ That choosing **Delivery** and entering an address fires the delivery-quote roun
 
 1. Seed the cart and open checkout.
 2. If the restaurant doesn't offer Delivery (pickup-only / ship-only — the Delivery button is absent), the test **skips** rather than fails.
-3. Click Delivery, type an address into the Google Places autocomplete, and pick the first suggestion. If Google Places returns no suggestion (external dependency), the test **skips** with a clear reason.
+3. Click Delivery, type an address into wind's address autocomplete (backed by the backend geo proxy, `GET /api/public/geo/autocomplete`), and pick the first suggestion. If the proxy returns no suggestion (external dependency), the test **skips** with a clear reason. (Until 2026-10-23 the POM looked for Google's `.pac-item` rows, which wind no longer renders, so this and TC-215/TC-218 always skipped.)
 4. Assert the quote resolved — the green "Delivery Available" fee box **or** the red "Delivery Not Available" box. Both prove `/api/delivery/quote` fired and the UI handled it. No Stripe, no order placed.
 
 ### Why it matters

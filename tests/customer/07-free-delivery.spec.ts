@@ -1,4 +1,5 @@
 import * as allure from "allure-js-commons";
+import type { Page } from "@playwright/test";
 import { test, expect } from "../../fixtures/base";
 import { createCustomerCheckoutPage } from "../../pages/customer/CustomerCheckoutPage";
 import {
@@ -11,17 +12,37 @@ import {
   createCouponRaw,
   getRestaurantCoupons,
 } from "../../utils/apiHelper";
+import {
+  assertSums,
+  readWindCheckoutLines,
+  type Line,
+} from "../../utils/orderBreakdown";
 
 const TEMPLATE_WIND_URL = process.env.TEMPLATE_WIND_URL ?? "";
+
+/** The green applied-code pill: the code alone, once the server took it. */
+const codePill = (page: Page, code: string) =>
+  page.getByText(new RegExp(`^${code}$`, "i"));
+
+/**
+ * The checkout summary lines once the server's FREE_DELIVERY line is on
+ * screen (the quote after the code is applied has landed).
+ */
+const waiverLines = async (page: Page): Promise<Line[]> => {
+  await expect(page.getByTestId("breakdown-totals-FREE_DELIVERY")).toBeVisible({
+    timeout: 15_000,
+  });
+  return readWindCheckoutLines(page);
+};
 const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
 
 /**
  * Customer — FREE_DELIVERY coupons at checkout (Template Wind).
  *
- * The customer-visible half of the free-delivery feature: the fee is waived
- * and displayed as "Free" instead of showing a discount amount, and the code
- * is delivery-only.
+ * The customer-visible half of the free-delivery feature: the summary keeps
+ * the delivery fee line and adds the server's FREE_DELIVERY line taking it
+ * back (all of it, or the coupon's fee cap), and the code is delivery-only.
  *
  * DEPENDS ON template-wind PR #60 being deployed to the QA storefront: it
  * makes the checkout send `serviceType` on validate (powering the pickup
@@ -140,14 +161,14 @@ test.describe("Customer — Free-delivery coupon", () => {
     });
   });
 
-  test("TC-215: on a delivery order the code waives the fee and shows Free", async ({
+  test("TC-215: on a delivery order the code takes back the whole delivery fee", async ({
     page,
   }) => {
     await allure.description(
       "Select Delivery, resolve a fee quote, then apply the free-delivery " +
         "code: the coupon applies and the order summary shows the delivery fee " +
-        "waived ('Free'). Skips cleanly when the restaurant is pickup-only, " +
-        "Google Places yields no suggestion, or delivery is not available at " +
+        "taken back in full by the FREE_DELIVERY line. Skips cleanly when the restaurant is pickup-only, " +
+        "the geo proxy yields no suggestion, or delivery is not available at " +
         "the address (external dependencies, mirroring TC-126)."
     );
     const restaurantId = readRestaurantId();
@@ -174,7 +195,10 @@ test.describe("Customer — Free-delivery coupon", () => {
         .waitFor({ state: "visible", timeout: 10_000 })
         .then(() => true)
         .catch(() => false);
-      test.skip(!hasSuggestion, "Google Places returned no suggestion");
+      test.skip(
+        !hasSuggestion,
+        "The geo proxy returned no suggestion (external dependency)"
+      );
       await suggestion.click();
       await checkoutPage.assertDeliveryQuoteResolved();
     });
@@ -188,15 +212,20 @@ test.describe("Customer — Free-delivery coupon", () => {
 
     await allure.step(`Apply ${couponCode} → fee waived`, async () => {
       await checkoutPage.applyCoupon(couponCode);
-      // Free-delivery coupons carry no item discount, so the applied state is
-      // the coupon chip/line plus the fee row flipping to "Free" — not a
-      // "Saving $X" amount.
-      await expect(
-        page.getByText(new RegExp(`Coupon\\s*\\(${couponCode}\\)`, "i"))
-      ).toBeVisible({ timeout: 15_000 });
-      await expect(page.getByText(/^Free$/).first()).toBeVisible({
+      await expect(codePill(page, couponCode)).toBeVisible({
         timeout: 15_000,
       });
+      // The summary renders the server breakdown: the fee stays on its own
+      // line and a FREE_DELIVERY line takes all of it back.
+      const lines = await waiverLines(page);
+      const fee = lines.find((l) => l.kind === "DELIVERY_FEE");
+      const waiver = lines.find((l) => l.kind === "FREE_DELIVERY");
+      expect(fee?.amount, JSON.stringify(lines)).toBeGreaterThan(0);
+      expect(waiver?.amount, JSON.stringify(lines)).toBeCloseTo(
+        -fee!.amount,
+        2
+      );
+      assertSums(lines, "wind checkout");
     });
   });
 
@@ -241,8 +270,8 @@ test.describe("Customer — Free-delivery coupon", () => {
   }) => {
     await allure.description(
       "A FREE_DELIVERY coupon with a $1 fee cap on a delivery order whose fee " +
-        "exceeds $1: only $1 is waived, so the order total drops by exactly the " +
-        "cap (not the whole fee) and the fee row does not read 'Free'. Skips " +
+        "exceeds $1: the summary's FREE_DELIVERY line takes back only $1 of the fee, " +
+        "and the summary still adds up. Skips " +
         "cleanly on the same external-dependency conditions as TC-215."
     );
     const restaurantId = readRestaurantId();
@@ -269,7 +298,10 @@ test.describe("Customer — Free-delivery coupon", () => {
         .waitFor({ state: "visible", timeout: 10_000 })
         .then(() => true)
         .catch(() => false);
-      test.skip(!hasSuggestion, "Google Places returned no suggestion");
+      test.skip(
+        !hasSuggestion,
+        "The geo proxy returned no suggestion (external dependency)"
+      );
       await suggestion.click();
       await checkoutPage.assertDeliveryQuoteResolved();
     });
@@ -284,19 +316,20 @@ test.describe("Customer — Free-delivery coupon", () => {
     await allure.step(
       `Apply ${cappedCouponCode} → only $1 waived`,
       async () => {
-        const totalBefore = await checkoutPage.readOrderTotal();
         await checkoutPage.applyCoupon(cappedCouponCode);
-        await expect(
-          page.getByText(new RegExp(`Coupon\\s*\\(${cappedCouponCode}\\)`, "i"))
-        ).toBeVisible({ timeout: 15_000 });
-        // The fee is only partially waived, so the fee row is NOT "Free".
-        await expect(page.getByText(/^Free$/)).toHaveCount(0);
-        // The total drops by exactly the $1 cap, whatever the actual fee is.
-        await expect
-          .poll(async () => await checkoutPage.readOrderTotal(), {
-            timeout: 15_000,
-          })
-          .toBeCloseTo(totalBefore - 1, 2);
+        await expect(codePill(page, cappedCouponCode)).toBeVisible({
+          timeout: 15_000,
+        });
+        // Only the $1 cap comes back off a fee larger than $1.
+        const lines = await waiverLines(page);
+        const fee = lines.find((l) => l.kind === "DELIVERY_FEE");
+        const waiver = lines.find((l) => l.kind === "FREE_DELIVERY");
+        expect(fee?.amount, JSON.stringify(lines)).toBeGreaterThan(1);
+        expect(waiver?.amount, JSON.stringify(lines)).toBeCloseTo(-1, 2);
+        assertSums(lines, "wind checkout");
+        // No "total drops by $1" check: on QA the delivery fee is taxable, so
+        // the waiver also lowers the tax. assertSums above already proves the
+        // lines (fee, −$1 waiver, tax) add up to the total shown.
       }
     );
   });

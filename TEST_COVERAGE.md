@@ -241,10 +241,10 @@ As of 2026-07-11, chained end to end for the first time (TC-182) after reading t
 
 ### Free-delivery coupon (`customer/07-free-delivery.spec.ts`)
 
-| Feature                                  | Test   | Status                                                                                      |
-| ---------------------------------------- | ------ | ------------------------------------------------------------------------------------------- |
-| FREE_DELIVERY code rejected on pickup    | TC-214 | ⏭️ Written — needs template-wind #60 deployed to QA (checkout must send serviceType)        |
-| Delivery order: fee waived, shows "Free" | TC-215 | ⏭️ Written — needs template-wind #60 + delivery provider availability (skips mirror TC-126) |
+| Feature                                                                                      | Test           | Status                                                                               |
+| -------------------------------------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------ |
+| FREE_DELIVERY code rejected on pickup                                                        | TC-214         | ⏭️ Written — needs template-wind #60 deployed to QA (checkout must send serviceType) |
+| Delivery order: fee taken back in full (FREE_DELIVERY line); fee cap takes back only the cap | TC-215, TC-218 | ✅ Covered (wind summary breakdown lines add up; skips mirror TC-126)                |
 
 ## 🌐 API-Level Negative Cases (`tests/dashboard/owner/api-negative.spec.ts`)
 
@@ -283,7 +283,7 @@ As of 2026-07-11, chained end to end for the first time (TC-182) after reading t
 | Real add-to-cart → cart → checkout flow                                                                     | TC-99                  | ⚠️ Was passing; now failing live — `proceedToCheckout()`'s button-name locator is stale (`/proceed to checkout\|checkout & sign in/i` no longer matches). Out of scope for the coupon/gift-card pass; flagged, not fixed. |
 | Declined card shows payment error                                                                           | TC-64                  | ✅ Needs `TEMPLATE_WIND_URL` — Stripe DECLINED test card, no order placed                                                                                                                                                 |
 | Apply coupon at checkout                                                                                    | TC-125                 | ✅ Seeds an `AUTO*` % coupon via API; asserts discount line + rejects a bogus code                                                                                                                                        |
-| Delivery address → quote round-trip                                                                         | TC-126                 | ✅ Quote-wiring only (fee shown OR not-available); skips on pickup-only / no Places suggestion. Full delivery order still ❌ (needs QA delivery provider)                                                                 |
+| Delivery address → quote round-trip                                                                         | TC-126                 | ✅ Quote-wiring only (fee shown OR not-available); skips on pickup-only / no geo-proxy suggestion. Full delivery order still ❌ (needs QA delivery provider)                                                              |
 | OTP member login (phone number)                                                                             | —                      | ❌ Not written                                                                                                                                                                                                            |
 | Loyalty points redemption                                                                                   | —                      | ❌ Not written                                                                                                                                                                                                            |
 | Gift card — purchase (preset + custom amount)                                                               | TC-165, TC-166         | ✅ Guest "Send as a gift" path; drives the real Stripe iframe                                                                                                                                                             |

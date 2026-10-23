@@ -404,16 +404,29 @@ export const createCustomerCheckoutPage = (page: Page) => {
 
   const selectDelivery = () => deliveryButton().first().click();
 
-  // The address field is a Google Places autocomplete — type + pick the first
-  // suggestion (external API; caller handles the no-suggestion skip).
+  // The address field is template-wind's own autocomplete
+  // (GooglePlacesAutocomplete.tsx): typing calls the backend geo proxy
+  // (GET /api/public/geo/autocomplete) and each prediction renders as a
+  // <button> showing its street ("350 5th Ave") over its area. There is no
+  // Google SDK on the page any more, so the old `.pac-item` locator matched
+  // nothing and every delivery test skipped as "no suggestion".
+  let lastAddressQuery = "";
   const fillDeliveryAddress = async (query: string) => {
+    lastAddressQuery = query;
     await deliveryAddressInput().waitFor({ state: "visible", timeout: 10_000 });
     await deliveryAddressInput().click();
     await deliveryAddressInput().pressSequentially(query, { delay: 100 });
   };
 
-  const firstAddressSuggestion = () =>
-    page.locator('[class*="pac-item"], [role="option"]').first();
+  /** The first prediction for the street last typed into the address field. */
+  const firstAddressSuggestion = () => {
+    const street = lastAddressQuery.split(",")[0]!.trim();
+    return page
+      .getByRole("button")
+      .filter({ hasText: street })
+      .filter({ hasNot: page.getByRole("textbox") })
+      .first();
+  };
 
   // Either outcome proves the address → /api/delivery/quote round-trip fired:
   // the green "Delivery Available" fee box or the red "Not Available" box.

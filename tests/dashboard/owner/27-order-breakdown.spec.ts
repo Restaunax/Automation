@@ -13,9 +13,8 @@
  * "Which promotion wins"), so the combo is its own order: TC-899 (a second
  * describe, independent of TC-898's serial chain) pays a CODE-only combo on
  * wind and checks the deal row with its contents and the "You saved $X with
- * …" info line, which is shown but never summed. Wind's delivery address
- * needs a Google Places suggestion that QA does not return, so delivery is
- * API-only: TC-900 (a third describe with its own one-item menu, no wind or
+ * …" info line, which is shown but never summed. Delivery stays API-only
+ * here (wind's delivery UI is covered by TC-126/TC-215/TC-218): TC-900 (a third describe with its own one-item menu, no wind or
  * storefront seed needed) quotes a delivery order with and without a
  * FREE_DELIVERY code and reads DELIVERY_FEE / FREE_DELIVERY off
  * `quote.breakdown`.
