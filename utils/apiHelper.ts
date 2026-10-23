@@ -2840,7 +2840,9 @@ export interface SeedOrderOpts {
   tax?: number;
   /** Honoured verbatim. */
   tip?: number;
-  /** Honoured only for DELIVERY/SHIPPING orders (and only when > 0). */
+  /** Honoured only for DELIVERY/SHIPPING orders (and only when > 0). A
+   *  DELIVERY seed defaults to DEFAULT_SEED_DELIVERY_FEE: the backend refuses
+   *  a DELIVERY order without a fee (delivery_fee_missing). */
   deliveryFee?: number;
   total?: number;
   orderType?: "PICKUP" | "DELIVERY";
@@ -2904,7 +2906,7 @@ export interface SeededOrder extends ApiOrder {
     firstName?: string;
     lastName?: string;
   };
-  /** false when a DELIVERY seed had to fall back to deliveryFee:0 (tax policy). */
+  /** true for a DELIVERY seed (always sent with a non-zero fee); false otherwise. */
   deliveryFeeApplied: boolean;
 }
 
@@ -2929,9 +2931,15 @@ export interface SeededOrder extends ApiOrder {
  * So the returned SeededOrder carries the recorded values — assert against
  * those (e.g. `formatCurrency(order.total)`), never a hand-computed sum.
  *
- * DELIVERY + deliveryFee > 0 can be rejected (400) when the restaurant's state
- * has an unsupported delivery-tax policy; we retry once with deliveryFee: 0 and
- * flag `deliveryFeeApplied: false` so tests can guard the fee-row assertion.
+ * A DELIVERY seed always carries a NON-ZERO delivery fee (default
+ * DEFAULT_SEED_DELIVERY_FEE): since RestauNax 2026-10-21
+ * (Service/pricing/deliveryFeeGuard.ts, UBER_DIRECT.md "A DELIVERY order must
+ * carry its quoted fee") order creation refuses a DELIVERY body with no fee
+ * (400 `delivery_fee_missing`) — Uber never quotes $0, so a $0 fee means the
+ * address was never priced. A fee with no quote id is still accepted (logged
+ * as order_delivery_without_quote). The old 400 → retry-with-$0 fallback for
+ * an unsupported delivery-tax state is gone too: delivery-fee tax is never
+ * refused any more (78fd8f7ff), and $0 is now the refused value.
  *
  * Contact fields (firstName/lastName/email/phone/specialInstructions) are
  * persisted as an on-order snapshot AND on the Customer row, so search by any
@@ -2941,6 +2949,9 @@ export interface SeededOrder extends ApiOrder {
  * There is no order-delete API — seeded orders are permanent QA residue;
  * tests must assert on their OWN rows / on DELTAS, never absolute totals.
  */
+/** The delivery fee a DELIVERY seed carries when the caller names none. */
+export const DEFAULT_SEED_DELIVERY_FEE = 4.99;
+
 export async function createSeededOrder(
   ownerToken: string,
   restaurantId: string,
@@ -2993,27 +3004,15 @@ export async function createSeededOrder(
     ],
   });
 
-  const requestedFee = opts.deliveryFee ?? 0;
-  let deliveryFeeApplied = requestedFee > 0;
-  let res = await apiRequestRaw<{ order?: SeededOrder } & SeededOrder>(
+  const requestedFee =
+    opts.deliveryFee ??
+    (orderType === "DELIVERY" ? DEFAULT_SEED_DELIVERY_FEE : 0);
+  const deliveryFeeApplied = orderType === "DELIVERY" && requestedFee > 0;
+  const res = await apiRequestRaw<{ order?: SeededOrder } & SeededOrder>(
     "POST",
     `/api/order/new/restaurantId/${restaurantId}`,
     buildBody(requestedFee)
   );
-  if (
-    !res.ok &&
-    res.status === 400 &&
-    orderType === "DELIVERY" &&
-    requestedFee > 0
-  ) {
-    // Tax-policy fallback (see doc comment) — retry without a delivery fee.
-    deliveryFeeApplied = false;
-    res = await apiRequestRaw<{ order?: SeededOrder } & SeededOrder>(
-      "POST",
-      `/api/order/new/restaurantId/${restaurantId}`,
-      buildBody(0)
-    );
-  }
   if (!res.ok) {
     const detail =
       typeof res.data === "string" ? res.data : JSON.stringify(res.data);

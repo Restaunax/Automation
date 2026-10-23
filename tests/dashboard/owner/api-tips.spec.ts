@@ -513,18 +513,22 @@ test.describe("Tips — pools, tip-outs, cash (API)", () => {
     expect(rows[0]).toBe(
       "Name,Hours,Card tips,Cash tips,Tips through payroll,Declared cash tips," +
         "Tip-outs given,Tip-outs received,Given to the pool,Pool received," +
-        "Card fee withheld,Net tips"
+        "Card fee withheld,Net tips," +
+        // RestauNax 9d9578a45 (2026-10-22): cash tips never paid twice;
+        // unassigned tips shared across the pay period.
+        "Unassigned tips shared,Paid from drawer,Cash tips kept at shift"
     );
     // name, hours, card, cash, payroll, declared, tip-outs given, tip-outs
-    // received, given to pool, pool received, fee, net
+    // received, given to pool, pool received, fee, net, unassigned shared,
+    // paid from drawer, cash kept at shift (none of the last three here)
     expect(rows).toContain(
-      "Ana Tipsy,1.00,0.00,10.00,0.00,0.00,0.00,0.00,2.00,0.00,0.00,8.00"
+      "Ana Tipsy,1.00,0.00,10.00,0.00,0.00,0.00,0.00,2.00,0.00,0.00,8.00,0.00,0.00,0.00"
     );
     expect(rows).toContain(
-      "Cal Tipsy,0.67,0.00,6.00,0.00,0.00,0.00,0.00,1.20,0.00,0.00,4.80"
+      "Cal Tipsy,0.67,0.00,6.00,0.00,0.00,0.00,0.00,1.20,0.00,0.00,4.80,0.00,0.00,0.00"
     );
     expect(rows).toContain(
-      "Ben Tipsy,1.00,0.00,0.00,0.00,6.50,0.00,0.00,0.00,3.20,0.00,3.20"
+      "Ben Tipsy,1.00,0.00,0.00,0.00,6.50,0.00,0.00,0.00,3.20,0.00,3.20,0.00,0.00,0.00"
     );
   });
 });

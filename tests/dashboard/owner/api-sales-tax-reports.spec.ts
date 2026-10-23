@@ -220,8 +220,15 @@ test.describe("Sales tax and reports agree with the orders (API)", () => {
     );
     expect(csv.status).toBe(200);
     const rows = lines(csv.data);
-    expect(rows.some((l) => /^State,6,20\.00,1\.20$/.test(l))).toBe(true);
-    expect(rows.some((l) => /^Alcohol,9,8\.00,0\.72$/.test(l))).toBe(true);
+    // rate, percent, taxable base, tax, refunded tax, net tax — the refund
+    // columns joined in RestauNax aab02ca41 (refund tax per rate); nothing is
+    // refunded here, so net = tax.
+    expect(rows.some((l) => /^State,6,20\.00,1\.20,0\.00,1\.20$/.test(l))).toBe(
+      true
+    );
+    expect(
+      rows.some((l) => /^Alcohol,9,8\.00,0\.72,0\.00,0\.72$/.test(l))
+    ).toBe(true);
   });
 
   test("TC-622: changing a rate later never changes what past orders owe", async () => {

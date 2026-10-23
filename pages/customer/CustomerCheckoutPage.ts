@@ -205,7 +205,9 @@ export const createCustomerCheckoutPage = (page: Page) => {
 
   // Success swaps the input for a green applied-code pill (the code) with
   // "Saving $X.XX" under it, and OrderSummary shows the server's promotion
-  // line: `appliedPromotion.title` from /quote and "-$X.XX".
+  // line: `appliedPromotion.title` from /quote and "−$X.XX". Since wind #135
+  // (2026-10-19) the summary renders the server breakdown, whose signed
+  // amounts use U+2212 MINUS SIGN ("−$2.60"), not a hyphen — both accepted.
   // spec: PROMOTIONS.md "Clients as built (plan 3)" → Storefronts — the old
   // client-built "Coupon (CODE)" line is gone; promotion lines come from
   // /quote, and the code box shows a saving only for the code's own line.
@@ -227,7 +229,7 @@ export const createCustomerCheckoutPage = (page: Page) => {
         .locator("div")
         .filter({
           hasText: new RegExp(
-            `^${escapeRegExp(promotionTitle)}-\\$${escapeRegExp(amount!)}$`
+            `^${escapeRegExp(promotionTitle)}[−-]\\$${escapeRegExp(amount!)}$`
           ),
         })
         .last()
@@ -584,12 +586,13 @@ export const createCustomerCheckoutPage = (page: Page) => {
   /** "You've earned a free <item> — Add it" (quote.freeItemOffer). */
   const freeItemOfferButton = () =>
     page.getByRole("button", { name: /^You've earned a free / });
-  /** The summary row for a promotion (its title + "-$X.XX"). */
+  /** The summary row for a promotion (its title + "−$X.XX"; U+2212 since the
+   *  breakdown summary, wind #135 — a hyphen is accepted too). */
   const promotionLine = (title: string) =>
     page
       .locator("div")
       .filter({
-        hasText: new RegExp(`^${escapeRegExp(title)}-\\$\\d+\\.\\d{2}$`),
+        hasText: new RegExp(`^${escapeRegExp(title)}[−-]\\$\\d+\\.\\d{2}$`),
       })
       .last();
   /** Deal upgrades build-up: Items / Upgrades / itemised detail (summary-* testids). */

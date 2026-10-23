@@ -257,7 +257,19 @@ export const createCustomerDealPage = (page: Page) => {
       .getByTestId("deal-step-status")
       .filter({ hasText: /^✓ Done$/ });
     await expect(doneButton().or(stepDone)).toBeVisible({ timeout: 15_000 });
-    const opened = await doneButton().isVisible();
+    let opened = await doneButton().isVisible();
+    // A pick on an item with ANY options opens the item modal, and the step
+    // can already read "✓ Done" while the modal animates in. With `customize`
+    // the item has options, so give the modal its moment before falling back
+    // to the step's Customize button (which the open modal's overlay blocks).
+    if (!opened && customize) {
+      opened = await doneButton()
+        .waitFor({ state: "visible", timeout: 5_000 })
+        .then(
+          () => true,
+          () => false
+        );
+    }
     if (customize) {
       if (!opened) await customizeButton(step).click();
       await expect(doneButton()).toBeVisible({ timeout: 15_000 });
@@ -380,7 +392,12 @@ export const createCustomerDealPage = (page: Page) => {
     page.getByRole("heading", {
       name: new RegExp(`^\\d+x ${escapeRe(dealName)}$`),
     });
-  const youAreSavingRow = () => page.getByText(/You're saving/).locator("..");
+  // The breakdown summary (wind #135, 2026-10-19) shows the server's info
+  // line "You saved $X with <deal>" (backend api:…dealSavings) under the
+  // total; the pre-breakdown summary's "You're saving | $X" row only renders
+  // when the quote carries no breakdown. Either way the row holds the amount.
+  const youAreSavingRow = () =>
+    page.getByText(/You're saving|You saved \$\d+\.\d{2} with /).locator("..");
   const dealItemUpchargeLine = (itemName: string) =>
     page.getByText(
       new RegExp(`^1x ${escapeRe(itemName)} \\(\\+\\$\\d+\\.\\d{2}\\)$`)
