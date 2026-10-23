@@ -65,7 +65,8 @@ test.describe("Admin — Restaurant Management", () => {
     const { restaurantName } = readSharedState();
     const restaurantsPage = createAdminRestaurantsPage(adminPage);
     await restaurantsPage.goto();
-    await restaurantsPage.openRowActionMenu(restaurantName);
+    // The seed name carries a trailing space; the search box doesn't.
+    await restaurantsPage.openRowActionMenu(restaurantName.trim());
     await adminPage
       .getByRole("menuitem", { name: "Manage Ownership", exact: true })
       .click();
