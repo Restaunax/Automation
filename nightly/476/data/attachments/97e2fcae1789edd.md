@@ -1,0 +1,353 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: dashboard/owner/25-promotion-scenarios.spec.ts >> Owner — promotion scenarios (dashboard → lima + wind) >> TC-863: @scenario S1 Wings + Fries + one of three gyros — choices added to the line (Done never pressed); customer picks 10 pc + Lamb: the size is an upgrade, the combo price stays fixed
+- Location: tests/dashboard/owner/25-promotion-scenarios.spec.ts:628:7
+
+# Error details
+
+```
+Error: expect(locator).toBeVisible() failed
+
+Locator: getByText('You\'re saving', { exact: true }).locator('../..')
+Expected: visible
+Timeout: 15000ms
+Error: element(s) not found
+
+Call log:
+  - Expect "toBeVisible" with timeout 15000ms
+  - waiting for getByText('You\'re saving', { exact: true }).locator('../..')
+
+```
+
+```yaml
+- banner:
+  - img "Boithok Khana Kitchen -"
+  - link "Home":
+    - /url: /boithok-khana-kitchen
+  - link "Menu":
+    - /url: /boithok-khana-kitchen/menu
+  - link "Careers":
+    - /url: /boithok-khana-kitchen/careers
+  - button "Login"
+  - button "shopping cart with 3 items": "3"
+- main:
+  - heading "Complete Your Order" [level=4]
+  - paragraph: Already A Member?
+  - text: Phone Number
+  - textbox "Phone Number":
+    - /placeholder: (555) 555-5555
+  - button "Sign In" [disabled]
+  - heading "How would you like to receive your order?" [level=6]
+  - heading "Choose Service Type" [level=6]
+  - heading "Delivery" [level=6]
+  - heading "Pickup" [level=6]
+  - text: 20-25 min
+  - heading "Customer Information" [level=6]
+  - text: First Name
+  - textbox "First Name"
+  - text: Last Name
+  - textbox "Last Name"
+  - text: Email Address
+  - textbox "Email Address"
+  - text: Phone Number
+  - textbox "Phone Number":
+    - /placeholder: (555) 123-4567
+  - checkbox [checked]
+  - paragraph: Enroll into promotional emails from Boithok Khana Kitchen -
+  - checkbox [checked]
+  - paragraph: Get promotional texts from Boithok Khana Kitchen -
+  - text: By signing up, you agree to receive email marketing communications from Boithok Khana Kitchen - and our technology partner
+  - link "RestauNax":
+    - /url: https://www.restaunax.com
+  - text: and consent to our
+  - link "Terms and policies":
+    - /url: https://order.qa.restaunax.com/boithok-khana-kitchen/terms
+  - text: . You may receive email or SMS notifications from us for order updates and account access and can opt out any time. Boithok Khana Kitchen -
+  - switch "Join Program"
+  - text: Join Program Earn
+  - strong: 25 points
+  - text: from this order 1x points per $1
+  - separator
+  - paragraph: Join the Boithok Khana Kitchen - to start earning points on this and future orders. It's free and instant!
+  - heading "Gift Card" [level=6]
+  - text: Gift Card Code
+  - textbox "Gift Card Code":
+    - /placeholder: Enter your gift card number
+  - button "Apply" [disabled]
+  - heading "Pickup Information" [level=6]
+  - heading "Boithok Khana Kitchen -" [level=6]
+  - paragraph: 1102 Liberty Avenue, Brooklyn, New York, 11208
+  - text: Pickup Location
+  - heading "Add Tip" [level=6]
+  - group:
+    - button "15%" [pressed]
+    - button "18%"
+    - button "20%"
+    - button "25%"
+    - button "Custom"
+  - heading "Special Instructions (Optional)" [level=6]
+  - textbox "Any special requests or dietary restrictions..."
+  - alert:
+    - paragraph: Complete Your Information
+    - paragraph: Please fill out all required fields above to proceed with payment.
+  - heading "Order Summary" [level=6]
+  - list:
+    - listitem:
+      - paragraph: 1x AUTO Scn Wings 1adc4fef
+      - text: + 10 pc 1adc4fef
+      - paragraph: $13.00
+    - listitem:
+      - paragraph: 1x AUTO Scn Fries 1adc4fef
+      - paragraph: $4.00
+    - listitem:
+      - paragraph: 1x AUTO Scn Lamb Gyro 1adc4fef
+      - paragraph: $12.00
+    - listitem:
+      - paragraph: 1x AUTO Scn Wings combo 1adc4fef
+      - button
+      - paragraph: $22.49
+      - button "Edit AUTO Scn Wings combo 1adc4fef": Edit
+  - separator
+  - paragraph: Items
+  - paragraph: $22.49
+  - paragraph: Upgrades
+  - paragraph: +$3.00
+  - text: 10 pc 1adc4fef +$3.00
+  - separator
+  - paragraph: Subtotal
+  - paragraph: $25.49
+  - paragraph: Tax
+  - paragraph: $2.23
+  - paragraph: Tip
+  - paragraph: $3.82
+  - separator
+  - heading "Total" [level=6]
+  - text: $31.54
+  - paragraph: You saved $3.51 with AUTO Scn Wings combo 1adc4fef
+- contentinfo:
+  - paragraph: Boithok Khana Kitchen -
+  - paragraph: Powered by
+  - link "RestauNax RestauNax":
+    - /url: https://www.restaunax.com
+    - img "RestauNax"
+    - paragraph: RestauNax
+  - paragraph: "|"
+  - link "Terms":
+    - /url: https://www.restaunax.com/website-terms
+  - paragraph: "|"
+  - link "Privacy":
+    - /url: https://www.restaunax.com/privacy-policy
+```
+
+# Test source
+
+```ts
+  440 |     return deals;
+  441 |   };
+  442 | 
+  443 |   /** Wind: menu → "Today's Deals" → View Deal → the builder. */
+  444 |   const windOpenDeal = async (
+  445 |     page: Page,
+  446 |     dealName: string,
+  447 |     at = restaurantId
+  448 |   ) => {
+  449 |     const menu = createCustomerMenuPage(page);
+  450 |     const deals = createCustomerDealPage(page);
+  451 |     await menu.goto(at);
+  452 |     await menu.assertPageLoaded();
+  453 |     await expect(deals.dealCard(dealName)).toBeVisible({ timeout: 30_000 });
+  454 |     await deals.viewDeal(dealName);
+  455 |     await expect(deals.builderHeading(dealName)).toBeVisible({
+  456 |       timeout: 20_000,
+  457 |     });
+  458 |     return deals;
+  459 |   };
+  460 | 
+  461 |   /**
+  462 |    * The checkout's money against the server: the deal line's price and
+  463 |    * upcharge in the page's /quote, the Items / Upgrades / Subtotal build-up
+  464 |    * (or a plain Subtotal when nothing was upgraded), "You're saving", and the
+  465 |    * Total = the latest quote's amountToCharge.
+  466 |    */
+  467 |   const expectCheckoutMoney = async (
+  468 |     app: "lima" | "wind",
+  469 |     page: Page,
+  470 |     quotes: QuoteTracker,
+  471 |     quote: PageQuote,
+  472 |     want: ExpectedDealCheckout
+  473 |   ) => {
+  474 |     const line = quote.body.quote?.deals?.find((d) => d.dealId === want.dealId);
+  475 |     expect(line, JSON.stringify(quote.body)).toBeTruthy();
+  476 |     await allure.parameter(
+  477 |       `${app} quote deal line`,
+  478 |       `price ${line?.dealPrice} upcharge ${line?.upcharge}`
+  479 |     );
+  480 |     expect(line!.dealPrice, "the server's deal price").toBe(want.dealPrice);
+  481 |     expect(cents(line!.upcharge), "the deal's upcharge").toBe(
+  482 |       cents(want.upcharge)
+  483 |     );
+  484 |     expect(
+  485 |       (quote.body.issues ?? []).filter((i) => i.severity === "ERROR"),
+  486 |       JSON.stringify(quote.body.issues)
+  487 |     ).toEqual([]);
+  488 | 
+  489 |     const lima = createLimaCheckoutPage(page);
+  490 |     const wind = createCustomerCheckoutPage(page);
+  491 |     const windDeals = createCustomerDealPage(page);
+  492 |     const subtotalRow =
+  493 |       app === "lima" ? lima.subtotalRow() : wind.subtotalRow();
+  494 |     const readMoney = async (row: ReturnType<Page["locator"]>) =>
+  495 |       app === "lima" ? lima.readMoney(row) : wind.readMoney(row);
+  496 | 
+  497 |     await expect(subtotalRow).toBeVisible({ timeout: 20_000 });
+  498 |     if (want.upcharge > 0) {
+  499 |       const itemsRow =
+  500 |         app === "lima" ? lima.summaryItemsRow() : wind.summaryItemsRow();
+  501 |       const upgradesRow =
+  502 |         app === "lima" ? lima.summaryUpgradesRow() : wind.summaryUpgradesRow();
+  503 |       await expect(itemsRow).toBeVisible({ timeout: 15_000 });
+  504 |       const items = await readMoney(itemsRow);
+  505 |       const upgrades = await readMoney(upgradesRow);
+  506 |       const subtotal = await readMoney(subtotalRow);
+  507 |       await allure.parameter(
+  508 |         `${app} items / upgrades / subtotal`,
+  509 |         `${items} / ${upgrades} / ${subtotal}`
+  510 |       );
+  511 |       expect(cents(items + upgrades), "Items + Upgrades = Subtotal").toBe(
+  512 |         cents(subtotal)
+  513 |       );
+  514 |       expect(cents(upgrades)).toBe(cents(want.upcharge));
+  515 |       expect(cents(subtotal)).toBe(cents(quote.body.quote!.subtotal));
+  516 |       await expect(upgradesRow).toContainText(`+${money(want.upcharge)}`);
+  517 |       const details =
+  518 |         app === "lima"
+  519 |           ? lima.summaryUpgradeDetails()
+  520 |           : wind.summaryUpgradeDetails();
+  521 |       for (const d of want.upgradeDetails ?? [])
+  522 |         await expect(details).toContainText(d);
+  523 |     } else {
+  524 |       const upgradesRow =
+  525 |         app === "lima" ? lima.summaryUpgradesRow() : wind.summaryUpgradesRow();
+  526 |       await expect(upgradesRow).toHaveCount(0);
+  527 |       expect(cents(await readMoney(subtotalRow))).toBe(
+  528 |         cents(quote.body.quote!.subtotal)
+  529 |       );
+  530 |     }
+  531 | 
+  532 |     const savingRow =
+  533 |       app === "lima" ? lima.youAreSavingRow() : windDeals.youAreSavingRow();
+  534 |     // From the customer's actual picks — never the deal's stored "from"
+  535 |     // regular (each pick line at its cheapest choice); template-wind #125.
+  536 |     const saving = Math.max(0, cents(want.regular) - cents(want.dealPrice));
+  537 |     // A row the page should show is waited for, never read as absent early.
+  538 |     let shownSaving = 0;
+  539 |     if (saving > 0) {
+> 540 |       await expect(savingRow).toBeVisible({ timeout: 15_000 });
+      |                               ^ Error: expect(locator).toBeVisible() failed
+  541 |       shownSaving = cents(await readMoney(savingRow));
+  542 |     } else {
+  543 |       await expect(savingRow).toHaveCount(0);
+  544 |     }
+  545 |     await allure.parameter(`${app} you're saving`, money(shownSaving / 100));
+  546 |     expect(shownSaving, `${app} "You're saving"`).toBe(saving);
+  547 | 
+  548 |     const total = await expectShownMatchesLatestQuote(
+  549 |       app === "lima" ? lima.readTotal : wind.readOrderTotal,
+  550 |       quotes
+  551 |     );
+  552 |     await allure.parameter(`${app} total`, money(total));
+  553 |     const latest = await quotes.latest();
+  554 |     expect(
+  555 |       (latest.request.orderDeals ?? []).map((d) => d.dealId),
+  556 |       "the latest quote is for this cart"
+  557 |     ).toContain(want.dealId);
+  558 |   };
+  559 | 
+  560 |   /**
+  561 |    * Lima, deal complete: Keep shopping → menu ("<deal> added to your cart")
+  562 |    * → cart → checkout, and the checkout's money against the server.
+  563 |    */
+  564 |   const limaKeepShoppingToCheckout = async (
+  565 |     page: Page,
+  566 |     quotes: QuoteTracker,
+  567 |     dealName: string,
+  568 |     want: ExpectedDealCheckout,
+  569 |     at = slug
+  570 |   ) => {
+  571 |     const lima = createLimaStorefrontPage(page);
+  572 |     const deals = createLimaDealPage(page);
+  573 |     const checkout = createLimaCheckoutPage(page);
+  574 |     await deals.assertDealComplete();
+  575 |     await deals.addDealToCart();
+  576 |     await deals.keepShoppingButton().click();
+  577 |     await expect(page).toHaveURL(new RegExp(`/${at}/menu`), {
+  578 |       timeout: 15_000,
+  579 |     });
+  580 |     await lima.cartButton().click();
+  581 |     await expect(page).toHaveURL(new RegExp(`/${at}/cart`), {
+  582 |       timeout: 15_000,
+  583 |     });
+  584 |     await expect(page.getByText(dealName).first()).toBeVisible({
+  585 |       timeout: 15_000,
+  586 |     });
+  587 |     const [res] = await Promise.all([
+  588 |       page.waitForResponse(quoteWithDeal(want.dealId), { timeout: 30_000 }),
+  589 |       checkout.goToCheckout(),
+  590 |     ]);
+  591 |     await expectCheckoutMoney("lima", page, quotes, await readQuote(res), want);
+  592 |   };
+  593 | 
+  594 |   /**
+  595 |    * Wind, deal complete: Keep shopping → menu ("<deal> added to your cart")
+  596 |    * → the cart button (→ /checkout), and the checkout's money against the
+  597 |    * server.
+  598 |    */
+  599 |   const windKeepShoppingToCheckout = async (
+  600 |     page: Page,
+  601 |     quotes: QuoteTracker,
+  602 |     dealName: string,
+  603 |     want: ExpectedDealCheckout
+  604 |   ) => {
+  605 |     const menu = createCustomerMenuPage(page);
+  606 |     const deals = createCustomerDealPage(page);
+  607 |     await deals.assertDealComplete();
+  608 |     await deals.addDealToCart();
+  609 |     await deals.keepShoppingButton().click();
+  610 |     await expect(page).toHaveURL(/\/menu/, { timeout: 15_000 });
+  611 |     await expect(menu.dealAddedConfirmation()).toHaveText(
+  612 |       `${dealName} added to your cart`,
+  613 |       { timeout: 10_000 }
+  614 |     );
+  615 |     const [res] = await Promise.all([
+  616 |       page.waitForResponse(quoteWithDeal(want.dealId), { timeout: 30_000 }),
+  617 |       menu.openCart(),
+  618 |     ]);
+  619 |     await menu.proceedToCheckout();
+  620 |     await expect(deals.dealSummaryRow(dealName)).toBeVisible({
+  621 |       timeout: 15_000,
+  622 |     });
+  623 |     await expectCheckoutMoney("wind", page, quotes, await readQuote(res), want);
+  624 |   };
+  625 | 
+  626 |   // ── Scenarios ────────────────────────────────────────────────────────────
+  627 | 
+  628 |   test("TC-863: @scenario S1 Wings + Fries + one of three gyros — choices added to the line (Done never pressed); customer picks 10 pc + Lamb: the size is an upgrade, the combo price stays fixed", async ({
+  629 |     ownerPage,
+  630 |     page,
+  631 |   }) => {
+  632 |     test.setTimeout(SCENARIO_TEST_TIMEOUT_MS);
+  633 |     await allure.description(
+  634 |       "The owner-reported combo. Build: Combo price → Wings, Fries, then Chicken Gyro with '+ Add an option' adding Lamb and Beef Gyro as options (each applies at once; Done is never pressed), $21.99, Save and turn on. Read back: three lines, the third with exactly the three gyro options. Edit: price → $22.49. Lima: Wings 10 pc (+$3 over the 8 pc default) and Lamb (pricier than the cheapest gyro) → deal $22.49, upgrades $3.00. Wind: the customer leaves the default 8 pc and picks Lamb → deal $22.49, upcharge $0, no upgrades line. Both: You're saving = $26 regular − $22.49. Expected to FAIL at the build on a dashboard without RestauNax #974 (the choices are dropped, so the form prices Wings + Fries alone at $14 and refuses $21.99); not fixme'd — it goes green with that fix."
+  635 |     );
+  636 |     const name = promoName("Wings combo");
+  637 |     const group = "What's in the combo?";
+  638 |     const gyros = [chickenGyro, lambGyro, beefGyro];
+  639 |     const create = createOwnerCreatePromotionPage(ownerPage);
+  640 |     const quotes = trackQuotes(page);
+```

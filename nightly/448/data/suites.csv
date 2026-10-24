@@ -1,0 +1,6 @@
+"DESCRIPTION","DURATION IN MS","NAME","PARENT SUITE","START TIME","STATUS","STOP TIME","SUB SUITE","SUITE","TEST CLASS","TEST METHOD"
+"","1173","POS: the live order feed carries the same breakdown totals","dashboard","2026-10-20","passed","2026-10-20","Order money breakdown — one order, every surface","","",""
+"","825","email: the confirmation email's totals match the backend @email","dashboard","2026-10-20","passed","2026-10-20","Order money breakdown — one order, every surface","","",""
+"","5119","owner dashboard: the order sheet shows the backend's money lines and the free marker","dashboard","2026-10-20","passed","2026-10-20","Order money breakdown — one order, every surface","","",""
+"","17472","TC-898: a wind order with a free item, points, a gift card and a tip reads the same money lines at checkout and on the confirmation page","dashboard","2026-10-20","passed","2026-10-20","Order money breakdown — one order, every surface","","",""
+"","777","backend: the owner's order read carries the breakdown the customer saw, and it adds up","dashboard","2026-10-20","passed","2026-10-20","Order money breakdown — one order, every surface","","",""
