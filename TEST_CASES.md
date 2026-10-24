@@ -34,7 +34,7 @@ Each test case includes:
 | 🍳 POS            | Restaurant kitchen / tablet        | TC-100 (`--project=pos`), TC-524 → TC-527, TC-712 (`pos/10-deals.spec.ts`), TC-845 → TC-851, TC-855, TC-856 (`pos/11-promotions.spec.ts`), TC-908 → TC-913 (`pos/12-combo-food-surfaces.spec.ts`)                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | 🔒 Access Control | Testing role/permission boundaries | TC-54 → TC-58, TC-71 → TC-73, TC-81                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | 🚪 Onboarding     | New restaurant owners              | TC-93 → TC-97, TC-182, TC-183 (spans Public sign-up and Employee restaurant creation)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| 👔 Employee       | Company-side setup staff           | TC-143, TC-144, TC-182, TC-183 (TC-17/18 tax and TC-97 also run under the EMPLOYEE role)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| 👔 Employee       | Company-side setup staff           | TC-143, TC-144, TC-940, TC-182, TC-183 (TC-17/18 tax and TC-97 also run under the EMPLOYEE role)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | 🌐 API-Level      | No UI — direct backend calls       | TC-65, TC-66, TC-68, TC-69, TC-79, TC-80, TC-226 → TC-230 (`api-orders-authz.spec.ts`), TC-255 → TC-261 (`api-orders.spec.ts`), TC-263 → TC-287 (`api-menu.spec.ts`), TC-323, TC-324, TC-325 → TC-350 (`api-deals.spec.ts`), TC-508 → TC-523, TC-539, TC-542 (deal scheduling), TC-691 → TC-701 (guided deal types), TC-754 → TC-788, TC-894 → TC-896 (Books & taxes, partner API, accountant, add-on billing — `docs/BACK_OFFICE_COVERAGE.md`), TC-800 → TC-820 (`api-promotions.spec.ts`)                                                                                                                                             |
 
 TC-17 and TC-18 (tax settings) run under the **Employee** role, not Owner —
@@ -2568,6 +2568,28 @@ The same four-item checklist described in TC-28 (Hours of Operation, Menu Setup,
 ### Why it matters
 
 Confirms EMPLOYEE gets the same completeness guidance as any other role that can reach this page, so a client's restaurant is never published half-configured.
+
+---
+
+## TC-940 — Employee Can Invite a Restaurant's Staff (API)
+
+**Status:** ✅ Passing — `tests/dashboard/employee/staff-invite.spec.ts` (needs `EMPLOYEE_*`, `ADMIN_*` and `MAILPIT_BASE_URL`, else skipped)
+
+### What it checks
+
+Product decision (2026-10-23): a company EMPLOYEE **can** invite a restaurant's (POS) staff, matching `POST /restaurant/:id/staff/invite` (`requireOwnerOrAdmin` lets EMPLOYEE through). Inviting **company** users (`/api/admin/users/invite`) stays ADMIN-only.
+
+### How it works, step by step
+
+1. The test mints a throwaway owner + restaurant and signs in as EMPLOYEE
+2. EMPLOYEE invites an auto-named staff member — the API returns 201 with a staff member id
+3. The restaurant's owner lists staff and the new record is there
+4. EMPLOYEE posting to `/api/admin/users/invite` gets 403
+5. Cleanup removes the staff row and purges the restaurant (asserted)
+
+### Why it matters
+
+Company setup staff onboard clients end to end, including the client's staff; the 403 keeps the company-user invite admin-only.
 
 ---
 
