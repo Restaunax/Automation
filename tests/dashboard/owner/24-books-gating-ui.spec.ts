@@ -2,7 +2,10 @@
  * 24-books-gating-ui.spec.ts — Books & taxes follows its add-on in the
  * dashboard: hidden (never shown locked) without it, every section loads
  * with it; Connected apps (the free partner API) is there either way
- * (TC-789..791).
+ * (TC-789..791). A deep link without it says where to get it — since
+ * restaunax #998, where to REQUEST it — and the seed owner sends and cancels
+ * that request from Billing → Add-ons (TC-897; skipped until #998 is on QA,
+ * utils/addonRequestGate.ts).
  *
  * Browser. A per-run throwaway owner logs in through the UI (loginViaUi);
  * the "Books & Taxes" add-on (ACCOUNTING_SYNC) is switched by admin override
@@ -13,7 +16,7 @@
 import * as allure from "allure-js-commons";
 import type { Page, Response as PwResponse } from "@playwright/test";
 import { test, expect } from "../../../fixtures/base";
-import { generateRunId } from "../../../utils/testData";
+import { generateRunId, readSharedState } from "../../../utils/testData";
 import { loginViaUi, type UiLoginSession } from "../../../utils/auth";
 import {
   apiLogin,
@@ -21,7 +24,15 @@ import {
   deleteTestRestaurant,
   setFeatureOverrideAdminRaw,
   deleteFeatureOverrideAdminRaw,
+  getRestaurantFeaturesRaw,
+  adminAddonsRaw,
+  ownerAddonRequestCancelRaw,
+  type LooseJson,
 } from "../../../utils/apiHelper";
+import {
+  addonRequestsLive,
+  requireAddonRequests,
+} from "../../../utils/addonRequestGate";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
@@ -46,6 +57,7 @@ test.describe("Owner — Books & taxes is hidden without its add-on; Connected a
   const runId = generateRunId();
   let adminToken = "";
   let restaurantId = "";
+  let live = false;
   let session: UiLoginSession | undefined;
   const refused: string[] = [];
 
@@ -79,6 +91,7 @@ test.describe("Owner — Books & taxes is hidden without its add-on; Connected a
     const tenant = await createSecondOwner(adminToken, runId);
     if (!tenant.restaurantId) throw new Error("[books-ui] no tenant");
     restaurantId = tenant.restaurantId;
+    live = await addonRequestsLive(adminToken);
     session = await loginViaUi(
       browser,
       tenant.email,
@@ -147,7 +160,7 @@ test.describe("Owner — Books & taxes is hidden without its add-on; Connected a
     expect(refused).toEqual([]);
   });
 
-  test("TC-791: removing the add-on hides it again, and a deep link doesn't open it", async () => {
+  test("TC-791: removing the add-on hides it again, and a deep link doesn't open it — it says where to get it", async () => {
     await deleteFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,
@@ -155,12 +168,141 @@ test.describe("Owner — Books & taxes is hidden without its add-on; Connected a
     );
     await manage("tab=books-taxes&section=calendar");
     await expect(
-      page().getByRole("heading", { name: "Not available for this restaurant" })
+      page().getByRole("heading", {
+        name: "Not part of this restaurant's plan",
+      })
     ).toBeVisible({ timeout: 20_000 });
+    // Since restaunax #998 owners request add-ons; before it they added them.
+    await expect(
+      page().getByText(
+        live
+          ? "This is an add-on this restaurant doesn't have yet. You can request it in Billing → Add-ons and we'll set it up."
+          : "This is an add-on this restaurant doesn't have yet. You can add it from Billing → Add-ons."
+      )
+    ).toBeVisible();
+    await expect(
+      page().getByRole("button", { name: "Go to Add-ons" })
+    ).toBeVisible();
     await expect(page().getByRole("tab", { name: "Tax calendar" })).toHaveCount(
       0
     );
     await expect(sideItem("Store Settings")).toBeVisible();
     await expect(sideItem(BOOKS)).toHaveCount(0);
+  });
+});
+
+// TC-897 runs on the SEED restaurant: Billing → Add-ons needs a subscription
+// ("No Subscription Assigned" otherwise), and the seed is the one QA
+// restaurant with one. A request turns nothing on and is cancelled here.
+test.describe("Owner — requests an add-on from Billing → Add-ons (UI)", () => {
+  test.skip(
+    !ADMIN_EMAIL || !ADMIN_PASSWORD,
+    "ADMIN_EMAIL / ADMIN_PASSWORD not set (gate + cleanup use HQ)"
+  );
+  test.skip(
+    !process.env.OWNER_EMAIL || !process.env.OWNER_PASSWORD,
+    "OWNER_EMAIL / OWNER_PASSWORD not set (the seed restaurant)"
+  );
+
+  let adminToken = "";
+  let seedToken = "";
+  let seedId = "";
+  let live = false;
+
+  /** Cancel any open Books & Taxes request on the seed (a crashed run's). */
+  const cancelOpen = async () => {
+    if (!live || !seedId) return;
+    const r = await adminAddonsRaw(adminToken, "GET", "/requests?status=OPEN");
+    for (const x of (Array.isArray(r.data.data) ? r.data.data : []) as Array<
+      Record<string, LooseJson>
+    >) {
+      const restaurant = x.restaurant as Record<string, LooseJson> | null;
+      const addon = x.addon as Record<string, LooseJson> | null;
+      if (restaurant?.id === seedId && addon?.feature === "ACCOUNTING_SYNC")
+        await ownerAddonRequestCancelRaw(seedToken, seedId, String(x.id));
+    }
+  };
+
+  test.beforeAll(async () => {
+    if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return;
+    if (!process.env.OWNER_EMAIL || !process.env.OWNER_PASSWORD) return;
+    adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
+    seedToken = (
+      await apiLogin(process.env.OWNER_EMAIL, process.env.OWNER_PASSWORD)
+    ).accessToken;
+    seedId = readSharedState().restaurantId;
+    live = await addonRequestsLive(adminToken);
+    await cancelOpen();
+  });
+
+  test.afterAll(async () => {
+    await cancelOpen().catch(() => {});
+  });
+
+  test("TC-897: from the locked tab the owner requests Books & Taxes on Billing → Add-ons, sees it pending, and cancels it", async ({
+    ownerPage,
+  }) => {
+    await allure.label("feature", "Add-on billing");
+    await allure.label("severity", "critical");
+    requireAddonRequests(live);
+    const features =
+      (await getRestaurantFeaturesRaw(seedToken, seedId)).data.data?.features ??
+      [];
+    test.skip(
+      features.includes("ACCOUNTING_SYNC"),
+      "the seed restaurant has Books & Taxes on — no locked tab to start from"
+    );
+    await ownerPage.goto(
+      `/restaurant/restaurantId/${seedId}/restaurantManagement?tab=books-taxes`,
+      { waitUntil: "domcontentloaded" }
+    );
+    await expect(
+      ownerPage.getByText("You can request it in Billing → Add-ons", {
+        exact: false,
+      })
+    ).toBeVisible({ timeout: 20_000 });
+    await ownerPage.getByRole("button", { name: "Go to Add-ons" }).click();
+    await expect(ownerPage).toHaveURL(/tab=Billing/);
+
+    const card = ownerPage.locator(".MuiCard-root").filter({
+      has: ownerPage.getByRole("heading", {
+        name: "Books & Taxes",
+        exact: true,
+      }),
+    });
+    await expect(card).toHaveCount(1, { timeout: 20_000 });
+    // No owner-side "Add" any more: the only action is a request.
+    await expect(card.getByRole("button", { name: /^Add$/ })).toHaveCount(0);
+    await card.getByRole("button", { name: "Request this add-on" }).click();
+
+    const dialog = ownerPage.getByRole("dialog");
+    await expect(
+      dialog.getByRole("heading", { name: "Request Books & Taxes?" })
+    ).toBeVisible();
+    await dialog
+      .getByLabel("Anything we should know? (optional)")
+      .fill(`automation ${generateRunId()}`);
+    await dialog.getByRole("button", { name: "Send request" }).click();
+    await expect(dialog).toBeHidden();
+    await expect(
+      ownerPage.getByText(
+        "Request sent. We'll contact you to set it up, usually within one business day."
+      )
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      card.getByText(/^Request sent .+\. We'll contact you\.$/)
+    ).toBeVisible();
+    // A request turns nothing on.
+    expect(
+      (await getRestaurantFeaturesRaw(seedToken, seedId)).data.data?.features
+    ).not.toContain("ACCOUNTING_SYNC");
+
+    await card.getByRole("button", { name: "Cancel request" }).click();
+    await expect(ownerPage.getByText("Request cancelled.")).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(
+      card.getByRole("button", { name: "Request this add-on" })
+    ).toBeVisible();
   });
 });

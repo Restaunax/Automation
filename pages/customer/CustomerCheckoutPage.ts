@@ -205,7 +205,9 @@ export const createCustomerCheckoutPage = (page: Page) => {
 
   // Success swaps the input for a green applied-code pill (the code) with
   // "Saving $X.XX" under it, and OrderSummary shows the server's promotion
-  // line: `appliedPromotion.title` from /quote and "-$X.XX".
+  // line: `appliedPromotion.title` from /quote and "−$X.XX". Since wind #135
+  // (2026-10-19) the summary renders the server breakdown, whose signed
+  // amounts use U+2212 MINUS SIGN ("−$2.60"), not a hyphen — both accepted.
   // spec: PROMOTIONS.md "Clients as built (plan 3)" → Storefronts — the old
   // client-built "Coupon (CODE)" line is gone; promotion lines come from
   // /quote, and the code box shows a saving only for the code's own line.
@@ -227,7 +229,7 @@ export const createCustomerCheckoutPage = (page: Page) => {
         .locator("div")
         .filter({
           hasText: new RegExp(
-            `^${escapeRegExp(promotionTitle)}-\\$${escapeRegExp(amount!)}$`
+            `^${escapeRegExp(promotionTitle)}[−-]\\$${escapeRegExp(amount!)}$`
           ),
         })
         .last()
@@ -348,11 +350,17 @@ export const createCustomerCheckoutPage = (page: Page) => {
   // full disclosure; the absence check matches any "Processing Fee…" label so
   // a future re-wording can't turn it into a check that always passes (the
   // old exact "Processing Fee" match had silently become one).
-  const processingFeeLabel = () => page.getByText(/^Processing Fee\b/);
+  //
+  // Since template-wind #135 (2026-10-19) the summary renders the server
+  // breakdown, whose label is "Processing fee" (lower-case f) with the
+  // "(credit cards)" suffix after an &nbsp;. Both matchers are
+  // case-insensitive: the old case-sensitive absence check silently passed
+  // against the new label, so it proved nothing.
+  const processingFeeLabel = () => page.getByText(/^Processing fee\b/i);
   const assertProcessingFeeVisible = () =>
-    expect(
-      page.getByText("Processing Fee (credit cards)", { exact: true })
-    ).toBeVisible({ timeout: 20_000 });
+    expect(page.getByText(/^Processing fee\s*\(credit cards\)$/i)).toBeVisible({
+      timeout: 20_000,
+    });
   const assertNoProcessingFee = () =>
     expect(processingFeeLabel()).toHaveCount(0);
 
@@ -396,16 +404,29 @@ export const createCustomerCheckoutPage = (page: Page) => {
 
   const selectDelivery = () => deliveryButton().first().click();
 
-  // The address field is a Google Places autocomplete — type + pick the first
-  // suggestion (external API; caller handles the no-suggestion skip).
+  // The address field is template-wind's own autocomplete
+  // (GooglePlacesAutocomplete.tsx): typing calls the backend geo proxy
+  // (GET /api/public/geo/autocomplete) and each prediction renders as a
+  // <button> showing its street ("350 5th Ave") over its area. There is no
+  // Google SDK on the page any more, so the old `.pac-item` locator matched
+  // nothing and every delivery test skipped as "no suggestion".
+  let lastAddressQuery = "";
   const fillDeliveryAddress = async (query: string) => {
+    lastAddressQuery = query;
     await deliveryAddressInput().waitFor({ state: "visible", timeout: 10_000 });
     await deliveryAddressInput().click();
     await deliveryAddressInput().pressSequentially(query, { delay: 100 });
   };
 
-  const firstAddressSuggestion = () =>
-    page.locator('[class*="pac-item"], [role="option"]').first();
+  /** The first prediction for the street last typed into the address field. */
+  const firstAddressSuggestion = () => {
+    const street = lastAddressQuery.split(",")[0]!.trim();
+    return page
+      .getByRole("button")
+      .filter({ hasText: street })
+      .filter({ hasNot: page.getByRole("textbox") })
+      .first();
+  };
 
   // Either outcome proves the address → /api/delivery/quote round-trip fired:
   // the green "Delivery Available" fee box or the red "Not Available" box.
@@ -578,12 +599,13 @@ export const createCustomerCheckoutPage = (page: Page) => {
   /** "You've earned a free <item> — Add it" (quote.freeItemOffer). */
   const freeItemOfferButton = () =>
     page.getByRole("button", { name: /^You've earned a free / });
-  /** The summary row for a promotion (its title + "-$X.XX"). */
+  /** The summary row for a promotion (its title + "−$X.XX"; U+2212 since the
+   *  breakdown summary, wind #135 — a hyphen is accepted too). */
   const promotionLine = (title: string) =>
     page
       .locator("div")
       .filter({
-        hasText: new RegExp(`^${escapeRegExp(title)}-\\$\\d+\\.\\d{2}$`),
+        hasText: new RegExp(`^${escapeRegExp(title)}[−-]\\$\\d+\\.\\d{2}$`),
       })
       .last();
   /** Deal upgrades build-up: Items / Upgrades / itemised detail (summary-* testids). */

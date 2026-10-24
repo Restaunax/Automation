@@ -37,6 +37,12 @@ export const createAdminRestaurantsPage = (page: Page) => {
   // The kebab IconButton carries no aria-label; MUI stamps the icon with
   // data-testid="MoreVertIcon", which is the stable hook.
   const openRowActionMenu = async (name: string) => {
+    // Search only once the first page has loaded: a search typed before it
+    // lands is overwritten by the unfiltered list.
+    await page
+      .locator("tbody tr")
+      .first()
+      .waitFor({ state: "visible", timeout: 20_000 });
     await searchInput().fill(name);
     const row = findRowByName(name).first();
     await row.waitFor({ state: "visible", timeout: 15_000 });
@@ -47,11 +53,16 @@ export const createAdminRestaurantsPage = (page: Page) => {
       .locator('button:has([data-testid="MoreVertIcon"])')
       .or(row.getByRole("button").last())
       .first();
-    await kebab.scrollIntoViewIfNeeded();
-    await kebab.click();
-    await page
-      .getByRole("menuitem", { name: "Edit", exact: true })
-      .waitFor({ state: "visible", timeout: 10_000 });
+    const editItem = page.getByRole("menuitem", { name: "Edit", exact: true });
+    // The search is debounced: the table can re-render (and detach the row)
+    // right after it first shows the match. Retry the open until the menu is
+    // up instead of racing that refresh.
+    await expect(async () => {
+      if (await editItem.isVisible()) return;
+      await kebab.scrollIntoViewIfNeeded({ timeout: 3_000 });
+      await kebab.click({ timeout: 3_000 });
+      await expect(editItem).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 20_000 });
   };
 
   const openUpdateRestaurantInfo = async (name: string) => {

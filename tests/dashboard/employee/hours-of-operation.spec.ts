@@ -38,8 +38,9 @@ test.describe("Employee — Business Hours", () => {
     );
 
     const createPage = createOwnerCreateRestaurantPage(employeePage);
-    const restaurantName = `Automation Hours ${generateRunId()}`;
+    const restaurantName = `AUTO Employee Hours ${generateRunId()}`;
     let restaurantId = "";
+    let removal: Awaited<ReturnType<typeof deleteTestRestaurant>>;
 
     try {
       await allure.step("Create a restaurant and reach Step 1", async () => {
@@ -104,7 +105,7 @@ test.describe("Employee — Business Hours", () => {
       if (restaurantId && ADMIN_EMAIL && ADMIN_PASSWORD) {
         try {
           const { accessToken } = await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD);
-          await deleteTestRestaurant(accessToken, restaurantId);
+          removal = await deleteTestRestaurant(accessToken, restaurantId);
         } catch (err) {
           console.warn(
             `[hours-of-operation] Failed to delete test restaurant ${restaurantId} — clean it up manually:`,
@@ -117,5 +118,13 @@ test.describe("Employee — Business Hours", () => {
         );
       }
     }
+
+    // Reached only when the test body passed. The admin delete purges an
+    // EMPTY restaurant and merely archives one with any activity — this test
+    // must leave nothing behind in QA, so insist on the purge.
+    expect(
+      removal,
+      `restaurant ${restaurantId} was archived, not purged — it is still in QA`
+    ).toBe("purged");
   });
 });

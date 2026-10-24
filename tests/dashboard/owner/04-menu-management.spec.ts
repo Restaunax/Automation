@@ -18,6 +18,10 @@ const TEST_ITEM_NAME = `Automation Bruschetta ${RUN_ID}`;
 const TEST_ITEM_PRICE = "9.99";
 const TEST_ITEM_DESCRIPTION = "Test item created by Playwright automation";
 const DELETE_CATEGORY_NAME = `TC45 Delete ${RUN_ID}`;
+// Both names match the teardown sweep ("Test Starters *") in case TC-42 dies
+// before its own delete step.
+const RENAME_FROM_NAME = `Test Starters ${RUN_ID} Rename`;
+const RENAME_TO_NAME = `Test Starters ${RUN_ID} Renamed`;
 
 test.describe("Owner — Menu Management", () => {
   test.skip(
@@ -197,12 +201,36 @@ test.describe("Owner — Menu Management", () => {
       );
     });
 
-    test("TC-42: owner can edit a menu category name", async () => {
-      test.skip(
-        true,
-        "Edit category name is not available in the current UI (no edit button on category header). " +
-          "Category names can only be set at creation time."
+    test("TC-42: owner can rename a menu category", async ({ ownerPage }) => {
+      await allure.description(
+        "Owner creates a category, renames it in place with the 'Rename category' control next to " +
+          "its heading, sees the new name on its tab, still sees it after a reload, then deletes it."
       );
+
+      await allure.step(
+        `Create empty category "${RENAME_FROM_NAME}"`,
+        async () => {
+          await menuPage.createCategory(RENAME_FROM_NAME);
+        }
+      );
+
+      await allure.step(`Rename it to "${RENAME_TO_NAME}"`, async () => {
+        await menuPage.renameCategory(RENAME_FROM_NAME, RENAME_TO_NAME);
+        await menuPage.assertCategoryVisible(RENAME_TO_NAME);
+        await expect(
+          ownerPage.getByRole("tab", { name: RENAME_FROM_NAME, exact: true })
+        ).toHaveCount(0);
+      });
+
+      await allure.step("The new name survives a reload", async () => {
+        await menuPage.navigateToMenuTab();
+        await menuPage.assertCategoryVisible(RENAME_TO_NAME);
+      });
+
+      await allure.step("Clean up: delete the renamed category", async () => {
+        await menuPage.deleteCategory(RENAME_TO_NAME);
+        await menuPage.assertCategoryDeleted(RENAME_TO_NAME);
+      });
     });
 
     test("TC-43: owner can edit a menu item name and price", async () => {

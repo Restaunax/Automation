@@ -302,6 +302,27 @@ export const createOwnerMenuPage = (page: Page) => {
         has: page.getByRole("heading", { name: categoryName, exact: true }),
       })
       .last();
+  /**
+   * Rename a category in place (InlineEditableName next to its heading):
+   * "Rename category" pencil → the heading is REPLACED by a textbox labelled
+   * the same (so the section can no longer be found by its heading, and only
+   * one such textbox exists at a time) → Enter commits. Resolves once the
+   * heading shows the new name.
+   */
+  const renameCategory = async (oldName: string, newName: string) => {
+    await categorySection(oldName)
+      .getByRole("button", { name: "Rename category" })
+      .click();
+    const input = page.getByRole("textbox", { name: "Rename category" });
+    await expect(input).toHaveValue(oldName, { timeout: 10_000 });
+    await input.fill(newName);
+    await input.press("Enter");
+    await expect(input).toBeHidden({ timeout: 15_000 });
+    await expect(
+      page.getByRole("heading", { name: newName, exact: true })
+    ).toBeVisible({ timeout: 15_000 });
+  };
+
   const categoryChip = (categoryName: string, kind: "shared" | "local") =>
     categorySection(categoryName).getByText(
       kind === "shared" ? /Shared · all \d+ locations/ : "Only at this location"
@@ -387,6 +408,7 @@ export const createOwnerMenuPage = (page: Page) => {
 
   return {
     navigateToMenuTab,
+    renameCategory,
     gotoBuilder,
     gotoChainBuilder,
     builderHeading,

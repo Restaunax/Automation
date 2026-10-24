@@ -11,10 +11,15 @@ import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
 import { generateDemoFormData } from "../../../utils/testData";
 import { waitForEmail } from "../../../utils/emailHelper";
-import { apiLogin, deleteDemoRequestByEmail } from "../../../utils/apiHelper";
+import {
+  apiLogin,
+  deleteDemoRequestByEmail,
+  submitDemoRequestRaw,
+} from "../../../utils/apiHelper";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
+const MAILPIT_BASE_URL = process.env.MAILPIT_BASE_URL ?? "";
 
 test.describe("Demo Request — Public Form", () => {
   test.beforeEach(async () => {
@@ -142,34 +147,62 @@ test.describe("Demo Request — Public Form", () => {
     );
   });
 
-  // Still skipped, but NOT for the old reason — the sandbox creds are in CI now
-  // that QA sends to Mailpit. As written this test never submits the form: it
-  // generates an address and immediately waits for mail, so un-skipping it would
-  // just time out. To enable, self-seed the request here via submitDemoRequestRaw
-  // (like the sibling demo specs), gate on MAILPIT_BASE_URL, and tag @demo @email.
-  test.skip("TC-02: receive confirmation email after demo request submission", async () => {
-    await allure.description(
-      "After a demo request is submitted, the Mailpit sandbox inbox should contain " +
-        "a confirmation email addressed to the submitted email."
-    );
+  test(
+    "TC-02: the requester receives a confirmation email after a demo request",
+    { tag: ["@demo", "@email"] },
+    async () => {
+      test.skip(
+        !MAILPIT_BASE_URL,
+        "MAILPIT_BASE_URL not set (Mailpit sandbox)"
+      );
+      test.skip(
+        !ADMIN_EMAIL || !ADMIN_PASSWORD,
+        "ADMIN_* needed to delete the seeded demo request afterwards"
+      );
+      await allure.description(
+        "A restaurant demo request (POST /api/demo-requests, the call the /get-started form " +
+          "makes) emails the requester 'Your Demo Request Has Been Received', addressed to them " +
+          "by name. The seeded lead is deleted afterwards."
+      );
 
-    const { email } = generateDemoFormData();
-
-    await allure.step(
-      `Wait for confirmation email to arrive at ${email}`,
-      async () => {
-        const message = await waitForEmail(email, {
-          subjectPattern: /demo|confirm|request/i,
-          timeoutMs: 30_000,
+      const formData = generateDemoFormData();
+      try {
+        await allure.step("Submit a restaurant demo request", async () => {
+          const res = await submitDemoRequestRaw({
+            ...formData,
+            planType: "restaurant",
+          });
+          expect(res.ok, JSON.stringify(res.data)).toBe(true);
         });
 
-        expect(message.to_email.toLowerCase()).toBe(email.toLowerCase());
-        expect(message.subject).toBeTruthy();
-
-        await allure.parameter("Email recipient", message.to_email);
-        await allure.parameter("Email subject", message.subject);
-        await allure.parameter("Received at", message.created_at);
+        await allure.step(
+          `The confirmation arrives at ${formData.email}`,
+          async () => {
+            const message = await waitForEmail(formData.email, {
+              subjectPattern: /^Your Demo Request Has Been Received$/,
+              timeoutMs: 60_000,
+            });
+            expect(message.to_email.toLowerCase()).toBe(
+              formData.email.toLowerCase()
+            );
+            expect(message.html_body).toContain(
+              `${formData.firstName} ${formData.lastName}`
+            );
+            await allure.parameter("Email subject", message.subject);
+          }
+        );
+      } finally {
+        await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)
+          .then(({ accessToken }) =>
+            deleteDemoRequestByEmail(accessToken, formData.email)
+          )
+          .catch((err: unknown) =>
+            console.warn(
+              `[TC-02] Failed to delete demo request ${formData.email}:`,
+              err
+            )
+          );
       }
-    );
-  });
+    }
+  );
 });

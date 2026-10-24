@@ -10,11 +10,18 @@ export const STRIPE_CARDS = {
   /** Succeeds and immediately creates a charge */
   VISA_SUCCESS: "4242424242424242",
 
-  /** Always requires 3DS authentication */
+  /**
+   * 3DS required for a one-off payment unless the card was set up for future
+   * use first (Stripe "authenticate unless set up").
+   */
   VISA_3DS_REQUIRED: "4000002500003155",
 
-  /** 3DS authentication can be completed or skipped */
-  VISA_3DS_OPTIONAL: "4000002760003184",
+  /**
+   * 3DS required on EVERY payment, however the card was set up (Stripe
+   * regulatory test card, "always authenticate"). In test mode the bank
+   * check is Stripe's test page with COMPLETE / FAIL buttons.
+   */
+  VISA_3DS_ALWAYS: "4000002760003184",
 
   /** Generic decline */
   DECLINED: "4000000000000002",
@@ -30,6 +37,12 @@ export const STRIPE_CARDS = {
 
   /** Dispute immediately after charge */
   DISPUTED: "4000000000000259",
+
+  /** Visa DEBIT (card.funding = "debit") — never surcharged */
+  VISA_DEBIT: "4000056655665556",
+
+  /** Mastercard PREPAID (card.funding = "prepaid") — never surcharged */
+  MASTERCARD_PREPAID: "5105105105105100",
 } as const;
 
 /** Common expiry/CVC/ZIP values that pass Stripe validation */

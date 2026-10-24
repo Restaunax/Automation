@@ -28,8 +28,56 @@ export const createAdminMarketingPage = (page: Page) => {
 
   const openEventsSubTab = () =>
     schedulerTabs().getByRole("tab", { name: "Events" }).click();
-  const openAutomationsSubTab = () =>
-    schedulerTabs().getByRole("tab", { name: "Automations" }).click();
+  /** The Automations tab's one list read (GET /api/marketing/automations). */
+  const isAutomationsList = (url: string) =>
+    new URL(url).pathname === "/api/marketing/automations";
+
+  /**
+   * Opens the Automations sub-tab and waits for its program list to LOAD.
+   *
+   * The tab reads GET /api/marketing/automations once on mount and never
+   * retries: if that read fails, it shows a "failed to load" snackbar and an
+   * empty table, and a later Edit/row lookup times out (TC-213, CI run
+   * 39903776781: the request's CORS preflight came back with no
+   * Access-Control-Allow-Origin, i.e. a transient QA edge/proxy error, not
+   * the app). So the outcome of that read is awaited, and a failed read is
+   * retried the way a person would: leave the tab and come back, which
+   * remounts it and reads again. Bounded to three attempts.
+   */
+  const openAutomationsSubTab = async () => {
+    const MAX_ATTEMPTS = 3;
+    for (let attempt = 1; ; attempt++) {
+      const outcome = Promise.race([
+        page
+          .waitForResponse(
+            (r) => isAutomationsList(r.url()) && r.request().method() === "GET",
+            { timeout: 30_000 }
+          )
+          .then((r) => (r.ok() ? null : `HTTP ${r.status()}`)),
+        page
+          .waitForEvent("requestfailed", {
+            predicate: (r) => isAutomationsList(r.url()),
+            timeout: 30_000,
+          })
+          .then((r) => r.failure()?.errorText ?? "request failed"),
+      ]);
+      // The race's loser keeps waiting until its timeout: never let it
+      // surface as an unhandled rejection.
+      outcome.catch(() => {});
+      await schedulerTabs().getByRole("tab", { name: "Automations" }).click();
+      const failure = await outcome;
+      if (failure === null) return;
+      if (attempt >= MAX_ATTEMPTS) {
+        throw new Error(
+          `GET /api/marketing/automations failed ${MAX_ATTEMPTS} times (last: ${failure})`
+        );
+      }
+      await openEventsSubTab();
+      await expect(
+        schedulerTabs().getByRole("tab", { name: "Events" })
+      ).toHaveAttribute("aria-selected", "true");
+    }
+  };
 
   // ── Events sub-tab ─────────────────────────────────────────────────────────
   const eventFilterGroup = () => page.locator('[aria-label="Event filter"]');

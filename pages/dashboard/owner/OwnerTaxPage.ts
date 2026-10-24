@@ -16,6 +16,13 @@ export const createOwnerTaxPage = (page: Page) => {
   const successToast = () =>
     page.getByText("Tax settings updated successfully!");
 
+  // "Current Tax Rate:" label → the chip beside it (restaurant.json → tax).
+  const currentRateChip = () =>
+    page
+      .getByText("Current Tax Rate:", { exact: true })
+      .locator("xpath=..")
+      .locator(".MuiChip-label");
+
   const setTaxRate = async (rate: string) => {
     await taxRateInput().clear();
     await taxRateInput().fill(rate);
@@ -32,6 +39,7 @@ export const createOwnerTaxPage = (page: Page) => {
     taxRateInput,
     saveButton,
     successToast,
+    currentRateChip,
     setTaxRate,
     assertFormVisible,
     save,

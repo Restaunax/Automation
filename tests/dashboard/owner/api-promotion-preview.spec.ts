@@ -87,10 +87,12 @@ test.describe("Owner — Promotion preview (API)", () => {
     body: {
       name,
       dealPrice: 9.5,
+      // A combo needs at least 2 items (backend comboNeedsTwoItems, guided
+      // deal types): two Burgers, the shape the error message itself offers.
       items: [
         {
           menuItemId: item(0).id,
-          quantity: 1,
+          quantity: 2,
           itemName: item(0).name,
           itemPrice: item(0).price,
           role: "INCLUDED",
@@ -255,7 +257,15 @@ test.describe("Owner — Promotion preview (API)", () => {
         orderType: "PICKUP",
         items: [],
         deals: [
-          { dealId, quantity: 1, selections: [{ menuItemId: item(0).id }] },
+          {
+            dealId,
+            quantity: 1,
+            // One selection per combo unit (two Burgers — see comboBody).
+            selections: [
+              { menuItemId: item(0).id },
+              { menuItemId: item(0).id },
+            ],
+          },
         ],
       };
       const withHeader = await apiRequestRaw<{
@@ -351,7 +361,7 @@ test.describe("Owner — Promotion preview (API)", () => {
             dealId,
             quantity: 1,
             dealPrice: 9.5,
-            items: [{ menuItemId: item(0).id }],
+            items: [{ menuItemId: item(0).id }, { menuItemId: item(0).id }],
           },
         ],
       };

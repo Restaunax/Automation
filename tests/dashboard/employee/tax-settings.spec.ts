@@ -2,6 +2,8 @@ import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
 import { createOwnerTaxPage } from "../../../pages/dashboard/owner/OwnerTaxPage";
 import { readSharedState } from "../../../utils/testData";
+import { apiLogin, apiRequestRaw } from "../../../utils/apiHelper";
+import { requireRelease } from "../../../utils/releaseGate";
 
 const EMPLOYEE_EMAIL = process.env.EMPLOYEE_EMAIL ?? "";
 const EMPLOYEE_PASSWORD = process.env.EMPLOYEE_PASSWORD ?? "";
@@ -54,26 +56,28 @@ test.describe("Employee — Tax Settings", () => {
     employeePage,
   }) => {
     await allure.description(
-      "Employee changes the tax rate, saves, and verifies the value actually persisted (reload, " +
-        "not just the toast). The original rate is restored afterward — the tax rate feeds real " +
-        "order totals on the shared QA restaurant, so this test must not leave it mutated."
+      "Employee changes the tax rate, saves, and verifies the value persisted on the server " +
+        "(GET /api/restaurantId/:id/settings) and — once RestauNax #1036 is deployed — that the " +
+        "reloaded page prefills it. The original rate is snapshotted from the API (the page did not " +
+        "prefill it before #1036, so the input was an unreliable source) and restored through the API " +
+        "afterwards: the tax rate feeds real order totals on the shared QA restaurant."
     );
 
     const { restaurantId } = readSharedState();
     const taxPage = createOwnerTaxPage(employeePage);
+    const token = (await apiLogin(EMPLOYEE_EMAIL, EMPLOYEE_PASSWORD))
+      .accessToken;
+    const originalRate = await getSettingsTax(token, restaurantId);
+    const newRate = originalRate === 8.5 ? "7.5" : "8.5";
 
     await allure.step("Navigate to tax settings", async () => {
       await taxPage.goto(restaurantId);
     });
 
-    // Snapshot the current rate and pick a value guaranteed to differ from it.
-    const originalRate = await taxPage.taxRateInput().inputValue();
-    const newRate = originalRate === "8.5" ? "7.5" : "8.5";
-
     try {
       await allure.step(`Enter tax rate: ${newRate}%`, async () => {
         await taxPage.setTaxRate(newRate);
-        await allure.parameter("Original rate", originalRate);
+        await allure.parameter("Original rate", String(originalRate));
         await allure.parameter("New rate", newRate);
       });
 
@@ -82,24 +86,88 @@ test.describe("Employee — Tax Settings", () => {
         await taxPage.assertSuccessToast();
       });
 
-      await allure.step("Reload and verify the rate persisted", async () => {
-        await taxPage.goto(restaurantId);
-        await expect(taxPage.taxRateInput()).toHaveValue(newRate);
+      await allure.step("The server holds the new rate", async () => {
+        expect(await getSettingsTax(token, restaurantId)).toBe(Number(newRate));
       });
+
+      await allure.step(
+        "Reload — the page prefills the saved rate",
+        async () => {
+          await taxPage.goto(restaurantId);
+          const prefilled = (await taxPage.taxRateInput().inputValue()) !== "";
+          requireRelease(
+            "bugBatch",
+            prefilled,
+            "the Tax page does not prefill the saved rate"
+          );
+          await expect(taxPage.taxRateInput()).toHaveValue(newRate);
+        }
+      );
     } finally {
-      // Restore the original rate even if an assertion failed mid-test.
+      // Restore through the API even if an assertion failed mid-test.
       // Best-effort: a restore failure must not mask the real test result.
-      try {
-        await taxPage.goto(restaurantId);
-        await taxPage.setTaxRate(originalRate);
-        await taxPage.save();
-        await taxPage.assertSuccessToast();
-      } catch (err) {
+      await setSettingsTax(token, restaurantId, originalRate).catch((err) =>
         console.warn(
-          `[tax-settings] Failed to restore original tax rate (${originalRate}%):`,
+          `[tax-settings] Failed to restore original tax rate (${originalRate}):`,
           err
-        );
-      }
+        )
+      );
     }
   });
+
+  test("TC-929: the Tax page shows and prefills the saved rate @bugfix-1036 @tax", async ({
+    employeePage,
+  }) => {
+    await allure.description(
+      "RestauNax #1036: the Tax page reads the rate from the settings endpoint it saves to, so the " +
+        "'Current Tax Rate' chip, the input and the 'Effective Tax Rate' all show the saved value instead " +
+        "of 'Not set' / an empty field. Read-only."
+    );
+    const { restaurantId } = readSharedState();
+    const taxPage = createOwnerTaxPage(employeePage);
+    const token = (await apiLogin(EMPLOYEE_EMAIL, EMPLOYEE_PASSWORD))
+      .accessToken;
+    const saved = await getSettingsTax(token, restaurantId);
+    test.skip(saved == null, "The seed restaurant has no tax rate saved");
+
+    await taxPage.goto(restaurantId);
+    const prefilled = (await taxPage.taxRateInput().inputValue()) !== "";
+    requireRelease(
+      "bugBatch",
+      prefilled,
+      "the Tax page does not prefill the saved rate"
+    );
+
+    await expect(taxPage.taxRateInput()).toHaveValue(String(saved));
+    await expect(taxPage.currentRateChip()).toHaveText(`${saved}%`);
+  });
 });
+
+/** The saved rate — GET /api/restaurantId/:id/settings → tax (null = unset). */
+async function getSettingsTax(
+  token: string,
+  restaurantId: string
+): Promise<number | null> {
+  const res = await apiRequestRaw<{ tax?: number | null }>(
+    "GET",
+    `/api/restaurantId/${restaurantId}/settings`,
+    undefined,
+    token
+  );
+  if (!res.ok) throw new Error(`GET settings → ${res.status}`);
+  return res.data?.tax ?? null;
+}
+
+async function setSettingsTax(
+  token: string,
+  restaurantId: string,
+  tax: number | null
+): Promise<void> {
+  const res = await apiRequestRaw(
+    "PUT",
+    `/api/restaurantId/${restaurantId}/settings`,
+    { tax },
+    token
+  );
+  if (!res.ok) throw new Error(`PUT settings → ${res.status}`);
+}

@@ -345,7 +345,7 @@ test.describe("Lima — Promotions", () => {
     });
 
     await expect(checkout.promotionLine(set.orderCode.name)).toContainText(
-      "-$4.50",
+      /[−-]\$4\.50/,
       { timeout: 20_000 }
     );
     await expect(checkout.codeRow(set.orderCode.code)).toContainText(
@@ -520,7 +520,7 @@ test.describe("Lima — Promotions", () => {
       phone: generateSeedPhone(),
     });
     await expect(checkout.promotionLine(set.orderCode.name)).toContainText(
-      "-$4.50",
+      /[−-]\$4\.50/,
       { timeout: 20_000 }
     );
     await checkout.proceedToPayment();

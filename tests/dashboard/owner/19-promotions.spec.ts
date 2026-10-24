@@ -34,6 +34,7 @@ import {
   getDealApi,
   getMenuItemApi,
   getRestaurantCoupons,
+  getRestaurantTimeZonePublic,
   waitForFreeDealSlot,
   DEAL_SLOT_TEST_TIMEOUT_MS,
 } from "../../../utils/apiHelper";
@@ -215,6 +216,65 @@ test.describe("Owner — Promotions", () => {
       expect(row?.code).toBe(code);
       expect(row?.status).toBe("ACTIVE");
     } finally {
+      await cleanup(name);
+    }
+  });
+
+  test("TC-941: a promotion created from a browser already on tomorrow starts on the restaurant's today and is Live", async ({
+    browser,
+    ownerContext,
+  }) => {
+    await allure.description(
+      "Regression for the 10-24 pre-release run (started 03:16 UTC = the evening before in New York): the Create page prefilled the start day from the BROWSER's clock while the backend judges days in the RESTAURANT's zone, so every promotion created that evening showed Scheduled and storefronts did not offer it. Here the owner's browser runs in a zone whose date is already ahead of the restaurant's (Pacific/Kiritimati, UTC+14); Turn on must still land the row Live. Skipped in the hours when no such zone is ahead of the restaurant's date."
+    );
+    const tz = await getRestaurantTimeZonePublic(restaurantId);
+    expect(tz, "the backend reports the restaurant's zone").toBeTruthy();
+    const dayIn = (zone: string) =>
+      new Intl.DateTimeFormat("en-CA", {
+        timeZone: zone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date());
+    const browserZone = "Pacific/Kiritimati";
+    const restaurantDay = dayIn(tz);
+    const browserDay = dayIn(browserZone);
+    test.skip(
+      browserDay <= restaurantDay,
+      `${browserZone} (${browserDay}) is not ahead of ${tz} (${restaurantDay}) right now`
+    );
+    await allure.parameter(
+      "days",
+      `browser ${browserDay} (${browserZone}), restaurant ${restaurantDay} (${tz})`
+    );
+
+    const ctx = await browser.newContext({
+      storageState: await ownerContext.storageState(),
+      baseURL: test.info().project.use.baseURL,
+      timezoneId: browserZone,
+    });
+    const page = await ctx.newPage();
+    const name = promoName("Zone today");
+    const code = generateCouponCode();
+    const create = createOwnerCreatePromotionPage(page);
+    const list = createOwnerPromotionsPage(page);
+    try {
+      await create.goto(restaurantId);
+      await create.pickCard("Money off the order");
+      await create.setAmount("Percentage off", "10");
+      await create.setHowCustomersGetIt("Only with a code");
+      await create.setName(name);
+      await create.setCode(code);
+      await create.turnOn();
+      await create.expectSaved();
+
+      await list.showAllRows();
+      await list.expectRowStatus(name, "Live");
+      const row = await serverRow(name);
+      expect(row, `listPromotions has ${name}`).toBeTruthy();
+      expect(row?.status).toBe("ACTIVE");
+    } finally {
+      await ctx.close();
       await cleanup(name);
     }
   });
