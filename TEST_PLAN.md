@@ -72,13 +72,13 @@ Re-verify against these files if anything below looks stale:
 
 ### The five platform roles (`User.role`)
 
-| Role                 | Who they are                                   | Can do                                                                       | Cannot do                                        |
-| -------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------ |
-| **ADMIN**            | The company / full platform operator           | Everything (`/admin` + all restaurant routes)                                | —                                                |
-| **EMPLOYEE**         | **Company-side setup staff** (onboard clients) | Create restaurants, **publish menus**, edit **tax**, manage register devices | Invite/create POS staff                          |
-| **OWNER**            | The restaurant **client**                      | Manage their own restaurant(s), **invite staff**, kitchen-display devices    | Publish menus, edit tax, manage register devices |
-| **RESTAURANT_STAFF** | POS device staff                               | Thin `/staff` PIN portal on web; real authority is the POS layer (below)     | Dashboard management                             |
-| **USER / Customer**  | Orders on Template Wind                        | Place orders (guest or OTP reward member)                                    | Dashboard access                                 |
+| Role                 | Who they are                                   | Can do                                                                                                            | Cannot do                                        |
+| -------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| **ADMIN**            | The company / full platform operator           | Everything (`/admin` + all restaurant routes)                                                                     | —                                                |
+| **EMPLOYEE**         | **Company-side setup staff** (onboard clients) | Create restaurants, **publish menus**, edit **tax**, manage register devices, **invite a restaurant's POS staff** | Invite company users (`/api/admin/users/invite`) |
+| **OWNER**            | The restaurant **client**                      | Manage their own restaurant(s), **invite staff**, kitchen-display devices                                         | Publish menus, edit tax, manage register devices |
+| **RESTAURANT_STAFF** | POS device staff                               | Thin `/staff` PIN portal on web; real authority is the POS layer (below)                                          | Dashboard management                             |
+| **USER / Customer**  | Orders on Template Wind                        | Place orders (guest or OTP reward member)                                                                         | Dashboard access                                 |
 
 > **Key correction:** ADMIN + EMPLOYEE are the **company** side ("manage & set up
 > everything for the restaurant"); OWNER is the **client**. EMPLOYEE is _not_
