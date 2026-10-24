@@ -82,6 +82,7 @@ import {
   patchReservationOwnerRaw,
   createReservationTabletRaw,
   getHostRaw,
+  getRestaurantTimeZonePublic,
   reservationStatusTabletRaw,
   seatReservationTabletRaw,
   setTableStateTabletRaw,
@@ -796,11 +797,21 @@ test.describe("POS — Reservation Lifecycle (tablet host stand)", () => {
         "internalNotes (staff surface); a WAITLIST entry (kind default) has " +
         "no scheduledAt/graceDeadline at all."
     );
-    // Book at a KNOWN restaurant-local date by scheduling for right now plus
-    // a small buffer, then reading /host for TODAY (its default when `date`
-    // is omitted) — avoids computing the restaurant's timezone offset just
-    // to pick the right query date for a ~48h-out slot.
-    const soon = new Date(Date.now() + 20 * 60 * 1000).toISOString();
+    // Book for right now plus a small buffer. Within 20 minutes of the
+    // restaurant's midnight that slot falls on TOMORROW (restaurant-local),
+    // so the reservation is read from /host for the slot's own local date;
+    // the waitlist entry (no slot) is read from today's default list.
+    const soonAt = new Date(Date.now() + 20 * 60 * 1000);
+    const soon = soonAt.toISOString();
+    const tz = await getRestaurantTimeZonePublic(restaurantId);
+    expect(tz, "the backend reports the restaurant's zone").toBeTruthy();
+    // en-CA formats as YYYY-MM-DD.
+    const slotDate = new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(soonAt);
     const resv = unwrap(
       await createReservationOwnerRaw(token, restaurantId, {
         partySize: 2,
@@ -823,14 +834,12 @@ test.describe("POS — Reservation Lifecycle (tablet host stand)", () => {
     expect(waitlist.status, msg(waitlist.data)).toBe(201);
     const waitId = unwrap(waitlist).id;
 
-    const host = await getHostRaw(tabletToken, staffSession);
-    expect(host.status, msg(host.data)).toBe(200);
-    const rows = unwrap(host) as any[];
-
-    const resvRow = rows.find((r) => r.id === resv.id);
+    const slotHost = await getHostRaw(tabletToken, staffSession, slotDate);
+    expect(slotHost.status, msg(slotHost.data)).toBe(200);
+    const resvRow = (unwrap(slotHost) as any[]).find((r) => r.id === resv.id);
     expect(
       resvRow,
-      "the booked reservation should appear in today's host list"
+      `the booked reservation should appear in the host list for ${slotDate} (${tz})`
     ).toBeTruthy();
     expect(resvRow.kind).toBe("RESERVATION");
     expect(resvRow.scheduledAt).toBeTruthy();
@@ -838,7 +847,9 @@ test.describe("POS — Reservation Lifecycle (tablet host stand)", () => {
     expect(resvRow.guestName).toBe(`Host Shape Resv ${runId}`);
     expect(resvRow.internalNotes).toBe("VIP — window seat");
 
-    const waitRow = rows.find((r) => r.id === waitId);
+    const host = await getHostRaw(tabletToken, staffSession);
+    expect(host.status, msg(host.data)).toBe(200);
+    const waitRow = (unwrap(host) as any[]).find((r) => r.id === waitId);
     expect(
       waitRow,
       "the waitlist entry should appear in today's host list"

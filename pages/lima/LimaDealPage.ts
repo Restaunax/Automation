@@ -223,7 +223,11 @@ export const createLimaDealPage = (page: Page) => {
     const stepDone = step
       .getByTestId("deal-step-status")
       .filter({ hasText: /^✓ Done$/ });
-    await expect(doneButton().or(stepDone)).toBeVisible({ timeout: 15_000 });
+    // Both can show at once (the step reads "✓ Done" while the modal animates
+    // in): `.first()` keeps the wait from failing on strict mode.
+    await expect(doneButton().or(stepDone).first()).toBeVisible({
+      timeout: 15_000,
+    });
     let opened = await doneButton().isVisible();
     // A pointer pick on an item with ANY options (optional add-ons included)
     // opens the item modal (lima guided deal page, 2026-10-17), and the step
