@@ -166,6 +166,38 @@ export const createLimaCheckoutPage = (page: Page) => {
     await button.click();
   };
 
+  /**
+   * Submit and land on the confirmation, re-pressing Order Now ONLY when the
+   * previous press never reached Stripe. placeOrder's focus step does not
+   * always win the race with the Link panel's expansion (observed on QA
+   * 2026-10-20: one press, no Stripe call, 60 s on /checkout). A press that
+   * was lost sent nothing, so pressing again cannot double-charge; once any
+   * Stripe payment call has gone out we only wait.
+   */
+  const placeOrderAndConfirm = async (): Promise<void> => {
+    let submitted = false;
+    const onRequest = (r: { url: () => string; method: () => string }) => {
+      if (
+        r.method() === "POST" &&
+        /api\.stripe\.com\/v1\/(payment_methods|payment_intents|confirmation_tokens)/.test(
+          r.url()
+        )
+      )
+        submitted = true;
+    };
+    page.on("request", onRequest);
+    try {
+      await expect(async () => {
+        if (!submitted) await placeOrder();
+        await expect(page).toHaveURL(/\/order-confirmation\//, {
+          timeout: 15_000,
+        });
+      }).toPass({ timeout: 90_000 });
+    } finally {
+      page.off("request", onRequest);
+    }
+  };
+
   /** Total as rendered, for asserting a discount actually moved it. */
   const readTotal = async (): Promise<number | null> => {
     // OrderSummary's "Total" heading + amount. Wait for the server quote to
@@ -181,13 +213,21 @@ export const createLimaCheckoutPage = (page: Page) => {
   };
 
   // ── Order summary: promotions + upgrade build-up ──────────────────────────
-  // OrderSummary renders the server's promotion outcome as a plain row (label
-  // = quote.appliedPromotion.title, amount "-$x.xx") and the entered code as
-  // "Code <CODE>" with "Saving $x.xx" under it; neither has a testid.
+  // Since lima 9b80bee (2026-10-19, "totals from the server quote breakdown")
+  // every summary line is a `breakdown-<section>-<KIND>` box: the label sits
+  // in a nested box and the amount (U+2212 minus, "−$4.50") in its sibling, so
+  // a label's parent no longer holds the amount. The entered code still
+  // renders as "Code <CODE>" with "Saving $x.xx" under it.
+
+  /** A breakdown line box of the given kind (e.g. PROMOTION, SUBTOTAL). */
+  const breakdownLine = (kind: string): Locator =>
+    page.locator(`[data-testid^="breakdown-"][data-testid$="-${kind}"]`);
 
   /** The food promotion row, found by its title (the server's). */
   const promotionLine = (title: string): Locator =>
-    page.getByText(title, { exact: true }).locator("xpath=..");
+    breakdownLine("PROMOTION").filter({
+      has: page.getByText(title, { exact: true }),
+    });
 
   /** The entered code's row: "Code <CODE>" + the server's outcome line. */
   const codeRow = (code: string): Locator =>
@@ -205,18 +245,31 @@ export const createLimaCheckoutPage = (page: Page) => {
     page.getByTestId("summary-subtotal");
 
   /**
-   * The plain "Subtotal" row when there is no upgrade build-up, else the
-   * build-up's summary-subtotal row.
+   * The breakdown's SUBTOTAL line when there is no upgrade build-up, else the
+   * build-up's summary-subtotal row (which the SUBTOTAL box then wraps, with
+   * Items and Upgrades — hence the :not(:has()) so the first $ is the subtotal).
    */
   const subtotalRow = (): Locator =>
     page
       .getByTestId("summary-subtotal")
-      .or(page.getByText("Subtotal", { exact: true }).locator(".."))
+      .or(
+        page.locator(
+          '[data-testid^="breakdown-"][data-testid$="-SUBTOTAL"]:not(:has([data-testid="summary-subtotal"]))'
+        )
+      )
       .first();
 
-  /** "You're saving $x.xx" — the summary's deal-savings row (client-computed). */
+  /**
+   * The deal-savings line: the breakdown's info line "You saved $x.xx with
+   * <deal>" (lima 9b80bee), or the pre-breakdown "You're saving | $x.xx" row.
+   */
   const youAreSavingRow = (): Locator =>
-    page.getByText("You're saving", { exact: true }).locator("xpath=../..");
+    page
+      .getByText(/^You saved \$[\d,]+\.\d{2} with /)
+      .or(
+        page.getByText("You're saving", { exact: true }).locator("xpath=../..")
+      )
+      .first();
 
   /** "You've earned a free <item> — Add it" (the quote's freeItemOffer). */
   const freeItemOfferButton = (): Locator =>
@@ -258,6 +311,7 @@ export const createLimaCheckoutPage = (page: Page) => {
     giftCardAppliedBanner,
     placeOrderButton,
     placeOrder,
+    placeOrderAndConfirm,
     readTotal,
     promotionLine,
     codeRow,

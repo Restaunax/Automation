@@ -1192,7 +1192,10 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
           expectGiftQuote(await readQuote(giftRes));
           await expect(checkout.freeItemOfferButton()).toHaveCount(0);
           await expect(checkout.promotionLine(name)).toContainText(
-            `-${money(baklava.price)}`,
+            // lima prints "-$5.00", wind's breakdown "−$5.00" (U+2212)
+            new RegExp(
+              `[−-]\\$${baklava.price.toFixed(2).replace(".", "\\.")}`
+            ),
             { timeout: 20_000 }
           );
           await expectShownMatchesLatestQuote(checkout.readTotal, quotes);
@@ -1245,7 +1248,8 @@ test.describe("Owner — promotion scenarios (dashboard → lima + wind)", () =>
           ).toBeVisible({ timeout: 15_000 });
           await expect(checkout.freeItemOfferButton()).toHaveCount(0);
           await expect(checkout.promotionLine(name)).toContainText(
-            `-${money(baklava.price)}`
+            // lima prints "-$5.00", wind's breakdown "−$5.00" (U+2212)
+            new RegExp(`[−-]\\$${baklava.price.toFixed(2).replace(".", "\\.")}`)
           );
           await expectShownMatchesLatestQuote(checkout.readOrderTotal, quotes);
         }

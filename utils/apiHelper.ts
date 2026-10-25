@@ -12,6 +12,7 @@
  * minutes of test execution — re-login instead.
  */
 
+import type { ApiBreakdown } from "./orderBreakdown";
 import {
   readUsersForCleanup,
   clearUsersForCleanup,
@@ -177,17 +178,24 @@ export async function setPassProcessingFee(
 /**
  * Deletes a restaurant by ID using an admin-role token.
  * Requires ADMIN role — pass the admin access token.
+ *
+ * The backend decides how (RestaurantStatusService.removeRestaurant): a
+ * restaurant with no orders, menus, coupons, deals, reward program, invoices
+ * or payments is PURGED (hard cascade delete); anything else is only
+ * ARCHIVED (soft delete, still in the database). Returns which one happened,
+ * so a test that must leave nothing behind can assert "purged".
  */
 export async function deleteTestRestaurant(
   adminAccessToken: string,
   restaurantId: string
-): Promise<void> {
-  await apiRequest<unknown>(
+): Promise<"purged" | "archived" | undefined> {
+  const data = await apiRequest<{ action?: "purged" | "archived" }>(
     "DELETE",
     `/api/admin/restaurants/${restaurantId}`,
     undefined,
     adminAccessToken
   );
+  return data?.action;
 }
 
 /**
@@ -942,6 +950,10 @@ export interface QuoteResponse {
     tax?: number;
     amountToCharge?: number;
     total?: number;
+    grandTotal?: number;
+    /** Card processing fee passed to the customer (credit-card case). */
+    processingFee?: number;
+    giftCardApplied?: number;
     /** S1 service fee (excl. its tax) and its tax, both inside tax/total. */
     serviceFee?: number;
     serviceFeeTax?: number;
@@ -956,6 +968,8 @@ export interface QuoteResponse {
       lineTotal: number;
       savings: number;
     }[];
+    /** The quote's money breakdown (ORDER_MONEY_BREAKDOWN.md §4). */
+    breakdown?: ApiBreakdown | null;
   };
   issues?: { code: string; severity: string; message: string }[];
   message?: string;
@@ -982,6 +996,12 @@ export function quoteOrderRaw(
     couponCodeId?: string | null;
     orderType?: "PICKUP" | "DELIVERY";
     scheduledFor?: string;
+    /** Legacy-body delivery fee (client-supplied until a pinned quote). */
+    deliveryFee?: number;
+    /** Gift card tender, as the checkout sends it (legacy body: the code
+     * plus any positive amount; the server clamps to the real balance). */
+    giftCardCode?: string;
+    giftCardAmountUsed?: number;
   }
 ): Promise<RawResponse<QuoteResponse>> {
   return apiRequestRaw("POST", `/api/order/${restaurantId}/quote`, {
@@ -1374,7 +1394,15 @@ export async function ensureAutomationChain(
 export async function createSecondOwner(
   adminToken: string,
   runId: string,
-  { alwaysFresh = false }: { alwaysFresh?: boolean } = {}
+  {
+    alwaysFresh = false,
+    restaurant = {},
+  }: {
+    alwaysFresh?: boolean;
+    /** Extra POST /restaurant/new fields (e.g. businessType, shippingEnabled).
+     * Implies a fresh owner: OWNER2's persistent restaurant can't take them. */
+    restaurant?: Record<string, unknown>;
+  } = {}
 ): Promise<{
   accessToken: string;
   userId: string;
@@ -1385,7 +1413,8 @@ export async function createSecondOwner(
 }> {
   const envEmail = process.env.OWNER2_EMAIL;
   const envPassword = process.env.OWNER2_PASSWORD;
-  if (!alwaysFresh && envEmail && envPassword) {
+  const fresh = alwaysFresh || Object.keys(restaurant).length > 0;
+  if (!fresh && envEmail && envPassword) {
     const login = await apiLogin(envEmail, envPassword);
     const owned = await getOwnerRestaurants(login.accessToken);
     return {
@@ -1416,6 +1445,7 @@ export async function createSecondOwner(
     restaurantPhone: "3055550177",
     description: "Throwaway second-owner restaurant (IDOR contract tests)",
     minimumOrderPreparationTime: 0,
+    ...restaurant,
   });
   const restaurantId =
     (res.data as { restaurant?: { id?: string } })?.restaurant?.id ?? null;
@@ -2304,6 +2334,9 @@ export function getOrderByIdRaw(
     status?: string;
     subtotal?: number;
     total?: number;
+    paymentStatus?: string;
+    /** Card processing fee passed to the customer (0 unless levied). */
+    processingFee?: number;
     /** The order-level promotion stored on the order (Coupon id). */
     couponId?: string | null;
     /** Order-level promotion discount the server stored. */
@@ -2323,9 +2356,24 @@ export function getOrderByIdRaw(
         /** Regular unit price the server priced the pick at (since slot matching). */
         menuItemPrice?: number;
         quantity: number;
+        upchargeAmount?: number | null;
+        /** Note the customer typed on this item inside the deal (kitchen reads it). */
+        specialInstructions?: string | null;
+        /** What the customer chose on this item inside the deal (OrderDealItemModifier). */
+        selectedModifiers?: {
+          modifierId: string | null;
+          modifierName: string;
+          modifierPrice: number;
+          quantity: number;
+          parentModifierId?: string | null;
+        }[];
       }[];
     }[];
     orderItems?: { menuItemId: string; quantity: number }[];
+    /** The one money breakdown every surface renders (ORDER_MONEY_BREAKDOWN.md). */
+    breakdown?: ApiBreakdown;
+    receiptNumber?: number | string;
+    orderNumber?: number | string;
   }>
 > {
   return apiRequestRaw("GET", `/api/order/${orderId}`, undefined, accessToken);
@@ -2485,9 +2533,17 @@ export async function seedFundedGiftCard(
   restaurantId: string,
   amount: number
 ): Promise<ApiGiftCard> {
-  const code = `AUTOGC${Date.now().toString(36)}${Math.random()
-    .toString(36)
-    .slice(2, 8)}`.toUpperCase();
+  // The random tail is LETTERS ONLY so digits stay under half the code. The
+  // admin search (findGiftCardIdByCode, below) reads a term with 7+ digits
+  // making up at least half its length as a PHONE number and then matches the
+  // code on its digits alone, so a digit-heavy code like AUTOGCMVL570557745H0
+  // is never found (TC-174 flaked on exactly that). At most 8 of these 20
+  // characters are digits: the base-36 timestamp.
+  const letters = Array.from(
+    { length: 6 },
+    () => "ABCDEFGHJKLMNPQRSTUVWXYZ"[Math.floor(Math.random() * 24)]
+  ).join("");
+  const code = `AUTOGC${Date.now().toString(36)}${letters}`.toUpperCase();
   const csv = `Card Number,Current Balance\r\n${code},${amount}\r\n`;
   const form = new FormData();
   form.append("file", new Blob([csv], { type: "text/csv" }), `${code}.csv`);
@@ -2727,6 +2783,7 @@ export interface ApiOrder {
   paymentStatus?: string;
   orderType?: string;
   total?: number;
+  breakdown?: ApiBreakdown;
 }
 
 export interface SeedOrderItem {
@@ -2808,7 +2865,9 @@ export interface SeedOrderOpts {
   tax?: number;
   /** Honoured verbatim. */
   tip?: number;
-  /** Honoured only for DELIVERY/SHIPPING orders (and only when > 0). */
+  /** Honoured only for DELIVERY/SHIPPING orders (and only when > 0). A
+   *  DELIVERY seed defaults to DEFAULT_SEED_DELIVERY_FEE: the backend refuses
+   *  a DELIVERY order without a fee (delivery_fee_missing). */
   deliveryFee?: number;
   total?: number;
   orderType?: "PICKUP" | "DELIVERY";
@@ -2872,7 +2931,7 @@ export interface SeededOrder extends ApiOrder {
     firstName?: string;
     lastName?: string;
   };
-  /** false when a DELIVERY seed had to fall back to deliveryFee:0 (tax policy). */
+  /** true for a DELIVERY seed (always sent with a non-zero fee); false otherwise. */
   deliveryFeeApplied: boolean;
 }
 
@@ -2897,9 +2956,15 @@ export interface SeededOrder extends ApiOrder {
  * So the returned SeededOrder carries the recorded values — assert against
  * those (e.g. `formatCurrency(order.total)`), never a hand-computed sum.
  *
- * DELIVERY + deliveryFee > 0 can be rejected (400) when the restaurant's state
- * has an unsupported delivery-tax policy; we retry once with deliveryFee: 0 and
- * flag `deliveryFeeApplied: false` so tests can guard the fee-row assertion.
+ * A DELIVERY seed always carries a NON-ZERO delivery fee (default
+ * DEFAULT_SEED_DELIVERY_FEE): since RestauNax 2026-10-21
+ * (Service/pricing/deliveryFeeGuard.ts, UBER_DIRECT.md "A DELIVERY order must
+ * carry its quoted fee") order creation refuses a DELIVERY body with no fee
+ * (400 `delivery_fee_missing`) — Uber never quotes $0, so a $0 fee means the
+ * address was never priced. A fee with no quote id is still accepted (logged
+ * as order_delivery_without_quote). The old 400 → retry-with-$0 fallback for
+ * an unsupported delivery-tax state is gone too: delivery-fee tax is never
+ * refused any more (78fd8f7ff), and $0 is now the refused value.
  *
  * Contact fields (firstName/lastName/email/phone/specialInstructions) are
  * persisted as an on-order snapshot AND on the Customer row, so search by any
@@ -2909,6 +2974,9 @@ export interface SeededOrder extends ApiOrder {
  * There is no order-delete API — seeded orders are permanent QA residue;
  * tests must assert on their OWN rows / on DELTAS, never absolute totals.
  */
+/** The delivery fee a DELIVERY seed carries when the caller names none. */
+export const DEFAULT_SEED_DELIVERY_FEE = 4.99;
+
 export async function createSeededOrder(
   ownerToken: string,
   restaurantId: string,
@@ -2961,27 +3029,15 @@ export async function createSeededOrder(
     ],
   });
 
-  const requestedFee = opts.deliveryFee ?? 0;
-  let deliveryFeeApplied = requestedFee > 0;
-  let res = await apiRequestRaw<{ order?: SeededOrder } & SeededOrder>(
+  const requestedFee =
+    opts.deliveryFee ??
+    (orderType === "DELIVERY" ? DEFAULT_SEED_DELIVERY_FEE : 0);
+  const deliveryFeeApplied = orderType === "DELIVERY" && requestedFee > 0;
+  const res = await apiRequestRaw<{ order?: SeededOrder } & SeededOrder>(
     "POST",
     `/api/order/new/restaurantId/${restaurantId}`,
     buildBody(requestedFee)
   );
-  if (
-    !res.ok &&
-    res.status === 400 &&
-    orderType === "DELIVERY" &&
-    requestedFee > 0
-  ) {
-    // Tax-policy fallback (see doc comment) — retry without a delivery fee.
-    deliveryFeeApplied = false;
-    res = await apiRequestRaw<{ order?: SeededOrder } & SeededOrder>(
-      "POST",
-      `/api/order/new/restaurantId/${restaurantId}`,
-      buildBody(0)
-    );
-  }
   if (!res.ok) {
     const detail =
       typeof res.data === "string" ? res.data : JSON.stringify(res.data);
@@ -3376,6 +3432,24 @@ export async function deactivateTabletDevice(
       err
     );
   }
+}
+
+/**
+ * Deactivate a tablet device and return the raw response, so a caller's
+ * cleanup can record a failure instead of losing it (deactivateTabletDevice
+ * only logs). The route is a toggle: call it once, on an active device.
+ */
+export function deactivateTabletDeviceRaw(
+  ownerToken: string,
+  restaurantId: string,
+  deviceId: string
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "PATCH",
+    `/api/tablet/restaurant/${restaurantId}/device/${deviceId}/toggle`,
+    undefined,
+    ownerToken
+  );
 }
 
 // ── Owner table & reservation management ─────────────────────────────────────
@@ -7107,8 +7181,9 @@ export function approvalLogSummaryRaw(
   );
 }
 
-/** Owner self-serve add-ons: GET `/restaurant/:rid/addons` (data.addons[])
- *  and POST { addonId, billingInterval? } to buy one. */
+/** Owner Billing → Add-ons: GET `/restaurant/:rid/addons` (data.features[],
+ *  data.addons[]). The owner POST that bought one is gone since restaunax #998
+ *  (404) — owners send a request instead (ownerAddonRequestRaw). */
 export function ownerAddonsRaw(
   token: string,
   restaurantId: string,
@@ -7464,8 +7539,8 @@ export function adminAddonsRaw<T = { data?: LooseJson; message?: string }>(
   return apiRequestRaw(method, `/api/admin/addons${path}`, body, token);
 }
 
-/** DELETE `/restaurant/:rid/addons/:instanceId` — the owner removes a
- *  self-serve add-on (at the end of the paid period). */
+/** DELETE `/restaurant/:rid/addons/:instanceId` — the old owner removal;
+ *  404 since restaunax #998 (owners request a removal instead). */
 export function ownerAddonRemoveRaw(
   token: string,
   restaurantId: string,
@@ -7474,6 +7549,37 @@ export function ownerAddonRemoveRaw(
   return apiRequestRaw(
     "DELETE",
     `/restaurant/${restaurantId}/addons/${instanceId}`,
+    undefined,
+    token
+  );
+}
+
+/** POST `/restaurant/:rid/addons/requests` { addonId, kind: ADD|REMOVE,
+ *  note? } — ask RestauNax to turn an add-on on (or keep one whose removal is
+ *  scheduled) or off. 201 new, 200 = the request already open (restaunax #998). */
+export function ownerAddonRequestRaw(
+  token: string,
+  restaurantId: string,
+  body: unknown
+): Promise<RawResponse<{ data?: LooseJson; message?: string }>> {
+  return apiRequestRaw(
+    "POST",
+    `/restaurant/${restaurantId}/addons/requests`,
+    body,
+    token
+  );
+}
+
+/** DELETE `/restaurant/:rid/addons/requests/:requestId` — the owner cancels an
+ *  OPEN add-on request (409 once handled or cancelled). */
+export function ownerAddonRequestCancelRaw(
+  token: string,
+  restaurantId: string,
+  requestId: string
+): Promise<RawResponse<{ data?: LooseJson; message?: string }>> {
+  return apiRequestRaw(
+    "DELETE",
+    `/restaurant/${restaurantId}/addons/requests/${requestId}`,
     undefined,
     token
   );

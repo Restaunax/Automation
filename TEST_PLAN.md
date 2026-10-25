@@ -46,6 +46,10 @@ npx playwright test --project=customer       # Template Wind only
 npx playwright test                          # both
 ```
 
+> `tests/unit/` is NOT a project of the main config: pure helper tests run
+> with `npm run test:unit` (`playwright.unit.config.ts`, no browser, no QA,
+> no globalSetup) and in the static CI job.
+
 > `tests/pos/` (Device In Store / POS) is the **`pos` project** — API-level
 > order-lifecycle tests (no browser UI). Run with `--project=pos`. See
 > **Role & Permission Model** and `tests/pos/README.md`.
@@ -68,13 +72,13 @@ Re-verify against these files if anything below looks stale:
 
 ### The five platform roles (`User.role`)
 
-| Role                 | Who they are                                   | Can do                                                                       | Cannot do                                        |
-| -------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------ |
-| **ADMIN**            | The company / full platform operator           | Everything (`/admin` + all restaurant routes)                                | —                                                |
-| **EMPLOYEE**         | **Company-side setup staff** (onboard clients) | Create restaurants, **publish menus**, edit **tax**, manage register devices | Invite/create POS staff                          |
-| **OWNER**            | The restaurant **client**                      | Manage their own restaurant(s), **invite staff**, kitchen-display devices    | Publish menus, edit tax, manage register devices |
-| **RESTAURANT_STAFF** | POS device staff                               | Thin `/staff` PIN portal on web; real authority is the POS layer (below)     | Dashboard management                             |
-| **USER / Customer**  | Orders on Template Wind                        | Place orders (guest or OTP reward member)                                    | Dashboard access                                 |
+| Role                 | Who they are                                   | Can do                                                                                                            | Cannot do                                        |
+| -------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| **ADMIN**            | The company / full platform operator           | Everything (`/admin` + all restaurant routes)                                                                     | —                                                |
+| **EMPLOYEE**         | **Company-side setup staff** (onboard clients) | Create restaurants, **publish menus**, edit **tax**, manage register devices, **invite a restaurant's POS staff** | Invite company users (`/api/admin/users/invite`) |
+| **OWNER**            | The restaurant **client**                      | Manage their own restaurant(s), **invite staff**, kitchen-display devices                                         | Publish menus, edit tax, manage register devices |
+| **RESTAURANT_STAFF** | POS device staff                               | Thin `/staff` PIN portal on web; real authority is the POS layer (below)                                          | Dashboard management                             |
+| **USER / Customer**  | Orders on Template Wind                        | Place orders (guest or OTP reward member)                                                                         | Dashboard access                                 |
 
 > **Key correction:** ADMIN + EMPLOYEE are the **company** side ("manage & set up
 > everything for the restaurant"); OWNER is the **client**. EMPLOYEE is _not_
@@ -173,6 +177,7 @@ Automation/
 │   │   │   ├── 25-promotion-scenarios.spec.ts # ✅ real @scenario — eight real-world promotions end to end: dashboard UI build → exact read-back → edit → lima AND wind picks → quote-checked checkout (TC-863..870)
 │   │   │   ├── api-promotion-preview.spec.ts # ✅ real — "Try it as a customer" API (TC-872..881, TC-888, TC-889); skips while QA answers 503 PROMOTION_PREVIEW_UNAVAILABLE
 │   │   │   ├── 26-promotion-preview.spec.ts  # ✅ real — Try it as a customer, dashboard → lima (TC-882..887); skips while QA answers 503 PROMOTION_PREVIEW_UNAVAILABLE
+│   │   │   ├── 27-order-breakdown.spec.ts    # ✅ real @email (last step) — one wind order, every surface: checkout, confirmation, backend, dashboard, POS, email read the same money lines (TC-898); combo order: deal row + 'You saved' info line, never summed (TC-899); delivery quote DELIVERY_FEE / FREE_DELIVERY (TC-900, API); TC-901 @email: a member with no saved email gets the receipt at the typed address (fixed in RestauNax #1011)
 │   │   │   ├── 08-payment-settings.spec.ts   # ✅ real (route mocks Stripe status/create for pre-connection + failure states)
 │   │   │   ├── 09-uber-settings.spec.ts      # ✅ real — Uber Eats delivery settings (owner-reachable, unlike publish/tax/loyalty)
 │   │   │   ├── 10-subscription.spec.ts       # ✅ real — Subscription/Billing page (permission-gated, not role-gated)
@@ -188,7 +193,7 @@ Automation/
 │   │   │   ├── menu-publish.spec.ts          # scaffold (test.fixme)
 │   │   │   └── tax-settings.spec.ts          # ✅ real — moved from owner/03-tax-settings; needs EMPLOYEE_EMAIL/PASSWORD
 │   │   ├── staff/                            # thin /staff PIN-card stub (web)
-│   │   │   └── staff-portal.spec.ts          # scaffold (test.fixme)
+│   │   │   └── staff-portal.spec.ts          # TC-180: /staff team-member home
 │   │   └── access/                           # who-can-reach-what matrix (uses pageForRole)
 │   │       ├── restaurant-management-access.spec.ts  # ✅ real — owner/employee/admin reach shared screens
 │   │       ├── role-restrictions.spec.ts             # ✅ real — OWNER denied publish/tax/loyalty
@@ -200,10 +205,14 @@ Automation/
 │   │   ├── 06-deals.spec.ts                  # ✅ real — deal builder, incomplete deal blocks checkout, coupon ⊥ deal client guard (TC-195..197)
 │   │   ├── 06-menu-handoff.spec.ts           # ✅ real — owner menu action → storefront (TC-320..322)
 │   │   ├── 08-deals-handoff.spec.ts          # ✅ real — owner deal → storefront: Today's Deals ↔ Promotions Pause/Turn on, multi-slot builder + checkout + page /quote, upcharge, 86'd slot, PAID Stripe order → orderDeals/timesUsed + Promotions row + Results, identical fixed items as one "2 × <item>" step with per-unit Customize rows (TC-367..371, TC-535..538, TC-892)
-│   │   └── 10-promotions.spec.ts             # ✅ real — storefront promotions: sale on the menu, BOGO options, order code + Pay = /quote, bundle code + ?promo=, free item, CODE-only combo, Keep shopping, upgrade build-up, PAID code order, incomplete deal never reaches the cart (TC-836..844, TC-891)
+│   │   ├── 10-promotions.spec.ts             # ✅ real — storefront promotions: sale on the menu, BOGO options, order code + Pay = /quote, bundle code + ?promo=, free item, CODE-only combo, Keep shopping, upgrade build-up, PAID code order, incomplete deal never reaches the cart (TC-836..844, TC-891)
+│   │   ├── 11-deal-item-choices.spec.ts      # ✅ real — the choices made inside a deal (size, nested sauce, dip) reach /quote and the paid order (TC-906, @deal-item-choices; fails on QA until the fix deploys)
+│   │   └── 12-3ds-bank-check.spec.ts         # ✅ real — 3D Secure card (4000 0027 6000 3184): Complete / Fail in the page AND as a real full-page redirect to /checkout/return — confirmed + paid once + cart empty, or the error + nothing charged (TC-914..917, @3ds)
 │   └── customer-lima/                        # PROJECT: customer-lima (embedded template-lima storefront)
 │       ├── 13-deals.spec.ts                  # ✅ real — Lima deals render/build/checkout payload + later-today, "2 × <item>" step with per-unit Customize rows (TC-L60..L63, TC-893)
-│       └── 14-promotions.spec.ts             # ✅ real — Lima storefront promotions: sale on the menu, BOGO options, cart code → checkout line + Total = /quote, bundle code + ?promo=, Keep shopping, upgrade build-up, PAID code order, incomplete deal never reaches the cart (TC-L64..L70, TC-890)
+│       ├── 14-promotions.spec.ts             # ✅ real — Lima storefront promotions: sale on the menu, BOGO options, cart code → checkout line + Total = /quote, bundle code + ?promo=, Keep shopping, upgrade build-up, PAID code order, incomplete deal never reaches the cart (TC-L64..L70, TC-890)
+│       ├── 15-deal-item-choices.spec.ts      # ✅ real — the choices + item note made inside a deal reach /quote and the paid order (TC-907, @deal-item-choices; fails on QA until the fix deploys)
+│       └── 16-3ds-bank-check.spec.ts         # ✅ real — the same four 3D Secure outcomes on lima, the redirect returning to /<slug>/checkout/return (TC-L73..L76, @3ds)
 ├── pages/                                    # Page Object Models (factory functions)
 │   ├── dashboard/
 │   │   ├── auth/{SignInPage,SignUpPage}.ts   # ✅ real
@@ -465,21 +474,23 @@ leaves about five slots for every concurrently running file together. Files
 that put AUTO deals on it must therefore stay small and give slots back
 immediately (try/finally in the test, never "in afterAll"):
 
-| File                                               | Steady ACTIVE footprint                                                                                                        | Temporary peak                                                                                                                                                                                       |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `dashboard/owner/19-promotions`                    | 0                                                                                                                              | +1 (TC-824 BOGO, TC-826 combo — each waits for a slot, deleted in finally); TC-825 saves paused: +0                                                                                                  |
-| `dashboard/owner/21-promotion-send`                | 0 (one AUTO coupon per test — coupons take no deal slot; deleted in finally)                                                   | 0                                                                                                                                                                                                    |
-| `dashboard/owner/api-menu`                         | 0                                                                                                                              | +1 (TC-272 delete-blocker deal, cap-safe via `createDealApiCapSafe`, deleted in finally)                                                                                                             |
-| `dashboard/owner/04c-menu-item-editor`             | 0                                                                                                                              | +1 (TC-303 delete-blocker deal, cap-safe via `createDealApiCapSafe`, deleted in finally)                                                                                                             |
-| `dashboard/owner/25-promotion-scenarios`           | 0                                                                                                                              | +1 (each scenario's deal, from Save and turn on — `turnOnDealWhenSlotFree` — to its `finally`, one scenario at a time); S6 is a coupon (+0); S8's deal is on the chain (+0 here)                     |
-| `dashboard/owner/api-promotion-preview`            | own tenant: 1 slot on the throwaway tenant, 0 on the seed (TC-873's real deal, deleted in finally; previews never take a slot) | ≤2 live previews at once (TC-878), each ended in finally; afterAll is only a backstop. TC-888 only READS the seed restaurant (public list, /quote, site resolver; nothing written)                   |
-| `dashboard/owner/26-promotion-preview`             | 0 (TC-883's combo is seeded PAUSED, deleted in finally; previews never take a slot)                                            | ≤2 live previews at once on the seed restaurant (TC-886), each ended in finally; afterAll is only a backstop. Owns the seed owner's 5-live-preview cap and preview create limit (≤7 creates per run) |
-| `customer/06-deals`                                | 0                                                                                                                              | +1 (TC-195..197 — each creates its own deal cap-safe, deleted in finally)                                                                                                                            |
-| `customer/08-deals-handoff`                        | 2 (combo, pizza deal)                                                                                                          | +1 (TC-535..538, TC-892, each deleted in finally)                                                                                                                                                    |
-| `customer/10-promotions`                           | 0                                                                                                                              | +1 (BOGO or CODE-only combo, per test, cap-safe, deleted in finally; TC-891 one BOGO, deleted in finally); +2 in TC-841 (needs both at once)                                                         |
-| `customer-lima/13-deals`                           | 1                                                                                                                              | +1 (TC-L63, TC-893, each deleted in finally)                                                                                                                                                         |
-| `customer-lima/14-promotions`                      | 0                                                                                                                              | +1 (BOGO or CODE-only combo, per test, cap-safe, deleted in finally; TC-890 one BOGO, deleted in finally)                                                                                            |
-| `api-deals`, `20-chain-promotions`, `pos/10-deals` | 0 on the seed restaurant (throwaway tenant / chain)                                                                            | n/a                                                                                                                                                                                                  |
+| File                                                                   | Steady ACTIVE footprint                                                                                                        | Temporary peak                                                                                                                                                                                                                                                              |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dashboard/owner/19-promotions`                                        | 0                                                                                                                              | +1 (TC-824 BOGO, TC-826 combo — each waits for a slot, deleted in finally); TC-825 saves paused: +0                                                                                                                                                                         |
+| `dashboard/owner/21-promotion-send`                                    | 0 (one AUTO coupon per test — coupons take no deal slot; deleted in finally)                                                   | 0                                                                                                                                                                                                                                                                           |
+| `dashboard/owner/api-menu`                                             | 0                                                                                                                              | +1 (TC-272 delete-blocker deal, cap-safe via `createDealApiCapSafe`, deleted in finally)                                                                                                                                                                                    |
+| `dashboard/owner/04c-menu-item-editor`                                 | 0                                                                                                                              | +1 (TC-303 delete-blocker deal, cap-safe via `createDealApiCapSafe`, deleted in finally)                                                                                                                                                                                    |
+| `dashboard/owner/25-promotion-scenarios`                               | 0                                                                                                                              | +1 (each scenario's deal, from Save and turn on — `turnOnDealWhenSlotFree` — to its `finally`, one scenario at a time); S6 is a coupon (+0); S8's deal is on the chain (+0 here)                                                                                            |
+| `dashboard/owner/api-promotion-preview`                                | own tenant: 1 slot on the throwaway tenant, 0 on the seed (TC-873's real deal, deleted in finally; previews never take a slot) | ≤2 live previews at once (TC-878), each ended in finally; afterAll is only a backstop. TC-888 only READS the seed restaurant (public list, /quote, site resolver; nothing written)                                                                                          |
+| `dashboard/owner/26-promotion-preview`                                 | 0 (TC-883's combo is seeded PAUSED, deleted in finally; previews never take a slot)                                            | ≤2 live previews at once on the seed restaurant (TC-886), each ended in finally; afterAll is only a backstop. Owns the seed owner's 5-live-preview cap and preview create limit (≤7 creates per run)                                                                        |
+| `dashboard/owner/27-order-breakdown`                                   | 0                                                                                                                              | +1 (TC-899 CODE-only combo via `withStorefrontCombo`, cap-safe, deleted in finally). TC-898 holds no deal (one AUTOMATIC FREE_ITEM coupon triggered by its own item, under $55, deleted in afterAll); TC-900's FREE_DELIVERY is a CODE coupon (no slot, deleted in finally) |
+| `customer/06-deals`                                                    | 0                                                                                                                              | +1 (TC-195..197 — each creates its own deal cap-safe, deleted in finally)                                                                                                                                                                                                   |
+| `customer/08-deals-handoff`                                            | 2 (combo, pizza deal)                                                                                                          | +1 (TC-535..538, TC-892, each deleted in finally)                                                                                                                                                                                                                           |
+| `customer/10-promotions`                                               | 0                                                                                                                              | +1 (BOGO or CODE-only combo, per test, cap-safe, deleted in finally; TC-891 one BOGO, deleted in finally); +2 in TC-841 (needs both at once)                                                                                                                                |
+| `customer/11-deal-item-choices` + `customer-lima/15-deal-item-choices` | 0                                                                                                                              | +1 (TC-906 / TC-907, each deleted in finally)                                                                                                                                                                                                                               |
+| `customer-lima/13-deals`                                               | 1                                                                                                                              | +1 (TC-L63, TC-893, each deleted in finally)                                                                                                                                                                                                                                |
+| `customer-lima/14-promotions`                                          | 0                                                                                                                              | +1 (BOGO or CODE-only combo, per test, cap-safe, deleted in finally; TC-890 one BOGO, deleted in finally)                                                                                                                                                                   |
+| `api-deals`, `20-chain-promotions`, `pos/10-deals`                     | 0 on the seed restaurant (throwaway tenant / chain)                                                                            | n/a                                                                                                                                                                                                                                                                         |
 
 Steady total: baseline 5 + 3 = 8 of 10, so the peaks above queue on the
 remaining two slots instead of failing. UI submits that create an ACTIVE deal
@@ -501,6 +512,10 @@ Automation Chain's location A for the lima step only — via `utils/publishBacks
 `customer-lima/14-promotions` seeds the same set (labelled "Lima") WITHOUT the
 free item: a spend-triggered gift is offered to every cart over its threshold,
 so a second one would compete with wind's for each other's carts.
+`dashboard/owner/27-order-breakdown` (TC-898) runs an AUTOMATIC FREE_ITEM for
+its serial run, triggered by BUYING its own per-run item (BUY_ITEM, gift = its
+own item), never by spend, so it prices no other file's cart; its carts stay
+under $55. TC-900's FREE_DELIVERY is a CODE promotion passed by id.
 
 **The contract every spec file must honor** (this is what makes parallelism
 safe against one shared QA environment):
@@ -555,11 +570,6 @@ that rule for any future totals assertion (or pin a private restaurant).
   number is the App/Play Store **reviewer demo account** and the bypass is
   live in production — don't churn its points/credit from automation. Ask the
   backend to add a second, QA-scoped test phone before building the helper.
-- **Finish TC-02 (demo confirmation email)** — no longer blocked on sandbox
-  credentials (QA's Mailpit is wired into CI). The test is still `test.skip`
-  because it never submits the form: it generates an address and waits for mail.
-  Self-seed via `submitDemoRequestRaw` like the sibling demo specs, gate on
-  `MAILPIT_BASE_URL`, tag `@demo @email`.
 - **POS / tablet API harness** — largely built now: `POST /api/tablet/login` +
   order-status transitions (TC-100), the staff-session / register-session
   chain (`setOwnerPosPin` → `tabletStaffSignIn` → `openRegisterSessionPos`)
@@ -617,6 +627,29 @@ tests run in **every** invocation — including the nightly.
   nothing that seeds more than a few rows; add a test here only when its screen going
   down would be an incident. Rationale: GitHub Actions minutes — see CLAUDE.md → CI.
 
+- `@training` / `@closeout` / `@bugfix-1036` — specs for RestauNax work that lands
+  in this suite **before** it reaches QA (the Training Academy branch, PR #1038
+  close-out, PR #1036 bug batch). `npm run test:training` / `test:closeout` /
+  `test:bugfix-1036`. Finer tags inside #1036: `@branding`, `@tax`, `@invite`,
+  `@stripe-onboarding`, `@home-food`, `@health-score`, `@floor`.
+
+**Deploy gates for unreleased features** (`utils/releaseGate.ts`, same contract
+as `utils/dealScheduleGate.ts`). Each gated test probes for the capability
+(`probeTraining` / `probeCloseOut`, or the new copy/behaviour on the page) and
+calls `requireRelease(part, present)`. While `RELEASED_ON_QA[part]` is `false`
+a missing capability SKIPS with a reason, so the nightly stays green; once the
+change is confirmed on QA, flip the flag to `true` and the same check FAILS on a
+regression instead of hiding as a skip. The close-out spec never calls the
+removed owner cancel endpoint unless the close-out build is detected — on an
+older build that call would really cancel the plan.
+
+To run them before merge, point the suite at a local stack that has the change
+(`FRONTEND_URL` / `BACKEND_URL` on localhost are allowed by `targetGuard`, and
+exported variables win over `.env`). The learner specs additionally need a
+PUBLISHED training module; on an environment where every module is still DRAFT
+they skip with that reason (the HQ preview spec covers the player and quiz on
+drafts).
+
 **How selection works.** There is no `grepInvert` and no opt-in env flag. Every
 invocation — `npm test`, a bare `npx playwright test`, the nightly — runs the
 whole suite. `test:email` / `test:demo` are plain `--grep` shortcuts.
@@ -643,10 +676,9 @@ enforced in `utils/emailHelper.ts`:
 Negative/validation cases that never send (TC-74/75, TC-95/96, duplicate-invite
 TC-104) are untagged and keep running. Order-confirmation from a completed
 checkout (TC-26, TC-178, ~1 email each) also stays in the default run. The
-gift-card **purchase** tests (TC-165/166/169) are **not** `@email` — they're
-`test.fixme` (blocked by Stripe Radar's invisible hCaptcha; see TEST_COVERAGE →
-Known Technical Debt); the non-purchase gift-card cases (TC-167/168/170) keep
-running.
+gift-card **purchase** tests (TC-165/166/169) are **not** `@email`: they buy a
+real test-mode card and always run; TC-165 also reads the recipient's email
+when `MAILPIT_BASE_URL` is set.
 
 **CI.** `e2e.yml` runs the `@email` group along with everything else, on every
 trigger. It is the ONLY workflow that runs Playwright — `e2e-email-weekly.yml`
@@ -757,10 +789,9 @@ repo's release-gate companion to the automated coverage below.
 | Customer checkout — physical card stock           | `customer/02-checkout.spec.ts`                                                                                                                        | TC-477: an unloaded (INACTIVE) card from a minted batch is refused at checkout — the redemption side of physical cards, next to TC-171's funded card.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 Still `test.fixme` / `test.skip` scaffolds: `dashboard/employee/menu-publish.spec.ts`,
-`dashboard/staff/staff-portal.spec.ts` (blocked — no `RESTAURANT_STAFF` credentials),
 `dashboard/owner/05-publish.spec.ts` (permanently skipped — OWNER is denied
-that route), and a few individual cases with no
-corresponding UI (`TC-42` edit-category-name, `TC-44` delete-item).
+that route), and `TC-44` delete-item (no button on the card; deletion is on
+the item detail page, covered by TC-302).
 
 **Not attempted:** the admin-side AI lead-onboarding wizard
 (`LeadOnboarding.tsx`, reached via a "Lead Onboarding" tab under
@@ -782,7 +813,6 @@ Each remaining suite lands by filling its existing `test.fixme` placeholder
 | Suite                                           | Key cases                                                            |
 | ----------------------------------------------- | -------------------------------------------------------------------- |
 | `tests/dashboard/employee/menu-publish.spec.ts` | Employee publishes a menu; OWNER-denied already covered in `access/` |
-| `tests/dashboard/staff/staff-portal.spec.ts`    | RESTAURANT_STAFF PIN card — blocked until real credentials exist     |
 
 ### Then — deeper coverage on existing screens
 

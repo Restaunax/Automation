@@ -2,6 +2,7 @@ import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
 import { createOwnerPaymentSettingsPage } from "../../../pages/dashboard/owner/OwnerPaymentSettingsPage";
 import { readSharedState } from "../../../utils/testData";
+import { requireRelease } from "../../../utils/releaseGate";
 
 const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
@@ -160,7 +161,7 @@ test.describe("Owner — Payment Settings (Stripe Setup)", () => {
     }) => {
       await allure.description(
         "When Stripe is not connected the page shows a 'What You'll Need' checklist " +
-          "with Personal Information, Business Details, Bank Account, and Payout Settings."
+          "with Personal Information, Business Details, Bank Account, and Automatic Payouts ('Payout Settings' before RestauNax #1036)."
       );
       const paymentPage = createOwnerPaymentSettingsPage(ownerPage);
 
@@ -179,6 +180,52 @@ test.describe("Owner — Payment Settings (Stripe Setup)", () => {
           await paymentPage.assertRequirementsVisible();
         }
       );
+    });
+
+    test("TC-928: setup page states Stripe's real fees and the RestauNax support contact @bugfix-1036 @stripe-onboarding", async ({
+      ownerPage,
+    }) => {
+      await allure.description(
+        "RestauNax #1036: the pre-setup page says card payments run at Stripe's standard rates with no " +
+          "markup (2.9% + 30¢ online, 2.7% + 5¢ in person), the FAQ repeats it and notes the $99/month plan " +
+          "is billed separately, and 'Need help?' gives support@restaunax.com / (877) 801-1141 instead of the " +
+          "old support@yourplatform.com placeholder. Route-mocked as not connected, read-only."
+      );
+      const paymentPage = createOwnerPaymentSettingsPage(ownerPage);
+      await mockStripeNotConnected(ownerPage);
+      await paymentPage.goto(restaurantId);
+      await paymentPage.assertRequirementsVisible();
+
+      requireRelease(
+        "bugBatch",
+        await paymentPage
+          .transparentPricingText()
+          .waitFor({ state: "visible", timeout: 10_000 })
+          .then(
+            () => true,
+            () => false
+          ),
+        "the Stripe onboarding copy still shows the old fee/support text"
+      );
+
+      // FAQ answers stay collapsed until their card is clicked.
+      await paymentPage.expandFaq("What are the fees?");
+      await paymentPage.expandFaq("Need help?");
+
+      await allure.step("Fee copy", async () => {
+        await expect(paymentPage.transparentPricingText()).toBeVisible();
+        await expect(paymentPage.feesFaqAnswer()).toContainText(
+          "2.9% + 30¢ per online payment and 2.7% + 5¢ per in-person payment"
+        );
+        await expect(paymentPage.feesFaqAnswer()).toContainText(
+          "billed separately"
+        );
+      });
+
+      await allure.step("Support contact", async () => {
+        await expect(paymentPage.helpFaqAnswer()).toBeVisible();
+        await expect(paymentPage.placeholderSupportEmail()).toHaveCount(0);
+      });
     });
 
     test("TC-53: clicking Set Up Stripe Account calls the create API and redirects to Stripe", async ({

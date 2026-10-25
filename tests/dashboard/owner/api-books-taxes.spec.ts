@@ -362,15 +362,10 @@ test.describe("Books & taxes — tax calendar, year-end package, card deposits (
     );
   });
 
-  // Doc: "Every file says it is a worksheet, not a filing." The README and the
-  // PDF do; the nine CSVs (in the ZIP and downloaded one by one) don't carry
-  // the sentence — `sectionCsv` is `toCsv(section.rows)` with no note row
-  // (restaunax yearEndPackage.ts:378). Reported; flips to a pass when fixed.
+  // Doc: "Every file says it is a worksheet, not a filing." The nine CSVs
+  // gained the note in RestauNax 6999b5133 ("year-end CSVs say 'not a tax
+  // filing'"), so this is a plain pass now (it used to be test.fail).
   test("TC-768: every spreadsheet in the package says it is a worksheet, not a tax filing", async () => {
-    test.fail(
-      true,
-      "Known gap: the CSVs carry no 'not a tax filing' note (yearEndPackage.ts:378)"
-    );
     for (const name of CSV_FILES) {
       const body =
         zip.find((e) => e.name === name)?.data.toString("utf8") ?? "";

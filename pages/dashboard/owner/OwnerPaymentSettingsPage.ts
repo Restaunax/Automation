@@ -1,4 +1,5 @@
 import { type Page, expect } from "@playwright/test";
+import { RELEASED_ON_QA } from "../../../utils/releaseGate";
 
 export const createOwnerPaymentSettingsPage = (page: Page) => {
   // ── Setup page (/restaurant/restaurantId/:id/setupStripe) ──────────────────
@@ -56,13 +57,41 @@ export const createOwnerPaymentSettingsPage = (page: Page) => {
       "Personal Information",
       "Business Details",
       "Bank Account",
-      "Payout Settings",
+      // RestauNax #1036 renamed "Payout Settings" → "Automatic Payouts"
+      // (payouts are automatic and daily; there is nothing to choose).
+      // Either until #1036 is on QA, then only the new one.
+      RELEASED_ON_QA.bugBatch
+        ? "Automatic Payouts"
+        : /^(Automatic Payouts|Payout Settings)$/,
     ]) {
       await expect(page.getByRole("heading", { name: item })).toBeVisible({
         timeout: 10_000,
       });
     }
   };
+
+  // ── Fees + help copy (RestauNax #1036) ─────────────────────────────────
+  // stripe.json → onboarding.features.transparentPricingDesc, faq.fees,
+  // faq.help. The old copy promised a flat "2.9% + $0.30" and pointed at a
+  // placeholder support@yourplatform.com.
+  const transparentPricingText = () =>
+    page.getByText(
+      "Stripe's standard card rates with no markup: 2.9% + 30¢ online, 2.7% + 5¢ in person",
+      { exact: true }
+    );
+  const feesFaqAnswer = () =>
+    page.getByText(/^Card payments are charged at Stripe's standard rates/);
+  const helpFaqAnswer = () =>
+    page.getByText(
+      "Contact our support team at support@restaunax.com or (877) 801-1141.",
+      { exact: true }
+    );
+  /** FAQ answers are collapsed; clicking the card shows the answer. */
+  const expandFaq = async (question: string) => {
+    await page.getByText(question, { exact: true }).click();
+  };
+  const placeholderSupportEmail = () =>
+    page.getByText(/support@yourplatform\.com/);
 
   // ── Success / return page (/stripe-onboarding-success?restaurantId=<id>) ──
 
@@ -110,6 +139,11 @@ export const createOwnerPaymentSettingsPage = (page: Page) => {
     connectStripeButton,
     assertConnectButtonVisible,
     assertRequirementsVisible,
+    transparentPricingText,
+    feesFaqAnswer,
+    helpFaqAnswer,
+    placeholderSupportEmail,
+    expandFaq,
     gotoSuccessPage,
     successPageHeading,
     restaurantDashboardButton,

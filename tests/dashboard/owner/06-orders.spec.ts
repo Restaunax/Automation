@@ -885,9 +885,11 @@ test.describe("Owner — Orders Tab", () => {
     ownerPage,
   }) => {
     await allure.description(
-      "Subtotal / Tax / Tip / 'Customer paid' in the Order Total block equal the seed RESPONSE values " +
+      "Subtotal / Tax / Tip / Total in the Order Total block equal the seed RESPONSE values " +
         "(server-authoritative pricing: tax is recomputed by the backend, so we compare against what it " +
-        "recorded, not what we sent). The delivery seed additionally shows its Delivery Fee row."
+        "recorded, not what we sent). The delivery seed additionally shows its Delivery fee row. Since " +
+        "RestauNax #999 (2026-10-18) the block renders the server money breakdown: labels have no colon " +
+        "and an order with no tender ends on 'Total' (the old 'Customer paid' row is gone)."
     );
     const { restaurantId } = readSharedState();
     const ordersPage = createOwnerOrdersPage(ownerPage);
@@ -897,33 +899,24 @@ test.describe("Owner — Orders Tab", () => {
       await expect(ordersPage.sheetTitle()).toContainText(
         `Receipt #${orderA.receiptNumber}`
       );
-      await expect(ordersPage.moneyRow("Subtotal:")).toHaveText(
+      await expect(ordersPage.moneyRow("Subtotal")).toHaveText(
         usd(orderA.subtotal)
       );
-      await expect(ordersPage.moneyRow("Tax:")).toHaveText(usd(orderA.tax));
-      await expect(ordersPage.moneyRow("Tip:")).toHaveText(usd(orderA.tip));
-      await expect(ordersPage.moneyRow("Customer paid")).toHaveText(
-        usd(orderA.total)
-      );
+      await expect(ordersPage.moneyRow("Tax")).toHaveText(usd(orderA.tax));
+      await expect(ordersPage.moneyRow("Tip")).toHaveText(usd(orderA.tip));
+      await expect(ordersPage.moneyRow("Total")).toHaveText(usd(orderA.total));
       await allure.parameter("A.total", String(orderA.total));
     });
 
     await allure.step("Delivery order B", async () => {
       await ordersPage.gotoOrderDetail(restaurantId, orderB.id);
-      await expect(ordersPage.moneyRow("Customer paid")).toHaveText(
-        usd(orderB.total)
+      await expect(ordersPage.moneyRow("Total")).toHaveText(usd(orderB.total));
+      // A DELIVERY seed always carries its fee now (the backend refuses a
+      // DELIVERY order without one — see createSeededOrder).
+      expect(orderB.deliveryFee).toBeGreaterThan(0);
+      await expect(ordersPage.moneyRow("Delivery fee")).toHaveText(
+        usd(orderB.deliveryFee)
       );
-      if (orderB.deliveryFeeApplied && orderB.deliveryFee > 0) {
-        await expect(ordersPage.moneyRow("Delivery Fee:")).toHaveText(
-          usd(orderB.deliveryFee)
-        );
-      } else {
-        test.info().annotations.push({
-          type: "note",
-          description:
-            "Delivery fee not applied by the backend for this restaurant (tax policy) — fee row skipped.",
-        });
-      }
     });
   });
 

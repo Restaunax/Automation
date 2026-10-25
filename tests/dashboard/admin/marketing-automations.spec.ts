@@ -348,19 +348,43 @@ test.describe("Admin — Marketing automations", () => {
 
   test("TC-205: run-now on a disabled automation is rejected without sending", async () => {
     await allure.description(
-      "The safe half of the run-now contract: a disabled program returns 400 and creates zero sends. (Run-now on an enabled program sends real mail and is intentionally not automated.)"
+      "The safe half of the run-now contract: a disabled program returns 400 and creates zero sends. " +
+        "QA keeps every program enabled, so the test disables one itself (WELCOME or CUSTOM — never " +
+        "WIN_BACK/VIP, which the other tests here drive) and restores it in a finally. (Run-now on an " +
+        "enabled program sends real mail and is intentionally not automated.)"
     );
     const { accessToken } = await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD);
-    const disabled = (await getAutomationsApi(accessToken)).find(
-      (a) => !a.isEnabled
-    );
-    test.skip(
-      !disabled,
-      "Every automation is enabled on QA — no safe run-now target"
-    );
+    const automations = await getAutomationsApi(accessToken);
+    const target =
+      automations.find((a) => !a.isEnabled) ??
+      automations.find((a) => a.type === "WELCOME" || a.type === "CUSTOM");
+    expect(
+      target,
+      `a WELCOME/CUSTOM automation on QA: ${JSON.stringify(automations.map((a) => a.type))}`
+    ).toBeTruthy();
+    const originalEnabled = target!.isEnabled;
+    await allure.parameter("automation", `${target!.type} ${target!.name}`);
 
-    const res = await runAutomationNowRaw(accessToken, disabled!.id);
-    expect(res.status).toBe(400);
-    expect(res.data.success).toBe(false);
+    try {
+      if (originalEnabled) {
+        await toggleAutomationApi(accessToken, target!.id, false);
+      }
+      const sendsBefore = (await getAutomationSendsApi(accessToken, target!.id))
+        .length;
+
+      const res = await runAutomationNowRaw(accessToken, target!.id);
+      expect(res.status, JSON.stringify(res.data)).toBe(400);
+      expect(res.data.success).toBe(false);
+
+      const sendsAfter = (await getAutomationSendsApi(accessToken, target!.id))
+        .length;
+      expect(sendsAfter, "run-now on a disabled program sends nothing").toBe(
+        sendsBefore
+      );
+    } finally {
+      if (originalEnabled) {
+        await toggleAutomationApi(accessToken, target!.id, true);
+      }
+    }
   });
 });

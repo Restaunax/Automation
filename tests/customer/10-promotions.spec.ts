@@ -278,7 +278,8 @@ test.describe("Storefront — Promotions (template-wind)", () => {
 
     await checkout.assertCouponApplied(set.orderCode.code, set.orderCode.name);
     await expect(checkout.promotionLine(set.orderCode.name)).toContainText(
-      "-$4.50"
+      // U+2212 minus in the breakdown summary (wind #135); hyphen tolerated.
+      /[−-]\$4\.50/
     );
     await expectShownMatchesLatestQuote(checkout.readOrderTotal, quotes);
     const latest = await quotes.latest();
@@ -357,7 +358,8 @@ test.describe("Storefront — Promotions (template-wind)", () => {
       page.getByRole("heading", { name: `1x ${gift.name}` })
     ).toBeVisible({ timeout: 15_000 });
     await expect(checkout.promotionLine(set.freeItem!.name)).toContainText(
-      `-${money(gift.price)}`
+      // U+2212 minus in the breakdown summary (wind #135).
+      `−${money(gift.price)}`
     );
     await expect(checkout.freeItemOfferButton()).toHaveCount(0);
     await expectShownMatchesLatestQuote(checkout.readOrderTotal, quotes);

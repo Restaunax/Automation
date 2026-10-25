@@ -138,7 +138,9 @@ test.describe("Owner — Orders journey (customer → owner)", () => {
         receipt = await ordersPage.sheetReceiptNumber();
         expect(receipt).toBeTruthy();
         await allure.parameter("receiptNumber", receipt);
-        await expect(ordersPage.moneyRow("Customer paid")).toHaveText(
+        // The detail sheet renders the server breakdown (RestauNax #999): a
+        // card-paid order with no tender ends on "Total" ("Customer paid" is gone).
+        await expect(ordersPage.moneyRow("Total")).toHaveText(
           usd(placed.checkoutTotal)
         );
         await expect(ordersPage.itemRow(placed.menuItemName)).toBeVisible();
