@@ -20,9 +20,9 @@ export const RELEASED_ON_QA = {
   /** RestauNax branch feat/training-academy — /training + HQ → People → Training. */
   training: false,
   /** RestauNax PR #1036 (fix/app-bug-batch-2026-10). */
-  bugBatch: false,
+  bugBatch: true,
   /** RestauNax PR #1038 (feat/restaurant-closeout). */
-  closeOut: false,
+  closeOut: true,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
