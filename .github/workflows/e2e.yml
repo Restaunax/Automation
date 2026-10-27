@@ -38,9 +38,10 @@ on:
   # deploy (rare). Rationale: Actions minutes — the full suite on every one of
   # 30+ deploys/month cost ~500 min/month and was red on QA drift most of the
   # time; the nightly gives the same signal once a day.
-  # template-deploy: fired by a storefront repo's notify-e2e.yml after its
-  # Dokploy QA deploy settles; client_payload.repo says which storefront, and
-  # the run step narrows to that storefront's customer tests.
+  # template-deploy: fired by a storefront repo's notify-e2e.yml on its qa push;
+  # with client_payload.wait_for_deploy the e2e job first waits for the Dokploy
+  # deploy to settle. client_payload.repo says which storefront, and the run
+  # step narrows to that storefront's customer tests.
   repository_dispatch:
     types: [qa-deploy, template-deploy]
   workflow_dispatch:
@@ -117,6 +118,35 @@ jobs:
       GITHUB_SHA: ${{ github.event.client_payload.sha || github.sha }}
       GITHUB_REF_NAME: ${{ github.event.client_payload.ref || github.ref_name }}
     steps:
+      # A storefront's notify-e2e.yml can dispatch the moment its qa push lands
+      # (payload wait_for_deploy: true) while Dokploy is still building it on
+      # the droplet. The wait happens HERE, not in the storefront repo: this
+      # repo is public, so its runner-minutes are free, and the storefront's are
+      # billed. Same proxy the storefront used to run — no storefront health
+      # endpoint exists and the OLD container keeps serving 200 during the swap
+      # — so sleep through the typical build, then require 3 consecutive 200s.
+      # Never fails the run: if the site never settles, the tests still run and
+      # their failure (plus the Slack alert) is the signal.
+      - name: Wait for the storefront deploy
+        if: github.event.action == 'template-deploy' && github.event.client_payload.wait_for_deploy == true
+        run: |
+          URL="$TEMPLATE_WIND_URL"
+          sleep 240 # typical Dokploy Next.js build ≈ 3-6 min
+          deadline=$(($(date +%s) + 660)) # ~15 min total budget
+          ok=0
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            code=$(curl -s -o /dev/null -m 10 -w '%{http_code}' "$URL") || code=000
+            echo "HTTP $code"
+            if [ "$code" = "200" ]; then
+              ok=$((ok + 1))
+              [ "$ok" -ge 3 ] && { echo "storefront stable"; exit 0; }
+            else
+              ok=0
+            fi
+            sleep 15
+          done
+          echo "::warning::$URL did not serve 3 stable 200s within ~15 min; running the tests anyway"
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
