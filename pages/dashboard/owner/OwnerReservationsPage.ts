@@ -67,9 +67,12 @@ export const createOwnerReservationsPage = (page: Page) => {
   // checkbox <input> — check()/uncheck() need the actual input descendant.
   const onlineBookingToggle = () =>
     page.getByTestId("online-booking-toggle").locator("input");
+  // The server's resolved message. Match the part that carries the meaning:
+  // the lead-in names the booking channels and grew "and phone AI" when voice
+  // bookings shipped (RestauNax #1063), which broke an exact-text match.
   const pacingErrorAlert = () =>
     page.getByText(
-      "Online booking can't be enabled until pacing limits are configured for this restaurant."
+      /can't be enabled until pacing limits are configured for this restaurant\./
     );
   const pacingRequiredLink = () =>
     page.getByRole("button", { name: "Go to Booking hours" });
