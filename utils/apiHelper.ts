@@ -7215,10 +7215,14 @@ export const zoneAtMidday = (now = new Date(), localHour = 12): string => {
   return `Etc/GMT${offset > 0 ? "-" : "+"}${Math.abs(offset)}`;
 };
 
-/** PUT /restaurant/:rid/basic-info — owner basic info, incl. the `timezone`
- *  override (an IANA zone; null clears it back to the address's zone). */
+/** PUT /restaurant/:rid/basic-info — basic info, incl. the `timezone`
+ *  override (an IANA zone; null clears it back to the address's zone).
+ *  `timezone` and `businessType` are RestauNax setup (SETTINGS_SAFETY.md §4):
+ *  an OWNER token that CHANGES either gets 403 HQ_ONLY_FIELDS (echoing the
+ *  current value is fine), so specs move a tenant's zone with an ADMIN token
+ *  and keep the owner token for everything else. */
 export function restaurantBasicInfoRaw(
-  ownerToken: string,
+  accessToken: string,
   restaurantId: string,
   body: Record<string, unknown>
 ): Promise<RawResponse<{ data?: LooseJson; message?: string }>> {
@@ -7226,7 +7230,7 @@ export function restaurantBasicInfoRaw(
     "PUT",
     `/restaurant/${restaurantId}/basic-info`,
     body,
-    ownerToken
+    accessToken
   );
 }
 

@@ -93,7 +93,8 @@ test.describe("Owner — tip-out waterfall (UI)", () => {
     if (!tenant.restaurantId) throw new Error("[tip-waterfall-ui] no tenant");
     restaurantId = tenant.restaurantId;
     ownerToken = tenant.accessToken;
-    await restaurantBasicInfoRaw(ownerToken, restaurantId, { timezone: ZONE });
+    // Time zone is RestauNax setup: an owner change is 403 HQ_ONLY_FIELDS.
+    await restaurantBasicInfoRaw(adminToken, restaurantId, { timezone: ZONE });
     await setFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,
