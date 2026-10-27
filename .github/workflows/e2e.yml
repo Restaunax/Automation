@@ -266,15 +266,60 @@ jobs:
             cp -r gh-pages/last-history gh-pages/nightly/last-history
           fi
 
+      # This step used to be simple-elf/allure-report-action, a Docker action
+      # whose image is built FROM public.ecr.aws/amazoncorretto at the start of
+      # EVERY run (smoke lane included, even though smoke never publishes).
+      # When ECR's anonymous pull limit answered 429, the whole job died before
+      # a single test ran: 21 of 30 failed e2e runs from 2026-10-23 to 10-27.
+      # Same layout as that action's entrypoint.sh (run folders + last-history
+      # + a redirecting index.html, keep_reports cleanup), done with the allure
+      # CLI from devDependencies and the runner's preinstalled Java.
       - name: Build Allure report with history
         if: always() && env.LANE != 'smoke'
-        uses: simple-elf/allure-report-action@master
-        with:
-          allure_results: allure-results
-          gh_pages: gh-pages
-          allure_history: allure-history
-          subfolder: ${{ env.REPORT_SUBFOLDER }}
-          keep_reports: 30
+        env:
+          KEEP_REPORTS: 30
+          RUN_NUM: ${{ github.run_number }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -u
+          SITE="https://restaunax.github.io/Automation/$REPORT_SUBFOLDER"
+          PAGES="gh-pages/$REPORT_SUBFOLDER"
+          HIST="allure-history/$REPORT_SUBFOLDER"
+          mkdir -p gh-pages allure-history allure-results
+          cp -r gh-pages/. allure-history
+          mkdir -p "$HIST"
+
+          # Keep the newest reports only (non-numeric names sort first, which is
+          # why each suite lives in its own subfolder — see above).
+          keep=$((KEEP_REPORTS + 1))
+          if [ "$(find "$HIST" -mindepth 1 -maxdepth 1 | wc -l)" -gt "$keep" ]; then
+            (cd "$HIST" && rm -rf index.html last-history \
+              && find . -mindepth 1 -maxdepth 1 -printf '%f\n' | sort -n \
+                | grep -v CNAME | head -n -$((keep - 2)) | xargs -r rm -rf)
+          fi
+
+          printf '%s\n' \
+            "<!DOCTYPE html><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0; URL=$SITE/$RUN_NUM/index.html\">" \
+            '<meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">' \
+            > "$HIST/index.html"
+
+          jq -n --arg site "$SITE" --arg num "$RUN_NUM" --arg id "$RUN_ID" \
+            --arg build "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" \
+            '{name:"GitHub Actions", type:"github", reportName:"Allure Report with history",
+              url:$site, reportUrl:"\($site)/\($num)", buildUrl:$build,
+              buildName:"GitHub Actions Run #\($id)", buildOrder:$num}' \
+            > allure-results/executor.json
+
+          # Trend widget: carry the previous run's history into this report.
+          if [ -d "$PAGES/last-history" ]; then
+            mkdir -p allure-results/history
+            cp -r "$PAGES/last-history/." allure-results/history
+          fi
+
+          npx allure generate --clean allure-results -o allure-report
+          cp -r allure-report/. "$HIST/$RUN_NUM"
+          mkdir -p "$HIST/last-history"
+          cp -r allure-report/history/. "$HIST/last-history"
 
       # simple-elf runs as root in a container and copies the checked-out gh-pages
       # folder — including its .git — into allure-history. peaceiris then can't
