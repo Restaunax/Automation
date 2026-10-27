@@ -1,3 +1,4 @@
+import type { Page } from "@playwright/test";
 import * as allure from "allure-js-commons";
 
 import { test, expect } from "../../fixtures/base";
@@ -53,6 +54,12 @@ test.describe("Table QR ordering @table-qr", () => {
 
   // ≤12 chars: "E2E-" + 8-char run id.
   const label = `E2E-${generateRunId()}`;
+  // The ordering site prefixes "Table " unless the label already starts with
+  // it (lima `tableLabel`, same rule as the POS) — "Ordering for Table E2E-…".
+  // The banner also holds the "Order pickup instead" button, so match by
+  // containment on the banner itself rather than an exact text node.
+  const bannerText = `Ordering for Table ${label}`;
+  const tableBanner = (page: Page) => page.getByTestId("table-card-banner");
   let token = "";
   let restaurantId = "";
   let card: CardView | undefined;
@@ -142,16 +149,14 @@ test.describe("Table QR ordering @table-qr", () => {
 
     const { lima, checkout } = await reachCheckout(page, url);
 
-    await expect(
-      page.getByText(`Ordering for table ${label}`, { exact: true })
-    ).toBeVisible({ timeout: 20_000 });
+    await expect(tableBanner(page)).toContainText(bannerText, {
+      timeout: 20_000,
+    });
 
     await addItemAndOpenCheckout(page, lima, checkout);
 
     // Banner survives navigation; no pickup/delivery choice, static Dine-in.
-    await expect(
-      page.getByText(`Ordering for table ${label}`, { exact: true })
-    ).toBeVisible();
+    await expect(tableBanner(page)).toContainText(bannerText);
     await expect(
       page.getByText("Dine-in", { exact: true }).first()
     ).toBeVisible({
@@ -202,10 +207,8 @@ test.describe("Table QR ordering @table-qr", () => {
 
     const { lima, checkout } = await reachCheckout(page, card!.url);
 
-    await expect(page.getByTestId("table-card-banner")).toHaveCount(0);
-    await expect(
-      page.getByText(`Ordering for table ${label}`, { exact: true })
-    ).toHaveCount(0);
+    await expect(tableBanner(page)).toHaveCount(0);
+    await expect(page.getByText(bannerText)).toHaveCount(0);
 
     await addItemAndOpenCheckout(page, lima, checkout);
     // The ordinary pickup/delivery choice is back; no dine-in line.
