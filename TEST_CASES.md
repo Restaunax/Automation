@@ -2594,6 +2594,28 @@ Company setup staff onboard clients end to end, including the client's staff; th
 
 ---
 
+## TC-942 — Owner Can't Change RestauNax Setup Fields (API)
+
+**Status:** ⏸️ Gated — `tests/dashboard/owner/api-settings-safety.spec.ts` skips until settings safety (RestauNax feat/ux-round3a) is on QA (`RELEASED_ON_QA.settingsSafety`, `--grep @settings-safety`)
+
+### What it checks
+
+The restaurant's time zone, business type, business-day cutoff, deposit-at-close, slug, published/isActive and the other setup fields are RestauNax-only (`docs/features/back-office/SETTINGS_SAFETY.md` §4). An OWNER token that changes the time zone on `PUT /restaurant/:id/basic-info` gets **403 `HQ_ONLY_FIELDS`** (`fields: ["timezone"]`, "Only RestauNax can change this — contact support."); echoing the current value still works; an ADMIN token may change it.
+
+### How it works, step by step
+
+1. Mint a throwaway owner + restaurant; probe `GET /api/restaurantId/:id/settings/setup` (404 = not deployed → skip)
+2. Owner sends a different zone → 403 with the message; the stored zone is unchanged
+3. Owner sends the current zone back → 200
+4. Admin sends the new zone → 200 and it is stored
+5. Cleanup deletes the restaurant
+
+### Why it matters
+
+The zone re-times every report and the business type decides the feature trim; an owner changing either by accident breaks their books. Specs that need a zone move it with the admin token (`api-scheduling`, `api-tips`, `api-tip-waterfall`, `23-tip-waterfall-ui`).
+
+---
+
 ## TC-181 — Admin Chain Management (list)
 
 **Status:** ✅ Passing

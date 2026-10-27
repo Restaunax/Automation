@@ -133,7 +133,8 @@ test.describe("Tips — pools, tip-outs, cash (API)", () => {
     if (!tenant.restaurantId) throw new Error("[api-tips] no tenant");
     restaurantId = tenant.restaurantId;
     ownerToken = tenant.accessToken;
-    const zone = await restaurantBasicInfoRaw(ownerToken, restaurantId, {
+    // Time zone is RestauNax setup: an owner change is 403 HQ_ONLY_FIELDS.
+    const zone = await restaurantBasicInfoRaw(adminToken, restaurantId, {
       timezone: ZONE,
     });
     if (zone.status !== 200)

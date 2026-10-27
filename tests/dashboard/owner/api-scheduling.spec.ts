@@ -115,10 +115,12 @@ test.describe("Scheduling — build, cost, warn, publish, clock-in rule (API)", 
   };
   const localDateIn = (zone: string, d: Date) =>
     new Intl.DateTimeFormat("en-CA", { timeZone: zone }).format(d);
-  /** PUT /restaurant/:rid/basic-info {timezone} — the owner's zone override. */
+  /** PUT /restaurant/:rid/basic-info {timezone} — the zone override. Time
+   *  zone is RestauNax setup (an owner change is 403 HQ_ONLY_FIELDS), so the
+   *  move uses the admin token; the rest of the spec stays the owner. */
   const moveToMidday = async () => {
     const zone = zoneAtMidday();
-    const r = await restaurantBasicInfoRaw(ownerToken, restaurantId, {
+    const r = await restaurantBasicInfoRaw(adminToken, restaurantId, {
       timezone: zone,
     });
     expect(r.status, JSON.stringify(r.data)).toBe(200);

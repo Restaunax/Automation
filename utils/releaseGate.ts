@@ -11,7 +11,7 @@
  * regression can't hide as a skip.
  *
  * Select a part's tests with its tag: `--grep @training`, `--grep @closeout`,
- * `--grep @bugfix-1036`.
+ * `--grep @bugfix-1036`, `--grep @settings-safety`.
  */
 import { test, expect } from "../fixtures/base";
 import { apiRequestRaw } from "./apiHelper";
@@ -23,6 +23,9 @@ export const RELEASED_ON_QA = {
   bugBatch: true,
   /** RestauNax PR #1038 (feat/restaurant-closeout). */
   closeOut: true,
+  /** RestauNax feat/ux-round3a — settings safety (RestauNax-only setup
+   *  fields, docs/features/back-office/SETTINGS_SAFETY.md). */
+  settingsSafety: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -33,6 +36,8 @@ const REASON: Record<ReleasePart, string> = {
   bugBatch: "RestauNax PR #1036 (app bug batch) is not on this environment yet",
   closeOut:
     "Restaurant close-out (RestauNax PR #1038) is not on this environment yet — /api/admin/close-out answers 404",
+  settingsSafety:
+    "Settings safety (RestauNax feat/ux-round3a) is not on this environment yet — /api/restaurantId/:id/settings/setup answers 404",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
@@ -74,6 +79,23 @@ export async function probeCloseOut(adminToken: string): Promise<boolean> {
     "/api/admin/close-out/returns-due",
     undefined,
     adminToken
+  );
+  return res.status !== 404;
+}
+
+/**
+ * Is settings safety deployed? `GET /api/restaurantId/:id/settings/setup` is
+ * a read every owner may call (never 403) and only exists with the change.
+ */
+export async function probeSettingsSafety(
+  accessToken: string,
+  restaurantId: string
+): Promise<boolean> {
+  const res = await apiRequestRaw(
+    "GET",
+    `/api/restaurantId/${restaurantId}/settings/setup`,
+    undefined,
+    accessToken
   );
   return res.status !== 404;
 }
