@@ -237,20 +237,38 @@ test.describe("Owner — Print Shop (supply shop)", () => {
     await allure.step(
       "Gift cards OFF → the card is still in the shop and the owner API",
       async () => {
-        await shop.goto(restaurantId);
-        const card = shop.productCard(PRODUCT_NAME).first();
-        await expect(card).toBeVisible();
-        await expect(card).toContainText("from $1.10 each");
-        await expect(card).toContainText(/~\d+ days/);
-        await expect(card.locator("img")).toHaveAttribute("src", /.+/);
         const catalog = await getSupplyCatalogOwnerRaw(
           ownerToken,
           restaurantId
         );
         expect(catalog.status, JSON.stringify(catalog.data)).toBe(200);
-        expect(catalog.data.data.map((p) => p.slug)).toContain(
-          SUPPLY_GIFT_CARD_PRODUCT_SLUG
+        const product = catalog.data.data.find(
+          (p) => p.slug === SUPPLY_GIFT_CARD_PRODUCT_SLUG
         );
+        expect(
+          product,
+          `${SUPPLY_GIFT_CARD_PRODUCT_SLUG} in the owner catalog`
+        ).toBeTruthy();
+
+        // The card shows a per-piece RANGE until the order is placed
+        // (SUPPLY_SHOP.md §7): low = the list "from" price, high = low widened
+        // by the product's estimateSpreadPct, to the cent — the dashboard's
+        // priceRange.ts rule. A 0% spread renders a single "from $X each".
+        const from = product!.fromUnitPrice ?? NaN;
+        expect(from, "fromUnitPrice is set").not.toBeNaN();
+        const spread = product!.estimateSpreadPct ?? 0;
+        const high = Math.round(from * (1 + spread / 100) * 100) / 100;
+        const priceLabel =
+          spread > 0
+            ? `$${from.toFixed(2)}–$${high.toFixed(2)} each` // EN DASH
+            : `from $${from.toFixed(2)} each`;
+
+        await shop.goto(restaurantId);
+        const card = shop.productCard(PRODUCT_NAME).first();
+        await expect(card).toBeVisible();
+        await expect(card).toContainText(priceLabel);
+        await expect(card).toContainText(/~\d+ days/);
+        await expect(card.locator("img")).toHaveAttribute("src", /.+/);
       }
     );
 

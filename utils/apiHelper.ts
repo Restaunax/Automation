@@ -5875,6 +5875,8 @@ export interface SupplyCatalogProduct {
   name: string;
   requiresDesign: boolean;
   estimateSpreadPct: number;
+  /** Lowest list price per piece (cheapest tier), null when unpriced. */
+  fromUnitPrice?: number | null;
   leadDays: number;
   variants: Array<{
     id: string;
