@@ -10,6 +10,11 @@
  *   GET  /api/app/features   → 200 {success, data:{features: string[]}};
  *                              400 on a bad query (platform must be ios or
  *                              android)
+ *   GET  /api/app/ota/urgency → 200 {success, data:{urgency: NORMAL|IMPORTANT|
+ *                              CRITICAL, reason, ...}}; 400 on a bad query
+ *                              (platform=web)
+ * The urgency route passes once the RestauNax backend PR is on QA; locally
+ * use BACKEND_URL.
  *
  * Nothing is created that needs cleanup beyond a check-in row keyed by a
  * fresh random installation id. TC-958 sends deviceModel "automation", so
@@ -79,6 +84,31 @@ test.describe("App release gating — public routes", () => {
   }) => {
     const resp = await request.get(
       `${BACKEND_URL}/api/app/features?appType=owner&platform=web&version=1.0.0`
+    );
+    expect(resp.status()).toBe(400);
+  });
+
+  test("TC-962: the OTA urgency lookup returns a valid urgency", async ({
+    request,
+  }) => {
+    const resp = await request.get(
+      `${BACKEND_URL}/api/app/ota/urgency?appType=owner&platform=ios&channel=production&runtimeVersion=native-1`
+    );
+    expect(resp.status()).toBe(200);
+    const body = (await resp.json()) as {
+      success: boolean;
+      data: { urgency: string };
+    };
+    await allure.parameter("payload", JSON.stringify(body));
+    expect(body.success).toBe(true);
+    expect(["NORMAL", "IMPORTANT", "CRITICAL"]).toContain(body.data.urgency);
+  });
+
+  test("TC-963: the OTA urgency lookup refuses platform=web with 400", async ({
+    request,
+  }) => {
+    const resp = await request.get(
+      `${BACKEND_URL}/api/app/ota/urgency?appType=owner&platform=web&channel=production&runtimeVersion=native-1`
     );
     expect(resp.status()).toBe(400);
   });
