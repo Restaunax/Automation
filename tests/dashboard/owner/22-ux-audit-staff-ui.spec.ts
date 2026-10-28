@@ -5,13 +5,14 @@
  * Browser. A per-run throwaway owner (loginViaUi) on a restaurant with
  * SCHEDULING + TIP_MANAGEMENT (the most Staff tabs), weekly pay periods and
  * manager-entered hours in the two most recent finished periods:
- *   - the Staff tab bar scrolls to every tab at 1024 px and 390 px, and the
- *     page is never wider than the screen;
+ *   - at 1024 px and 390 px every Staff group (Team · Schedule · Time & pay
+ *     · Tips, RestauNax #1074) and every tab inside it can be reached and
+ *     opened, and the page is never wider than the screen;
  *   - Timecards opens on the OLDEST period still waiting for approval;
  *   - the language picked in the top bar survives a reload (and is saved to
  *     the account).
  */
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
 import { generateRunId } from "../../../utils/testData";
@@ -77,9 +78,9 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI)", () => {
       }`,
       { waitUntil: "domcontentloaded" }
     );
-    await expect(page().getByRole("tab").first()).toBeVisible({
-      timeout: 20_000,
-    });
+    await expect(
+      page().getByTestId("staff-groups").getByRole("tab").first()
+    ).toBeVisible({ timeout: 20_000 });
   };
 
   test.beforeAll(async ({ browser }) => {
@@ -157,38 +158,63 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI)", () => {
     [1024, 800],
     [390, 844],
   ] as const) {
-    test(`TC-664: at ${width}px the Staff tab bar reaches every tab and the page fits the screen`, async () => {
+    test(`TC-664: at ${width}px every Staff group and every tab in it can be reached, and the page fits the screen`, async () => {
       await page().setViewportSize({ width, height });
       await openStaff();
-      // The Staff tab bar only (some screens have tabs of their own).
-      const bar = page().locator(".MuiTabs-root").first();
-      const tabs = bar.getByRole("tab");
-      const count = await tabs.count();
-      expect(count).toBeGreaterThanOrEqual(10);
-      // Walk the bar from the keyboard: each tab must scroll into view and
+      const groupBar = page().getByTestId("staff-groups");
+      const groups = groupBar.getByRole("tab");
+      // The open group's own tab bar sits right after the group bar.
+      const groupTabs = page().locator(
+        '[data-testid="staff-groups"] + .MuiTabs-root [role="tab"]'
+      );
+      // SCHEDULING + TIP_MANAGEMENT: all four groups.
+      await expect(groups).toHaveText([
+        "Team",
+        "Schedule",
+        "Time & pay",
+        "Tips",
+      ]);
+      // Walk a bar from the keyboard: each tab must scroll into view and
       // open. (The ‹ › arrows sit under the fixed top bar once the page has
       // scrolled, which makes them unclickable for automation — not users.)
-      await page().evaluate(() => window.scrollTo(0, 0));
-      await tabs.first().focus();
-      for (let i = 0; i < count; i++) {
-        const tab = tabs.nth(i);
-        if (i > 0) await page().keyboard.press("ArrowRight");
-        await expect(tab).toBeFocused();
-        await page().keyboard.press("Enter");
-        await expect(tab).toHaveAttribute("aria-selected", "true");
+      const walk = async (tabs: Locator, each?: () => Promise<void>) => {
+        const count = await tabs.count();
         await page().evaluate(() => window.scrollTo(0, 0));
-        // The bar scrolls smoothly to the selected tab; if a re-render
-        // interrupts that, swiping the bar (scrollIntoView) still reaches it.
-        const shown = await expect(tab)
-          .toBeInViewport({ timeout: 3_000 })
-          .then(() => true)
-          .catch(() => false);
-        if (!shown)
-          await tab.evaluate((el) =>
-            el.scrollIntoView({ inline: "center", block: "nearest" })
-          );
-        await expect(tab).toBeInViewport();
-      }
+        await tabs.first().focus();
+        for (let i = 0; i < count; i++) {
+          const tab = tabs.nth(i);
+          if (i > 0) await page().keyboard.press("ArrowRight");
+          await expect(tab).toBeFocused();
+          await page().keyboard.press("Enter");
+          await expect(tab).toHaveAttribute("aria-selected", "true");
+          await page().evaluate(() => window.scrollTo(0, 0));
+          // The bar scrolls smoothly to the selected tab; if a re-render
+          // interrupts that, swiping the bar (scrollIntoView) still reaches it.
+          const shown = await expect(tab)
+            .toBeInViewport({ timeout: 3_000 })
+            .then(() => true)
+            .catch(() => false);
+          if (!shown)
+            await tab.evaluate((el) =>
+              el.scrollIntoView({ inline: "center", block: "nearest" })
+            );
+          await expect(tab).toBeInViewport();
+          if (each) await each();
+        }
+        return count;
+      };
+      let reached = 0;
+      await walk(groups, async () => {
+        await expect(groupTabs.first()).toBeVisible({ timeout: 10_000 });
+        // Focus moves into the group's own bar, then back to the groups.
+        const focused = await groups.evaluateAll((els) =>
+          els.findIndex((el) => el.getAttribute("aria-selected") === "true")
+        );
+        reached += await walk(groupTabs);
+        await groups.nth(focused).focus();
+      });
+      // Team 4 · Schedule 3 · Time & pay 4 · Tips 2.
+      expect(reached).toBe(13);
       const overflow = await page().evaluate(
         () =>
           document.documentElement.scrollWidth -
