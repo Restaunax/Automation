@@ -23,9 +23,11 @@ export const RELEASED_ON_QA = {
   bugBatch: true,
   /** RestauNax PR #1038 (feat/restaurant-closeout). */
   closeOut: true,
-  /** RestauNax feat/ux-round3a — settings safety (RestauNax-only setup
-   *  fields, docs/features/back-office/SETTINGS_SAFETY.md). */
-  settingsSafety: false,
+  /** Settings safety (RestauNax-only setup fields, the change history, the
+   *  POS staff-capability rule — docs/features/back-office/SETTINGS_SAFETY.md).
+   *  Built on feat/ux-round3a, shipped in RestauNax PR #1074 ("back office:
+   *  the next level"); on QA since 2026-10-27. */
+  settingsSafety: true,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -37,7 +39,7 @@ const REASON: Record<ReleasePart, string> = {
   closeOut:
     "Restaurant close-out (RestauNax PR #1038) is not on this environment yet — /api/admin/close-out answers 404",
   settingsSafety:
-    "Settings safety (RestauNax feat/ux-round3a) is not on this environment yet — /api/restaurantId/:id/settings/setup answers 404",
+    "Settings safety (RestauNax PR #1074) is not on this environment yet — /api/restaurantId/:id/settings/setup answers 404",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
