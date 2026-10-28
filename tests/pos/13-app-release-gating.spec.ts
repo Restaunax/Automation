@@ -12,7 +12,8 @@
  *                              android)
  *
  * Nothing is created that needs cleanup beyond a check-in row keyed by a
- * fresh random installation id. These routes ship in the backend PR; against
+ * fresh random installation id. TC-958 sends deviceModel "automation", so
+ * that row is recognizable in Admin → App versions → Owner → Installations. These routes ship in the backend PR; against
  * QA they pass once that PR is deployed. To run before then, point at a local
  * backend: BACKEND_URL=http://localhost:9000 npx playwright test --project=pos
  * tests/pos/13-app-release-gating.spec.ts
@@ -37,6 +38,7 @@ test.describe("App release gating — public routes", () => {
         appType: "owner",
         platform: "ios",
         appVersion: "1.0.0",
+        deviceModel: "automation",
       },
     });
     expect(resp.status()).toBe(204);
