@@ -209,3 +209,28 @@ export async function seedPeriodAwaitingApproval(
     throw new Error(`[back-office] shift: ${JSON.stringify(shift.data)}`);
   return { startDate, endDate: String(last.endDate), staffMemberId: me };
 }
+
+// ── Service charges paid to staff (RestauNax #1078) ─────────────────────────
+
+/** A service fee kept by the house: the owner's usual starting point. */
+export const SERVICE_FEE_HOUSE: Record<string, LooseJson> = {
+  enabled: true,
+  percent: 3,
+  label: "Service fee",
+  taxable: false,
+  distribution: "HOUSE",
+  orderTypes: ["DINE_IN", "PICKUP", "DELIVERY"],
+  channels: ["POS", "ONLINE", "KIOSK", "VOICE"],
+  minimumSubtotal: null,
+  notice: null,
+};
+
+/** A large-party auto-gratuity kept by the house (18%, parties of 6+). */
+export const AUTO_GRATUITY_HOUSE: Record<string, LooseJson> = {
+  enabled: true,
+  minGuests: 6,
+  percent: 18,
+  label: "Gratuity",
+  taxable: false,
+  distribution: "HOUSE",
+};

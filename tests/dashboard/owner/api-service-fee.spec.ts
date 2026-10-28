@@ -10,7 +10,9 @@
  *     (a POS build from before the fee) → taken without it;
  *   - minimum subtotal, order types and channels (POS vs online quote);
  *   - taxable at the restaurant rate, tracked apart;
- *   - HOUSE vs STAFF frozen on the order; never a tip;
+ *   - HOUSE vs STAFF frozen on the order; never a tip; STAFF needs Tip
+ *     Management or Payroll (refused without; a saved STAFF freezes as
+ *     HOUSE once the add-on lapses — RestauNax #1078);
  *   - a device can't change the rule.
  * Serial.
  */
@@ -35,6 +37,8 @@ import {
   getOrderFullRaw,
   quoteOrderRaw,
   setRestaurantPublishedApi,
+  setFeatureOverrideAdminRaw,
+  deleteFeatureOverrideAdminRaw,
   tabletRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
@@ -271,19 +275,61 @@ test.describe("Service fee — every option for its effect (API)", () => {
   });
 
   test("TC-616: STAFF distribution is frozen on the order; changing the rule doesn't touch placed orders", async () => {
-    await rule({ distribution: "STAFF", percent: 5 });
-    const o = await check(2);
-    expect(o).toMatchObject({
-      serviceFeeDistribution: "STAFF",
-      serviceFeePercent: 5,
-    });
-    expect(fee(o)).toBe(1);
-    await rule({ distribution: "HOUSE", percent: 3 });
-    const again = await getOrderFullRaw(ownerToken, String(o.id));
-    expect(again.data).toMatchObject({
-      serviceFeeDistribution: "STAFF",
-      serviceFeePercent: 5,
-    });
+    // Since RestauNax #1078 (service charges paid to staff), STAFF needs Tip
+    // Management or RestauNax Payroll: refused without it.
+    const refused = await updateRestaurantSettingsRaw(
+      ownerToken,
+      restaurantId,
+      {
+        serviceFee: { ...RULE, distribution: "STAFF", percent: 5 },
+      }
+    );
+    expect(refused.status, JSON.stringify(refused.data)).toBe(400);
+    expect(refused.data.error).toBe("STAFF_SHARE_NOT_ENTITLED");
+
+    const granted = await setFeatureOverrideAdminRaw(
+      adminToken,
+      restaurantId,
+      "TIP_MANAGEMENT",
+      true
+    );
+    expect(granted.ok, JSON.stringify(granted.data)).toBe(true);
+    try {
+      await rule({ distribution: "STAFF", percent: 5 });
+      const o = await check(2);
+      expect(o).toMatchObject({
+        serviceFeeDistribution: "STAFF",
+        // The default allocation: shared like tips.
+        serviceFeeAllocation: "TIP_RULES",
+        serviceFeePercent: 5,
+      });
+      expect(fee(o)).toBe(1);
+
+      // The add-on lapses with STAFF saved: checkout keeps working, priced
+      // the same, but the order is frozen as HOUSE (never owed to staff).
+      await deleteFeatureOverrideAdminRaw(
+        adminToken,
+        restaurantId,
+        "TIP_MANAGEMENT"
+      );
+      const lapsed = await check(2);
+      expect(fee(lapsed)).toBe(1);
+      expect(lapsed.serviceFeeDistribution).toBe("HOUSE");
+
+      await rule({ distribution: "HOUSE", percent: 3 });
+      const again = await getOrderFullRaw(ownerToken, String(o.id));
+      expect(again.data).toMatchObject({
+        serviceFeeDistribution: "STAFF",
+        serviceFeePercent: 5,
+      });
+    } finally {
+      await deleteFeatureOverrideAdminRaw(
+        adminToken,
+        restaurantId,
+        "TIP_MANAGEMENT"
+      ).catch(() => {});
+      await rule({});
+    }
   });
 
   test("TC-617: a device can't change the rule; out-of-range values are clamped", async () => {
