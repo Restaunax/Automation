@@ -37,8 +37,7 @@
  *
  * TC-980, TC-983, TC-986b and TC-989 guard the four bugs RestauNax #1094
  * fixed (on QA since 2026-10-29). TC-989 still failed after it: the header's
- * right-hand block was the part overflowing. It is marked test.fail until
- * RestauNax #1096 reaches QA; EXPECT_FIX_1096=1 runs it strictly.
+ * right-hand block was the part overflowing, fixed by RestauNax #1096.
  */
 import type { Locator, Page } from "@playwright/test";
 import * as allure from "allure-js-commons";
@@ -75,10 +74,6 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 const MAILPIT = !!process.env.MAILPIT_BASE_URL;
 const DOMAIN = process.env.TEST_EMAIL_DOMAIN ?? "demomailtrap.co";
-
-/** Until RestauNax #1096 is on QA, TC-989 is known to fail. */
-const FIX_1096 = "RestauNax #1096 not on QA yet";
-const FIXED_1096 = process.env.EXPECT_FIX_1096 === "1";
 
 type Rec = Record<string, LooseJson>;
 
@@ -587,7 +582,6 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
   });
 
   test("TC-989: a long restaurant name doesn't run under the header's name block", async () => {
-    test.fail(!FIXED_1096, FIX_1096);
     await openStaff();
     const banner = page().getByRole("banner");
     // The header is drawn twice (phone and desktop); the desktop one shows.
