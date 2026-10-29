@@ -500,6 +500,9 @@ Add `utils/visibleFeedback.ts` with:
 
 ### Phase 0: open the restaurant (PR 1)
 
+**Built (2026-10-29), phases 0–2 together:**
+`tests/dashboard/journey/01-open-hire-schedule.spec.ts`, TC-978..989.
+
 - **Roles:** HQ admin (API), Owner (UI).
 - **Steps:** `createSecondOwner`; grant PAYROLL + SCHEDULING + TIP_MANAGEMENT
   (packages only, per `BACK_OFFICE_COVERAGE.md`) by override; dummy Stripe
@@ -533,6 +536,21 @@ Add `utils/visibleFeedback.ts` with:
   the note and a warning on Thursday's shift; persists after reload.
 
 ### Phase 3: service day (PR 4)
+
+**Built (2026-10-29):** `tests/dashboard/journey/02-service-day.spec.ts`,
+TC-990..1000. Differences from the plan, and why:
+
+- No tip on the counter cash sale: a single-tender cash sale is created with
+  tip 0 and paid by `mark-paid`, which takes no tip (device-in-store does the
+  same). The cash tip is on T1's second leg instead.
+- The owner holds the drawer and takes the cash. Dee ringing an order is fine,
+  but a cash payment into someone else's drawer is refused
+  (`DRAWER_NOT_YOURS`); TC-991 checks that refusal.
+- The manager-approved discount and pay-at-table move to the POS money paths
+  phase; both are API-proven already (`api-discount-permissions`,
+  `api-pay-at-table`).
+- The 30-minute break is started and ended at once (a real clock can't be
+  faked). Phase 4 corrects hours on last week's seeded shifts instead.
 
 - **Roles:** Dee (POS API), Manager (POS API), Guest (wind or lima UI).
 - **Steps:** open register; Dee clocks in as Server (clock-in rule WARN);
