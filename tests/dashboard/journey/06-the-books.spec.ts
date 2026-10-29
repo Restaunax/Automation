@@ -1,6 +1,6 @@
 /**
  * 06-the-books.spec.ts — "a week in a restaurant", part 6: the restaurant's
- * days reach its books and its sales tax service (TC-1020..1025).
+ * days reach its books and its sales tax service (TC-1028..1025).
  * docs/COVERAGE_MAP.md §3, phase 7 (Track B). Tag `@partner`.
  *
  * READ-ONLY, on the QA restaurants a person connected to the partners'
@@ -17,18 +17,18 @@
  * a partner's sandbox being reset never fails the run. Days are checked from
  * two days back, so a day that hasn't posted yet doesn't either.
  *
- *   TC-1020 my 2 store: Overview says each connection is working, in words.
- *   TC-1021 my 2 store: each recent day is posted to QuickBooks as one
+ *   TC-1028 my 2 store: Overview says each connection is working, in words.
+ *   TC-1029 my 2 store: each recent day is posted to QuickBooks as one
  *           balanced entry with its own number.
- *   TC-1022 my 2 store: on days without refunds, the tax Avalara has is the
+ *   TC-1030 my 2 store: on days without refunds, the tax Avalara has is the
  *           tax in that day's entry, for the same orders.
- *   TC-1022b my 2 store: on a day with refunds too (RestauNax #1104;
+ *   TC-1030b my 2 store: on a day with refunds too (RestauNax #1104;
  *           test.fail until it is on QA).
- *   TC-1023 my 2 store: each posted card deposit's entry balances, its bank
+ *   TC-1031 my 2 store: each posted card deposit's entry balances, its bank
  *           line is the payout, and the Card deposits tab lists it.
- *   TC-1024 New Restaurant: Overview names the Xero company; recent days are
+ *   TC-1032 New Restaurant: Overview names the Xero company; recent days are
  *           posted to Xero, balanced.
- *   TC-1025 Sally's Pizza: with nothing connected the page invites setup,
+ *   TC-1033 Sally's Pizza: with nothing connected the page invites setup,
  *           shows no error, and no day failed.
  */
 import type { Page } from "@playwright/test";
@@ -47,7 +47,7 @@ import { DESKTOP, expectHumanText } from "../../../utils/humanQa";
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 const PARTNER = { tag: ["@partner"] };
-/** Until RestauNax #1104 is on QA, TC-1022 is known to fail. */
+/** Until RestauNax #1104 is on QA, TC-1030 is known to fail. */
 const FIX_1104 = "RestauNax #1104 not on QA yet";
 const FIXED_1104 = process.env.EXPECT_FIX_1104 === "1";
 
@@ -164,7 +164,7 @@ test.describe("Journey 6 — the books (partner restaurants, read-only)", () => 
   });
 
   test(
-    "TC-1020: my 2 store — Overview says each connection is working, in words",
+    "TC-1028: my 2 store — Overview says each connection is working, in words",
     PARTNER,
     async () => {
       const { id, integration } = await books("my 2 store");
@@ -206,7 +206,7 @@ test.describe("Journey 6 — the books (partner restaurants, read-only)", () => 
   );
 
   test(
-    "TC-1021: my 2 store — each recent day is posted to QuickBooks as one balanced entry",
+    "TC-1029: my 2 store — each recent day is posted to QuickBooks as one balanced entry",
     PARTNER,
     async () => {
       const { id, integration } = await books("my 2 store");
@@ -260,7 +260,7 @@ test.describe("Journey 6 — the books (partner restaurants, read-only)", () => 
   };
 
   test(
-    "TC-1022: my 2 store — on days without refunds Avalara has the same tax as the books, for the same orders",
+    "TC-1030: my 2 store — on days without refunds Avalara has the same tax as the books, for the same orders",
     PARTNER,
     async () => {
       const days = (await taxDays()).filter((d) => !d.refunds);
@@ -270,7 +270,7 @@ test.describe("Journey 6 — the books (partner restaurants, read-only)", () => 
   );
 
   test(
-    "TC-1022b: my 2 store — on a day with refunds the books owe the same tax as Avalara",
+    "TC-1030b: my 2 store — on a day with refunds the books owe the same tax as Avalara",
     PARTNER,
     async () => {
       // The books took the refund's tax off nothing: sales tax payable stayed
@@ -283,7 +283,7 @@ test.describe("Journey 6 — the books (partner restaurants, read-only)", () => 
   );
 
   test(
-    "TC-1023: my 2 store — each posted card deposit balances, its bank line is the payout, and Card deposits lists it",
+    "TC-1031: my 2 store — each posted card deposit balances, its bank line is the payout, and Card deposits lists it",
     PARTNER,
     async () => {
       const { id, integration } = await books("my 2 store");
@@ -331,7 +331,7 @@ test.describe("Journey 6 — the books (partner restaurants, read-only)", () => 
   );
 
   test(
-    "TC-1024: New Restaurant — Overview names the Xero company; recent days are posted to Xero, balanced",
+    "TC-1032: New Restaurant — Overview names the Xero company; recent days are posted to Xero, balanced",
     PARTNER,
     async () => {
       const { id, integration } = await books("New Restaurant");
@@ -357,7 +357,7 @@ test.describe("Journey 6 — the books (partner restaurants, read-only)", () => 
   );
 
   test(
-    "TC-1025: Sally's Pizza — with nothing connected the page invites setup, shows no error, and no day failed",
+    "TC-1033: Sally's Pizza — with nothing connected the page invites setup, shows no error, and no day failed",
     PARTNER,
     async () => {
       const { id, integration } = await books("Sally's Pizza");

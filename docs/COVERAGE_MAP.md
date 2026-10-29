@@ -606,7 +606,7 @@ pay period.
 ### Phase 6: payroll out (PR 7)
 
 **Built (2026-10-29):** `tests/dashboard/journey/05-payroll-out.spec.ts`,
-TC-1014..1019. Its own tenant with last week approved through the API (part
+TC-1022..1027. Its own tenant with last week approved through the API (part
 3 approves in the browser). The busy state on the export button isn't
 checked: the download answers too fast to see it.
 
@@ -621,7 +621,7 @@ checked: the download answers too fast to see it.
 ### Phase 7: the books (PR 8, `@partner`, Track B)
 
 **Built (2026-10-29):** `tests/dashboard/journey/06-the-books.spec.ts`,
-TC-1020..1025 (+1022b). Read-only, admin login. It is not excluded from the
+TC-1028..1033 (+1030b). Read-only, admin login. It is not excluded from the
 nightly (neither is `@books-live`): instead it skips when a restaurant is
 missing or disconnected and only checks days two or more days old. The Gusto
 period-sent status and the accountant view (TC-777) are left to their own

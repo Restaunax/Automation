@@ -1,6 +1,6 @@
 /**
  * 05-payroll-out.spec.ts — "a week in a restaurant", part 5: the owner takes
- * an approved week to payroll from Payday, in the browser (TC-1014..1019).
+ * an approved week to payroll from Payday, in the browser (TC-1022..1019).
  * docs/COVERAGE_MAP.md §3, phase 6.
  *
  * One throwaway restaurant on the payroll-file setup, weekly pay periods
@@ -8,19 +8,19 @@
  * 8 h = 40 h, $520.00; Ben (Busser, $11.00) Fri 2 h, $22.00. With Mailpit,
  * Dee accepted her invite and has a Restaunax account.
  *
- *   TC-1014 Payday walks the approved week: nothing flagged, approved, and
+ *   TC-1022 Payday walks the approved week: nothing flagged, approved, and
  *           Run payroll asks for the file.
- *   TC-1015 Export for payroll warns that Dee and Ben have no payroll ID,
+ *   TC-1023 Export for payroll warns that Dee and Ben have no payroll ID,
  *           and says where to add it.
- *   TC-1016 The owner adds Dee's payroll ID in People → Edit; the export
+ *   TC-1024 The owner adds Dee's payroll ID in People → Edit; the export
  *           then warns about Ben only.
- *   TC-1017 Download: the RestauNax file is the approval to the cent, with
+ *   TC-1025 Download: the RestauNax file is the approval to the cent, with
  *           Dee's ID; "marked exported" is seen.
- *   TC-1017b After the download Payday says the file is downloaded, not that
+ *   TC-1025b After the download Payday says the file is downloaded, not that
  *           payroll ran (RestauNax #1103).
- *   TC-1018 The Gusto file carries the same hours; downloading the RestauNax
+ *   TC-1026 The Gusto file carries the same hours; downloading the RestauNax
  *           file again gives the same file.
- *   TC-1019 Dee sees the approved week and her $520.00 in Restaunax Staff
+ *   TC-1027 Dee sees the approved week and her $520.00 in Restaunax Staff
  *           (Mailpit only).
  */
 import { readFileSync } from "fs";
@@ -308,7 +308,7 @@ test.describe("Journey 5 — the owner takes the week to payroll", () => {
     await page().setViewportSize(DESKTOP);
   });
 
-  test("TC-1014: Payday walks the approved week: nothing flagged, approved, and Run payroll asks for the file", async () => {
+  test("TC-1022: Payday walks the approved week: nothing flagged, approved, and Run payroll asks for the file", async () => {
     await openPayday();
     await expect(page().getByTestId("payday-deadline")).toHaveText(
       "Your payroll provider sets the deadline. Download the file as soon as you approve and upload it there."
@@ -330,7 +330,7 @@ test.describe("Journey 5 — the owner takes the week to payroll", () => {
     await expectHumanText(page().getByRole("main"), "Payday");
   });
 
-  test("TC-1015: Export for payroll warns that nobody has a payroll ID, and says where to add it", async () => {
+  test("TC-1023: Export for payroll warns that nobody has a payroll ID, and says where to add it", async () => {
     const dialog = await openExport();
     await expect(dialog).toContainText(
       "The file comes from the approved timecards, so downloading again gives the same file."
@@ -350,7 +350,7 @@ test.describe("Journey 5 — the owner takes the week to payroll", () => {
     await expect(dialog).toBeHidden();
   });
 
-  test("TC-1016: the owner adds Dee's payroll ID in People → Edit; then only Ben is warned", async () => {
+  test("TC-1024: the owner adds Dee's payroll ID in People → Edit; then only Ben is warned", async () => {
     await page().goto(portal("?tab=staff&staffTab=people"), {
       waitUntil: "domcontentloaded",
     });
@@ -376,7 +376,7 @@ test.describe("Journey 5 — the owner takes the week to payroll", () => {
     await expect(exportDialog.getByText(NO_ID("Dee Pay"))).toHaveCount(0);
   });
 
-  test("TC-1017: Download — the RestauNax file is the approval to the cent; the period is marked exported", async () => {
+  test("TC-1025: Download — the RestauNax file is the approval to the cent; the period is marked exported", async () => {
     const { file, text } = await download();
     expect(file.suggestedFilename()).toBe(
       `payroll-restaunax-${p1}-to-${addDays(p1, 6)}.csv`
@@ -411,7 +411,7 @@ test.describe("Journey 5 — the owner takes the week to payroll", () => {
     await expect(activeDialog(page())).toHaveCount(0);
   });
 
-  test("TC-1017b: after the download Payday says the file is downloaded, not that payroll ran", async () => {
+  test("TC-1025b: after the download Payday says the file is downloaded, not that payroll ran", async () => {
     await openPayday();
     await expect(page().getByTestId("payday-deadline")).toHaveText(
       "Approved, and the payroll file is downloaded. Upload it to your payroll provider if you haven't yet."
@@ -421,7 +421,7 @@ test.describe("Journey 5 — the owner takes the week to payroll", () => {
     );
   });
 
-  test("TC-1018: the Gusto file carries the same hours; the RestauNax file downloads again unchanged", async () => {
+  test("TC-1026: the Gusto file carries the same hours; the RestauNax file downloads again unchanged", async () => {
     await openPayday();
     await openExport();
     await pickFormat("Gusto");
@@ -447,7 +447,7 @@ test.describe("Journey 5 — the owner takes the week to payroll", () => {
     expect(again.text).toBe(firstFile);
   });
 
-  test("TC-1019: Dee sees the approved week and her $520.00 in Restaunax Staff", async () => {
+  test("TC-1027: Dee sees the approved week and her $520.00 in Restaunax Staff", async () => {
     test.skip(
       !MAILPIT,
       "Dee has an account only when Mailpit carried her invite"
