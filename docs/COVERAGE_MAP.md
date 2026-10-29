@@ -566,6 +566,13 @@ TC-990..1000. Differences from the plan, and why:
 
 ### Phase 4: owner reviews the week (PR 5)
 
+**Built (2026-10-29):** `tests/dashboard/journey/03-review-the-week.spec.ts`,
+TC-1001..1007 (+1002b). Its own tenant with last week entered from the paper
+sheet, so it runs alone. A long shift (a forgotten clock-out) stands in for
+"no clock-out": a manager entry always has one. The staff app's view of the
+approved period stays in `api-timecards` (TC-585), since Dee here is a
+PIN-only person with no account.
+
 - **Roles:** Owner (UI).
 - **Steps:** Needs you today shows last week's period to approve → button →
   Timecards on that period (TC-952). Last week was made in phase 0 setup with
