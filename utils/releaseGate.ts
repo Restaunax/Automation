@@ -28,6 +28,9 @@ export const RELEASED_ON_QA = {
    *  Built on feat/ux-round3a, shipped in RestauNax PR #1074 ("back office:
    *  the next level"); on QA since 2026-10-27. */
   settingsSafety: true,
+  /** RestauNax PR #1102 — removing table cards from the Print Shop cart
+   *  removes the stands that came with them (before it, they stayed). */
+  cartRemoveStands: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -40,6 +43,8 @@ const REASON: Record<ReleasePart, string> = {
     "Restaurant close-out (RestauNax PR #1038) is not on this environment yet — /api/admin/close-out answers 404",
   settingsSafety:
     "Settings safety (RestauNax PR #1074) is not on this environment yet — /api/restaurantId/:id/settings/setup answers 404",
+  cartRemoveStands:
+    "Removing cards also removes their stands (RestauNax PR #1102) is not on this environment yet",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
