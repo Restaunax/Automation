@@ -22,6 +22,7 @@ to the central backend over REST.
 - **template-lima** — the **embedded ordering surface** (React + Vite + MUI): menu → cart → checkout → rewards for restaurants that keep their own website and embed an "Order Now" button. No landing-page block system; branding colours/fonts are applied.
 - **restaunax-tv-display** — in-store menu TV (Vite web app; the player is a Linux + Chromium kiosk). The old Android/Fire TV WebView shell, `restaunax-tv-shell`, is **archived** (2026-08-06, superseded) — reference only.
 - **Automation** ← _this repo_ — Playwright E2E suite for the whole platform (targets QA; the roles/routes reference lives in its CLAUDE.md).
+- **Mobile release path** (OTA vs store build, feature gates, app check-in): each mobile app's `docs/RELEASING.md`; the backend and dashboard side is documented in the main `restaunax` repo.
 <!-- ecosystem:end -->
 
 ## Platform Overview
@@ -101,6 +102,8 @@ Restaunax is a SaaS platform that provides software for restaurants. It has five
 | `/api/stripe/*`                        | Payment processing                 |
 | `/login/send-otp`, `/login/verify-otp` | Customer OTP login (Template Wind) |
 | `/login/mobile/*`                      | Customer OTP login (mobile app)    |
+| `POST /api/app/check-in`               | App check-in (204; bad UUID 400)   |
+| `GET /api/app/features`                | Feature gates for an app version   |
 
 ---
 
