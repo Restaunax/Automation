@@ -29,8 +29,9 @@ export const RELEASED_ON_QA = {
    *  the next level"); on QA since 2026-10-27. */
   settingsSafety: true,
   /** RestauNax PR #1102 — removing table cards from the Print Shop cart
-   *  removes the stands that came with them (before it, they stayed). */
-  cartRemoveStands: false,
+   *  removes the stands that came with them (before it, they stayed). On QA
+   *  since 2026-10-29. */
+  cartRemoveStands: true,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
