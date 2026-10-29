@@ -37,8 +37,7 @@
  *
  * TC-980, TC-983, TC-986b and TC-989 guard the four bugs RestauNax #1094
  * fixed (on QA since 2026-10-29). TC-989 still failed after it: the header's
- * right-hand block was the part overflowing. It is marked test.fail until
- * RestauNax #1096 reaches QA; EXPECT_FIX_1096=1 runs it strictly.
+ * right-hand block was the part overflowing, fixed by RestauNax #1096.
  */
 import type { Locator, Page } from "@playwright/test";
 import * as allure from "allure-js-commons";
@@ -75,10 +74,6 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 const MAILPIT = !!process.env.MAILPIT_BASE_URL;
 const DOMAIN = process.env.TEST_EMAIL_DOMAIN ?? "demomailtrap.co";
-
-/** Until RestauNax #1096 is on QA, TC-989 is known to fail. */
-const FIX_1096 = "RestauNax #1096 not on QA yet";
-const FIXED_1096 = process.env.EXPECT_FIX_1096 === "1";
 
 type Rec = Record<string, LooseJson>;
 
@@ -143,6 +138,16 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
       { waitUntil: "domcontentloaded" }
     );
     await expect(doneLine()).toBeVisible({ timeout: 25_000 });
+  };
+  /** The schedule, moved on to next week (the week with Dee's shift). */
+  const openNextWeek = async () => {
+    await openStaff("schedule");
+    await page().getByRole("button", { name: "Next week" }).click();
+    await expect(
+      page().getByRole("heading", {
+        name: new RegExp(`^${dayLabel(addDays(shiftDay, -1))}`),
+      })
+    ).toBeVisible({ timeout: 15_000 });
   };
   const doneCount = async () =>
     Number(((await doneLine().innerText()).match(/(\d+) of/) ?? [])[1]);
@@ -476,13 +481,7 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
   });
 
   test("TC-986: next week, Dee's Monday 11:00–19:00 with a 30-minute break is 7.50 h and $97.50; Publish tells her", async () => {
-    await openStaff("schedule");
-    await page().getByRole("button", { name: "Next week" }).click();
-    await expect(
-      page().getByRole("heading", {
-        name: new RegExp(`^${dayLabel(addDays(shiftDay, -1))}`),
-      })
-    ).toBeVisible({ timeout: 15_000 });
+    await openNextWeek();
     await expect(
       page().getByText("This week hasn't been published yet.")
     ).toBeVisible();
@@ -533,8 +532,9 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
     await expect(confirm).toBeHidden();
     await expectSeenByUser(snackbar("Published 1 change."), '"Published"');
 
-    await page().reload({ waitUntil: "domcontentloaded" });
-    await page().getByRole("button", { name: "Next week" }).click();
+    // Fresh load: wait for the page before moving a week on, or the click
+    // lands before the schedule has loaded and the grid stays on this week.
+    await openNextWeek();
     const after = page().getByRole("row").filter({ hasText: deeName() });
     await expect(after).toContainText("11:00 AM–7:00 PM", { timeout: 15_000 });
     await expect(after).not.toContainText("Not published");
@@ -587,7 +587,6 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
   });
 
   test("TC-989: a long restaurant name doesn't run under the header's name block", async () => {
-    test.fail(!FIXED_1096, FIX_1096);
     await openStaff();
     const banner = page().getByRole("banner");
     // The header is drawn twice (phone and desktop); the desktop one shows.
