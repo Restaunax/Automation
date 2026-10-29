@@ -82,6 +82,13 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 
 type Rec = Record<string, LooseJson>;
+
+/**
+ * Close Day's wording: "1 staff member(s) …" until RestauNax #1098 reaches
+ * QA, "1 person is …" after. The day-close checks accept both; drop the old
+ * form once #1098 is on QA.
+ */
+const CLOCKED_IN = /^1 (staff member\(s\)|person is) still clocked in\./;
 type Item = { id: string; name: string };
 
 const DAYS = [
@@ -484,7 +491,7 @@ test.describe("Journey 2 — a service day, closed by the owner", () => {
     ).toBeVisible();
     await expect(
       page().getByRole("heading", {
-        name: "Cash drawer — 1 register(s) still open",
+        name: /^Cash drawer — 1 register(\(s\))? still open$/,
       })
     ).toBeVisible();
 
@@ -503,19 +510,19 @@ test.describe("Journey 2 — a service day, closed by the owner", () => {
   test("TC-996: Close Day names what blocks it, and Next stays off", async () => {
     const dialog = await openWizard();
     await expectSeenByUser(
-      dialog.getByText(/^1 drawer\(s\) are still open\./),
+      dialog.getByText(/^1 drawer(\(s\) are| is) still open\./),
       "the open drawer"
     );
-    await expect(dialog.getByText("1 check(s) still owe money.")).toBeVisible();
+    await expect(
+      dialog.getByText(/^1 check(\(s\) still owe| still owes) money\./)
+    ).toBeVisible();
     await expect(dialog.getByText("Table T2 — $10.70")).toBeVisible();
     await expect(dialog.getByText("Dee S.", { exact: true })).toBeVisible();
     // A warning, not a blocker: the online order nobody accepted.
     await expect(
-      dialog.getByText(/^1 order\(s\) have not been accepted yet\./)
+      dialog.getByText(/^1 order(\(s\) have| has) not been accepted yet\./)
     ).toBeVisible();
-    await expect(
-      dialog.getByText("1 staff member(s) still clocked in.")
-    ).toBeVisible();
+    await expect(dialog.getByText(CLOCKED_IN)).toBeVisible();
     await expect(
       dialog.getByRole("checkbox", { name: /^Dee Server — / })
     ).toBeChecked();
@@ -550,13 +557,11 @@ test.describe("Journey 2 — a service day, closed by the owner", () => {
     await expect(
       dialog.getByText("Nothing outstanding — the day is ready to close.")
     ).toBeVisible();
-    await expect(dialog.getByText(/still owe money/)).toHaveCount(0);
+    await expect(dialog.getByText(/still owes? money/)).toHaveCount(0);
     await expect(dialog.getByText(/still open/)).toHaveCount(0);
 
     await dialog.getByRole("button", { name: "Clock out selected" }).click();
-    await expect(
-      dialog.getByText("1 staff member(s) still clocked in.")
-    ).toBeHidden();
+    await expect(dialog.getByText(CLOCKED_IN)).toBeHidden();
     await expect(dialog.getByRole("button", { name: "Next" })).toBeEnabled();
     expect((await clockFor(dee.id))?.activeShift).toBeNull();
   });
