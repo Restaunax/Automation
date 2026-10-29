@@ -14,7 +14,9 @@
  *     restaurant already has Menu TVs on), and a subscription (Billing →
  *     Add-ons needs one).
  *   - ADMIN_EMAIL / ADMIN_PASSWORD: the home-food scenario mints a throwaway
- *     HOME_FOOD tenant (createSecondOwner with businessType) and deletes it.
+ *     HOME_FOOD tenant (createSecondOwner with businessType) and deletes it;
+ *     the "no offer" check reads the add-on catalog to find a product with
+ *     no active catalog row (skips when every product has one).
  *
  * SIDE EFFECT: the "ask" test creates a REAL AddonRequest on QA and notifies
  * support. If the restaurant already has a pending request the dashboard shows
@@ -28,6 +30,7 @@ import { generateRunId, readSharedState } from "../../../utils/testData";
 import { loginViaUi } from "../../../utils/auth";
 import {
   apiLogin,
+  apiRequestRaw,
   createSecondOwner,
   deleteTestRestaurant,
   getRestaurantFeaturesRaw,
@@ -42,6 +45,20 @@ const MENU_TVS = "RestauNax Menu TVs";
 const SAMPLE_NOTE = "Sample — this is what it looks like with your own data";
 const ASK = "Ask us to turn it on";
 const SENT = /Request sent .+\. We'll contact you\./;
+
+// The products the server can offer, with their EN names (dashboard
+// products.json `name.*`). VOICE_AI is left out: its offer comes from the
+// voice setup, not only from a catalog row.
+const PRODUCT_NAMES: Record<string, string> = {
+  TABLE_RESERVATIONS: "RestauNax Reservations",
+  SCHEDULING: "RestauNax Scheduling",
+  PAYROLL: "RestauNax Payroll",
+  ACCOUNTING_SYNC: "RestauNax Books & Taxes",
+  MENU_TVS: "RestauNax Menu TVs",
+  SOCIAL_MEDIA: "RestauNax Social",
+  TIP_MANAGEMENT: "RestauNax Tips",
+  TEAM_BUNDLE: "RestauNax Team",
+};
 
 test.describe.configure({ mode: "serial" });
 
@@ -146,6 +163,65 @@ test.describe("Owner — RestauNax Products: Available previews, no prices", () 
     const texts = await available.locator(".MuiCard-root").allInnerTexts();
     expect(texts.length).toBeGreaterThan(0);
     expect(texts.join("\n")).not.toContain("$");
+  });
+
+  test("a product without an active catalog row is not shown as Available", async ({
+    ownerPage,
+  }) => {
+    test.skip(
+      !ADMIN_EMAIL || !ADMIN_PASSWORD,
+      "ADMIN_EMAIL / ADMIN_PASSWORD not set (reads the add-on catalog)"
+    );
+    const adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD))
+      .accessToken;
+    const catalog = await apiRequestRaw<
+      { feature: string; isActive: boolean }[]
+    >("GET", "/api/admin/addons/catalog", undefined, adminToken);
+    expect(catalog.ok, `catalog read failed (${catalog.status})`).toBe(true);
+    const offered = new Set(
+      (catalog.data ?? []).filter((a) => a.isActive).map((a) => a.feature)
+    );
+    const ownerToken = (await apiLogin(OWNER_EMAIL, OWNER_PASSWORD))
+      .accessToken;
+    const res = await getRestaurantFeaturesRaw(ownerToken, restaurantId);
+    expect(res.ok).toBe(true);
+    const body = res.data.data as
+      | { features?: string[]; available?: string[] }
+      | undefined;
+    const entitled = new Set(body?.features ?? []);
+    // Neither on for the restaurant nor in the catalog: nothing to offer.
+    const feature = Object.keys(PRODUCT_NAMES).find(
+      (f) => !entitled.has(f) && !offered.has(f)
+    );
+    test.skip(
+      !feature,
+      "every product the seed restaurant lacks has an active catalog row"
+    );
+    const name = PRODUCT_NAMES[feature as string] as string;
+
+    // The server never offers it...
+    expect(body?.available ?? []).not.toContain(feature);
+
+    // ...and the Products page does not list it under Available (an old open
+    // request may still show there, marked "Request sent", to be cancelled).
+    await manage(ownerPage, "tab=Billing&section=addons");
+    const inUseOrAvailable = ownerPage.getByRole("heading", {
+      name: /^(In use|Available for your restaurant)$/,
+    });
+    await expect(inUseOrAvailable.first()).toBeVisible({ timeout: 20_000 });
+    const available = ownerPage.locator("section").filter({
+      has: ownerPage.getByRole("heading", {
+        name: "Available for your restaurant",
+      }),
+    });
+    await expect(
+      available
+        .locator(".MuiCard-root")
+        .filter({
+          has: ownerPage.getByRole("heading", { name, exact: true }),
+        })
+        .filter({ hasNotText: SENT })
+    ).toHaveCount(0);
   });
 
   test("invoice periods never read end-before-start", async ({ ownerPage }) => {
