@@ -620,6 +620,13 @@ checked: the download answers too fast to see it.
 
 ### Phase 7: the books (PR 8, `@partner`, Track B)
 
+**Built (2026-10-29):** `tests/dashboard/journey/06-the-books.spec.ts`,
+TC-1020..1025 (+1022b). Read-only, admin login. It is not excluded from the
+nightly (neither is `@books-live`): instead it skips when a restaurant is
+missing or disconnected and only checks days two or more days old. The Gusto
+period-sent status and the accountant view (TC-777) are left to their own
+specs. Found RestauNax #1104: the books kept a refund's tax as owed.
+
 - **Where:** "my 2 store" (QuickBooks sandbox + Gusto demo + Avalara),
   "New Restaurant" (Xero), "Sally's Pizza" (control), after the QA simulator
   ran their day (`restaunax/docs/features/QA_RUN_A_DAY.md`).
