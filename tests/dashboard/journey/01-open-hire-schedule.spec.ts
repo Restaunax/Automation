@@ -35,19 +35,24 @@
  *   TC-989  A long restaurant name doesn't run under the header's name
  *           block (RestauNax #1094).
  *
- * Expected failures: TC-980, TC-983, TC-989 and the hint half of TC-986 are
- * marked test.fail until RestauNax #1094 reaches QA; flip them then.
+ * TC-980, TC-983, TC-986b and TC-989 guard the four bugs RestauNax #1094
+ * fixed (on QA since 2026-10-29). TC-989 still failed after it: the header's
+ * right-hand block was the part overflowing. It is marked test.fail until
+ * RestauNax #1096 reaches QA; EXPECT_FIX_1096=1 runs it strictly.
  */
 import type { Locator, Page } from "@playwright/test";
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
-import { generateRunId, recordUserForCleanup } from "../../../utils/testData";
+import {
+  FRONTEND_URL,
+  generateRunId,
+  recordUserForCleanup,
+} from "../../../utils/testData";
 import { loginViaUi, type UiLoginSession } from "../../../utils/auth";
 import {
   apiLogin,
   createSecondOwner,
   deleteTestRestaurant,
-  registerWithInvite,
   setFeatureOverrideAdminRaw,
   staffAppRaw,
   type LooseJson,
@@ -70,10 +75,10 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 const MAILPIT = !!process.env.MAILPIT_BASE_URL;
 const DOMAIN = process.env.TEST_EMAIL_DOMAIN ?? "demomailtrap.co";
-/** Until RestauNax #1094 is on QA, these checks are known to fail. */
-const FIX_1094 = "RestauNax #1094 not on QA yet";
-/** Set EXPECT_FIX_1094=1 to run them as normal tests (to check the fix). */
-const FIXED_1094 = process.env.EXPECT_FIX_1094 === "1";
+
+/** Until RestauNax #1096 is on QA, TC-989 is known to fail. */
+const FIX_1096 = "RestauNax #1096 not on QA yet";
+const FIXED_1096 = process.env.EXPECT_FIX_1096 === "1";
 
 type Rec = Record<string, LooseJson>;
 
@@ -248,7 +253,6 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
   });
 
   test("TC-980: the checklist ticks the jobs step without a reload", async () => {
-    test.fail(!FIXED_1094, FIX_1094);
     await expect(doneLine()).not.toHaveText(/^0 of/, { timeout: 10_000 });
     await isTicked("jobs");
   });
@@ -320,7 +324,6 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
   });
 
   test("TC-983: saving a rate says so, and Recent changes shows it without a reload", async () => {
-    test.fail(!FIXED_1094, FIX_1094);
     await openSalesTax();
     const row = page().getByRole("row", { name: /^Sales tax Default 7%/ });
     await row.getByRole("button", { name: "Edit rate" }).click();
@@ -400,18 +403,75 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
       timeoutMs: 90_000,
     });
     const token = extractInviteToken(mail.text_body || mail.html_body);
-    // TODO(journey): drive /invitation?userToken= in a browser once the
-    // page is walked with Mailpit access; the API claim keeps the journey
-    // going meanwhile.
-    void browser;
-    const claimed = await registerWithInvite({
-      firstName: dee.first,
-      lastName: dee.last,
-      email: dee.email,
-      password: dee.password,
-      userInvitationToken: token,
+
+    // Dee's own browser: nobody is signed in there.
+    const context = await browser.newContext({
+      baseURL: FRONTEND_URL,
+      viewport: DESKTOP,
     });
-    dee.token = claimed.accessToken;
+    try {
+      const dp = await context.newPage();
+      await dp.goto(`/invitation?userToken=${encodeURIComponent(token)}`, {
+        waitUntil: "domcontentloaded",
+      });
+      await expect(
+        dp.getByRole("heading", { name: "You've Been Invited!" })
+      ).toBeVisible({ timeout: 25_000 });
+      await expect(dp.getByText(/^Welcome to .+/)).toBeVisible();
+      await expect(
+        dp.getByRole("heading", { name: "Step 1: Choose your PIN" })
+      ).toBeVisible();
+
+      const pin = dp.getByLabel(/^PIN \(4/);
+      const confirmPin = dp.getByLabel("Confirm PIN");
+      const setPin = dp.getByRole("button", { name: "Set PIN" });
+      const createAccount = dp.getByRole("button", { name: "Create Account" });
+      // Step 2 is shown from the start but waits for the PIN.
+      await expect(setPin).toBeDisabled();
+      await expect(createAccount).toBeDisabled();
+
+      // Typos say so, next to the form.
+      await pin.fill(dee.pin);
+      await confirmPin.fill("4827");
+      await setPin.click();
+      await expectSeenByUser(dp.getByText("PINs don't match."), "PIN mismatch");
+
+      // A PIN anyone could guess is refused.
+      await pin.fill("1234");
+      await confirmPin.fill("1234");
+      await setPin.click();
+      await expectSeenByUser(
+        dp.getByText(/That PIN is too easy to guess/),
+        "weak PIN"
+      );
+
+      await pin.fill(dee.pin);
+      await confirmPin.fill(dee.pin);
+      await setPin.click();
+      await expect(
+        dp.getByText(/Sign in on the POS at .+ with your PIN/)
+      ).toBeVisible({ timeout: 15_000 });
+      await expect(createAccount).toBeEnabled();
+      await expectHumanText(dp.locator("body"), "invite page");
+
+      // Step 2: her account, with the invited email already filled in.
+      await createAccount.click();
+      await expect(dp).toHaveURL(/\/sign-up/, { timeout: 15_000 });
+      await expect(dp.getByLabel("Email")).toHaveValue(dee.email);
+      await dp.getByLabel("First name").fill(dee.first);
+      await dp.getByLabel("Last name").fill(dee.last);
+      await dp.getByLabel(/^Password/).fill(dee.password);
+      await dp.getByLabel(/^Confirm Password/).fill(dee.password);
+      await dp.getByRole("button", { name: "Sign up", exact: true }).click();
+      await expect(dp).not.toHaveURL(/\/sign-up|\/invitation/, {
+        timeout: 30_000,
+      });
+    } finally {
+      await context.close().catch(() => {});
+    }
+
+    // Her password works, and her account is the one the journey uses.
+    dee.token = (await apiLogin(dee.email, dee.password)).accessToken;
     expect(dee.token).not.toBe("");
   });
 
@@ -482,7 +542,6 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
   });
 
   test("TC-986b: an empty week's Publish hint says there are no shifts yet", async () => {
-    test.fail(!FIXED_1094, FIX_1094);
     await openStaff("schedule");
     await page().getByRole("button", { name: "Next week" }).click();
     await page().getByRole("button", { name: "Next week" }).click();
@@ -528,7 +587,7 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
   });
 
   test("TC-989: a long restaurant name doesn't run under the header's name block", async () => {
-    test.fail(!FIXED_1094, FIX_1094);
+    test.fail(!FIXED_1096, FIX_1096);
     await openStaff();
     const banner = page().getByRole("banner");
     // The header is drawn twice (phone and desktop); the desktop one shows.
