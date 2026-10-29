@@ -113,6 +113,14 @@ The POS uses a different auth model from the dashboard:
   first check; refusals; unseat; seating over a PAID table), the floor's
   server strip, the waitlist quote, and the owner's turn insights. Opens a
   register for the whole file (cash pays create the turns).
+- **`13-app-release-gating.spec.ts` (TC-972..977)** — mobile release gating
+  (restaunax `docs/features/MOBILE_RELEASE_GATING.md`), API level, no token:
+  the public app check-in (`POST /api/app/check-in` → 204; a non-UUID
+  installation id → 400) and the feature-gate lookup
+  (`GET /api/app/features` → a `features` array; `platform=web` → 400). Its
+  only write is one check-in row under a fresh random installation id with
+  `deviceModel: "automation"`, so QA dashboard rows from this suite are
+  recognizable.
 
 Every file 04–10 runs on its own per-run throwaway tenant
 (`createSecondOwner`), mirroring 03's pattern — none of this mutates the

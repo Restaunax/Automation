@@ -1,41 +1,41 @@
 /**
  * 01-open-hire-schedule.spec.ts — "a week in a restaurant", part 1: a new
  * owner sets up the back office, hires and schedules, all in the browser,
- * the way a person does it (TC-972..983). docs/COVERAGE_MAP.md §3, phases
+ * the way a person does it (TC-978..989). docs/COVERAGE_MAP.md §3, phases
  * 0–2.
  *
  * One throwaway restaurant with the PAYROLL, SCHEDULING and TIP_MANAGEMENT
  * add-ons (granted by HQ, as sales does). The owner then follows the "Set up
  * your back office" checklist:
  *
- *   TC-972  The checklist starts empty and points at jobs; Go there opens
+ *   TC-978  The checklist starts empty and points at jobs; Go there opens
  *           Jobs & wages.
- *   TC-973  Add a job: an empty or broken form says what's wrong INSIDE the
+ *   TC-979  Add a job: an empty or broken form says what's wrong INSIDE the
  *           dialog; Server $12 and Busser $11 (both tipped) are listed.
- *   TC-974  The checklist ticks while the owner is still on the tab, no
+ *   TC-980  The checklist ticks while the owner is still on the tab, no
  *           reload (RestauNax #1094).
- *   TC-975  Pay schedule: every week, from a Sunday. Saved, and still so
+ *   TC-981  Pay schedule: every week, from a Sunday. Saved, and still so
  *           after a reload.
- *   TC-976  Sales tax: the first rate is offered as "Sales tax"; 7% becomes
+ *   TC-982  Sales tax: the first rate is offered as "Sales tax"; 7% becomes
  *           the default, and Recent changes says so in one sentence.
- *   TC-977  Saving a rate says so, and Recent changes shows it without a
+ *   TC-983  Saving a rate says so, and Recent changes shows it without a
  *           reload (RestauNax #1094).
- *   TC-978  Invite Dee as a Server: Send invite waits for the form; "Invite
+ *   TC-984  Invite Dee as a Server: Send invite waits for the form; "Invite
  *           sent" is seen on top of the next window; her own rate $13.00;
  *           she's on the list after a reload.
- *   TC-979  Dee opens the invite email, sets her PIN, creates her account
+ *   TC-985  Dee opens the invite email, sets her PIN, creates her account
  *           (Mailpit only).
- *   TC-980  Schedule next week: an empty week's Publish hint says there are
+ *   TC-986  Schedule next week: an empty week's Publish hint says there are
  *           no shifts (RestauNax #1094); a Monday shift 11:00–19:00 with a
  *           30-minute unpaid break is 7.50 h and $97.50 (her $13.00 rate);
  *           Publish names the change; after a reload it's published.
- *   TC-981  Dee sees the published shift in Restaunax Staff (Mailpit only).
- *   TC-982  After a reload the checklist agrees with the server, and the
+ *   TC-987  Dee sees the published shift in Restaunax Staff (Mailpit only).
+ *   TC-988  After a reload the checklist agrees with the server, and the
  *           steps this journey did are ticked.
- *   TC-983  A long restaurant name doesn't run under the header's name
+ *   TC-989  A long restaurant name doesn't run under the header's name
  *           block (RestauNax #1094).
  *
- * Expected failures: TC-974, TC-977, TC-983 and the hint half of TC-980 are
+ * Expected failures: TC-980, TC-983, TC-989 and the hint half of TC-986 are
  * marked test.fail until RestauNax #1094 reaches QA; flip them then.
  */
 import type { Locator, Page } from "@playwright/test";
@@ -190,7 +190,7 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
     await page().setViewportSize(DESKTOP);
   });
 
-  test("TC-972: the checklist starts empty and points at jobs; Go there opens Jobs & wages", async () => {
+  test("TC-978: the checklist starts empty and points at jobs; Go there opens Jobs & wages", async () => {
     await openStaff();
     await expect(checklist()).toContainText("Set up your back office");
     await expect(doneLine()).toHaveText(/^0 of \d+ done/);
@@ -205,7 +205,7 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
     await expect(page().getByText(/No jobs yet/)).toBeVisible();
   });
 
-  test("TC-973: adding a job explains a bad form inside the dialog; Server and Busser are listed", async () => {
+  test("TC-979: adding a job explains a bad form inside the dialog; Server and Busser are listed", async () => {
     const addJob = page().getByRole("button", { name: "Add job" });
     await addJob.click();
     const dialog = activeDialog(page());
@@ -247,13 +247,13 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
     ).toBeVisible();
   });
 
-  test("TC-974: the checklist ticks the jobs step without a reload", async () => {
+  test("TC-980: the checklist ticks the jobs step without a reload", async () => {
     test.fail(!FIXED_1094, FIX_1094);
     await expect(doneLine()).not.toHaveText(/^0 of/, { timeout: 10_000 });
     await isTicked("jobs");
   });
 
-  test("TC-975: the pay schedule is every week from a Sunday, and stays so after a reload", async () => {
+  test("TC-981: the pay schedule is every week from a Sunday, and stays so after a reload", async () => {
     await openStaff();
     await checklist().getByRole("button", { name: "Show all steps" }).click();
     await step("paySchedule").getByRole("button", { name: "Go there" }).click();
@@ -293,7 +293,7 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
   const recentChanges = () => page().getByTestId("recent-changes");
   const taxSentence = /added sales tax rate Sales tax \(7%\)/;
 
-  test("TC-976: the first tax rate is offered as Sales tax; 7% becomes the default and Recent changes says so", async () => {
+  test("TC-982: the first tax rate is offered as Sales tax; 7% becomes the default and Recent changes says so", async () => {
     await openSalesTax();
     await expect(recentChanges()).toContainText("No changes recorded yet.", {
       timeout: 15_000,
@@ -319,7 +319,7 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
     await expectHumanText(recentChanges(), "Recent changes");
   });
 
-  test("TC-977: saving a rate says so, and Recent changes shows it without a reload", async () => {
+  test("TC-983: saving a rate says so, and Recent changes shows it without a reload", async () => {
     test.fail(!FIXED_1094, FIX_1094);
     await openSalesTax();
     const row = page().getByRole("row", { name: /^Sales tax Default 7%/ });
@@ -338,7 +338,7 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
     });
   });
 
-  test("TC-978: inviting Dee as a Server — Send invite waits for the form, the confirmation is seen, her rate is $13.00", async () => {
+  test("TC-984: inviting Dee as a Server — Send invite waits for the form, the confirmation is seen, her rate is $13.00", async () => {
     await openStaff();
     await page().getByRole("button", { name: "Invite Staff" }).first().click();
     const invite = activeDialog(page());
@@ -388,7 +388,7 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
     await expectHumanText(row, "Dee's row");
   });
 
-  test("TC-979: Dee opens her invite email, sets her PIN and creates her account", async ({
+  test("TC-985: Dee opens her invite email, sets her PIN and creates her account", async ({
     browser,
   }) => {
     test.skip(
@@ -415,7 +415,7 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
     expect(dee.token).not.toBe("");
   });
 
-  test("TC-980: next week, Dee's Monday 11:00–19:00 with a 30-minute break is 7.50 h and $97.50; Publish tells her", async () => {
+  test("TC-986: next week, Dee's Monday 11:00–19:00 with a 30-minute break is 7.50 h and $97.50; Publish tells her", async () => {
     await openStaff("schedule");
     await page().getByRole("button", { name: "Next week" }).click();
     await expect(
@@ -481,7 +481,7 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
     await expect(page().getByText(/^Last published /)).toBeVisible();
   });
 
-  test("TC-980b: an empty week's Publish hint says there are no shifts yet", async () => {
+  test("TC-986b: an empty week's Publish hint says there are no shifts yet", async () => {
     test.fail(!FIXED_1094, FIX_1094);
     await openStaff("schedule");
     await page().getByRole("button", { name: "Next week" }).click();
@@ -494,8 +494,8 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
     );
   });
 
-  test("TC-981: Dee sees her published shift in Restaunax Staff", async () => {
-    test.skip(!dee.token, "TC-979 didn't run (no Mailpit)");
+  test("TC-987: Dee sees her published shift in Restaunax Staff", async () => {
+    test.skip(!dee.token, "TC-985 didn't run (no Mailpit)");
     const from = `${addDays(shiftDay, -1)}T00:00:00.000Z`;
     const to = `${addDays(shiftDay, 2)}T00:00:00.000Z`;
     const res = await staffAppRaw<{ data: Rec[] }>(
@@ -508,7 +508,7 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
     expect(res.data.data[0]).toMatchObject({ jobName: "Server" });
   });
 
-  test("TC-982: after a reload the checklist agrees with the server and ticks what this journey did", async () => {
+  test("TC-988: after a reload the checklist agrees with the server and ticks what this journey did", async () => {
     await openStaff();
     const api = await backOfficeSetupRaw(await ownerToken(), restaurantId);
     const data = api.data.data as Rec;
@@ -527,7 +527,7 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
       await isTicked(id);
   });
 
-  test("TC-983: a long restaurant name doesn't run under the header's name block", async () => {
+  test("TC-989: a long restaurant name doesn't run under the header's name block", async () => {
     test.fail(!FIXED_1094, FIX_1094);
     await openStaff();
     const banner = page().getByRole("banner");
