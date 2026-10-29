@@ -113,7 +113,7 @@ The POS uses a different auth model from the dashboard:
   first check; refusals; unseat; seating over a PAID table), the floor's
   server strip, the waitlist quote, and the owner's turn insights. Opens a
   register for the whole file (cash pays create the turns).
-- **`13-app-release-gating.spec.ts` (TC-958..963)** — mobile release gating
+- **`13-app-release-gating.spec.ts` (TC-972..977)** — mobile release gating
   (restaunax `docs/features/MOBILE_RELEASE_GATING.md`), API level, no token:
   the public app check-in (`POST /api/app/check-in` → 204; a non-UUID
   installation id → 400) and the feature-gate lookup

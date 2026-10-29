@@ -17,7 +17,7 @@
  * use BACKEND_URL.
  *
  * Nothing is created that needs cleanup beyond a check-in row keyed by a
- * fresh random installation id. TC-958 sends deviceModel "automation", so
+ * fresh random installation id. TC-972 sends deviceModel "automation", so
  * that row is recognizable in Admin → App versions → Owner → Installations. These routes ship in the backend PR; against
  * QA they pass once that PR is deployed. To run before then, point at a local
  * backend: BACKEND_URL=http://localhost:9000 npx playwright test --project=pos
@@ -34,7 +34,7 @@ test.describe("App release gating — public routes", () => {
     await allure.label("severity", "critical");
   });
 
-  test("TC-958: check-in with a fresh installation id answers 204", async ({
+  test("TC-972: check-in with a fresh installation id answers 204", async ({
     request,
   }) => {
     const resp = await request.post(`${BACKEND_URL}/api/app/check-in`, {
@@ -49,7 +49,7 @@ test.describe("App release gating — public routes", () => {
     expect(resp.status()).toBe(204);
   });
 
-  test("TC-959: check-in with an installation id that is not a UUID answers 400", async ({
+  test("TC-973: check-in with an installation id that is not a UUID answers 400", async ({
     request,
   }) => {
     const resp = await request.post(`${BACKEND_URL}/api/app/check-in`, {
@@ -63,7 +63,7 @@ test.describe("App release gating — public routes", () => {
     expect(resp.status()).toBe(400);
   });
 
-  test("TC-960: the feature lookup returns a features array", async ({
+  test("TC-974: the feature lookup returns a features array", async ({
     request,
   }) => {
     const resp = await request.get(
@@ -79,7 +79,7 @@ test.describe("App release gating — public routes", () => {
     expect(Array.isArray(body.data.features)).toBe(true);
   });
 
-  test("TC-961: the feature lookup refuses platform=web with 400", async ({
+  test("TC-975: the feature lookup refuses platform=web with 400", async ({
     request,
   }) => {
     const resp = await request.get(
@@ -88,7 +88,7 @@ test.describe("App release gating — public routes", () => {
     expect(resp.status()).toBe(400);
   });
 
-  test("TC-962: the OTA urgency lookup returns a valid urgency", async ({
+  test("TC-976: the OTA urgency lookup returns a valid urgency", async ({
     request,
   }) => {
     const resp = await request.get(
@@ -104,7 +104,7 @@ test.describe("App release gating — public routes", () => {
     expect(["NORMAL", "IMPORTANT", "CRITICAL"]).toContain(body.data.urgency);
   });
 
-  test("TC-963: the OTA urgency lookup refuses platform=web with 400", async ({
+  test("TC-977: the OTA urgency lookup refuses platform=web with 400", async ({
     request,
   }) => {
     const resp = await request.get(
