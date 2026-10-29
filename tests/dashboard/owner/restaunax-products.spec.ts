@@ -22,6 +22,7 @@
  * request is left open on purpose (the Available card then shows it pending).
  */
 import * as allure from "allure-js-commons";
+import type { Page } from "@playwright/test";
 import { test, expect } from "../../../fixtures/base";
 import { generateRunId, readSharedState } from "../../../utils/testData";
 import { loginViaUi } from "../../../utils/auth";
@@ -56,9 +57,14 @@ test.describe("Owner — RestauNax Products: Available previews, no prices", () 
     if (!OWNER_EMAIL || !OWNER_PASSWORD) return;
     restaurantId = readSharedState().restaurantId;
     const token = (await apiLogin(OWNER_EMAIL, OWNER_PASSWORD)).accessToken;
-    const features =
-      (await getRestaurantFeaturesRaw(token, restaurantId)).data.data
-        ?.features ?? [];
+    // Assumption: the shared-state restaurant is OWNER_EMAIL's. A 401/403/404
+    // here means it is not, and every test below would be meaningless.
+    const res = await getRestaurantFeaturesRaw(token, restaurantId);
+    test.skip(
+      !res.ok,
+      `OWNER_EMAIL cannot read the shared-state restaurant (${res.status})`
+    );
+    const features = res.data.data?.features ?? [];
     test.skip(
       features.includes("MENU_TVS"),
       "the seed restaurant already has Menu TVs on — nothing is Available"
@@ -70,12 +76,12 @@ test.describe("Owner — RestauNax Products: Available previews, no prices", () 
     await allure.label("severity", "critical");
   });
 
-  const manage = (page: import("@playwright/test").Page, query: string) =>
+  const manage = (page: Page, query: string) =>
     page.goto(
       `/restaurant/restaurantId/${restaurantId}/restaurantManagement?${query}`,
       { waitUntil: "domcontentloaded" }
     );
-  const sideItem = (page: import("@playwright/test").Page, name: RegExp) =>
+  const sideItem = (page: Page, name: RegExp) =>
     page.getByRole("navigation").first().getByRole("button", { name });
 
   test("the Menu TVs sidebar item is marked Available and opens a preview with the Sample note and no price", async ({
@@ -119,48 +125,80 @@ test.describe("Owner — RestauNax Products: Available previews, no prices", () 
     ownerPage,
   }) => {
     await manage(ownerPage, "tab=Billing&section=addons");
-    await expect(
-      ownerPage.getByText("Available for your restaurant")
-    ).toBeVisible({ timeout: 20_000 });
-    const card = ownerPage.locator(".MuiCard-root").filter({
+    const available = ownerPage.locator("section").filter({
+      has: ownerPage.getByRole("heading", {
+        name: "Available for your restaurant",
+      }),
+    });
+    await expect(available).toBeVisible({ timeout: 20_000 });
+    const card = available.locator(".MuiCard-root").filter({
       has: ownerPage.getByRole("heading", { name: MENU_TVS, exact: true }),
     });
     await expect(card).toHaveCount(1);
-    await expect(card).not.toContainText("$");
-    // Whole catalog: no dollar sign under the Available heading either.
+    // Not under "In use" (that section, if present, must not hold it).
+    const inUse = ownerPage.locator("section").filter({
+      has: ownerPage.getByRole("heading", { name: "In use", exact: true }),
+    });
     await expect(
-      ownerPage.locator(".MuiCard-root").filter({
-        hasText: /RestauNax/,
-      })
-    ).not.toContainText("$");
+      inUse.getByRole("heading", { name: MENU_TVS, exact: true })
+    ).toHaveCount(0);
+    // No price on any Available card.
+    const texts = await available.locator(".MuiCard-root").allInnerTexts();
+    expect(texts.length).toBeGreaterThan(0);
+    expect(texts.join("\n")).not.toContain("$");
   });
 
   test("invoice periods never read end-before-start", async ({ ownerPage }) => {
-    await manage(ownerPage, "tab=Billing");
+    await manage(ownerPage, "tab=Billing&section=billingHistory");
+    const details = ownerPage.getByRole("button", {
+      name: "Details",
+      exact: true,
+    });
+    const none = ownerPage.getByText("No billing history available");
+    await expect(details.first().or(none)).toBeVisible({ timeout: 20_000 });
+    test.skip(
+      await none.isVisible(),
+      "the seed restaurant has no invoices, so there is no period to check"
+    );
     const RANGE =
       /([A-Z][a-z]{2} \d{1,2}(?:, \d{4})?) – ([A-Z][a-z]{2} \d{1,2}, \d{4})/g;
-    const body = ownerPage.locator("body");
-    await expect(body).toContainText("Billing", { timeout: 20_000 });
-    const text = await body.innerText();
-    const ranges = [...text.matchAll(RANGE)];
-    test.skip(
-      ranges.length === 0,
-      "no invoice period is shown for this tenant"
-    );
-    for (const m of ranges) {
-      const whole = m[0];
-      const start = m[1] ?? "";
-      const end = m[2] ?? "";
-      const endDate = new Date(end);
-      const year = endDate.getFullYear();
-      const startDate = new Date(
-        /\d{4}/.test(start) ? start : `${start}, ${year}`
-      );
-      expect(
-        endDate.getTime() >= startDate.getTime(),
-        `period "${whole}" ends before it starts`
-      ).toBe(true);
+    const count = Math.min(await details.count(), 5);
+    let checked = 0;
+    for (let i = 0; i < count; i++) {
+      await details.nth(i).click();
+      const dialog = ownerPage.getByRole("dialog");
+      await expect(
+        dialog.getByRole("heading", { name: "What this invoice is for" })
+      ).toBeVisible();
+      // Settled: the period line, or the "not available" note, replaces the spinner.
+      await expect(
+        dialog
+          .getByText(
+            /^(.*For .+|The details of this invoice aren't available\.)/
+          )
+          .first()
+      ).toBeVisible({ timeout: 20_000 });
+      const text = await dialog.innerText();
+      for (const m of text.matchAll(RANGE)) {
+        const end = new Date(m[2] ?? "");
+        const start = new Date(
+          /\d{4}/.test(m[1] ?? "")
+            ? (m[1] ?? "")
+            : `${m[1]}, ${end.getFullYear()}`
+        );
+        expect(
+          end.getTime() >= start.getTime(),
+          `period "${m[0]}" ends before it starts`
+        ).toBe(true);
+        checked++;
+      }
+      await ownerPage.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
     }
+    test.skip(
+      checked === 0,
+      "no invoice shows a billing period (one-off charges only)"
+    );
   });
 });
 
@@ -173,6 +211,7 @@ test.describe("Owner — a home-food restaurant is never offered Reservations, S
   let adminToken = "";
   let restaurantId = "";
   let email = "";
+  let password = "";
   const runId = generateRunId();
 
   test.beforeAll(async () => {
@@ -185,6 +224,7 @@ test.describe("Owner — a home-food restaurant is never offered Reservations, S
     if (!tenant.restaurantId) throw new Error("[products] no HOME_FOOD tenant");
     restaurantId = tenant.restaurantId;
     email = tenant.email ?? "";
+    password = tenant.password ?? "";
   });
 
   test.afterAll(async () => {
@@ -196,11 +236,7 @@ test.describe("Owner — a home-food restaurant is never offered Reservations, S
     browser,
   }) => {
     await allure.label("feature", "RestauNax Products");
-    const session = await loginViaUi(
-      browser,
-      email,
-      process.env.OWNER2_PASSWORD || `Automation!Owner2-${runId}`
-    );
+    const session = await loginViaUi(browser, email, password);
     try {
       const page = session.page;
       await page.goto(
@@ -208,10 +244,19 @@ test.describe("Owner — a home-food restaurant is never offered Reservations, S
         { waitUntil: "domcontentloaded" }
       );
       const nav = page.getByRole("navigation").first();
-      await expect(nav).toBeVisible({ timeout: 20_000 });
+      // Positive control: the sidebar has rendered and holds an item every
+      // owner has, so the absences below are real.
+      const products = nav.getByRole("button", { name: /RestauNax Products/ });
+      await expect(products).toBeVisible({ timeout: 20_000 });
       for (const name of [/Reservations/i, /Scheduling/i, /Payroll/i]) {
         await expect(nav.getByRole("button", { name })).toHaveCount(0);
       }
+      // ...and the Products page does not offer them either.
+      await products.click();
+      await expect(page).toHaveURL(/section=addons/);
+      await expect(page.getByRole("main")).not.toContainText(
+        /RestauNax (Reservations|Scheduling|Payroll)/
+      );
     } finally {
       await session.context.close().catch(() => {});
     }
