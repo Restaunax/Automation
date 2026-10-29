@@ -2,12 +2,19 @@ import { type Page, type Locator, expect } from "@playwright/test";
 
 /**
  * Owner — Print Shop tab (`?tab=supply-shop`): the catalog ("Browse"), the
- * brief form a product opens into, and "My orders" with its proof dialog.
+ * brief form a product opens into, the cart ("Your cart") and "My orders"
+ * with its proof dialog.
  *
- * Money never moves here: the place button reads an ESTIMATE ("Place order —
- * est. $A – $B", EN DASH) and the order lands in "We're designing it". The
- * brief form has no data-testids; ids on the MUI fields are stable
- * (`#supply-message`, `#supply-quantity`) and everything else is by role/name.
+ * Money never moves here. The brief form shows an ESTIMATE range (EN DASH)
+ * and ends in "Add to cart"; the cart repeats the range, holds the payment
+ * choice (card on file / next RestauNax bill) and "Place order", which makes
+ * a basket (SupplyCheckout, SC-YYYY-NNNN) whose lines land in "We're designing
+ * it" (RestauNax #1072). My orders groups lines by basket: each basket is a
+ * collapsible card titled "Order SC-…" (an order with no basket is titled by
+ * its own number), and each line inside carries its order number, a status
+ * chip and a stepper. The brief form has no data-testids; ids on the MUI
+ * fields are stable (`#supply-message`, `#supply-quantity`) and everything
+ * else is by role/name.
  */
 export const createOwnerSupplyShopPage = (page: Page) => {
   const drawer = () => page.locator(".MuiDrawer-paper").first();
@@ -58,45 +65,135 @@ export const createOwnerSupplyShopPage = (page: Page) => {
       .first()
       .locator("xpath=following-sibling::*[1]");
 
+  /** The brief form's notice ("…charge the accurate amount when it goes to print"). */
   const notChargedNowAlert = () =>
     page.getByText("You won't be charged now", { exact: false });
 
-  const paymentRadio = (
-    label: "Charge the card on file" | "Add it to my next RestauNax invoice"
-  ) => page.getByRole("radio", { name: label });
+  const addToCartButton = () =>
+    page.getByRole("button", { name: "Add to cart", exact: true });
 
-  const placeButton = () =>
-    page.getByRole("button", { name: /^Place (order — est\. |my order)/ });
-
-  /** Click Place order and wait for the commit call to land. */
-  const placeOrder = async () => {
-    const commit = page.waitForResponse(
+  /** "Add to cart" and wait for the line to land in the cart. */
+  const addToCart = async () => {
+    const added = page.waitForResponse(
       (r) =>
-        /\/api\/supply-shop\/orders\/[^/]+\/commit$/.test(r.url()) &&
+        /\/api\/supply-shop\/cart\/items$/.test(r.url()) &&
         r.request().method() === "POST"
     );
-    await placeButton().click();
-    const res = await commit;
-    expect(res.ok(), `commit → ${res.status()}`).toBeTruthy();
-    await expect(ordersTab()).toHaveAttribute("aria-selected", "true");
-  };
-
-  // ── My orders ──────────────────────────────────────────────────────────────
-  const openOrders = async () => {
-    await ordersTab().click();
+    await addToCartButton().click();
+    const res = await added;
+    expect(res.ok(), `add to cart → ${res.status()}`).toBeTruthy();
     await expect(
-      page.getByRole("columnheader", { name: "Order" })
+      page.getByText("Added to cart", { exact: true })
     ).toBeVisible();
   };
 
-  const orderRow = (orderNumber: string): Locator =>
-    page.getByRole("row").filter({ hasText: orderNumber });
+  // ── Cart ───────────────────────────────────────────────────────────────────
+  /** The header's cart button: its accessible name carries the line count. */
+  const cartButton = () =>
+    page.getByRole("button", { name: /^Cart, \d+ items?$/ });
 
+  const openCart = async () => {
+    const loaded = page.waitForResponse(
+      (r) =>
+        /\/api\/supply-shop\/cart$/.test(r.url()) &&
+        r.request().method() === "GET"
+    );
+    await cartButton().click();
+    await expect(
+      page.getByRole("heading", { name: "Your cart", exact: true })
+    ).toBeVisible();
+    await loaded;
+  };
+
+  /** One cart line (an outlined card) by its product name. */
+  const cartLine = (productName: string) =>
+    page
+      .locator(".MuiCard-root")
+      .filter({ hasText: productName })
+      .filter({ has: page.getByRole("button", { name: "Remove" }) });
+
+  /** The cart summary's "Estimated total" value. */
+  const cartTotal = () =>
+    page
+      .getByText("Estimated total", { exact: true })
+      .locator("xpath=following-sibling::*[1]");
+
+  /** The cart's notice: "…one final invoice when we place your order." */
+  const cartNotChargedAlert = () =>
+    page.getByText("You'll get one final invoice when we place your order", {
+      exact: false,
+    });
+
+  /** The payment choice lives on the cart page now, not the brief form. */
+  const paymentRadio = (
+    label: "Charge the card on file" | "Add it to my next RestauNax bill"
+  ) => page.getByRole("radio", { name: label });
+
+  const placeButton = () =>
+    page.getByRole("button", { name: "Place order", exact: true });
+
+  /**
+   * Place order (checkout) and wait for the basket to come back. Lands on
+   * My orders with the new basket open; returns the checkout answer.
+   */
+  const placeOrder = async () => {
+    const checkout = page.waitForResponse(
+      (r) =>
+        /\/api\/supply-shop\/cart\/checkout$/.test(r.url()) &&
+        r.request().method() === "POST"
+    );
+    await placeButton().click();
+    const res = await checkout;
+    expect(res.ok(), `checkout → ${res.status()}`).toBeTruthy();
+    await expect(ordersTab()).toHaveAttribute("aria-selected", "true");
+    return (await res.json()) as {
+      data: {
+        checkout: { id: string; checkoutNumber: string } | null;
+        placed: string[];
+        failed: { orderId: string; code: string }[];
+      };
+    };
+  };
+
+  // ── My orders ──────────────────────────────────────────────────────────────
+  /** Open My orders and wait for the list (it is fetched when the tab mounts). */
+  const openOrders = async () => {
+    if ((await ordersTab().getAttribute("aria-selected")) !== "true") {
+      const loaded = page.waitForResponse(
+        (r) =>
+          /\/api\/supply-shop\/orders$/.test(r.url()) &&
+          r.request().method() === "GET"
+      );
+      await ordersTab().click();
+      await loaded;
+    }
+    await expect(ordersTab()).toHaveAttribute("aria-selected", "true");
+  };
+
+  /** A basket card by its title: "Order SC-…", or an unbasketed order's number. */
+  const basket = (title: string): Locator =>
+    page
+      .locator(".MuiPaper-outlined")
+      .filter({ has: page.getByText(title, { exact: true }) });
+
+  /**
+   * One line of a basket. The line is the innermost block holding both its
+   * order number and its stepper; every ancestor holds them too and comes
+   * earlier in document order, so `.last()` is the line itself.
+   */
+  const orderLine = (orderNumber: string): Locator =>
+    page
+      .locator("div")
+      .filter({ hasText: orderNumber })
+      .filter({ has: page.locator(".MuiStepper-root") })
+      .last();
+
+  /** The line's one status chip, in owner words ("We're designing it", "Ordered"…). */
   const statusChip = (orderNumber: string) =>
-    orderRow(orderNumber).locator(".MuiChip-label");
+    orderLine(orderNumber).locator(".MuiChip-label");
 
   const reviewProof = async (orderNumber: string) => {
-    await orderRow(orderNumber)
+    await orderLine(orderNumber)
       .getByRole("button", { name: "Review proof" })
       .click();
     await expect(page.getByRole("dialog")).toBeVisible();
@@ -122,14 +219,19 @@ export const createOwnerSupplyShopPage = (page: Page) => {
     await expect(dialog()).toBeHidden();
   };
 
+  /** The line's own pay button while it waits on the owner's card. */
   const payNowLink = (orderNumber: string) =>
-    orderRow(orderNumber).getByRole("link", {
+    orderLine(orderNumber).getByRole("link", {
       name: /^Pay \$[\d.,]+ to print$/,
     });
 
-  /** The ⋮ menu on a row — print file and cancel live there, not as buttons. */
+  /** The basket's "Finish payment": the charge's hosted page, one per basket. */
+  const finishPaymentLink = (basketTitle: string) =>
+    basket(basketTitle).getByRole("link", { name: "Finish payment" });
+
+  /** The ⋮ menu on a line — print file and cancel live there, not as buttons. */
   const openRowMenu = async (orderNumber: string) => {
-    await orderRow(orderNumber)
+    await orderLine(orderNumber)
       .getByRole("button", { name: "More actions" })
       .click();
     await expect(page.getByRole("menu")).toBeVisible();
@@ -159,17 +261,26 @@ export const createOwnerSupplyShopPage = (page: Page) => {
     selectQuantity,
     estimateValue,
     notChargedNowAlert,
+    addToCartButton,
+    addToCart,
+    cartButton,
+    openCart,
+    cartLine,
+    cartTotal,
+    cartNotChargedAlert,
     paymentRadio,
     placeButton,
     placeOrder,
     openOrders,
-    orderRow,
+    basket,
+    orderLine,
     statusChip,
     reviewProof,
     dialog,
     approveProof,
     requestChanges,
     payNowLink,
+    finishPaymentLink,
     openRowMenu,
     cancelOrder,
   };

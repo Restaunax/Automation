@@ -5887,6 +5887,11 @@ export interface SupplyOrder {
   designId: string | null;
   designVersionId: string | null;
   design?: { id: string; name: string } | null;
+  /** The basket it was placed in from the cart (RestauNax #1072); null before. */
+  checkoutId?: string | null;
+  checkout?: { id: string; checkoutNumber: string; placedAt: string } | null;
+  /** The one SupplyCharge a finalisation opened for its set (RestauNax #1075). */
+  chargeId?: string | null;
   [key: string]: unknown;
 }
 

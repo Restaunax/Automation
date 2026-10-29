@@ -2,17 +2,21 @@
  * supply-shop.spec.ts — Admin → Cards & Codes → Supply Shop (TC-456..468).
  *
  * The admin side of "place now, charge at fulfilment": the design queue and
- * artwork preflight, the Fulfil dialog (the ONE place money moves — final
- * price, comp, vendor cost), placing an order on a restaurant's behalf, and
- * the physical-gift-card outcome of a fulfilment: a minted batch and its CSV.
+ * artwork preflight, the Finalise dialog (the ONE place money moves — final
+ * price per line, shipping and the supplier's bill per package, one
+ * SupplyCharge for the set, the owner's approval above what they agreed to;
+ * RestauNax #1075), placing an order on a restaurant's behalf, and the
+ * physical-gift-card outcome of a finalisation: a minted batch and its CSV.
  *
  * Own throwaway tenant (owner acts through the API only; the admin drives
  * the browser via the `adminPage` fixture). Two orders carry the file:
- * `orderC` walks the CHARGE path up to the hosted-payment fallback (a
- * throwaway tenant has no saved card, and hosted Checkout cannot be completed
- * on QA), `orderE` walks the COMP path all the way to IN_PRODUCTION — the
- * only route to a minted batch in E2E. The admin table is cross-tenant on
- * shared QA, so every row is found by order number.
+ * `orderC`, placed the owner's way (cart → Place order, so it sits in a
+ * SupplyCheckout basket), walks the CHARGE path up to the hosted-payment
+ * fallback (a throwaway tenant has no saved card, and hosted Checkout cannot
+ * be completed on QA); `orderE`, comped on the owner's behalf, walks the COMP
+ * path all the way to IN_PRODUCTION — the only route to a minted batch in
+ * E2E. Every row action lives in the row's ⋯ menu. The admin table is
+ * cross-tenant on shared QA, so every row is found by order number.
  */
 import * as fs from "fs";
 import * as allure from "allure-js-commons";
@@ -33,7 +37,6 @@ import {
   deleteFeatureOverrideAdminRaw,
   putGiftCardConfigAdminRaw,
   getGiftCardConfigAdminRaw,
-  placeSupplyOrderViaApi,
   createSupplyDesignOwnerRaw,
   createSupplyOrderOwnerRaw,
   commitSupplyOrderOwnerRaw,
@@ -49,8 +52,20 @@ import {
   getAdminFinanceRaw,
   getOwnerGiftCardSummaryRaw,
   resolveGiftCardVariantId,
+  SUPPLY_GIFT_CARD_PRODUCT_SLUG,
   type SupplyOrder,
 } from "../../../utils/apiHelper";
+import {
+  addSupplyCartItemRaw,
+  checkoutSupplyCartRaw,
+  emptySupplyCart,
+  ensureSupplyProductLaunched,
+  finaliseBodyFromDraft,
+  finaliseSupplyLinesRaw,
+  getFinaliseDraftRaw,
+  getSupplyCartRaw,
+  placeSupplyOrderViaCart,
+} from "../../../utils/supplyShopCartApi";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
@@ -99,7 +114,8 @@ test.describe("Admin — Supply shop", () => {
   let variantId = "";
   let admin: AdminSupplyShopPage;
 
-  let orderC: SupplyOrder; // charge path
+  let orderC: SupplyOrder; // charge path, placed from the cart
+  let checkoutC = ""; // orderC's basket, SC-YYYY-NNNN
   let orderE: SupplyOrder; // comp path → minted batch
   const toCancel: string[] = [];
   let baseline = { compedCost: 0 };
@@ -116,6 +132,12 @@ test.describe("Admin — Supply shop", () => {
   test.beforeAll(async () => {
     if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return;
     adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
+    // Owners can only order launched products; QA doesn't keep the gift card
+    // launched, so the run launches it (globalTeardown pauses it again).
+    await ensureSupplyProductLaunched(
+      adminToken,
+      SUPPLY_GIFT_CARD_PRODUCT_SLUG
+    );
     const tenant = await createSecondOwner(adminToken, runId);
     if (!tenant.restaurantId) {
       throw new Error(
@@ -159,11 +181,13 @@ test.describe("Admin — Supply shop", () => {
       };
     }
 
-    orderC = await placeSupplyOrderViaApi(tenant.accessToken, restaurantId, {
-      variantId,
-      quantity: 100,
-      message: `charge path ${runId}`,
-    });
+    const placedC = await placeSupplyOrderViaCart(
+      tenant.accessToken,
+      restaurantId,
+      { variantId, quantity: 100, message: `charge path ${runId}` }
+    );
+    orderC = placedC.order;
+    checkoutC = placedC.checkout.checkoutNumber;
     toCancel.push(orderC.id);
   });
 
@@ -173,6 +197,10 @@ test.describe("Admin — Supply shop", () => {
       .then((l) => l.accessToken)
       .catch(() => "");
     if (token) {
+      // TC-465 leaves a line in the cart if it fails midway.
+      await emptySupplyCart(token, restaurantId).catch(() => {
+        /* cart already empty */
+      });
       for (const id of toCancel) {
         await cancelSupplyOrderOwnerRaw(token, restaurantId, id).catch(() => {
           /* terminal already (IN_PRODUCTION cannot be cancelled) — fine */
@@ -199,7 +227,12 @@ test.describe("Admin — Supply shop", () => {
     admin = createAdminSupplyShopPage(adminPage);
   });
 
-  test("TC-456: a freshly placed order sits in the Design queue with its estimate, brief pack and an Upload artwork button", async () => {
+  test("TC-456: a freshly placed basket line sits in the Design queue with its estimate and basket, and its ⋯ menu leads with Upload artwork", async () => {
+    await allure.description(
+      "Placed from the cart, the line carries its basket ('SC-… · 1 of 1') and the range the owner saw. The " +
+        "row's action cell is only the ⋯ button (RestauNax #1075): its menu leads with the next step, Upload " +
+        "artwork, then Brief pack. Not in Fulfilment yet — there is no artwork to place."
+    );
     await admin.goto();
     await admin.openTab("Design queue");
     await expect(admin.row(orderC.orderNumber)).toBeVisible();
@@ -207,12 +240,18 @@ test.describe("Admin — Supply shop", () => {
     await expect(admin.row(orderC.orderNumber)).toContainText(
       `${ESTIMATE} est.`
     );
-    await admin.openRowMenu(orderC.orderNumber);
-    await expect(admin.menuItem("Brief pack")).toBeVisible();
-    await admin.closeRowMenu();
+    await expect(admin.row(orderC.orderNumber)).toContainText(
+      `${checkoutC} · 1 of 1`
+    );
     await expect(
-      admin.rowButton(orderC.orderNumber, "Upload artwork")
-    ).toBeVisible();
+      admin.row(orderC.orderNumber).getByRole("button")
+    ).toHaveAccessibleName("More actions");
+    await admin.openRowMenu(orderC.orderNumber);
+    await expect(admin.menuItems()).toHaveText([
+      "Upload artwork",
+      "Brief pack",
+    ]);
+    await admin.closeRowMenu();
     // Not yet in the fulfilment queue — there is no artwork to place.
     await admin.openTab("Fulfilment");
     await expect(admin.row(orderC.orderNumber)).toHaveCount(0);
@@ -276,84 +315,124 @@ test.describe("Admin — Supply shop", () => {
     }
   );
 
-  test("TC-459: the Fulfil dialog prefills the anchor price, shows the range the owner saw, and warns when the final price leaves it", async () => {
+  test("TC-459: the Finalise dialog drafts the basket — prefilled price, the ceiling the owner agreed to — and a total above it becomes 'Send for approval'", async () => {
     await allure.description(
-      "The proof is a look, not a gate — fulfil is offered from PROOF_READY. Final total recomputes live; " +
-        "outside [$207.00, $258.75] a warning appears (warn-only, never blocked); the margin line reads " +
-        "revenue − cost. Nothing is submitted."
+      "The proof is a look, not a gate — Finalise is offered from PROOF_READY. The dialog drafts orderC's " +
+        "whole basket: the line at the list price ($1.95) with its range, our cost, the package's shipping " +
+        "and the supplier's bill. The owner agreed to the basket's high estimate ($258.75): the ceiling line " +
+        "recomputes live, and a final total above it shows the approval warning and turns the button into " +
+        "'Send for approval' (the old warn-only out-of-estimate notice became this gate in RestauNax #1075). " +
+        "The margin line reads revenue − cost. Nothing is submitted."
     );
     await admin.goto();
     await admin.openTab("Fulfilment");
-    await admin.openFulfil(orderC.orderNumber);
+    await admin.openFinalise(orderC.orderNumber, checkoutC);
+    await expect(admin.dialog()).toContainText(
+      `Finalise ${checkoutC} · ${restaurantName}`
+    );
 
     await expect(admin.proofPendingBanner()).toBeVisible();
-    await expect(admin.finalUnit()).toHaveValue("1.95");
-    await expect(admin.finalShipping()).toHaveValue("12");
-    await expect(admin.finalTotalLine()).toContainText("Final total $207.00");
-    await expect(admin.finalTotalLine()).toContainText(ESTIMATE);
     await expect(admin.willChargeAlert()).toHaveText(
       "Will charge the card on file now."
     );
-    await expect(admin.outsideEstimateWarning()).toHaveCount(0);
+    await expect(admin.dialog()).toContainText(
+      `${orderC.orderNumber} · 100 units`
+    );
+    await expect(admin.dialog()).toContainText(`${ESTIMATE} est.`);
+    await expect(admin.finalUnit(orderC.id)).toHaveValue("1.95");
+    await expect(admin.unitCost(orderC.id)).toHaveValue("1.1");
+    await expect(admin.shippingCharged()).toHaveValue("12");
+    await expect(admin.ceilingLine()).toHaveText(
+      "The restaurant agreed to up to $258.75. Final total: $207.00."
+    );
+    await expect(admin.aboveCeilingWarning()).toHaveCount(0);
+    await expect(admin.confirmButton()).toHaveText("Finalise & charge");
 
-    await admin.finalUnit().fill("3");
-    await expect(admin.outsideEstimateWarning()).toBeVisible();
-    await admin.finalUnit().fill("2.40");
-    await expect(admin.outsideEstimateWarning()).toHaveCount(0);
-    await expect(admin.finalTotalLine()).toContainText("Final total $252.00");
+    // $3 × 100 + $12 = $312.00 > $258.75: the owner is asked first.
+    await admin.finalUnit(orderC.id).fill("3");
+    await expect(admin.ceilingLine()).toContainText("Final total: $312.00.");
+    await expect(admin.aboveCeilingWarning()).toBeVisible();
+    await expect(admin.confirmButton()).toHaveText("Send for approval");
+    await admin.finalUnit(orderC.id).fill("2.40");
+    await expect(admin.aboveCeilingWarning()).toHaveCount(0);
+    await expect(admin.ceilingLine()).toContainText("Final total: $252.00.");
+    await expect(admin.confirmButton()).toHaveText("Finalise & charge");
 
     await admin.fillVendorSection({
       vendor: "Automation Vendor",
-      unitCost: 1.1,
-      shippingCost: 12,
+      vendorShipping: 12,
     });
     await expect(admin.marginLine()).toContainText(
       "Revenue $252.00 − cost $122.00 = $130.00 margin"
     );
-    await expect(admin.confirmButton()).toHaveText("Finalise & charge");
     await admin.cancelDialog();
+    expect((await adminOrder(orderC.id)).priceFinalizedAt ?? null).toBeNull();
   });
 
   test(
-    "TC-460: 'Finalise & charge' with no saved card parks the inputs and emails a payment link — nothing is charged twice",
+    "TC-460: 'Finalise & charge' with no saved card opens one charge with a payment link, parks the inputs, and refuses a second finalise — nothing is charged twice",
     { tag: ["@email"] },
     async () => {
+      await allure.description(
+        "One SupplyCharge for the basket at $207.00 (within the $258.75 ceiling), collected through the " +
+          "charge's hosted Checkout because the tenant has no saved card. The line stays in the Fulfilment " +
+          "worklist (AWAITING_PAYMENT is still HQ's worklist since RestauNax #1075) flagged 'Awaiting owner " +
+          "payment', with no next step in its menu; History's 'Awaiting payment' filter finds it at the FINAL " +
+          "price. The inputs are parked for the post-payment click, and a second finalise (the old per-line " +
+          "/fulfil route, which now delegates to finalise) is refused AWAITING_OWNER_PAYMENT."
+      );
       test.setTimeout(150_000);
       await admin.goto();
       await admin.openTab("Fulfilment");
-      await admin.openFulfil(orderC.orderNumber);
+      await admin.openFinalise(orderC.orderNumber, checkoutC);
       await admin.fillVendorSection({
         vendor: "Automation Vendor",
-        unitCost: 1.1,
-        shippingCost: 12,
+        vendorShipping: 12,
         ref: `AUTO-${runId}`,
       });
-      const outcome = await admin.submitFulfil();
+      await expect(admin.confirmButton()).toHaveText("Finalise & charge");
+      const outcome = await admin.submitFinalise();
       test.skip(
-        outcome.data.settled,
+        outcome.data.state === "PLACED",
         "this tenant has a saved card — the hosted-payment path was not exercised"
       );
+      expect(outcome.data).toMatchObject({
+        state: "AWAITING_PAYMENT",
+        total: 207,
+        ceiling: 258.75,
+      });
+      expect(outcome.data.chargeId, "one charge for the set").toBeTruthy();
+      expect(outcome.data.hostedPaymentUrl).toBeTruthy();
+      await expect(
+        admin.notice(
+          "The owner needs to finish payment. We've emailed them a link."
+        )
+      ).toBeVisible();
 
-      await expect(admin.paymentLinkNotice()).toBeVisible();
-      // AWAITING_PAYMENT is not a state an admin can place with a vendor from
-      // (FULFILLABLE_STATUSES = PLACED, PROOF_READY, PAID, INVOICED), so the
-      // order leaves the Fulfilment worklist until the owner pays (the webhook
-      // then moves it to PAID and back into the worklist). Meanwhile History's
-      // "Awaiting payment" filter is where the admin finds it, at the FINAL price.
       await admin.waitForList();
-      await expect(admin.row(orderC.orderNumber)).toHaveCount(0);
+      await expect(
+        admin.rowChip(orderC.orderNumber, "Awaiting owner payment")
+      ).toBeVisible();
+      await expect(admin.row(orderC.orderNumber)).toContainText("$207.00");
+      await expect(admin.row(orderC.orderNumber)).not.toContainText("est.");
+      // Waiting on the owner: no Finalise to click again, only the file.
+      await admin.openRowMenu(orderC.orderNumber);
+      await expect(admin.menuItems()).toHaveText(["Print file"]);
+      await admin.closeRowMenu();
+
       await admin.openTab("History");
       await admin.selectHistoryStatus("Awaiting payment");
       await expect(
         admin.rowChip(orderC.orderNumber, "Awaiting payment")
       ).toBeVisible();
       await expect(admin.row(orderC.orderNumber)).toContainText("$207.00");
-      await expect(admin.row(orderC.orderNumber)).not.toContainText("est.");
+
       const parked = await adminOrder(orderC.id);
       expect(parked.status).toBe("AWAITING_PAYMENT");
-      // The admin's inputs are parked on the order so the post-payment click
-      // replays them without re-charging. `awaitingOwnerPayment` is derived
-      // by the LIST endpoint only; the single-order GET returns the raw row.
+      expect(parked.chargeId).toBe(outcome.data.chargeId);
+      // The admin's inputs are parked on the line so the post-payment click
+      // places it without re-charging. `awaitingOwnerPayment` is derived by
+      // the LIST endpoint only; the single-order GET returns the raw row.
       expect(parked.pendingFulfilment).toBeTruthy();
       const listed = await listAdminSupplyOrdersRaw(adminToken, {
         status: "AWAITING_PAYMENT",
@@ -363,19 +442,35 @@ test.describe("Admin — Supply shop", () => {
       expect(
         listed.data.data.find((o) => o.id === orderC.id)?.awaitingOwnerPayment
       ).toBe(true);
-      expect(parked.hostedPaymentUrl).toBeTruthy();
+      expect(parked.hostedPaymentUrl).toBe(outcome.data.hostedPaymentUrl);
       expect(parked.paidAt).toBeNull();
       expect(parked.priceFinalizedAt).toBeTruthy();
       expect(parked.total).toBe(207);
+
+      // A second click while the owner holds a link charges nothing.
+      const again = await fulfilSupplyOrderRaw(adminToken, orderC.id, {
+        route: "PRINT_ORDER",
+        vendor: "Automation Vendor",
+        unitCost: 1.1,
+        finalUnitPrice: 1.95,
+      });
+      expect(again.status, JSON.stringify(again.data)).toBe(409);
+      expect(again.data.code).toBe("AWAITING_OWNER_PAYMENT");
+      expect((await adminOrder(orderC.id)).chargeId).toBe(
+        outcome.data.chargeId
+      );
 
       test.skip(
         !MAILPIT,
         "MAILPIT_BASE_URL not set — email assertions skipped"
       );
-      await waitForEmail(ownerEmail, {
-        subjectPattern: /^One step left to print your /,
+      const mail = await waitForEmail(ownerEmail, {
+        subjectPattern: new RegExp(
+          `^One step left to place order ${checkoutC}$`
+        ),
         timeoutMs: 60_000,
       });
+      expect(mail.html_body).toContain(outcome.data.hostedPaymentUrl!);
     }
   );
 
@@ -416,9 +511,10 @@ test.describe("Admin — Supply shop", () => {
     { tag: ["@email"] },
     async () => {
       await allure.description(
-        "On-behalf COMP → proof → Fulfil (no price section, 'Comped — nothing is charged.', button reads " +
-          "'Place with vendor') → IN_PRODUCTION with total 0 and paidAt set, a GiftCardBatch on the order, " +
-          "the 'on us' email, and Finance's comped cost up by the vendor cost."
+        "On-behalf COMP → proof → Finalise (the line reads 'No charge', no price field, no comp switch, " +
+          "'Comped — nothing is charged.', never 'Send for approval') → IN_PRODUCTION with total 0, paidAt " +
+          "set and no charge opened, a GiftCardBatch on the order, the 'on us' email, and Finance's comped " +
+          "cost up by the vendor cost."
       );
       test.setTimeout(180_000);
 
@@ -448,35 +544,39 @@ test.describe("Admin — Supply shop", () => {
       await admin.goto();
       await admin.openTab("Fulfilment");
       await expect(admin.rowChip(orderE.orderNumber, "Comped")).toBeVisible();
-      await admin.openFulfil(orderE.orderNumber);
+      // Placed on behalf without a basket: the dialog is titled by the order.
+      await admin.openFinalise(orderE.orderNumber);
       // Comp was decided when it was placed: the "Comp this order" toggle is
-      // only offered for orders that would otherwise be charged, so a COMP
-      // order shows the outcome, not a switch that could un-comp it.
+      // only offered for lines that would otherwise be charged, so a COMP
+      // line shows the outcome, not a switch that could un-comp it.
       await expect(admin.compSwitch()).toHaveCount(0);
+      await expect(admin.noChargeChip()).toBeVisible();
       await expect(admin.willChargeAlert()).toHaveText(
         "Comped — nothing is charged."
       );
-      await expect(admin.finalUnit()).toHaveCount(0);
-      await expect(admin.confirmButton()).toHaveText("Place with vendor");
+      await expect(admin.finalUnit(orderE.id)).toHaveCount(0);
+      await expect(admin.confirmButton()).not.toHaveText("Send for approval");
       await admin.fillVendorSection({
         vendor: "Continental BizMag",
-        unitCost: 1.1,
-        shippingCost: 12,
+        vendorShipping: 12,
         ref: `RUN-${runId}`,
       });
-      const outcome = await admin.submitFulfil();
-      expect(outcome.data.settled).toBe(true);
-      expect(
-        outcome.data.giftCardBatchId,
-        "batch minted by the post-fulfilment hook"
-      ).toBeTruthy();
+      const outcome = await admin.submitFinalise();
+      expect(outcome.data).toMatchObject({
+        state: "PLACED",
+        chargeId: null,
+        total: 0,
+      });
+      const batchId = outcome.data.giftCardBatchIds[orderE.id];
+      expect(batchId, "batch minted by the post-fulfilment hook").toBeTruthy();
 
       const done = await adminOrder(orderE.id);
       expect(done.status).toBe("IN_PRODUCTION");
       expect(done.total).toBe(0);
       expect(done.paidAt).toBeTruthy();
       expect(done.paymentTerm).toBe("COMP");
-      expect(done.giftCardBatchId).toBe(outcome.data.giftCardBatchId);
+      expect(done.giftCardBatchId).toBe(batchId);
+      expect(done.chargeId ?? null).toBeNull();
       // Fulfilling a card run switches gift cards ON for the scope — the owner
       // can't flip that switch themselves, and cards nobody can load are plastic.
       const cfg = await getGiftCardConfigAdminRaw(adminToken, restaurantId);
@@ -556,13 +656,20 @@ test.describe("Admin — Supply shop", () => {
     expect(batch!.counts).toMatchObject({ inactive: 100, active: 0 });
   });
 
-  test("TC-464: fulfil refuses to move money without a final price, to comp without a reason, and to invoice a tenant with no credit", async () => {
+  test("TC-464: finalise refuses to move money without a final price, to comp without a reason, with a line in no package, and to invoice a tenant with no credit", async () => {
+    await allure.description(
+      "Both doors HQ has — POST /finalise (the dialog's) and the old per-line /fulfil, which now delegates " +
+        "to finalise — refuse a charged line with no final price (400 FINAL_PRICE_REQUIRED) and a comp with no " +
+        "reason (400 COMP_REASON_REQUIRED); finalise also refuses a set whose packages do not hold every line " +
+        "exactly once (400 PACKAGE_MISMATCH). Nothing moves: the line stays PROOF_READY with no charge. " +
+        "Invoicing a tenant with no credit is refused at placement (409 TERM_UNAVAILABLE)."
+    );
     const owner = await ownerApi();
-    const orderF = await placeSupplyOrderViaApi(owner, restaurantId, {
-      variantId,
-      quantity: 100,
-      message: `negatives ${runId}`,
-    });
+    const { order: orderF, checkout } = await placeSupplyOrderViaCart(
+      owner,
+      restaurantId,
+      { variantId, quantity: 100, message: `negatives ${runId}` }
+    );
     toCancel.push(orderF.id);
     const upload = await uploadSupplyArtworkRaw(
       adminToken,
@@ -575,23 +682,63 @@ test.describe("Admin — Supply shop", () => {
       upload.data.data!.versionId
     );
 
-    const noPrice = await fulfilSupplyOrderRaw(adminToken, orderF.id, {
-      route: "PRINT_ORDER",
-      vendor: "Automation Vendor",
-      unitCost: 1.1,
+    const draft = await getFinaliseDraftRaw(adminToken, {
+      checkoutId: checkout.id,
     });
-    expect(noPrice.status, JSON.stringify(noPrice.data)).toBe(400);
-    expect(noPrice.data.code).toBe("FINAL_PRICE_REQUIRED");
+    expect(draft.status, JSON.stringify(draft.data)).toBe(200);
+    const good = finaliseBodyFromDraft(draft.data.data, {
+      unitPrice: 1.95,
+      unitCost: 1.1,
+      vendor: "Automation Vendor",
+      vendorShipping: 12,
+    });
 
-    const noReason = await fulfilSupplyOrderRaw(adminToken, orderF.id, {
-      route: "PRINT_ORDER",
-      vendor: "Automation Vendor",
-      unitCost: 1.1,
-      comp: true,
+    await allure.step("POST /finalise", async () => {
+      const noPrice = await finaliseSupplyLinesRaw(adminToken, {
+        ...good,
+        lines: good.lines.map((l) => ({ ...l, unitPrice: null })),
+      });
+      expect(noPrice.status, JSON.stringify(noPrice.data)).toBe(400);
+      expect(noPrice.data.code).toBe("FINAL_PRICE_REQUIRED");
+
+      const noReason = await finaliseSupplyLinesRaw(adminToken, {
+        ...good,
+        lines: good.lines.map((l) => ({ ...l, comp: { reason: " " } })),
+      });
+      expect(noReason.status, JSON.stringify(noReason.data)).toBe(400);
+      expect(noReason.data.code).toBe("COMP_REASON_REQUIRED");
+
+      const strayLine = await finaliseSupplyLinesRaw(adminToken, {
+        ...good,
+        packages: good.packages.map((p) => ({ ...p, orderIds: [] })),
+      });
+      expect(strayLine.status, JSON.stringify(strayLine.data)).toBe(400);
+      expect(strayLine.data.code).toBe("PACKAGE_MISMATCH");
     });
-    expect(noReason.status, JSON.stringify(noReason.data)).toBe(400);
-    expect(noReason.data.code).toBe("COMP_REASON_REQUIRED");
-    expect((await adminOrder(orderF.id)).status).toBe("PROOF_READY");
+
+    await allure.step("The old per-line /fulfil", async () => {
+      const noPrice = await fulfilSupplyOrderRaw(adminToken, orderF.id, {
+        route: "PRINT_ORDER",
+        vendor: "Automation Vendor",
+        unitCost: 1.1,
+      });
+      expect(noPrice.status, JSON.stringify(noPrice.data)).toBe(400);
+      expect(noPrice.data.code).toBe("FINAL_PRICE_REQUIRED");
+
+      const noReason = await fulfilSupplyOrderRaw(adminToken, orderF.id, {
+        route: "PRINT_ORDER",
+        vendor: "Automation Vendor",
+        unitCost: 1.1,
+        comp: true,
+      });
+      expect(noReason.status, JSON.stringify(noReason.data)).toBe(400);
+      expect(noReason.data.code).toBe("COMP_REASON_REQUIRED");
+    });
+
+    const untouched = await adminOrder(orderF.id);
+    expect(untouched.status).toBe("PROOF_READY");
+    expect(untouched.chargeId ?? null).toBeNull();
+    expect(untouched.priceFinalizedAt ?? null).toBeNull();
 
     const invoice = await createSupplyOrderOnBehalfRaw(adminToken, {
       restaurantId,
@@ -613,7 +760,7 @@ test.describe("Admin — Supply shop", () => {
     }
   });
 
-  test("TC-465: an owner can never comp their own order, and cannot claim the free tier on a $207 run", async () => {
+  test("TC-465: an owner can never comp their own order, and cannot claim the free tier on a $207 run — neither at the cart's checkout nor through the old commit", async () => {
     const owner = await ownerApi();
     const design = await createSupplyDesignOwnerRaw(owner, restaurantId, {
       variantId,
@@ -649,15 +796,56 @@ test.describe("Admin — Supply shop", () => {
     expect(
       still.data.data.find((o) => o.id === draft.data.data.id)?.status
     ).toBe("DRAFT");
+
+    await allure.step(
+      "The cart's Place order takes only IMMEDIATE or NEXT_INVOICE",
+      async () => {
+        const added = await addSupplyCartItemRaw(owner, restaurantId, {
+          variantId,
+          quantity: 100,
+          designId: design.data.data.id,
+        });
+        expect(added.ok, JSON.stringify(added.data)).toBeTruthy();
+        for (const term of ["COMP", "FREE_TIER"] as const) {
+          const refused = await checkoutSupplyCartRaw(
+            owner,
+            restaurantId,
+            term
+          );
+          expect(
+            refused.status,
+            `${term}: ${JSON.stringify(refused.data)}`
+          ).toBe(400);
+        }
+        // Nothing was placed: the line is still in the cart.
+        const cart = await getSupplyCartRaw(owner, restaurantId);
+        expect(cart.data.data.lines).toHaveLength(1);
+        await emptySupplyCart(owner, restaurantId);
+      }
+    );
   });
 
-  test("TC-466: fulfilling an order twice mints nothing twice — one batch per order", async () => {
-    const again = await fulfilSupplyOrderRaw(adminToken, orderE.id, {
+  test("TC-466: finalising an order twice mints nothing twice — one batch per order, by either door", async () => {
+    const draft = await getFinaliseDraftRaw(adminToken, { orderId: orderE.id });
+    const viaFinalise = draft.ok
+      ? await finaliseSupplyLinesRaw(
+          adminToken,
+          finaliseBodyFromDraft(draft.data.data, {
+            unitPrice: 1.95,
+            unitCost: 1.1,
+            vendor: "Continental BizMag",
+            vendorShipping: 12,
+          })
+        )
+      : draft;
+    expect(viaFinalise.ok, JSON.stringify(viaFinalise.data)).toBe(false);
+    const viaFulfil = await fulfilSupplyOrderRaw(adminToken, orderE.id, {
       route: "PRINT_ORDER",
       vendor: "Continental BizMag",
       unitCost: 1.1,
     });
-    expect(again.ok, JSON.stringify(again.data)).toBe(false);
+    expect(viaFulfil.status, JSON.stringify(viaFulfil.data)).toBe(409);
+    expect(viaFulfil.data.code).toBe("ALREADY_FULFILLED");
 
     const batches = await listGiftCardBatchesRaw(adminToken, restaurantId);
     const forE = batches.data.data.filter(
