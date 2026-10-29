@@ -605,6 +605,11 @@ pay period.
 
 ### Phase 6: payroll out (PR 7)
 
+**Built (2026-10-29):** `tests/dashboard/journey/05-payroll-out.spec.ts`,
+TC-1014..1019. Its own tenant with last week approved through the API (part
+3 approves in the browser). The busy state on the export button isn't
+checked: the download answers too fast to see it.
+
 - **Roles:** Owner (UI), Dee (staff API).
 - **Steps:** Payday → deadline text; Export → RestauNax and Gusto CSV
   downloads; Dee's pay stub.
