@@ -254,7 +254,22 @@ test.describe("Owner — a home-food restaurant is never offered Reservations, S
       // ...and the Products page does not offer them either.
       await products.click();
       await expect(page).toHaveURL(/section=addons/);
-      await expect(page.getByRole("main")).not.toContainText(
+      const availableHeading = page.getByRole("heading", {
+        name: "Available for your restaurant",
+      });
+      const noSub = page.getByText("No Subscription Assigned");
+      await expect(availableHeading.or(noSub)).toBeVisible({
+        timeout: 20_000,
+      });
+      test.skip(
+        await noSub.isVisible(),
+        "QA precondition: the home-food tenant needs a subscription, or the Products page never renders"
+      );
+      const available = page
+        .locator("section")
+        .filter({ has: availableHeading });
+      await expect(available).toBeVisible();
+      await expect(available).not.toContainText(
         /RestauNax (Reservations|Scheduling|Payroll)/
       );
     } finally {
