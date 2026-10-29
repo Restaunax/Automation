@@ -63,9 +63,6 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 const MAILPIT = !!process.env.MAILPIT_BASE_URL;
 const DOMAIN = process.env.TEST_EMAIL_DOMAIN ?? "demomailtrap.co";
-/** Until RestauNax #1103 is on QA, TC-1017b is known to fail. */
-const FIX_1103 = "RestauNax #1103 not on QA yet";
-const FIXED_1103 = process.env.EXPECT_FIX_1103 === "1";
 
 type Rec = Record<string, LooseJson>;
 
@@ -415,7 +412,6 @@ test.describe("Journey 5 — the owner takes the week to payroll", () => {
   });
 
   test("TC-1017b: after the download Payday says the file is downloaded, not that payroll ran", async () => {
-    test.fail(!FIXED_1103, FIX_1103);
     await openPayday();
     await expect(page().getByTestId("payday-deadline")).toHaveText(
       "Approved, and the payroll file is downloaded. Upload it to your payroll provider if you haven't yet."
