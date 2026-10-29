@@ -31,8 +31,7 @@
  *   TC-1007 The Labor report for the week agrees with the timecards, by
  *           person and by job.
  *
- * TC-1002b and TC-1007 guard bugs RestauNax #1099 fixes; they are marked
- * test.fail until it reaches QA. EXPECT_FIX_1099=1 runs them strictly.
+ * TC-1002b and TC-1007 guard bugs RestauNax #1099 fixed (on QA 2026-10-29).
  */
 import type { Locator, Page } from "@playwright/test";
 import * as allure from "allure-js-commons";
@@ -67,9 +66,6 @@ import {
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 const REASON = "Entered from the paper sheet";
-/** Until RestauNax #1099 is on QA, TC-1002b and TC-1007 are known to fail. */
-const FIX_1099 = "RestauNax #1099 not on QA yet";
-const FIXED_1099 = process.env.EXPECT_FIX_1099 === "1";
 
 type Rec = Record<string, LooseJson>;
 
@@ -391,9 +387,9 @@ test.describe("Journey 3 — the owner reviews and approves last week", () => {
     await expect(tue.getByText("Missed break", { exact: true })).toBeVisible();
     const wed = shiftRow(day(3));
     await expect(wed).toHaveAccessibleName(
-      // "3:00 AM (Thu)" once RestauNax #1099 names the day (TC-1002b).
+      // Out on the next day says which (RestauNax #1099).
       new RegExp(
-        `^${dayLabel(day(3))} 11:00 AM 3:00 AM( \\(\\w{3}\\))? Server 16:00 `
+        `^${dayLabel(day(3))} 11:00 AM 3:00 AM \\(${dayLabel(day(4)).slice(0, 3)}\\) Server 16:00 `
       )
     );
     await expect(wed.getByText("Missed break", { exact: true })).toBeVisible();
@@ -402,7 +398,6 @@ test.describe("Journey 3 — the owner reviews and approves last week", () => {
   });
 
   test("TC-1002b: shifts typed in from the paper sheet don't say Edited; Wednesday's clock-out names Thursday; the reason example fits", async () => {
-    test.fail(!FIXED_1099, FIX_1099);
     const wed = shiftRow(day(3));
     await expect(wed.getByRole("cell").nth(2)).toHaveText(
       `3:00 AM (${dayLabel(day(4)).slice(0, 3)})`
@@ -540,7 +535,6 @@ test.describe("Journey 3 — the owner reviews and approves last week", () => {
   test("TC-1007: the Labor report for the week agrees with the timecards", async () => {
     // Typing the dates left "Pick a valid date range" on screen for a valid
     // week (a half-typed date's request answered last): RestauNax #1099.
-    test.fail(!FIXED_1099, FIX_1099);
     await page().goto(portal("?tab=staff&staffTab=labor"), {
       waitUntil: "domcontentloaded",
     });

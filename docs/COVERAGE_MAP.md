@@ -587,6 +587,13 @@ PIN-only person with no account.
 
 ### Phase 5: tips (PR 6)
 
+**Built (2026-10-29):** `tests/dashboard/journey/04-tips.spec.ts`,
+TC-1008..1013. A rule written by hand (the presets are TC-677). The card tip
+is real: the guest pays Ana's check from the phone (Pay at the table), so it
+lands on her own check and the 3% fee is withheld from it. Declared tips
+frozen in an approval stay in `api-tips`: today's tips can't be in a finished
+pay period.
+
 - **Roles:** Owner (UI).
 - **Steps:** Tip policy → Waterfall preset (servers give 20% to bussers) →
   Save; Tips tab for this week's day and the approved period.
