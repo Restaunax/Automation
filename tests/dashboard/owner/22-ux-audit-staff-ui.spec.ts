@@ -98,7 +98,9 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI)", () => {
       periodAnchorDate: "2026-01-04",
       workweekStartDay: 0,
     });
-    const me = await setOwnerPosPin(ownerToken, restaurantId, "8462");
+    const me = await setOwnerPosPin(ownerToken, restaurantId, "8462", {
+      clocksIn: true,
+    });
     const jobId = String(
       (
         await createStaffJobRaw(ownerToken, restaurantId, {
