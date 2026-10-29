@@ -248,7 +248,9 @@ test.describe("Tip-out waterfall (API)", () => {
     );
     deviceId = device.id;
     tabletToken = await tabletLogin(device.name, device.code);
-    ownerMember = await setOwnerPosPin(ownerToken, restaurantId, "8462");
+    ownerMember = await setOwnerPosPin(ownerToken, restaurantId, "8462", {
+      clocksIn: true,
+    });
     ownerSession = await tabletStaffSignIn(tabletToken, ownerMember, "8462");
 
     const people: [P, string, string[]][] = [

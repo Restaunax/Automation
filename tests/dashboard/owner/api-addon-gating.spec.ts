@@ -164,7 +164,9 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
     );
     deviceId = device.id;
     tabletToken = await tabletLogin(device.name, device.code);
-    ownerMemberId = await setOwnerPosPin(ownerToken, restaurantId, PIN);
+    ownerMemberId = await setOwnerPosPin(ownerToken, restaurantId, PIN, {
+      clocksIn: true,
+    });
   });
 
   test.afterAll(async () => {

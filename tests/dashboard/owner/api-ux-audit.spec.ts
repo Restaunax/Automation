@@ -178,8 +178,18 @@ test.describe("UX-audit fixes (API)", () => {
       publish: false,
       approve: false,
     });
-    // Everyone on the time clock (owner, Pat, Kim) has no job yet.
-    expect(gs.peopleWithoutJob).toBe(3);
+    // Pat and Kim have no job yet; so does the owner, who counts only while
+    // their own row clocks in (a new owner row starts with it off since
+    // RestauNax #1098).
+    const roster = await ownerStaffRaw<{ data?: Rec[] }>(
+      ownerToken,
+      restaurantId,
+      "GET"
+    );
+    const ownerClocksIn =
+      (roster.data.data ?? []).find((m) => m.id === owner.id)?.tracksTime !==
+      false;
+    expect(gs.peopleWithoutJob).toBe(ownerClocksIn ? 3 : 2);
 
     const job = await createStaffJobRaw(ownerToken, restaurantId, {
       name: jobName,
