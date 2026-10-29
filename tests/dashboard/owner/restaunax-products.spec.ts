@@ -200,7 +200,8 @@ test.describe("Owner — RestauNax Products: Available previews, no prices", () 
     const name = PRODUCT_NAMES[feature as string] as string;
 
     // The server never offers it...
-    expect(body?.available ?? []).not.toContain(feature);
+    expect(Array.isArray(body?.available)).toBe(true);
+    expect(body?.available).not.toContain(feature);
 
     // ...and the Products page does not list it under Available (an old open
     // request may still show there, marked "Request sent", to be cancelled).
