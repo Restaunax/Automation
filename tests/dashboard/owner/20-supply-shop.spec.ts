@@ -2,9 +2,11 @@
  * 20-supply-shop.spec.ts — Owner → Print Shop (TC-446..455).
  *
  * The supply shop's "place now, charge at fulfilment" model from the OWNER's
- * side, on the physical-gift-card product: nothing is charged when the order
- * is placed (an estimate range is shown instead), the admin's later "Fulfil"
- * is the one place money moves, and the owner sees every state change in
+ * side, on the physical-gift-card product: the brief form adds the card run
+ * to the cart, the cart's "Place order" makes a basket (SupplyCheckout) and
+ * charges nothing (an estimate range is shown instead), HQ's later Finalise
+ * of the basket — one SupplyCharge for the set — is the one place money moves
+ * (RestauNax #1072/#1075), and the owner sees every state change in
  * "My orders" and by email.
  *
  * Own tenant + login, same shape as 19-reservations: a throwaway restaurant
@@ -14,9 +16,10 @@
  * context, reused serially across every test.
  *
  * Ordering is load-bearing: one order (`orderA`) threads through the whole
- * file — placed (448) → proof v1 + "I'd like changes" (450) → proof v2 +
- * stale approve 409 (451) → "Looks good" (452) → admin finalises (453) →
- * cancelled from AWAITING_PAYMENT (454). Stripe's hosted Checkout is NOT
+ * file — added to the cart (447) → placed from the cart (448) → proof v1 +
+ * "I'd like changes" (450) → proof v2 + stale approve 409 (451) → "Looks
+ * good" (452) → HQ finalises its basket (453) → cancelled from
+ * AWAITING_PAYMENT (454). Stripe's hosted Checkout is NOT
  * completed on QA (Radar's hCaptcha — same reason TC-165/166/169 are fixme),
  * so the charge path is proven up to the payment link, never past it.
  */
@@ -47,11 +50,18 @@ import {
   createSupplyOrderOnBehalfRaw,
   uploadSupplyArtworkRaw,
   sendSupplyProofRaw,
-  fulfilSupplyOrderRaw,
   resolveGiftCardVariantId,
   SUPPLY_GIFT_CARD_PRODUCT_SLUG,
   type SupplyOrder,
 } from "../../../utils/apiHelper";
+import {
+  emptySupplyCart,
+  ensureSupplyProductLaunched,
+  finaliseBodyFromDraft,
+  finaliseSupplyLinesRaw,
+  getFinaliseDraftRaw,
+  getSupplyCartRaw,
+} from "../../../utils/supplyShopCartApi";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
@@ -130,8 +140,10 @@ test.describe("Owner — Print Shop (supply shop)", () => {
   let session: UiLoginSession;
   let shop: OwnerSupplyShopPage;
 
-  // The order that threads through the file, and the proof versions it grows.
+  // The order that threads through the file, its basket, and the proof
+  // versions it grows.
   let orderA: SupplyOrder;
+  let checkoutNumber = "";
   let proofV1 = "";
   let hostedPaymentUrl: string | null = null;
   const placedOnBehalf: string[] = [];
@@ -153,6 +165,12 @@ test.describe("Owner — Print Shop (supply shop)", () => {
   test.beforeAll(async ({ browser }) => {
     if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return;
     adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
+    // Owners can only order launched products; QA doesn't keep the gift card
+    // launched, so the run launches it (globalTeardown pauses it again).
+    await ensureSupplyProductLaunched(
+      adminToken,
+      SUPPLY_GIFT_CARD_PRODUCT_SLUG
+    );
     const tenant = await createSecondOwner(adminToken, runId);
     if (!tenant.restaurantId) {
       throw new Error(
@@ -197,6 +215,11 @@ test.describe("Owner — Print Shop (supply shop)", () => {
     const token = await apiLogin(ownerEmail, ownerPassword)
       .then((l) => l.accessToken)
       .catch(() => ownerToken); // the stale token may still work; cleanup is best-effort
+    // A failure between Add to cart (447) and Place order (448) leaves the
+    // line in the cart, where it is not an order and cannot be cancelled.
+    await emptySupplyCart(token, restaurantId).catch(() => {
+      /* cart already empty */
+    });
     for (const id of [orderA?.id, ...placedOnBehalf].filter(
       Boolean
     ) as string[]) {
@@ -295,12 +318,14 @@ test.describe("Owner — Print Shop (supply shop)", () => {
     );
   });
 
-  test("TC-447: the brief form quotes a RANGE and says so — the invoice option only when credit is extended", async () => {
+  test("TC-447: the brief form quotes a RANGE and adds to the cart; the cart repeats it, holds the payment choice, and offers the invoice only when credit is extended", async () => {
     await allure.description(
-      "100 cards: $1.95 + $12 shipping = $207.00, +25% spread = $258.75. The estimate card, the " +
-        "'You won't be charged now' notice and the place button all carry the range (EN DASH). " +
-        "'Add it to my next RestauNax invoice' renders only when the quote says credit is eligible — a " +
-        "throwaway tenant has no subscription, so the test branches on the API's answer."
+      "100 cards: $1.95 + $12 shipping = $207.00, +25% spread = $258.75. The brief form's estimate card and " +
+        "'You won't be charged now' notice carry the range (EN DASH) and its button only adds to the cart — " +
+        "no payment choice there (RestauNax #1072). The cart shows the same range as its estimated total, says " +
+        "nothing is charged until the final invoice, and holds the payment choice: 'Charge the card on file' " +
+        "checked, 'Add it to my next RestauNax bill' only when the cart says credit is available — a throwaway " +
+        "tenant has no subscription, so the test branches on the API's answer."
     );
 
     const quote = await quoteSupplyOwnerRaw(ownerToken, restaurantId, {
@@ -313,51 +338,103 @@ test.describe("Owner — Print Shop (supply shop)", () => {
       totalHigh: 258.75,
     });
 
-    await shop.openProduct(PRODUCT_NAME);
-    await shop.selectQuantity(/^100 — /);
-    await shop.messageInput().fill(`Automation gift card run ${runId}`);
+    await allure.step(
+      "Brief form: a range, 'not charged now', and Add to cart",
+      async () => {
+        await shop.openProduct(PRODUCT_NAME);
+        await shop.selectQuantity(/^100 — /);
+        await shop.messageInput().fill(`Automation gift card run ${runId}`);
 
-    await expect(session.page.getByText(ESTIMATE).first()).toBeVisible();
-    await expect(shop.notChargedNowAlert()).toBeVisible();
-    await expect(shop.paymentRadio("Charge the card on file")).toBeChecked();
-    const invoiceRadio = shop.paymentRadio(
-      "Add it to my next RestauNax invoice"
+        await expect(shop.estimateValue("Estimated total")).toHaveText(
+          ESTIMATE
+        );
+        await expect(shop.notChargedNowAlert()).toBeVisible();
+        // How to pay is chosen once, in the cart — never per product.
+        await expect(shop.paymentRadio("Charge the card on file")).toHaveCount(
+          0
+        );
+        await expect(shop.addToCartButton()).toBeEnabled();
+        await shop.addToCart();
+      }
     );
-    if (quote.data.data.credit.eligible) {
-      await expect(invoiceRadio).toBeVisible();
-    } else {
-      await expect(invoiceRadio).toHaveCount(0);
-    }
-    await expect(shop.placeButton()).toHaveText(
-      `Place order — est. ${ESTIMATE}`
+
+    await allure.step(
+      "Cart: the same range, nothing charged, the payment choice",
+      async () => {
+        const cart = await getSupplyCartRaw(ownerToken, restaurantId);
+        expect(cart.status, JSON.stringify(cart.data)).toBe(200);
+        expect(cart.data.data.lines).toHaveLength(1);
+        expect(cart.data.data.lines[0]).toMatchObject({
+          productSlug: SUPPLY_GIFT_CARD_PRODUCT_SLUG,
+          quantity: 100,
+          estimateLow: 207,
+          estimateHigh: 258.75,
+          available: true,
+        });
+
+        await shop.openCart();
+        await expect(shop.cartLine(PRODUCT_NAME)).toContainText(ESTIMATE);
+        await expect(shop.cartTotal()).toHaveText(ESTIMATE);
+        await expect(shop.cartNotChargedAlert()).toBeVisible();
+        await expect(
+          shop.paymentRadio("Charge the card on file")
+        ).toBeChecked();
+        const invoiceRadio = shop.paymentRadio(
+          "Add it to my next RestauNax bill"
+        );
+        if (cart.data.data.terms?.invoiceAvailable) {
+          await expect(invoiceRadio).toBeVisible();
+        } else {
+          await expect(invoiceRadio).toHaveCount(0);
+        }
+        // No price on the button any more: the range is the total above it.
+        await expect(shop.placeButton()).toBeEnabled();
+      }
     );
   });
 
   test(
-    "TC-448: placing the order charges nothing — it lands in 'We're designing it' with the estimate, and the owner is told so by email",
+    "TC-448: placing the cart charges nothing — the basket lands in 'We're designing it' with the estimate, and the owner is told so by email",
     { tag: ["@email"] },
     async () => {
       await allure.description(
-        "Every catalog product needs artwork, so commit lands in IN_DESIGN (not PLACED). The row shows the " +
-          "range as an estimate, paymentTerm is IMMEDIATE, and the 'designStarted' email names the order."
+        "Place order checks the cart out into a basket (SupplyCheckout, SC-YYYY-NNNN) and commits each line " +
+          "without charging. Every catalog product needs artwork, so the line lands in IN_DESIGN (not PLACED). " +
+          "The line shows the range as an estimate, paymentTerm is IMMEDIATE, the cart is empty, and one " +
+          "'checkoutPlaced' email names the basket and says nothing was charged."
       );
       test.setTimeout(150_000);
 
-      await shop.placeOrder();
-      orderA = await findOrder(
-        (o) => o.status === "IN_DESIGN" && o.quantity === 100
-      );
+      const placed = await shop.placeOrder();
+      expect(placed.data.failed).toEqual([]);
+      const checkout = placed.data.checkout;
+      expect(checkout, "a basket was made").toBeTruthy();
+      checkoutNumber = checkout!.checkoutNumber;
+      expect(checkoutNumber).toMatch(/^SC-\d{4}-\d+$/);
+      await allure.parameter("checkoutNumber", checkoutNumber);
+
+      orderA = await findOrder((o) => o.checkoutId === checkout!.id);
       await allure.parameter("orderNumber", orderA.orderNumber);
+      expect(orderA.status).toBe("IN_DESIGN");
+      expect(orderA.quantity).toBe(100);
       expect(orderA.paymentTerm).toBe("IMMEDIATE");
       expect(orderA.estimatedTotalLow).toBe(207);
       expect(orderA.estimatedTotalHigh).toBe(258.75);
       expect(orderA.paidAt).toBeNull();
+      expect(orderA.chargeId ?? null).toBeNull();
+      const cart = await getSupplyCartRaw(ownerToken, restaurantId);
+      expect(cart.data.data.lines).toHaveLength(0);
 
-      await shop.openOrders();
+      await expect(
+        session.page.getByText(
+          `Order ${checkoutNumber} placed. You won't be charged until we place it.`
+        )
+      ).toBeVisible();
+      await expect(shop.basket(`Order ${checkoutNumber}`)).toBeVisible();
       await expect(shop.statusChip(orderA.orderNumber)).toHaveText(
         "We're designing it"
       );
-      await expect(shop.orderRow(orderA.orderNumber)).toContainText(
+      await expect(shop.orderLine(orderA.orderNumber)).toContainText(
         `${ESTIMATE} est.`
       );
 
@@ -366,12 +443,12 @@ test.describe("Owner — Print Shop (supply shop)", () => {
         "MAILPIT_BASE_URL not set — email assertions skipped"
       );
       const mail = await waitForEmail(ownerEmail, {
-        subjectPattern: /^We're designing your /,
+        subjectPattern: new RegExp(`^We've got your order ${checkoutNumber}$`),
         timeoutMs: 60_000,
       });
       const html = decodeHtml(mail.html_body);
-      expect(html).toContain(`Order ${orderA.orderNumber}`);
-      expect(html).toContain("We're on it");
+      expect(html).toContain(`Order ${checkoutNumber}`);
+      expect(html).toContain("You haven't been charged");
     }
   );
 
@@ -381,7 +458,8 @@ test.describe("Owner — Print Shop (supply shop)", () => {
     async () => {
       await allure.description(
         "The CTA used to link /supply-shop/orders/<id>, which was never a route (fixed in RestauNax #678). " +
-          "It must open this restaurant's portal on the Print Shop tab."
+          "The basket's 'checkoutPlaced' email (one per basket since RestauNax #1072) must open this " +
+          "restaurant's portal on the Print Shop tab."
       );
       test.skip(
         !MAILPIT,
@@ -389,7 +467,7 @@ test.describe("Owner — Print Shop (supply shop)", () => {
       );
 
       const mail = await waitForEmail(ownerEmail, {
-        subjectPattern: /^We're designing your /,
+        subjectPattern: new RegExp(`^We've got your order ${checkoutNumber}$`),
         timeoutMs: 60_000,
       });
       const href =
@@ -409,7 +487,7 @@ test.describe("Owner — Print Shop (supply shop)", () => {
   );
 
   test(
-    "TC-450: 'Your proof is ready' → 'I'd like changes' sends the note back and reopens the design",
+    "TC-450: 'Check your design' → 'I'd like changes' sends the note back and reopens the design",
     { tag: ["@email"] },
     async () => {
       await allure.description(
@@ -422,7 +500,7 @@ test.describe("Owner — Print Shop (supply shop)", () => {
       await shop.goto(restaurantId);
       await shop.openOrders();
       await expect(shop.statusChip(orderA.orderNumber)).toHaveText(
-        "Your proof is ready"
+        "Check your design"
       );
 
       const note = `Please make the logo bigger ${runId}`;
@@ -472,7 +550,7 @@ test.describe("Owner — Print Shop (supply shop)", () => {
   });
 
   test(
-    "TC-452: 'Looks good' moves the order to 'Placed — price confirmed at print'",
+    "TC-452: 'Looks good' moves the order to 'Ordered' (PLACED) — still nothing charged",
     { tag: ["@email"] },
     async () => {
       test.setTimeout(150_000);
@@ -480,9 +558,7 @@ test.describe("Owner — Print Shop (supply shop)", () => {
       await shop.openOrders();
       await shop.reviewProof(orderA.orderNumber);
       await shop.approveProof();
-      await expect(shop.statusChip(orderA.orderNumber)).toHaveText(
-        "Placed — price confirmed at print"
-      );
+      await expect(shop.statusChip(orderA.orderNumber)).toHaveText("Ordered");
       const placed = await findOrder((o) => o.id === orderA.id);
       expect(placed.status).toBe("PLACED");
       expect(placed.paidAt).toBeNull();
@@ -499,64 +575,94 @@ test.describe("Owner — Print Shop (supply shop)", () => {
   );
 
   test(
-    "TC-453: the admin's Finalise on a tenant with no saved card becomes 'Awaiting payment' + a 'Pay $… to print' link — never a silent charge",
+    "TC-453: HQ's Finalise of the basket on a tenant with no saved card becomes 'Ready to print — needs your payment' + a 'Pay $… to print' link — never a silent charge",
     { tag: ["@email"] },
     async () => {
       await allure.description(
-        "IMMEDIATE with no card on file falls back to a hosted Checkout: the price is finalised ($207.00, " +
-          "shown in place of the estimate), the row grows a Pay button pointing at Stripe, and the " +
-          "'paymentNeeded' email carries the same link. Completing Checkout is out of reach on QA (Radar hCaptcha)."
+        "HQ finalises the basket as one set (POST /api/admin/supply-shop/finalise, what the Finalise dialog " +
+          "sends): $207.00 is within the $258.75 the owner agreed to, so it is collected, not sent for approval. " +
+          "IMMEDIATE with no card on file falls back to the charge's hosted Checkout: the price is final " +
+          "($207.00, shown in place of the estimate), the line grows a Pay button and the basket a 'Finish " +
+          "payment' link, both pointing at Stripe, and the 'chargePaymentNeeded' email carries the same link. " +
+          "Completing Checkout is out of reach on QA (Radar hCaptcha)."
       );
       test.setTimeout(150_000);
 
-      const outcome = await fulfilSupplyOrderRaw(adminToken, orderA.id, {
-        route: "PRINT_ORDER",
-        vendor: "Automation Vendor",
-        unitCost: 1.1,
-        shippingCost: 12,
-        taxCost: 0,
-        vendorOrderRef: `AUTO-${runId}`,
-        finalUnitPrice: 1.95,
-        finalShippingAmount: 12,
-        comp: false,
+      const draft = await getFinaliseDraftRaw(adminToken, {
+        checkoutId: orderA.checkoutId!,
       });
+      expect(draft.status, JSON.stringify(draft.data)).toBe(200);
+      expect(draft.data.data.checkoutNumber).toBe(checkoutNumber);
+      // What the owner agreed to at checkout: the basket's high estimate.
+      expect(draft.data.data.ceiling).toBe(258.75);
+      expect(draft.data.data.settled).toBe(false);
+
+      const outcome = await finaliseSupplyLinesRaw(
+        adminToken,
+        finaliseBodyFromDraft(draft.data.data, {
+          unitPrice: 1.95,
+          unitCost: 1.1,
+          shippingCharged: 12,
+          vendor: "Automation Vendor",
+          vendorShipping: 12,
+          vendorOrderRef: `AUTO-${runId}`,
+        })
+      );
       expect(outcome.status, JSON.stringify(outcome.data)).toBe(200);
       test.skip(
-        outcome.data.data?.settled === true,
+        outcome.data.data.state === "PLACED",
         "this tenant has a saved card — the hosted-payment path was not exercised"
       );
-      hostedPaymentUrl = outcome.data.data?.hostedPaymentUrl ?? null;
+      expect(outcome.data.data).toMatchObject({
+        state: "AWAITING_PAYMENT",
+        total: 207,
+        ceiling: 258.75,
+      });
+      hostedPaymentUrl = outcome.data.data.hostedPaymentUrl ?? null;
       expect(hostedPaymentUrl, "hosted Checkout URL").toBeTruthy();
+      expect(new URL(hostedPaymentUrl!).hostname).toContain("stripe.com");
+      const finalised = await findOrder((o) => o.id === orderA.id);
+      expect(finalised.status).toBe("AWAITING_PAYMENT");
+      expect(finalised.chargeId).toBe(outcome.data.data.chargeId);
+      expect(finalised.paidAt).toBeNull();
 
       await shop.goto(restaurantId);
       await shop.openOrders();
       await expect(shop.statusChip(orderA.orderNumber)).toHaveText(
-        "Awaiting payment"
+        "Ready to print — needs your payment"
       );
-      await expect(shop.orderRow(orderA.orderNumber)).toContainText("$207.00");
-      await expect(shop.orderRow(orderA.orderNumber)).not.toContainText("est.");
+      await expect(shop.orderLine(orderA.orderNumber)).toContainText("$207.00");
+      await expect(shop.orderLine(orderA.orderNumber)).not.toContainText(
+        "est."
+      );
       const pay = shop.payNowLink(orderA.orderNumber);
       await expect(pay).toHaveText("Pay $207.00 to print");
       await expect(pay).toHaveAttribute("href", hostedPaymentUrl!);
-      expect(new URL(hostedPaymentUrl!).hostname).toContain("stripe.com");
+      await expect(
+        shop.finishPaymentLink(`Order ${checkoutNumber}`)
+      ).toHaveAttribute("href", hostedPaymentUrl!);
 
       test.skip(
         !MAILPIT,
         "MAILPIT_BASE_URL not set — email assertions skipped"
       );
       const mail = await waitForEmail(ownerEmail, {
-        subjectPattern: /^One step left to print your /,
+        subjectPattern: new RegExp(
+          `^One step left to place order ${checkoutNumber}$`
+        ),
         timeoutMs: 60_000,
       });
       expect(decodeHtml(mail.html_body)).toContain(hostedPaymentUrl!);
     }
   );
 
-  test("TC-454: cancelling from 'Awaiting payment' lands in Cancelled and nothing was ever charged", async () => {
+  test("TC-454: cancelling from 'Ready to print — needs your payment' lands in Cancelled and nothing was ever charged", async () => {
     await shop.goto(restaurantId);
     await shop.openOrders();
     await shop.cancelOrder(orderA.orderNumber);
     await expect(shop.statusChip(orderA.orderNumber)).toHaveText("Cancelled");
+    // The payment link went with it: nothing is left for the owner to pay.
+    await expect(shop.payNowLink(orderA.orderNumber)).toHaveCount(0);
     const cancelled = await findOrder((o) => o.id === orderA.id);
     expect(cancelled.status).toBe("CANCELLED");
     expect(cancelled.paidAt).toBeNull();
@@ -592,7 +698,7 @@ test.describe("Owner — Print Shop (supply shop)", () => {
 
     await shop.goto(restaurantId);
     await shop.openOrders();
-    await expect(shop.orderRow(mine.orderNumber)).toBeVisible();
+    await expect(shop.orderLine(mine.orderNumber)).toBeVisible();
     await expect(session.page.getByText(secret)).toHaveCount(0);
   });
 });

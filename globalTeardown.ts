@@ -24,6 +24,7 @@ import {
 } from "./utils/apiHelper";
 import { deletePromotionRaw, listChainPromotions } from "./utils/promotionsApi";
 import { restoreLeftoverPublishes } from "./utils/publishBackstop";
+import { pauseProductsThisRunLaunched } from "./utils/supplyShopCartApi";
 import { assertSafeTargets } from "./utils/targetGuard";
 import {
   STATE_FILE,
@@ -230,6 +231,19 @@ export default async function globalTeardown(): Promise<void> {
       console.log("[globalTeardown] Cleaned up recorded test users");
     } catch (err) {
       console.warn("[globalTeardown] Failed to clean up test users:", err);
+    }
+
+    // Print Shop products a spec launched for this run go back to paused, so
+    // QA's catalog is as it was (see ensureSupplyProductLaunched).
+    try {
+      const paused = await pauseProductsThisRunLaunched(adminToken);
+      if (paused) {
+        console.log(
+          `[globalTeardown] Paused ${paused} Print Shop product(s) this run launched`
+        );
+      }
+    } catch (err) {
+      console.warn("[globalTeardown] Failed to pause launched products:", err);
     }
 
     // Gift cards have no delete endpoint and server-generated codes (no AUTO*

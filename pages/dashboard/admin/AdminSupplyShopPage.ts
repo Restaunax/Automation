@@ -8,9 +8,15 @@ import {
 /**
  * Admin — Cards & Codes → Supply Shop (`/admin?tab=cards&section=supply-shop`).
  *
- * Three queues (Design queue / Fulfilment / History) over one table, plus the
- * three dialogs that move an order along: Upload artwork (design), the
- * place-on-behalf dialog, and Fulfil (where the money moves). The admin
+ * Three queues (Design queue / Fulfilment / History) over one table (a fourth
+ * tab, Catalog, is go-live control), plus the dialogs that move an order
+ * along: Upload artwork (design), the place-on-behalf dialog, and Finalise
+ * (where the money moves). Since RestauNax #1075 a row's action cell is ONLY
+ * a "More actions" (⋯) button: the next step (Upload artwork / Finalise &
+ * charge / Place with vendor …) leads its menu, then Brief pack / Print file
+ * / Card export. Finalise works on the whole basket (SupplyCheckout) the line
+ * was placed in — one section per package, one SupplyCharge for the set —
+ * and asks the owner to approve a total above what they agreed to. The admin
  * table is cross-tenant on shared QA, so every row lookup is by order number.
  */
 export const createAdminSupplyShopPage = (page: Page) => {
@@ -80,14 +86,36 @@ export const createAdminSupplyShopPage = (page: Page) => {
   const rowChip = (orderNumber: string, label: string) =>
     row(orderNumber).locator(".MuiChip-label", { hasText: label });
 
-  const rowButton = (orderNumber: string, name: string | RegExp) =>
-    row(orderNumber).getByRole("button", { name });
-
   const dialog = () => page.getByRole("dialog");
+
+  /** The ⋮ menu on a row — every row action, the next step first, lives there. */
+  const openRowMenu = async (orderNumber: string) => {
+    await row(orderNumber)
+      .getByRole("button", { name: "More actions" })
+      .click();
+    await expect(page.getByRole("menu")).toBeVisible();
+  };
+  const menuItem = (name: string | RegExp) =>
+    page.getByRole("menuitem", {
+      name,
+      exact: typeof name === "string" ? true : undefined,
+    });
+  /** The open menu's items, in order: the next step leads. */
+  const menuItems = () => page.getByRole("menu").getByRole("menuitem");
+  const closeRowMenu = async () => {
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toBeHidden();
+  };
+
+  /** Run a row action from its ⋯ menu. */
+  const rowAction = async (orderNumber: string, name: string | RegExp) => {
+    await openRowMenu(orderNumber);
+    await menuItem(name).click();
+  };
 
   // ── Upload artwork (design queue) ──────────────────────────────────────────
   const openUploadArtwork = async (orderNumber: string) => {
-    await rowButton(orderNumber, "Upload artwork").click();
+    await rowAction(orderNumber, "Upload artwork");
     await expect(dialog()).toContainText("Artwork —");
   };
 
@@ -187,76 +215,96 @@ export const createAdminSupplyShopPage = (page: Page) => {
     return (await res.json()) as { data: { id: string; orderNumber: string } };
   };
 
-  // ── Fulfil ─────────────────────────────────────────────────────────────────
-  const openFulfil = async (orderNumber: string) => {
+  // ── Finalise ───────────────────────────────────────────────────────────────
+  /**
+   * Open Finalise from the row's ⋯ menu ("Finalise & charge", or "Place with
+   * vendor" once settled) and wait for the draft. `reference` is what the
+   * title names: the basket's SC number, or the order number of a line
+   * placed without one.
+   */
+  const openFinalise = async (orderNumber: string, reference = orderNumber) => {
     const draft = page.waitForResponse((r) =>
-      /\/fulfilment-draft\?/.test(r.url())
+      /\/api\/admin\/supply-shop\/finalise-draft\?/.test(r.url())
     );
-    await rowButton(
-      orderNumber,
-      /^(Finalise & charge|Place with vendor)$/
-    ).click();
-    await draft;
-    await expect(dialog()).toContainText(`Fulfil ${orderNumber}`);
+    await rowAction(orderNumber, /^(Finalise & charge|Place with vendor)$/);
+    const res = await draft;
+    expect(res.ok(), `finalise-draft → ${res.status()}`).toBeTruthy();
+    await expect(dialog()).toContainText(`Finalise ${reference} · `);
   };
 
   const proofPendingBanner = () =>
     dialog().getByText("the proof is a look, not a gate", { exact: false });
-  const compSwitch = () => dialog().getByRole("switch");
-  const compReason = () => dialog().locator("#fulfil-comp-reason");
-  const finalUnit = () => dialog().locator("#fulfil-final-unit");
-  const finalShipping = () => dialog().locator("#fulfil-final-shipping");
-  const finalTotalLine = () => dialog().getByText(/^Final total \$/);
-  const outsideEstimateWarning = () =>
-    dialog().getByText("This final price is outside the estimate", {
+  /** Per-line comp toggle — offered only on a line that would be charged. */
+  const compSwitch = () =>
+    dialog().getByRole("switch", { name: "Comp this order (no charge)" });
+  const noChargeChip = () => dialog().getByText("No charge", { exact: true });
+  /**
+   * Per-line and per-package fields. Ids are `finalise-<package index>-…`;
+   * line fields add the order id. The suites finalise one-package sets.
+   */
+  const finalUnit = (orderId: string) =>
+    dialog().locator(`[id="finalise-0-${orderId}-price"]`);
+  const unitCost = (orderId: string) =>
+    dialog().locator(`[id="finalise-0-${orderId}-cost"]`);
+  const shippingCharged = () =>
+    dialog().locator("#finalise-0-shipping-charged");
+  // freeSolo Autocomplete: found by role + placeholder, not by id.
+  const vendorInput = () =>
+    dialog().getByRole("combobox", { name: "Who is producing this?" });
+  const vendorShipping = () => dialog().locator("#finalise-0-vendor-shipping");
+  const vendorTax = () => dialog().locator("#finalise-0-vendor-tax");
+  const vendorRef = () => dialog().locator("#finalise-0-vendor-ref");
+  /** "The restaurant agreed to up to $X. Final total: $Y." */
+  const ceilingLine = () =>
+    dialog().getByText(/^The restaurant agreed to up to \$/);
+  const aboveCeilingWarning = () =>
+    dialog().getByText("This is above what the owner agreed to", {
       exact: false,
     });
   const willChargeAlert = () =>
     dialog().getByText(
       /^(Will charge the card on file now\.|Will add it to their next RestauNax invoice\.|Comped — nothing is charged\.|Their free monthly item — nothing is charged\.)$/
     );
-  const alreadySettledAlert = () => dialog().getByText(/^Already settled: \$/);
-  const routeSelect = () => dialog().locator("#fulfil-route");
-  // freeSolo Autocomplete: its generated input id wins over `id="fulfil-vendor"`
-  // (so the FormLabel's htmlFor points at nothing) — found by role + placeholder.
-  const vendorInput = () =>
-    dialog().getByRole("combobox", { name: "Who is producing this?" });
-  const unitCost = () => dialog().locator("#fulfil-unit");
-  const shippingCost = () => dialog().locator("#fulfil-shipping");
-  const vendorRef = () => dialog().locator("#fulfil-ref");
+  const settledAlert = () =>
+    dialog().getByText("Already paid or billed.", { exact: false });
+  /** The set's "Revenue $A − cost $B = $C margin (P%)". */
   const marginLine = () =>
     dialog().getByText(/^Revenue \$[\d.,]+ − cost \$[\d.,]+ = /);
   const confirmButton = () =>
     dialog().getByRole("button", {
-      name: /^(Finalise & charge|Place with vendor)$/,
+      name: /^(Finalise & charge|Send for approval|Place with suppliers)$/,
     });
 
   const fillVendorSection = async (opts: {
     vendor: string;
-    unitCost: number;
-    shippingCost: number;
+    vendorShipping: number;
     ref?: string;
   }) => {
     await vendorInput().fill(opts.vendor);
-    await unitCost().fill(String(opts.unitCost));
-    await shippingCost().fill(String(opts.shippingCost));
+    await vendorShipping().fill(String(opts.vendorShipping));
     if (opts.ref) await vendorRef().fill(opts.ref);
   };
 
-  /** Submit the dialog and return the fulfil response body. */
-  const submitFulfil = async () => {
-    const fulfil = page.waitForResponse(
-      (r) => /\/fulfil$/.test(r.url()) && r.request().method() === "POST"
+  /** Submit the dialog and return the finalise response body. */
+  const submitFinalise = async () => {
+    const finalised = page.waitForResponse(
+      (r) =>
+        /\/api\/admin\/supply-shop\/finalise$/.test(r.url()) &&
+        r.request().method() === "POST"
     );
     await confirmButton().click();
-    const res = await fulfil;
-    expect(res.ok(), `fulfil → ${res.status()}`).toBeTruthy();
+    const res = await finalised;
+    expect(res.ok(), `finalise → ${res.status()}`).toBeTruthy();
     await expect(dialog()).toBeHidden();
     return (await res.json()) as {
+      message?: string;
       data: {
-        settled: boolean;
-        hostedPaymentUrl: string | null;
-        giftCardBatchId?: string | null;
+        state: "PLACED" | "AWAITING_APPROVAL" | "AWAITING_PAYMENT";
+        chargeId: string | null;
+        total: number;
+        ceiling: number | null;
+        hostedPaymentUrl?: string | null;
+        giftCardBatchIds: Record<string, string>;
       };
     };
   };
@@ -266,19 +314,8 @@ export const createAdminSupplyShopPage = (page: Page) => {
     await expect(dialog()).toBeHidden();
   };
 
-  const paymentLinkNotice = () =>
-    page.getByText("The restaurant has been emailed a payment link", {
-      exact: false,
-    });
-
-  /** The ⋮ menu on a row — brief pack, print file and card export live there. */
-  const openRowMenu = async (orderNumber: string) => {
-    await rowButton(orderNumber, "More actions").click();
-    await expect(page.getByRole("menu")).toBeVisible();
-  };
-  const menuItem = (name: string) =>
-    page.getByRole("menuitem", { name, exact: true });
-  const closeRowMenu = () => page.keyboard.press("Escape");
+  /** The page's success notice: after a finalise, the server's own summary. */
+  const notice = (text: string) => page.getByText(text, { exact: true });
 
   /** "Card export" (in the ⋮ menu) downloads through apiService as a blob — a real download event. */
   const downloadCardExport = async (orderNumber: string) => {
@@ -298,8 +335,12 @@ export const createAdminSupplyShopPage = (page: Page) => {
     selectHistoryStatus,
     row,
     rowChip,
-    rowButton,
     dialog,
+    openRowMenu,
+    menuItem,
+    menuItems,
+    closeRowMenu,
+    rowAction,
     openUploadArtwork,
     uploadArtwork,
     artworkPassed,
@@ -317,30 +358,27 @@ export const createAdminSupplyShopPage = (page: Page) => {
     billingRadio,
     termRadio,
     submitPlace,
-    openFulfil,
+    openFinalise,
     proofPendingBanner,
     compSwitch,
-    compReason,
+    noChargeChip,
     finalUnit,
-    finalShipping,
-    finalTotalLine,
-    outsideEstimateWarning,
-    willChargeAlert,
-    alreadySettledAlert,
-    routeSelect,
-    vendorInput,
     unitCost,
-    shippingCost,
+    shippingCharged,
+    vendorInput,
+    vendorShipping,
+    vendorTax,
     vendorRef,
+    ceilingLine,
+    aboveCeilingWarning,
+    willChargeAlert,
+    settledAlert,
     marginLine,
     confirmButton,
     fillVendorSection,
-    submitFulfil,
+    submitFinalise,
     cancelDialog,
-    paymentLinkNotice,
-    openRowMenu,
-    menuItem,
-    closeRowMenu,
+    notice,
     downloadCardExport,
   };
 };

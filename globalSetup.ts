@@ -31,6 +31,7 @@ import {
 } from "./utils/apiHelper";
 import { readProcessStartedAt } from "./utils/deployGuard";
 import { restoreLeftoverPublishes } from "./utils/publishBackstop";
+import { pauseProductsThisRunLaunched } from "./utils/supplyShopCartApi";
 import { assertSafeTargets } from "./utils/targetGuard";
 import {
   STATE_FILE,
@@ -266,8 +267,13 @@ export default async function globalSetup(): Promise<void> {
           : undefined;
       // A previous run that never reached teardown may have left a fixture
       // location published (utils/publishBackstop): restore it first.
-      if (adminAccessToken)
+      if (adminAccessToken) {
         await restoreLeftoverPublishes(adminAccessToken, "globalSetup");
+        // …and pause any Print Shop product it launched for itself.
+        await pauseProductsThisRunLaunched(adminAccessToken).catch((err) =>
+          console.warn("[globalSetup] Could not pause leftover launches:", err)
+        );
+      }
       chain = await ensureAutomationChain(
         accessToken,
         ownerUserId,
