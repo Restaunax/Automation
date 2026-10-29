@@ -139,6 +139,16 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
     );
     await expect(doneLine()).toBeVisible({ timeout: 25_000 });
   };
+  /** The schedule, moved on to next week (the week with Dee's shift). */
+  const openNextWeek = async () => {
+    await openStaff("schedule");
+    await page().getByRole("button", { name: "Next week" }).click();
+    await expect(
+      page().getByRole("heading", {
+        name: new RegExp(`^${dayLabel(addDays(shiftDay, -1))}`),
+      })
+    ).toBeVisible({ timeout: 15_000 });
+  };
   const doneCount = async () =>
     Number(((await doneLine().innerText()).match(/(\d+) of/) ?? [])[1]);
   const isTicked = (id: string) =>
@@ -471,13 +481,7 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
   });
 
   test("TC-986: next week, Dee's Monday 11:00–19:00 with a 30-minute break is 7.50 h and $97.50; Publish tells her", async () => {
-    await openStaff("schedule");
-    await page().getByRole("button", { name: "Next week" }).click();
-    await expect(
-      page().getByRole("heading", {
-        name: new RegExp(`^${dayLabel(addDays(shiftDay, -1))}`),
-      })
-    ).toBeVisible({ timeout: 15_000 });
+    await openNextWeek();
     await expect(
       page().getByText("This week hasn't been published yet.")
     ).toBeVisible();
@@ -528,8 +532,9 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
     await expect(confirm).toBeHidden();
     await expectSeenByUser(snackbar("Published 1 change."), '"Published"');
 
-    await page().reload({ waitUntil: "domcontentloaded" });
-    await page().getByRole("button", { name: "Next week" }).click();
+    // Fresh load: wait for the page before moving a week on, or the click
+    // lands before the schedule has loaded and the grid stays on this week.
+    await openNextWeek();
     const after = page().getByRole("row").filter({ hasText: deeName() });
     await expect(after).toContainText("11:00 AM–7:00 PM", { timeout: 15_000 });
     await expect(after).not.toContainText("Not published");
