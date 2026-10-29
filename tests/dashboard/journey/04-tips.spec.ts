@@ -457,17 +457,13 @@ test.describe("Journey 4 — the owner shares the tips", () => {
     const day = page().getByRole("button", { name: /\$10\.00 tipped out$/ });
     await day.click();
     await expect(page().getByText("Server → Busser: $10.00")).toBeVisible();
-    // The names come in no fixed order (yet): check each one.
-    const names = async (prefix: string) => {
-      const line = page().getByText(new RegExp(`^${prefix}: `));
-      await expect(line).toBeVisible();
-      return (await line.innerText())
-        .slice(prefix.length + 2)
-        .split(", ")
-        .sort();
-    };
-    expect(await names("From")).toEqual(["Ana Tips $4.00", "Dee Tips $6.00"]);
-    expect(await names("To")).toEqual(["Ben Tips $6.25", "Cy Tips $3.75"]);
+    // Biggest amount first (RestauNax #1101), the same order every load.
+    await expect(
+      page().getByText("From: Dee Tips $6.00, Ana Tips $4.00")
+    ).toBeVisible();
+    await expect(
+      page().getByText("To: Ben Tips $6.25, Cy Tips $3.75")
+    ).toBeVisible();
   });
 
   test("TC-1012: declared cash tips — an empty form is refused in the dialog; Ben's $12.00 is reported, his pay unchanged", async () => {
@@ -484,8 +480,15 @@ test.describe("Journey 4 — the owner shares the tips", () => {
       "the empty-form message"
     );
 
-    // The person picker has no name of its own (it shows its value).
-    await dialog.getByRole("combobox").first().click();
+    // Labelled "Staff member" (RestauNax #1101), people listed by name.
+    const picker = dialog.getByRole("combobox", { name: /^Staff member/ });
+    await picker.click();
+    await expect(page().getByRole("option")).toHaveText([
+      "Ana Tips",
+      "Ben Tips",
+      "Cy Tips",
+      "Dee Tips",
+    ]);
     await page().getByRole("option", { name: "Ben Tips", exact: true }).click();
     await dialog.getByRole("spinbutton", { name: "Cash tips" }).fill("12");
     await save.click();

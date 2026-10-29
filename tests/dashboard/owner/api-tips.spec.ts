@@ -511,33 +511,31 @@ test.describe("Tips — pools, tip-outs, cash (API)", () => {
     expect(rows).toHaveLength(4); // header + Ana, Cal, Ben
     // Rule-based tip-outs (tip-out waterfall, P6) got their own columns, next
     // to the pool's; this policy has a pool and no tip-out rules.
-    // "Tips through payroll" until RestauNax #1101 is on QA, then "Tips
-    // added after the charge" (the same column: tips added after the card
-    // was charged). Drop the old name once #1101 is on QA.
-    expect(
-      String(rows[0]).replace(
-        "Tips through payroll",
-        "Tips added after the charge"
-      )
-    ).toBe(
+    // "Tips added after the charge" (RestauNax #1101): tips added after the
+    // card was charged.
+    expect(rows[0]).toBe(
       "Name,Hours,Card tips,Cash tips,Tips added after the charge,Declared cash tips," +
         "Tip-outs given,Tip-outs received,Given to the pool,Pool received," +
         "Card fee withheld,Net tips," +
         // RestauNax 9d9578a45 (2026-10-22): cash tips never paid twice;
         // unassigned tips shared across the pay period.
-        "Unassigned tips shared,Paid from drawer,Cash tips kept at shift"
+        "Unassigned tips shared,Paid from drawer,Cash tips kept at shift," +
+        // RestauNax fe9a2576f: service charges paid to staff are wages, in
+        // a column of their own (none here).
+        "Service charges (paid as wages)"
     );
     // name, hours, card, cash, payroll, declared, tip-outs given, tip-outs
     // received, given to pool, pool received, fee, net, unassigned shared,
-    // paid from drawer, cash kept at shift (none of the last three here)
+    // paid from drawer, cash kept at shift, service charges (none of the
+    // last four here)
     expect(rows).toContain(
-      "Ana Tipsy,1.00,0.00,10.00,0.00,0.00,0.00,0.00,2.00,0.00,0.00,8.00,0.00,0.00,0.00"
+      "Ana Tipsy,1.00,0.00,10.00,0.00,0.00,0.00,0.00,2.00,0.00,0.00,8.00,0.00,0.00,0.00,0.00"
     );
     expect(rows).toContain(
-      "Cal Tipsy,0.67,0.00,6.00,0.00,0.00,0.00,0.00,1.20,0.00,0.00,4.80,0.00,0.00,0.00"
+      "Cal Tipsy,0.67,0.00,6.00,0.00,0.00,0.00,0.00,1.20,0.00,0.00,4.80,0.00,0.00,0.00,0.00"
     );
     expect(rows).toContain(
-      "Ben Tipsy,1.00,0.00,0.00,0.00,6.50,0.00,0.00,0.00,3.20,0.00,3.20,0.00,0.00,0.00"
+      "Ben Tipsy,1.00,0.00,0.00,0.00,6.50,0.00,0.00,0.00,3.20,0.00,3.20,0.00,0.00,0.00,0.00"
     );
   });
 });
