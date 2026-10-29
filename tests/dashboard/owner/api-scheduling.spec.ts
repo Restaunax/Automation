@@ -246,7 +246,9 @@ test.describe("Scheduling — build, cost, warn, publish, clock-in rule (API)", 
     );
     deviceId = device.id;
     tabletToken = await tabletLogin(device.name, device.code);
-    ownerMemberId = await setOwnerPosPin(ownerToken, restaurantId, OWNER_PIN);
+    ownerMemberId = await setOwnerPosPin(ownerToken, restaurantId, OWNER_PIN, {
+      clocksIn: true,
+    });
     await ownerStaffRaw(
       ownerToken,
       restaurantId,

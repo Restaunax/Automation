@@ -178,8 +178,9 @@ test.describe("UX-audit fixes (API)", () => {
       publish: false,
       approve: false,
     });
-    // Everyone on the time clock (owner, Pat, Kim) has no job yet.
-    expect(gs.peopleWithoutJob).toBe(3);
+    // Pat and Kim have no job yet. The owner's own POS row doesn't clock in
+    // (RestauNax #1098), so the checklist doesn't ask for a job for them.
+    expect(gs.peopleWithoutJob).toBe(2);
 
     const job = await createStaffJobRaw(ownerToken, restaurantId, {
       name: jobName,

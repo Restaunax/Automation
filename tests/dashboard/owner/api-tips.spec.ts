@@ -511,8 +511,16 @@ test.describe("Tips — pools, tip-outs, cash (API)", () => {
     expect(rows).toHaveLength(4); // header + Ana, Cal, Ben
     // Rule-based tip-outs (tip-out waterfall, P6) got their own columns, next
     // to the pool's; this policy has a pool and no tip-out rules.
-    expect(rows[0]).toBe(
-      "Name,Hours,Card tips,Cash tips,Tips through payroll,Declared cash tips," +
+    // "Tips through payroll" until RestauNax #1101 is on QA, then "Tips
+    // added after the charge" (the same column: tips added after the card
+    // was charged). Drop the old name once #1101 is on QA.
+    expect(
+      String(rows[0]).replace(
+        "Tips through payroll",
+        "Tips added after the charge"
+      )
+    ).toBe(
+      "Name,Hours,Card tips,Cash tips,Tips added after the charge,Declared cash tips," +
         "Tip-outs given,Tip-outs received,Given to the pool,Pool received," +
         "Card fee withheld,Net tips," +
         // RestauNax 9d9578a45 (2026-10-22): cash tips never paid twice;

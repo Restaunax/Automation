@@ -4046,7 +4046,15 @@ export function deleteFeatureOverrideAdminRaw(
 export async function setOwnerPosPin(
   ownerToken: string,
   restaurantId: string,
-  pin: string
+  pin: string,
+  {
+    clocksIn = false,
+  }: {
+    /** The owner works shifts in this spec: turn "Clocks in" on. A new owner
+     *  row starts with it off (RestauNax #1098), which keeps their hours out
+     *  of timecards, labor and tips by hours. */
+    clocksIn?: boolean;
+  } = {}
 ): Promise<string> {
   const data = await apiRequest<{ data?: { staffMemberId?: string } }>(
     "POST",
@@ -4056,6 +4064,19 @@ export async function setOwnerPosPin(
   );
   const id = data.data?.staffMemberId;
   if (!id) throw new Error("setOwnerPosPin: response missing staffMemberId");
+  if (clocksIn) {
+    const on = await ownerStaffRaw(
+      ownerToken,
+      restaurantId,
+      "PATCH",
+      `/${id}`,
+      {
+        tracksTime: true,
+      }
+    );
+    if (!on.ok)
+      throw new Error(`setOwnerPosPin: Clocks in: ${JSON.stringify(on.data)}`);
+  }
   return id;
 }
 

@@ -500,6 +500,9 @@ Add `utils/visibleFeedback.ts` with:
 
 ### Phase 0: open the restaurant (PR 1)
 
+**Built (2026-10-29), phases 0–2 together:**
+`tests/dashboard/journey/01-open-hire-schedule.spec.ts`, TC-978..989.
+
 - **Roles:** HQ admin (API), Owner (UI).
 - **Steps:** `createSecondOwner`; grant PAYROLL + SCHEDULING + TIP_MANAGEMENT
   (packages only, per `BACK_OFFICE_COVERAGE.md`) by override; dummy Stripe
@@ -534,6 +537,21 @@ Add `utils/visibleFeedback.ts` with:
 
 ### Phase 3: service day (PR 4)
 
+**Built (2026-10-29):** `tests/dashboard/journey/02-service-day.spec.ts`,
+TC-990..1000. Differences from the plan, and why:
+
+- No tip on the counter cash sale: a single-tender cash sale is created with
+  tip 0 and paid by `mark-paid`, which takes no tip (device-in-store does the
+  same). The cash tip is on T1's second leg instead.
+- The owner holds the drawer and takes the cash. Dee ringing an order is fine,
+  but a cash payment into someone else's drawer is refused
+  (`DRAWER_NOT_YOURS`); TC-991 checks that refusal.
+- The manager-approved discount and pay-at-table move to the POS money paths
+  phase; both are API-proven already (`api-discount-permissions`,
+  `api-pay-at-table`).
+- The 30-minute break is started and ended at once (a real clock can't be
+  faked). Phase 4 corrects hours on last week's seeded shifts instead.
+
 - **Roles:** Dee (POS API), Manager (POS API), Guest (wind or lima UI).
 - **Steps:** open register; Dee clocks in as Server (clock-in rule WARN);
   counter cash order with $3 tip; open check on T1, add items, 18%
@@ -548,6 +566,13 @@ Add `utils/visibleFeedback.ts` with:
 
 ### Phase 4: owner reviews the week (PR 5)
 
+**Built (2026-10-29):** `tests/dashboard/journey/03-review-the-week.spec.ts`,
+TC-1001..1007 (+1002b). Its own tenant with last week entered from the paper
+sheet, so it runs alone. A long shift (a forgotten clock-out) stands in for
+"no clock-out": a manager entry always has one. The staff app's view of the
+approved period stays in `api-timecards` (TC-585), since Dee here is a
+PIN-only person with no account.
+
 - **Roles:** Owner (UI).
 - **Steps:** Needs you today shows last week's period to approve → button →
   Timecards on that period (TC-952). Last week was made in phase 0 setup with
@@ -561,6 +586,13 @@ Add `utils/visibleFeedback.ts` with:
   = timecards (TC-585 numbers).
 
 ### Phase 5: tips (PR 6)
+
+**Built (2026-10-29):** `tests/dashboard/journey/04-tips.spec.ts`,
+TC-1008..1013. A rule written by hand (the presets are TC-677). The card tip
+is real: the guest pays Ana's check from the phone (Pay at the table), so it
+lands on her own check and the 3% fee is withheld from it. Declared tips
+frozen in an approval stay in `api-tips`: today's tips can't be in a finished
+pay period.
 
 - **Roles:** Owner (UI).
 - **Steps:** Tip policy → Waterfall preset (servers give 20% to bussers) →

@@ -173,7 +173,7 @@ export async function seedPeriodAwaitingApproval(
     throw new Error(
       `[back-office] pay schedule: ${JSON.stringify(saved.data)}`
     );
-  const me = await setOwnerPosPin(ownerToken, rid, pin);
+  const me = await setOwnerPosPin(ownerToken, rid, pin, { clocksIn: true });
   const job = await createStaffJobRaw(ownerToken, rid, {
     name: `Cook ${runId}`,
     defaultHourlyRateCents: 1500,
