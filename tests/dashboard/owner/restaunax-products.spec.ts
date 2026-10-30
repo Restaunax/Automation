@@ -21,7 +21,8 @@
  * SIDE EFFECT: the "ask" test creates a REAL AddonRequest on QA and notifies
  * support. If the restaurant already has a pending request the dashboard shows
  * "Request sent <date>" instead of the button; that counts as a pass. The
- * request is left open on purpose (the Available card then shows it pending).
+ * API-level ask test at the end of the first describe cancels the open
+ * request, so the run leaves nothing open.
  */
 import * as allure from "allure-js-commons";
 import type { Page } from "@playwright/test";
@@ -34,6 +35,9 @@ import {
   createSecondOwner,
   deleteTestRestaurant,
   getRestaurantFeaturesRaw,
+  ownerAddonRequestRaw,
+  ownerAddonRequestCancelRaw,
+  ownerAddonsRaw,
 } from "../../../utils/apiHelper";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
@@ -42,6 +46,9 @@ const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
 
 const MENU_TVS = "RestauNax Menu TVs";
+// The ⊕ add-on mark has no visible text in tight places; its accessible name is
+// the product's tooltip line (products.json `pitch.<KEY>.tooltip`).
+const MENU_TVS_MARK = "Add-on: TV menu boards from your menu";
 const SAMPLE_NOTE = "Sample — this is what it looks like with your own data";
 const ASK = "Ask us to turn it on";
 const SENT = /Request sent .+\. We'll contact you\./;
@@ -62,7 +69,7 @@ const PRODUCT_NAMES: Record<string, string> = {
 
 test.describe.configure({ mode: "serial" });
 
-test.describe("Owner — RestauNax Products: Available previews, no prices", () => {
+test.describe("Owner — RestauNax Products: add-on previews, no prices", () => {
   test.skip(
     !OWNER_EMAIL || !OWNER_PASSWORD,
     "OWNER_EMAIL / OWNER_PASSWORD not set (the seed restaurant)"
@@ -84,7 +91,7 @@ test.describe("Owner — RestauNax Products: Available previews, no prices", () 
     const features = res.data.data?.features ?? [];
     test.skip(
       features.includes("MENU_TVS"),
-      "the seed restaurant already has Menu TVs on — nothing is Available"
+      "the seed restaurant already has Menu TVs on — nothing is on offer"
     );
   });
 
@@ -101,13 +108,15 @@ test.describe("Owner — RestauNax Products: Available previews, no prices", () 
   const sideItem = (page: Page, name: RegExp) =>
     page.getByRole("navigation").first().getByRole("button", { name });
 
-  test("the Menu TVs sidebar item is marked Available and opens a preview with the Sample note and no price", async ({
+  test("the Menu TVs sidebar item carries the add-on mark and opens a preview with the Sample note and no price", async ({
     ownerPage,
   }) => {
     await manage(ownerPage, "tab=Store%20Settings");
     const item = sideItem(ownerPage, /^Menu TVs/);
     await expect(item).toBeVisible({ timeout: 20_000 });
-    await expect(item.getByText("Available", { exact: true })).toBeVisible();
+    // The ⊕ mark, announced with the product's tooltip (no "Available" chip).
+    await expect(item.getByRole("img", { name: MENU_TVS_MARK })).toBeVisible();
+    await expect(item.getByText("Available", { exact: true })).toHaveCount(0);
 
     await item.click();
     await expect(ownerPage).toHaveURL(/tab=menu-tvs/);
@@ -116,8 +125,22 @@ test.describe("Owner — RestauNax Products: Available previews, no prices", () 
     ).toBeVisible({ timeout: 20_000 });
     await expect(ownerPage.getByText(SAMPLE_NOTE)).toBeVisible();
     await expect(
-      ownerPage.getByText("Turn any TV into a menu board that updates itself.")
+      ownerPage.getByText("Menu boards that change when your menu does.")
     ).toBeVisible();
+    // Header marker (label variant) and the three "what you can do" points.
+    await expect(
+      ownerPage.getByRole("main").getByText("Add-on", { exact: true })
+    ).toBeVisible();
+    for (const point of [
+      "Pair a TV from your dashboard with a short code.",
+      "Pick a layout and which menu categories each TV shows.",
+      "Change a price once; every TV shows it.",
+    ])
+      await expect(ownerPage.getByText(point)).toBeVisible();
+    // Never where we are in building it, never "plan".
+    await expect(ownerPage.getByRole("main")).not.toContainText(
+      /coming soon|beta|not available yet|in your plan|upgrade/i
+    );
     // The sample is inert, and nothing in the main area carries a price.
     await expect(ownerPage.getByRole("main")).not.toContainText("$");
   });
@@ -165,7 +188,7 @@ test.describe("Owner — RestauNax Products: Available previews, no prices", () 
     expect(texts.join("\n")).not.toContain("$");
   });
 
-  test("a product without an active catalog row is not shown as Available", async ({
+  test("a product without an active catalog row is still offered: an entry with addonId null, a card on the Products page", async ({
     ownerPage,
   }) => {
     test.skip(
@@ -178,7 +201,7 @@ test.describe("Owner — RestauNax Products: Available previews, no prices", () 
       { feature: string; isActive: boolean }[]
     >("GET", "/api/admin/addons/catalog", undefined, adminToken);
     expect(catalog.ok, `catalog read failed (${catalog.status})`).toBe(true);
-    const offered = new Set(
+    const priced = new Set(
       (catalog.data ?? []).filter((a) => a.isActive).map((a) => a.feature)
     );
     const ownerToken = (await apiLogin(OWNER_EMAIL, OWNER_PASSWORD))
@@ -186,43 +209,99 @@ test.describe("Owner — RestauNax Products: Available previews, no prices", () 
     const res = await getRestaurantFeaturesRaw(ownerToken, restaurantId);
     expect(res.ok).toBe(true);
     const body = res.data.data as
-      | { features?: string[]; available?: string[] }
+      | {
+          features?: string[];
+          availableProducts?: { feature: string; addonId: string | null }[];
+        }
       | undefined;
     const entitled = new Set(body?.features ?? []);
-    // Neither on for the restaurant nor in the catalog: nothing to offer.
-    const feature = Object.keys(PRODUCT_NAMES).find(
-      (f) => !entitled.has(f) && !offered.has(f)
+    // Offered although it has no catalog row: the server no longer needs one.
+    const entry = (body?.availableProducts ?? []).find(
+      (p) => !entitled.has(p.feature) && !priced.has(p.feature)
     );
     test.skip(
-      !feature,
-      "every product the seed restaurant lacks has an active catalog row"
+      !entry,
+      "every product on offer to the seed restaurant has an active catalog row"
     );
-    const name = PRODUCT_NAMES[feature as string] as string;
+    const feature = (entry as { feature: string }).feature;
+    expect((entry as { addonId: string | null }).addonId).toBeNull();
+    const name = PRODUCT_NAMES[feature];
+    test.skip(!name, `no EN name known for ${feature}`);
 
-    // The server never offers it...
-    expect(Array.isArray(body?.available)).toBe(true);
-    expect(body?.available).not.toContain(feature);
-
-    // ...and the Products page does not list it under Available (an old open
-    // request may still show there, marked "Request sent", to be cancelled).
     await manage(ownerPage, "tab=Billing&section=addons");
-    const inUseOrAvailable = ownerPage.getByRole("heading", {
-      name: /^(In use|Available for your restaurant)$/,
-    });
-    await expect(inUseOrAvailable.first()).toBeVisible({ timeout: 20_000 });
     const available = ownerPage.locator("section").filter({
       has: ownerPage.getByRole("heading", {
         name: "Available for your restaurant",
       }),
     });
+    await expect(available).toBeVisible({ timeout: 20_000 });
+    const card = available.locator(".MuiCard-root").filter({
+      has: ownerPage.getByRole("heading", { name, exact: true }),
+    });
+    await expect(card).toHaveCount(1);
     await expect(
-      available
-        .locator(".MuiCard-root")
-        .filter({
-          has: ownerPage.getByRole("heading", { name, exact: true }),
-        })
-        .filter({ hasNotText: SENT })
-    ).toHaveCount(0);
+      card
+        .getByRole("button", { name: ASK })
+        .or(card.getByText(/Request sent .+\./))
+    ).toBeVisible();
+  });
+
+  test("an ask can name the product (no catalog row needed): it shows in pendingByFeature, then is cancelled", async () => {
+    // Creates a REAL AddonRequest on QA and cancels it at the end.
+    const token = (await apiLogin(OWNER_EMAIL, OWNER_PASSWORD)).accessToken;
+    const created = await ownerAddonRequestRaw(token, restaurantId, {
+      feature: "MENU_TVS",
+      kind: "ADD",
+      source: "preview",
+    });
+    // 201 new, 200 = one was already open (the UI ask test above leaves it).
+    expect([200, 201], JSON.stringify(created.data)).toContain(created.status);
+    const requestId = String(created.data.data?.id ?? "");
+    expect(requestId).not.toBe("");
+    try {
+      expect(created.data.data).toMatchObject({
+        feature: "MENU_TVS",
+        kind: "ADD",
+        status: "OPEN",
+      });
+      const page = await ownerAddonsRaw(token, restaurantId, "GET");
+      expect(page.ok).toBe(true);
+      const pending = (page.data.data?.pendingByFeature ?? {}) as Record<
+        string,
+        { id?: string } | undefined
+      >;
+      expect(pending.MENU_TVS?.id).toBe(requestId);
+
+      // A second ask for the same product finds the open one: no duplicate.
+      const again = await ownerAddonRequestRaw(token, restaurantId, {
+        feature: "MENU_TVS",
+        kind: "ADD",
+        source: "preview",
+      });
+      expect(again.status).toBe(200);
+      expect(again.data.data?.id).toBe(requestId);
+
+      // The feature endpoint still offers the product; addonId may be null.
+      const features = await getRestaurantFeaturesRaw(token, restaurantId);
+      const offered = (
+        (features.data.data as { availableProducts?: { feature: string }[] })
+          ?.availableProducts ?? []
+      ).map((p) => p.feature);
+      expect(offered).toContain("MENU_TVS");
+    } finally {
+      const cancelled = await ownerAddonRequestCancelRaw(
+        token,
+        restaurantId,
+        requestId
+      );
+      expect(cancelled.ok, JSON.stringify(cancelled.data)).toBe(true);
+    }
+    const after = await ownerAddonsRaw(token, restaurantId, "GET");
+    const left = (after.data.data?.pendingByFeature ?? {}) as Record<
+      string,
+      unknown
+    >;
+    expect(left.MENU_TVS).toBeUndefined();
   });
 
   test("invoice periods never read end-before-start", async ({ ownerPage }) => {
@@ -309,7 +388,7 @@ test.describe("Owner — a home-food restaurant is never offered Reservations, S
       await deleteTestRestaurant(adminToken, restaurantId).catch(() => {});
   });
 
-  test("no product that a home-food seller cannot use shows up, in the sidebar or as Available", async ({
+  test("no product that a home-food seller cannot use shows up, in the sidebar or on the Products page", async ({
     browser,
   }) => {
     await allure.label("feature", "RestauNax Products");

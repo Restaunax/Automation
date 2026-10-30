@@ -139,7 +139,9 @@ test.describe("Owner — Fees at checkout: service charges paid to staff (UI)", 
     await expectSeenByUser(keeps, "'The restaurant keeps it.'");
     await expectSeenByUser(
       page()
-        .getByText("To pay it to your staff instead, add Tip Management.")
+        .getByText(
+          "To pay it to your staff instead, you need RestauNax Tips or RestauNax Payroll."
+        )
         .first(),
       "how to pay it to staff"
     );
