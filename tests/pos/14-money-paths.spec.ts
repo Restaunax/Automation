@@ -26,8 +26,7 @@
  *           in words; the owner's change gives the money back to the card.
  *   TC-1049 Cancelling a paid counter card sale: a reason is required; the
  *           preview says the card is released; the cancel releases it, so
- *           Day Close can't charge it (RestauNax #1112; test.fail until it
- *           is on QA).
+ *           Day Close can't charge it (RestauNax #1112, on QA 2026-10-30).
  *   TC-1050 A cash order made smaller owes cash back; only the drawer's
  *           holder may hand it over, and then nothing is owed.
  */
@@ -65,9 +64,6 @@ import {
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 const DOMAIN = process.env.TEST_EMAIL_DOMAIN ?? "demomailtrap.co";
-/** Until RestauNax #1112 is on QA, TC-1049 is known to fail. */
-const FIX_1112 = "RestauNax #1112 not on QA yet";
-const FIXED_1112 = process.env.EXPECT_FIX_1112 === "1";
 
 type Rec = Record<string, LooseJson>;
 const list = (v: unknown) => (Array.isArray(v) ? (v as Rec[]) : []);
@@ -584,10 +580,9 @@ test.describe("POS money paths (API)", () => {
   });
 
   test("TC-1049: cancelling a paid counter card sale releases the card — not charged at Day Close", async () => {
-    // The card is HELD until Day Close. The cancel planned a plain void: the
-    // hold stayed and Day Close charged the card for a cancelled order
-    // (RestauNax #1112).
-    test.fail(!FIXED_1112, FIX_1112);
+    // The card is HELD until Day Close. Until RestauNax #1112 the cancel
+    // planned a plain void: the hold stayed and Day Close charged the card
+    // for a cancelled order.
     const paid = await keyedSale([line("burger")]);
     const preview = await tabletRaw<Rec>(
       tablet,
@@ -621,7 +616,9 @@ test.describe("POS money paths (API)", () => {
     );
     expect(cancelled.status, JSON.stringify(cancelled.data)).toBe(200);
     const after = await readOrder(paid.orderId);
-    expect(after.status).toBe("CANCELLED");
+    // Money went back (the hold released), so it closes like any cancel that
+    // gives money back: REFUNDED.
+    expect(after.status).toBe("REFUNDED");
     expect(after.cardAuthorizedAt ?? null).toBeNull();
     // Stripe: the hold is released, so nothing can be captured later.
     const intent = await stripePublicRaw(
