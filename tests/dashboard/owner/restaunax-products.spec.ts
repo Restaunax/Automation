@@ -49,7 +49,6 @@ const MENU_TVS = "RestauNax Menu TVs";
 // The ⊕ add-on mark has no visible text in tight places; its accessible name is
 // the product's tooltip line (products.json `pitch.<KEY>.tooltip`).
 const MENU_TVS_MARK = "Add-on: TV menu boards from your menu";
-const SAMPLE_NOTE = "Sample — this is what it looks like with your own data";
 const ASK = "Ask us to turn it on";
 const SENT = /Request sent .+\. We'll contact you\./;
 
@@ -108,7 +107,7 @@ test.describe("Owner — RestauNax Products: add-on previews, no prices", () => 
   const sideItem = (page: Page, name: RegExp) =>
     page.getByRole("navigation").first().getByRole("button", { name });
 
-  test("the Menu TVs sidebar item carries the add-on mark and opens a preview with the Sample note and no price", async ({
+  test("the Menu TVs sidebar item carries the add-on mark and opens a preview with the pitch and no price", async ({
     ownerPage,
   }) => {
     await manage(ownerPage, "tab=Store%20Settings");
@@ -123,7 +122,7 @@ test.describe("Owner — RestauNax Products: add-on previews, no prices", () => 
     await expect(
       ownerPage.getByRole("heading", { name: MENU_TVS })
     ).toBeVisible({ timeout: 20_000 });
-    await expect(ownerPage.getByText(SAMPLE_NOTE)).toBeVisible();
+    // Menu TVs has no sample screen: the pitch and points are the preview.
     await expect(
       ownerPage.getByText("Menu boards that change when your menu does.")
     ).toBeVisible();
@@ -326,11 +325,13 @@ test.describe("Owner — RestauNax Products: add-on previews, no prices", () => 
       await expect(
         dialog.getByRole("heading", { name: "What this invoice is for" })
       ).toBeVisible();
-      // Settled: the period line, or the "not available" note, replaces the spinner.
+      // Settled: the period line, the "not available" note, or the load-failed
+      // note (old QA invoices whose Stripe invoice no longer exists) replaces
+      // the spinner.
       await expect(
         dialog
           .getByText(
-            /^(.*For .+|The details of this invoice aren't available\.)/
+            /^(.*For .+|The details of this invoice aren't available\.|We couldn't load this invoice's details)/
           )
           .first()
       ).toBeVisible({ timeout: 20_000 });
