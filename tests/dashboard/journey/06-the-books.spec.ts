@@ -22,8 +22,7 @@
  *           balanced entry with its own number.
  *   TC-1030 my 2 store: on days without refunds, the tax Avalara has is the
  *           tax in that day's entry, for the same orders.
- *   TC-1030b my 2 store: on a day with refunds too (RestauNax #1104;
- *           test.fail until it is on QA).
+ *   TC-1030b my 2 store: on a day with refunds too (RestauNax #1104, on QA 2026-10-30).
  *   TC-1031 my 2 store: each posted card deposit's entry balances, its bank
  *           line is the payout, and the Card deposits tab lists it.
  *   TC-1032 New Restaurant: Overview names the Xero company; recent days are
@@ -47,9 +46,6 @@ import { DESKTOP, expectHumanText } from "../../../utils/humanQa";
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 const PARTNER = { tag: ["@partner"] };
-/** Until RestauNax #1104 is on QA, TC-1030 is known to fail. */
-const FIX_1104 = "RestauNax #1104 not on QA yet";
-const FIXED_1104 = process.env.EXPECT_FIX_1104 === "1";
 
 type Rec = Record<string, LooseJson>;
 const list = (v: unknown) => (Array.isArray(v) ? (v as Rec[]) : []);
@@ -275,7 +271,6 @@ test.describe("Journey 6 — the books (partner restaurants, read-only)", () => 
     async () => {
       // The books took the refund's tax off nothing: sales tax payable stayed
       // above what was filed by the refunded tax (RestauNax #1104).
-      test.fail(!FIXED_1104, FIX_1104);
       const days = (await taxDays()).filter((d) => d.refunds);
       test.skip(days.length === 0, "no day in Avalara with a refund");
       for (const d of days.slice(0, 3)) expectSameTax(d);
