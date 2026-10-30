@@ -221,7 +221,9 @@ test.describe("Owner — requests an add-on from Billing → Add-ons (UI)", () =
     >) {
       const restaurant = x.restaurant as Record<string, LooseJson> | null;
       const addon = x.addon as Record<string, LooseJson> | null;
-      if (restaurant?.id === seedId && addon?.feature === "ACCOUNTING_SYNC")
+      // A request made by product has no catalog row (addon null).
+      const feature = x.feature ?? addon?.feature;
+      if (restaurant?.id === seedId && feature === "ACCOUNTING_SYNC")
         await ownerAddonRequestCancelRaw(seedToken, seedId, String(x.id));
     }
   };
