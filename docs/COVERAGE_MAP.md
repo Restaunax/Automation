@@ -456,6 +456,8 @@ Two QA facts decide most "automatable?" answers:
 | G23 | Domains, short links, app versions, system logs, support, finance, equipment, disputes, partners, voice mgmt | open each, do its main action.                                     | **Yes** for most (load + one action). Domains touches Cloudflare: read-only only.                                                    |
 | G24 | Chains admin in the browser                                                                                  | HQ → Chains → create, link, unlink.                                | **Yes**; `tests/dashboard/admin/chains.spec.ts` is API-level today.                                                                  |
 
+**G8 built (2026-10-30):** `tests/pos/14-money-paths.spec.ts`, TC-1043..1050 (keyed card, pay link, split, balance, refund by edit, cancel, cash refund). Tip-after-close success needs a reader; the keyed refusal is tested. Found RestauNax #1112 (a cancelled held counter card sale was charged at Day Close).
+
 ### Top 10 (in order)
 
 1. G1 real card tips through payroll
