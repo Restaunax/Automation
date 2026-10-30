@@ -57,7 +57,6 @@ test.describe("Owner — Books & taxes is hidden without its add-on; Connected a
   const runId = generateRunId();
   let adminToken = "";
   let restaurantId = "";
-  let live = false;
   let session: UiLoginSession | undefined;
   const refused: string[] = [];
 
@@ -91,7 +90,6 @@ test.describe("Owner — Books & taxes is hidden without its add-on; Connected a
     const tenant = await createSecondOwner(adminToken, runId);
     if (!tenant.restaurantId) throw new Error("[books-ui] no tenant");
     restaurantId = tenant.restaurantId;
-    live = await addonRequestsLive(adminToken);
     session = await loginViaUi(
       browser,
       tenant.email,
@@ -167,22 +165,27 @@ test.describe("Owner — Books & taxes is hidden without its add-on; Connected a
       "ACCOUNTING_SYNC"
     );
     await manage("tab=books-taxes&section=calendar");
+    // The tab names the product. When the server offers it (usual) the page
+    // is its preview with the ask; otherwise a neutral "isn't on" note. Never
+    // the old "Not part of this restaurant's plan" lock or its Add-ons button.
     await expect(
-      page().getByRole("heading", {
-        name: "Not part of this restaurant's plan",
-      })
+      page().getByRole("heading", { name: "RestauNax Books & Taxes" })
     ).toBeVisible({ timeout: 20_000 });
-    // Since restaunax #998 owners request add-ons; before it they added them.
     await expect(
-      page().getByText(
-        live
-          ? "This is an add-on this restaurant doesn't have yet. You can request it in Billing → Add-ons and we'll set it up."
-          : "This is an add-on this restaurant doesn't have yet. You can add it from Billing → Add-ons."
-      )
+      page()
+        .getByRole("button", { name: "Ask us to turn it on" })
+        .or(
+          page().getByText(
+            "RestauNax Books & Taxes isn't on for this restaurant. Your RestauNax team can help you with it."
+          )
+        )
     ).toBeVisible();
+    await expect(
+      page().getByText("Not part of this restaurant's plan")
+    ).toHaveCount(0);
     await expect(
       page().getByRole("button", { name: "Go to Add-ons" })
-    ).toBeVisible();
+    ).toHaveCount(0);
     await expect(page().getByRole("tab", { name: "Tax calendar" })).toHaveCount(
       0
     );
@@ -256,28 +259,31 @@ test.describe("Owner — requests an add-on from Billing → Add-ons (UI)", () =
       `/restaurant/restaurantId/${seedId}/restaurantManagement?tab=books-taxes`,
       { waitUntil: "domcontentloaded" }
     );
+    // The locked tab is now the product's preview (or a neutral note), not a
+    // "Go to Add-ons" lock; the request is made from Billing → Add-ons.
     await expect(
-      ownerPage.getByText("You can request it in Billing → Add-ons", {
-        exact: false,
-      })
+      ownerPage.getByRole("heading", { name: "RestauNax Books & Taxes" })
     ).toBeVisible({ timeout: 20_000 });
-    await ownerPage.getByRole("button", { name: "Go to Add-ons" }).click();
+    await ownerPage.goto(
+      `/restaurant/restaurantId/${seedId}/restaurantManagement?tab=Billing&section=addons`,
+      { waitUntil: "domcontentloaded" }
+    );
     await expect(ownerPage).toHaveURL(/tab=Billing/);
 
     const card = ownerPage.locator(".MuiCard-root").filter({
       has: ownerPage.getByRole("heading", {
-        name: "Books & Taxes",
+        name: "RestauNax Books & Taxes",
         exact: true,
       }),
     });
     await expect(card).toHaveCount(1, { timeout: 20_000 });
     // No owner-side "Add" any more: the only action is a request.
     await expect(card.getByRole("button", { name: /^Add$/ })).toHaveCount(0);
-    await card.getByRole("button", { name: "Request this add-on" }).click();
+    await card.getByRole("button", { name: "Ask us to turn it on" }).click();
 
     const dialog = ownerPage.getByRole("dialog");
     await expect(
-      dialog.getByRole("heading", { name: "Request Books & Taxes?" })
+      dialog.getByRole("heading", { name: "Request RestauNax Books & Taxes?" })
     ).toBeVisible();
     await dialog
       .getByLabel("Anything we should know? (optional)")
@@ -285,9 +291,7 @@ test.describe("Owner — requests an add-on from Billing → Add-ons (UI)", () =
     await dialog.getByRole("button", { name: "Send request" }).click();
     await expect(dialog).toBeHidden();
     await expect(
-      ownerPage.getByText(
-        "Request sent. We'll contact you to set it up, usually within one business day."
-      )
+      ownerPage.getByText("Request sent. We'll contact you.")
     ).toBeVisible({ timeout: 20_000 });
     await expect(
       card.getByText(/^Request sent .+\. We'll contact you\.$/)
@@ -302,7 +306,7 @@ test.describe("Owner — requests an add-on from Billing → Add-ons (UI)", () =
       timeout: 20_000,
     });
     await expect(
-      card.getByRole("button", { name: "Request this add-on" })
+      card.getByRole("button", { name: "Ask us to turn it on" })
     ).toBeVisible();
   });
 });
