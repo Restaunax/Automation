@@ -16,8 +16,7 @@
  *   TC-1042 Refunding everything left closes the order: Refunded, and no
  *           Refund button any more.
  *
- * Known to fail until RestauNax #1109 is on QA (EXPECT_FIX_1109=1 runs it
- * strictly).
+ * RestauNax #1109 is on QA since 2026-10-30.
  */
 import type { Locator, Page } from "@playwright/test";
 import * as allure from "allure-js-commons";
@@ -47,8 +46,6 @@ import {
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
-const FIX_1109 = "RestauNax #1109 not on QA yet";
-const FIXED_1109 = process.env.EXPECT_FIX_1109 === "1";
 
 test.describe.configure({ mode: "serial" });
 
@@ -156,7 +153,6 @@ test.describe("Partial refund from the dashboard (UI)", () => {
   });
 
   test.beforeEach(async () => {
-    test.fail(!FIXED_1109, FIX_1109);
     await allure.label("feature", "Orders — partial refund");
     await allure.label("severity", "critical");
     await page().setViewportSize(DESKTOP);
@@ -230,6 +226,10 @@ test.describe("Partial refund from the dashboard (UI)", () => {
       sheet.getByRole("button", { name: "Refund", exact: true })
     ).toHaveCount(0);
     const again = await refundOrderRaw(ownerToken, orderId, { amount: 1 });
-    expect(String(again.data.message)).toBe("Order has already been refunded");
+    // The order is REFUNDED now: nothing is left to take a refund from.
+    expect(again.status).toBe(400);
+    expect(String(again.data.message)).toBe(
+      "Only completed payments can be refunded"
+    );
   });
 });
