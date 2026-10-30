@@ -21,8 +21,8 @@
  * SIDE EFFECT: the "ask" test creates a REAL AddonRequest on QA and notifies
  * support. If the restaurant already has a pending request the dashboard shows
  * "Request sent <date>" instead of the button; that counts as a pass. The
- * request is left open on purpose (the Available card then shows it pending);
- * the API-level ask test at the end of the first describe cancels it.
+ * API-level ask test at the end of the first describe cancels the open
+ * request, so the run leaves nothing open.
  */
 import * as allure from "allure-js-commons";
 import type { Page } from "@playwright/test";

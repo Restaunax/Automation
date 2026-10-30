@@ -268,7 +268,7 @@ test.describe("Owner — requests an add-on from Billing → Add-ons (UI)", () =
       `/restaurant/restaurantId/${seedId}/restaurantManagement?tab=Billing&section=addons`,
       { waitUntil: "domcontentloaded" }
     );
-    await expect(ownerPage).toHaveURL(/tab=Billing/);
+    await expect(ownerPage).toHaveURL(/tab=Billing&section=addons/);
 
     const card = ownerPage.locator(".MuiCard-root").filter({
       has: ownerPage.getByRole("heading", {
@@ -291,7 +291,7 @@ test.describe("Owner — requests an add-on from Billing → Add-ons (UI)", () =
     await dialog.getByRole("button", { name: "Send request" }).click();
     await expect(dialog).toBeHidden();
     await expect(
-      ownerPage.getByText("Request sent. We'll contact you.")
+      ownerPage.getByText(/^Request sent\. We'll contact you/)
     ).toBeVisible({ timeout: 20_000 });
     await expect(
       card.getByText(/^Request sent .+\. We'll contact you\.$/)
