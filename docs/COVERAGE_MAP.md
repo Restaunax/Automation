@@ -643,6 +643,12 @@ specs. Found RestauNax #1104: the books kept a refund's tax as owed.
 
 ### Phase 8: numbers agree (PR 9)
 
+**Built (2026-10-30):** `tests/dashboard/journey/07-numbers-agree.spec.ts`,
+TC-1034..1039. Its own day, with a partial refund, so the refund rules are
+checked across every surface (and RestauNax #1104's books fix on a fresh
+restaurant). The refund uses the Owner app / POS route: the dashboard has no
+partial refund.
+
 - **Steps:** API reads only, on the Track A tenant.
 - **Assertions:** sales tax report = orders; sales-by-day CSV = Daily Report;
   partner API `/days` (create a key) = the same day; A1 journal = the same
