@@ -226,6 +226,10 @@ pages/
   customer/                          — Template Wind POMs (CustomerMenuPage, CustomerCheckoutPage, CustomerOrderConfirmationPage)
 ```
 
+### Toggling a switch
+
+Click the **switch itself**: `getByRole("switch", { name })`, an `#id` (MUI puts it on the input), or `getByTestId(...).locator("input")` (a `data-testid` lands on the root span). Never click a switch's label text, description or row to flip it. Since RestauNax `fix/switch-click-target`, the dashboard theme makes that a no-op on every switch, so such a test fails silently on "nothing changed". TC-1098 guards the rule. Checkbox and radio labels still toggle on a text click.
+
 ---
 
 ## Test Utilities
