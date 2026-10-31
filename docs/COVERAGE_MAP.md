@@ -468,7 +468,9 @@ Two QA facts decide most "automatable?" answers:
 
 **G13 built (2026-10-31):** `tests/dashboard/owner/35-staff-requests-ui.spec.ts`, TC-1081..1085 (the owner's Requests inbox: day off approved with a note, trade approved, availability denied with a reason). Invite + first shift + publish were already the journey (TC-984..987). Schedule edits by drag are not walked.
 
-**G15 built (2026-10-31):** `tests/customer-lima/17-availability.spec.ts`, TC-L77..L82 (paused, resumed, closed for the night, unpublished, guest wording). Found RestauNax #1118 (after Close Day the ordering site still offered checkout; guests read owner wording). Outside business hours ("Schedule for later") is not walked yet.
+**G15 built (2026-10-31):** `tests/customer-lima/17-availability.spec.ts`, TC-L77..L82 (paused, resumed, closed for the night, unpublished, guest wording). Found RestauNax #1118 (after Close Day the ordering site still offered checkout; guests read owner wording). Outside business hours: `customer-lima/18-outside-hours.spec.ts`, TC-L83..L86 (found Template-lima #135, "We're closed on friday" for a one-day holiday).
+
+**G2 already covered (2026-10-31):** the journey's `03-review-the-week.spec.ts`, TC-1001..1007, walks it in the browser (fix a missing clock-out with a reason, correct as is, approve, reopen refused without a reason, Labor agrees).
 
 ### Top 10 (in order)
 
