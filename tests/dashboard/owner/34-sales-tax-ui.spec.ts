@@ -12,7 +12,7 @@
  *
  *   TC-1074 The first rate (6%, the default) and straight after it a
  *           second, "Alcohol" 9%: Alcohol is NOT the default and Recent
- *           changes says who added it. Known bug until RestauNax #1116:
+ *           changes says who added it. Until RestauNax #1116 (on QA 2026-10-31)
  *           a rate added before the list reloaded silently became the
  *           default, moving the whole menu to 9%.
  *   TC-1075 Drinks are taxed at Alcohol and Water is tax-free, set by
@@ -42,7 +42,6 @@ import {
   createMenuGroupNamed,
   createMenuItemFull,
   getOrderFullRaw,
-  apiRequestRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
 import { placePaidOnlineOrder } from "../../../utils/comboFoodSurfaces";
@@ -55,10 +54,6 @@ import {
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
-/** Until RestauNax #1116 is on QA, a rate added right after another can
- *  silently become the default. */
-const FIX_1116 = "RestauNax #1116 not on QA yet";
-const FIXED_1116 = process.env.EXPECT_FIX_1116 === "1";
 
 type Rec = Record<string, LooseJson>;
 
@@ -176,7 +171,6 @@ test.describe("Sales tax and service fee (UI)", () => {
   };
 
   test("TC-1074: the first rate, then Alcohol 9% straight after — Alcohol is not made the default", async () => {
-    test.fail(!FIXED_1116, FIX_1116);
     await openSalesTax();
     await addRate(null, "6");
     // Straight away, as an owner setting up two rates does.
@@ -203,24 +197,6 @@ test.describe("Sales tax and service fee (UI)", () => {
   });
 
   test("TC-1075: drinks taxed at Alcohol, water tax-free — by category and by item, kept after a reload", async () => {
-    // Until #1116 is on QA, TC-1074 may have left Alcohol as the default:
-    // put "Sales tax" back so the rest of the file prices what it means to.
-    const rates = await apiRequestRaw<{ data?: Rec[] }>(
-      "GET",
-      `/api/tax/${restaurantId}/rates`,
-      undefined,
-      ownerToken
-    );
-    const salesTax = (rates.data.data ?? []).find(
-      (r) => r.name === "Sales tax"
-    );
-    if (salesTax && !salesTax.isDefault)
-      await apiRequestRaw(
-        "PATCH",
-        `/api/tax/${restaurantId}/rates/${salesTax.id}`,
-        { name: "Sales tax", percent: 6, isDefault: true },
-        ownerToken
-      );
     await openSalesTax();
     await expect(menuSave()).toBeDisabled();
     await pick(

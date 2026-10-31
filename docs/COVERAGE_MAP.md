@@ -466,6 +466,8 @@ Two QA facts decide most "automatable?" answers:
 
 **G11 built (2026-10-31):** `tests/dashboard/owner/34-sales-tax-ui.spec.ts`, TC-1074..1079 (second rate, tax by category/item, rate-change confirm, service fee form, priced order, sales tax report). Found RestauNax #1116 (a second rate added straight after the first silently became the default).
 
+**G13 built (2026-10-31):** `tests/dashboard/owner/35-staff-requests-ui.spec.ts`, TC-1081..1085 (the owner's Requests inbox: day off approved with a note, trade approved, availability denied with a reason). Invite + first shift + publish were already the journey (TC-984..987). Schedule edits by drag are not walked.
+
 ### Top 10 (in order)
 
 1. G1 real card tips through payroll
