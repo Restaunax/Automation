@@ -464,6 +464,8 @@ Two QA facts decide most "automatable?" answers:
 
 **G7 built (2026-10-31), the floor half:** `tests/pos/17-auto-gratuity.spec.ts`, TC-1066..1073 (applied by party size, follows the count, manager-gated removal or `staffCanWaive`, frozen by a payment, day close line, staff share on the tips report as wages). Settings were already TC-958..964. The service fee's staff share on the tips report is not yet walked.
 
+**G11 built (2026-10-31):** `tests/dashboard/owner/34-sales-tax-ui.spec.ts`, TC-1074..1079 (second rate, tax by category/item, rate-change confirm, service fee form, priced order, sales tax report). Found RestauNax #1116 (a second rate added straight after the first silently became the default).
+
 ### Top 10 (in order)
 
 1. G1 real card tips through payroll
