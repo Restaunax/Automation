@@ -462,6 +462,8 @@ Two QA facts decide most "automatable?" answers:
 
 **G12 built (2026-10-31):** `tests/pos/16-gift-cards.spec.ts`, TC-1059..1065 (sold for cash, a printed card activated, a mistaken sale voided, spent online and at the register, drawer and liability). Card-tender sales need a reader.
 
+**G7 built (2026-10-31), the floor half:** `tests/pos/17-auto-gratuity.spec.ts`, TC-1066..1073 (applied by party size, follows the count, manager-gated removal or `staffCanWaive`, frozen by a payment, day close line, staff share on the tips report as wages). Settings were already TC-958..964. The service fee's staff share on the tips report is not yet walked.
+
 ### Top 10 (in order)
 
 1. G1 real card tips through payroll
