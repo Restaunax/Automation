@@ -474,6 +474,8 @@ Two QA facts decide most "automatable?" answers:
 
 **G16 built (2026-10-31):** `tests/customer/13-member-points.spec.ts`, TC-1086..1089 (wind OTP sign-in, earn on an order, redeem 100 for $5, balance). Found that QA's real texts broke every automated sign-in; fixed by RestauNax #1119 (555 test phones off production). G17 (menu TV) deliberately parked by Neaj.
 
+**G18 built (2026-10-31):** `tests/pos/18-table-qr-on-pos.spec.ts`, TC-1090..1093. Note the gap's wording above ("POS floor shows the order on T4; server settles it") predates the design: a card order is prepaid and must NOT occupy the table (TABLE_QR_ORDERING.md §3 anti-goals); the tests pin that instead.
+
 ### Top 10 (in order)
 
 1. G1 real card tips through payroll
