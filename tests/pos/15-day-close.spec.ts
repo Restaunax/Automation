@@ -27,8 +27,8 @@
  *           the owner opens with a $100 float, "Day opened.", and the POS
  *           takes orders again.
  *   TC-1057 Opening is refused in words: Dee may not open the day (until
- *           RestauNax #1114 she was told she may not CLOSE it), and the day
- *           can't be opened twice.
+ *           RestauNax #1114, on QA 2026-10-31, she was told she may not CLOSE
+ *           it), and the day can't be opened twice.
  *   TC-1058 The store reopened the same night: a second close is offered,
  *           and it counts the whole day (three orders, both deposits).
  *
@@ -67,9 +67,6 @@ import { orderingStatusRaw } from "../../utils/backOfficeApi";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
-/** Until RestauNax #1114 is on QA, Open Day refuses with the close's words. */
-const FIX_1114 = "RestauNax #1114 not on QA yet";
-const FIXED_1114 = process.env.EXPECT_FIX_1114 === "1";
 
 type Rec = Record<string, LooseJson>;
 const msg = (data: unknown) => String((data as Rec | undefined)?.message ?? "");
@@ -436,7 +433,6 @@ test.describe("POS day close and day open (API)", () => {
   });
 
   test("TC-1057: opening is refused in words — Dee may not open, and nobody opens twice", async () => {
-    test.fail(!FIXED_1114, FIX_1114);
     const again = await tabletRaw<Rec>(
       tablet,
       "POST",
