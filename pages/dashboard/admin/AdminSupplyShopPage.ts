@@ -51,7 +51,10 @@ export const createAdminSupplyShopPage = (page: Page) => {
   const TAB_QUERY: Record<"Design queue" | "Fulfilment" | "History", RegExp> = {
     "Design queue": /[?&]queue=design(&|$)/,
     Fulfilment: /[?&]queue=fulfilment(&|$)/,
-    History: /[?&]status=/,
+    // History is the list call with no `queue`. It used to always send a
+    // `status=`; since RestauNax #1115 it opens on "All statuses" and sends
+    // none, so matching on the absence of `queue` works against both.
+    History: /^(?!.*[?&]queue=)/,
   };
 
   const openTab = async (name: "Design queue" | "Fulfilment" | "History") => {
