@@ -11,7 +11,7 @@
  * regression can't hide as a skip.
  *
  * Select a part's tests with its tag: `--grep @training`, `--grep @closeout`,
- * `--grep @bugfix-1036`, `--grep @settings-safety`.
+ * `--grep @bugfix-1036`, `--grep @settings-safety`, `--grep @switch-click`.
  */
 import { test, expect } from "../fixtures/base";
 import { apiRequestRaw } from "./apiHelper";
@@ -32,6 +32,9 @@ export const RELEASED_ON_QA = {
    *  removes the stands that came with them (before it, they stayed). On QA
    *  since 2026-10-29. */
   cartRemoveStands: true,
+  /** RestauNax branch fix/switch-click-target — a click on a switch's label
+   *  text or row no longer toggles it; only the switch does (theme-level). */
+  switchClickTarget: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -46,6 +49,8 @@ const REASON: Record<ReleasePart, string> = {
     "Settings safety (RestauNax PR #1074) is not on this environment yet — /api/restaurantId/:id/settings/setup answers 404",
   cartRemoveStands:
     "Removing cards also removes their stands (RestauNax PR #1102) is not on this environment yet",
+  switchClickTarget:
+    "Switches toggle only from the switch (RestauNax fix/switch-click-target) is not on this environment yet",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
