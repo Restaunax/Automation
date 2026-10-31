@@ -460,6 +460,8 @@ Two QA facts decide most "automatable?" answers:
 
 **G9 built (2026-10-30), POS half:** `tests/pos/15-day-close.spec.ts`, TC-1051..1058 (who may close/open, what blocks a close, held card charged at close, closed for the night on POS and online, morning open, reclose). The web half was already the journey (TC-996..1000). Found RestauNax #1114 (Open Day refused a server with the close's wording).
 
+**G12 built (2026-10-31):** `tests/pos/16-gift-cards.spec.ts`, TC-1059..1065 (sold for cash, a printed card activated, a mistaken sale voided, spent online and at the register, drawer and liability). Card-tender sales need a reader.
+
 ### Top 10 (in order)
 
 1. G1 real card tips through payroll
