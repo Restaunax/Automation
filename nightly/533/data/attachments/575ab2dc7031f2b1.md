@@ -1,0 +1,209 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: dashboard/owner/api-supply-shop.spec.ts >> Owner — Supply shop API contract >> TC-480: the shop's search finds the gift card whether or not gift cards are on
+- Location: tests/dashboard/owner/api-supply-shop.spec.ts:167:7
+
+# Error details
+
+```
+Error: expect(received).toContain(expected) // indexOf
+
+Expected value: "physical-gift-card"
+Received array: []
+```
+
+# Test source
+
+```ts
+  76  |     );
+  77  |     if (!grant.ok)
+  78  |       throw new Error(
+  79  |         `[api-supply-shop] could not grant SUPPLY_SHOP: ${msg(grant.data)}`
+  80  |       );
+  81  |     variantId = await resolveGiftCardVariantId(adminToken);
+  82  |   });
+  83  | 
+  84  |   test.afterAll(async () => {
+  85  |     if (!adminToken) return;
+  86  |     if (order) {
+  87  |       await cancelSupplyOrderOwnerRaw(
+  88  |         await ownerApi().catch(() => ownerToken),
+  89  |         restaurantId,
+  90  |         order.id
+  91  |       ).catch(() => {
+  92  |         /* already cancelled by TC-483 */
+  93  |       });
+  94  |     }
+  95  |     await deleteFeatureOverrideAdminRaw(
+  96  |       adminToken,
+  97  |       restaurantId,
+  98  |       "SUPPLY_SHOP"
+  99  |     ).catch(() => {
+  100 |       /* override may already be gone */
+  101 |     });
+  102 |     if (restaurantId && !process.env.OWNER2_EMAIL) {
+  103 |       await deleteTestRestaurant(adminToken, restaurantId).catch(() => {
+  104 |         /* archive is best-effort; globalTeardown sweeps the user */
+  105 |       });
+  106 |     }
+  107 |   });
+  108 | 
+  109 |   test.beforeEach(async () => {
+  110 |     await allure.label("feature", "Supply shop");
+  111 |     await allure.label("severity", "normal");
+  112 |   });
+  113 | 
+  114 |   test("TC-478: the quote is arithmetic on the tier — and the estimate is that arithmetic +25% on both subtotal and shipping", async () => {
+  115 |     await allure.description(
+  116 |       "100 → $1.95/$12 · 250 → $1.45/$15 · 500 → $1.10/$18; spread 25%; no free tier on a $207 run."
+  117 |     );
+  118 |     const cases = [
+  119 |       { qty: 100, unit: 1.95, ship: 12 },
+  120 |       { qty: 250, unit: 1.45, ship: 15 },
+  121 |       { qty: 500, unit: 1.1, ship: 18 },
+  122 |     ];
+  123 |     for (const c of cases) {
+  124 |       const res = await quoteSupplyOwnerRaw(ownerToken, restaurantId, {
+  125 |         variantId,
+  126 |         quantity: c.qty,
+  127 |       });
+  128 |       expect(res.status, `${c.qty}: ${JSON.stringify(res.data)}`).toBe(200);
+  129 |       const q = res.data.data;
+  130 |       const subtotal = Number((c.unit * c.qty).toFixed(2));
+  131 |       expect(q).toMatchObject({
+  132 |         unitPrice: c.unit,
+  133 |         subtotal,
+  134 |         shippingAmount: c.ship,
+  135 |         total: subtotal + c.ship,
+  136 |       });
+  137 |       expect(q.estimate.spreadPct).toBe(25);
+  138 |       expect(q.estimate.totalLow).toBe(subtotal + c.ship);
+  139 |       expect(q.estimate.totalHigh).toBeCloseTo((subtotal + c.ship) * 1.25, 2);
+  140 |       expect(q.freeTier.applies).toBe(false);
+  141 |     }
+  142 |     // Below the first tier: no price, and the message names the minimum.
+  143 |     const tooFew = await quoteSupplyOwnerRaw(ownerToken, restaurantId, {
+  144 |       variantId,
+  145 |       quantity: 50,
+  146 |     });
+  147 |     // 409, not 400: the quantity is well-formed, it is the CATALOG that has no
+  148 |     // tier for it (NO_PRICE_TIER) — the same status the pricing service uses
+  149 |     // for every catalog-state refusal. Only a malformed quantity is a 400.
+  150 |     expect(tooFew.status, JSON.stringify(tooFew.data)).toBe(409);
+  151 |     expect((tooFew.data as { code?: string }).code).toBe("NO_PRICE_TIER");
+  152 |   });
+  153 | 
+  154 |   test("TC-479: the restaurant comes from X-Restaurant-Id — missing is 400, another owner's restaurant is refused", async () => {
+  155 |     test.skip(
+  156 |       !OWNER_EMAIL || !OWNER_PASSWORD,
+  157 |       "OWNER_EMAIL / OWNER_PASSWORD not set"
+  158 |     );
+  159 |     const seedOwner = (await apiLogin(OWNER_EMAIL, OWNER_PASSWORD)).accessToken;
+  160 |     // The seed owner asks for THIS tenant's catalog/orders: not theirs.
+  161 |     const foreign = await listSupplyOrdersOwnerRaw(seedOwner, restaurantId);
+  162 |     expect([403, 404], JSON.stringify(foreign.data)).toContain(foreign.status);
+  163 |     const missing = await getSupplyCatalogOwnerRaw(ownerToken, "");
+  164 |     expect([400, 403], JSON.stringify(missing.data)).toContain(missing.status);
+  165 |   });
+  166 | 
+  167 |   test("TC-480: the shop's search finds the gift card whether or not gift cards are on", async () => {
+  168 |     await putGiftCardConfigAdminRaw(adminToken, restaurantId, {
+  169 |       isEnabled: false,
+  170 |     });
+  171 |     const off = await getSupplyCatalogOwnerRaw(
+  172 |       ownerToken,
+  173 |       restaurantId,
+  174 |       "gift"
+  175 |     );
+> 176 |     expect(off.data.data.map((p) => p.slug)).toContain(
+      |                                              ^ Error: expect(received).toContain(expected) // indexOf
+  177 |       SUPPLY_GIFT_CARD_PRODUCT_SLUG
+  178 |     );
+  179 |     await putGiftCardConfigAdminRaw(adminToken, restaurantId, {
+  180 |       isEnabled: true,
+  181 |     });
+  182 |     const on = await getSupplyCatalogOwnerRaw(ownerToken, restaurantId, "gift");
+  183 |     expect(on.data.data.map((p) => p.slug)).toContain(
+  184 |       SUPPLY_GIFT_CARD_PRODUCT_SLUG
+  185 |     );
+  186 |   });
+  187 | 
+  188 |   test("TC-481: the owner's order list carries the estimate and nothing internal", async () => {
+  189 |     order = await placeSupplyOrderViaApi(ownerToken, restaurantId, {
+  190 |       variantId,
+  191 |       quantity: 100,
+  192 |       message: `api contract ${runId}`,
+  193 |     });
+  194 |     expect(order.status).toBe("IN_DESIGN");
+  195 |     const list = await listSupplyOrdersOwnerRaw(ownerToken, restaurantId);
+  196 |     const row = list.data.data.find((o) => o.id === order.id)!;
+  197 |     expect(row).toMatchObject({
+  198 |       estimatedTotalLow: 207,
+  199 |       estimatedTotalHigh: 258.75,
+  200 |       paymentTerm: "IMMEDIATE",
+  201 |       paidAt: null,
+  202 |       priceFinalizedAt: null,
+  203 |     });
+  204 |     for (const key of [
+  205 |       "unitVendorCostSnapshot",
+  206 |       "expectedVendorCost",
+  207 |       "vendorCostAllocated",
+  208 |       "pendingFulfilment",
+  209 |       "placedByAdminId",
+  210 |       "adminNotes",
+  211 |     ]) {
+  212 |       expect(row, key).not.toHaveProperty(key);
+  213 |     }
+  214 |   });
+  215 | 
+  216 |   test("TC-482: proof actions on an order with no proof are refused — approve and request-changes alike", async () => {
+  217 |     const approve = await approveSupplyProofOwnerRaw(
+  218 |       await ownerApi(),
+  219 |       restaurantId,
+  220 |       order.id,
+  221 |       "not-a-version"
+  222 |     );
+  223 |     expect(approve.ok, JSON.stringify(approve.data)).toBe(false);
+  224 |     const revise = await requestSupplyRevisionsOwnerRaw(
+  225 |       ownerToken,
+  226 |       restaurantId,
+  227 |       order.id,
+  228 |       "too early"
+  229 |     );
+  230 |     expect(revise.ok, JSON.stringify(revise.data)).toBe(false);
+  231 |     const blank = await requestSupplyRevisionsOwnerRaw(
+  232 |       ownerToken,
+  233 |       restaurantId,
+  234 |       order.id,
+  235 |       "   "
+  236 |     );
+  237 |     expect(blank.status).toBe(400);
+  238 |   });
+  239 | 
+  240 |   test("TC-483: cancel from IN_DESIGN is free and final — a second cancel is refused", async () => {
+  241 |     const first = await cancelSupplyOrderOwnerRaw(
+  242 |       await ownerApi(),
+  243 |       restaurantId,
+  244 |       order.id
+  245 |     );
+  246 |     expect(first.status, JSON.stringify(first.data)).toBe(200);
+  247 |     const list = await listSupplyOrdersOwnerRaw(ownerToken, restaurantId);
+  248 |     expect(list.data.data.find((o) => o.id === order.id)?.status).toBe(
+  249 |       "CANCELLED"
+  250 |     );
+  251 |     const second = await cancelSupplyOrderOwnerRaw(
+  252 |       ownerToken,
+  253 |       restaurantId,
+  254 |       order.id
+  255 |     );
+  256 |     expect(second.ok, JSON.stringify(second.data)).toBe(false);
+  257 |   });
+  258 | });
+  259 | 
+```
