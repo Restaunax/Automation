@@ -476,6 +476,10 @@ Two QA facts decide most "automatable?" answers:
 
 **G18 built (2026-10-31):** `tests/pos/18-table-qr-on-pos.spec.ts`, TC-1090..1093. Note the gap's wording above ("POS floor shows the order on T4; server settles it") predates the design: a card order is prepaid and must NOT occupy the table (TABLE_QR_ORDERING.md §3 anti-goals); the tests pin that instead.
 
+**G21 built (2026-10-31):** `tests/dashboard/admin/addon-requests-ui.spec.ts`, TC-1094..1097 (HQ screen on a throwaway owner's requests; the real attach stays API-level on the seed, since a throwaway can't get a subscription on QA).
+
+**G22 not planned (Neaj 2026-10-31):** the QA "Run a day" simulator is a temporary testing tool whose data will be removed; real days come from staff clocking in and out. No automation for it.
+
 ### Top 10 (in order)
 
 1. G1 real card tips through payroll
