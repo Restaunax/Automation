@@ -468,6 +468,8 @@ Two QA facts decide most "automatable?" answers:
 
 **G13 built (2026-10-31):** `tests/dashboard/owner/35-staff-requests-ui.spec.ts`, TC-1081..1085 (the owner's Requests inbox: day off approved with a note, trade approved, availability denied with a reason). Invite + first shift + publish were already the journey (TC-984..987). Schedule edits by drag are not walked.
 
+**G15 built (2026-10-31):** `tests/customer-lima/17-availability.spec.ts`, TC-L77..L82 (paused, resumed, closed for the night, unpublished, guest wording). Found RestauNax #1118 (after Close Day the ordering site still offered checkout; guests read owner wording). Outside business hours ("Schedule for later") is not walked yet.
+
 ### Top 10 (in order)
 
 1. G1 real card tips through payroll
