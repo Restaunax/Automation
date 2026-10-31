@@ -15,9 +15,9 @@
  *   TC-L85 The server takes the order for tomorrow (and refuses one for
  *          today, in words).
  *   TC-L86 The cart says "We're closed today." and the picker names
- *          tomorrow with a capital ("Restaurant hours for Saturday"). Known
- *          bug until Template-lima #135: "We're closed on friday", as if
- *          the restaurant shut every Friday.
+ *          tomorrow with a capital ("Restaurant hours for Saturday"). Until
+ *          Template-lima #135 (on QA 2026-10-31) it said "We're closed on
+ *          friday", as if the restaurant shut every Friday.
  */
 import type { BrowserContext, Page } from "@playwright/test";
 import * as allure from "allure-js-commons";
@@ -43,9 +43,6 @@ import { activeDialog, expectSeenByUser } from "../../utils/humanQa";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
-/** Until Template-lima #135 is on QA: "We're closed on friday". */
-const FIX_LIMA_135 = "Template-lima #135 not on QA yet";
-const FIXED_LIMA_135 = process.env.EXPECT_FIX_LIMA_135 === "1";
 
 test.describe.configure({ mode: "serial" });
 
@@ -248,7 +245,6 @@ test.describe("Ordering site — outside business hours", () => {
   });
 
   test("TC-L86: the cart says 'We're closed today.' and tomorrow is named with a capital", async () => {
-    test.fail(!FIXED_LIMA_135, FIX_LIMA_135);
     await openCart();
     await page().getByRole("button", { name: "Change time" }).click();
     const dialog = activeDialog(page());

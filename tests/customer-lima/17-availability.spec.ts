@@ -16,8 +16,9 @@
  *          order is refused with when ordering reopens.
  *   TC-L79 Resumed: Proceed to Checkout is back.
  *   TC-L80 Closed for the night (Close Day): the cart says so and Checkout
- *          is off; an order is refused in words. Known bug until RestauNax
- *          #1118: the site still offered checkout and refused only at Pay.
+ *          is off; an order is refused in words. Until RestauNax #1118 (on
+ *          QA 2026-10-31) the site still offered checkout and refused only
+ *          at Pay.
  *   TC-L81 Not published: browse only, in words; nothing can be added.
  *   TC-L82 A guest is refused in guest words: paused until resumed, not
  *          published (they read "closed or not accepting" and "Publish the
@@ -47,10 +48,6 @@ import { expectSeenByUser } from "../../utils/humanQa";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
-/** Until RestauNax #1118 is on QA: storefronts miss the night pause, and
- *  guests read owner wording. */
-const FIX_1118 = "RestauNax #1118 not on QA yet";
-const FIXED_1118 = process.env.EXPECT_FIX_1118 === "1";
 
 const NOT_ACCEPTING =
   "This restaurant is currently not accepting online orders";
@@ -197,7 +194,6 @@ test.describe("Ordering site — when the restaurant isn't taking orders", () =>
   });
 
   test("TC-L80: closed for the night — the cart says so and checkout is off; an order is refused in words", async () => {
-    test.fail(!FIXED_1118, FIX_1118);
     const closed = await closeDayWebRaw(ownerToken, restaurantId);
     expect(closed.status, JSON.stringify(closed.data)).toBe(201);
     const order = await placeOrder();
@@ -230,7 +226,6 @@ test.describe("Ordering site — when the restaurant isn't taking orders", () =>
   });
 
   test("TC-L82: a refused guest reads guest words — not published, paused until resumed", async () => {
-    test.fail(!FIXED_1118, FIX_1118);
     const unpublished = await placeOrder();
     expect(unpublished.status).toBe(400);
     expect(String(unpublished.data.message)).toBe(

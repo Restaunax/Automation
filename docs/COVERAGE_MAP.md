@@ -472,6 +472,8 @@ Two QA facts decide most "automatable?" answers:
 
 **G2 already covered (2026-10-31):** the journey's `03-review-the-week.spec.ts`, TC-1001..1007, walks it in the browser (fix a missing clock-out with a reason, correct as is, approve, reopen refused without a reason, Labor agrees).
 
+**G16 built (2026-10-31):** `tests/customer/13-member-points.spec.ts`, TC-1086..1089 (wind OTP sign-in, earn on an order, redeem 100 for $5, balance). Found that QA's real texts broke every automated sign-in; fixed by RestauNax #1119 (555 test phones off production). G17 (menu TV) deliberately parked by Neaj.
+
 ### Top 10 (in order)
 
 1. G1 real card tips through payroll
