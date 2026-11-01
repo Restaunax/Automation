@@ -12,7 +12,8 @@
  *
  * Select a part's tests with its tag: `--grep @training`, `--grep @closeout`,
  * `--grep @bugfix-1036`, `--grep @settings-safety`, `--grep @switch-click`,
- * `--grep @print-builders`, `--grep @reservations-audit`.
+ * `--grep @print-builders`, `--grep @reservations-audit`,
+ * `--grep @reservations-phase4`.
  */
 import { test, expect } from "../fixtures/base";
 import { apiRequestRaw } from "./apiHelper";
@@ -48,6 +49,9 @@ export const RELEASED_ON_QA = {
    *  RESERVATION_TABLES_REQUIRED, public input caps, pacing suggestion, and
    *  the dashboard's reworked Bookings/Settings screens. */
   reservationsAudit: false,
+  /** RestauNax branch feat/reservations-phase4: online waitlist, server
+   *  rotation and reservation deposits (all add-on only, off by default). */
+  reservationsPhase4: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -66,6 +70,8 @@ const REASON: Record<ReleasePart, string> = {
     "Switches toggle only from the switch (RestauNax fix/switch-click-target) is not on this environment yet",
   reservationsAudit:
     "The reservations audit fixes (RestauNax fix/reservations-audit) are not on this environment yet — the booking-hours suggestion carries no suggestedMaxPartiesPerSlot",
+  reservationsPhase4:
+    "Reservations phase 4 (online waitlist, server rotation, deposits — RestauNax feat/reservations-phase4) is not on this environment yet — reservation settings carry no onlineWaitlistEnabled",
   printBuilders:
     "Print builders (no free table-card print file, photo + follow code, promo card builder, HQ shops in the owner's shop) are not on this environment yet — /restaurant/:id/print-assets/social does not answer",
 };
@@ -116,6 +122,29 @@ export async function probeReservationsAudit(
   return (
     res.status === 200 &&
     typeof res.data?.data?.suggestedMaxPartiesPerSlot === "number"
+  );
+}
+
+/**
+ * Is reservations phase 4 deployed? `GET /restaurant/:id/reservation-settings`
+ * (an owner read on any restaurant) carries `onlineWaitlistEnabled` only with
+ * the change. Read-only.
+ */
+export async function probeReservationsPhase4(
+  ownerToken: string,
+  restaurantId: string
+): Promise<boolean> {
+  const res = await apiRequestRaw<{
+    data?: { onlineWaitlistEnabled?: unknown };
+  }>(
+    "GET",
+    `/restaurant/${restaurantId}/reservation-settings`,
+    undefined,
+    ownerToken
+  );
+  return (
+    res.status === 200 &&
+    typeof res.data?.data?.onlineWaitlistEnabled === "boolean"
   );
 }
 
