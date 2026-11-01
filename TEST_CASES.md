@@ -3846,3 +3846,24 @@ RestauNax back-office audit Stage 7, tax depth track (bo1031/taxdepth, W4:H2, M3
 | **TC-1616** | `dashboard/owner/37-sales-tax-depth-ui` | Add certificate (buyer, Government, number, an expiry in the past): the row shows Government and is flagged expired. |
 | **TC-1617** | `dashboard/owner/37-sales-tax-depth-ui` | The report's Dates choice: Calendar dates shows "midnight to midnight"; Business days shows the business-day line. |
 | **TC-1618** | `dashboard/admin/tax-rate-review-ui` | HQ → Finance → Sales tax rate review lists the tenant at 8% with a result, no edit control, and downloads `tax-rate-review-<date>.csv`. |
+
+## TC-1790 → TC-1803 — Growth track B: mobile clock-in + staff announcements
+
+RestauNax back-office audit, growth track B (bo1031/growthb, W0:MF-6 mobile clock-in, W0:MF-10 staff announcements). Gated by `RELEASED_ON_QA.teamCommsGrowthB` (`utils/releaseGate.ts`, probe `GET /api/staff/announcements/:id`) until it reaches QA. Tag `@team-comms`. Spec: `dashboard/owner/api-team-comms` — a throwaway Miami restaurant created with coordinates (SCHEDULING + TIMECARDS, a Driver job), Dee (Driver, staff-app user) and Mia (manager), both invite → Mailpit → register, plus a second restaurant with TIMECARDS off. Settings are put back to off and every announcement is archived before both restaurants are deleted. Accepted punches (inside the fence, breaks, clock-out, MOBILE / OUTSIDE_GEOFENCE timecard flags) need a phone at the restaurant: restaunax `teamComms.int.test.ts` proves them.
+
+| TC | Spec | What it proves |
+| --- | --- | --- |
+| **TC-1790** | `dashboard/owner/api-team-comms` | Mobile clock-in settings default: off, no jobs/roles, 150 m, outside punches not allowed, 50–2000 m bounds, the restaurant has a location. |
+| **TC-1791** | `dashboard/owner/api-team-comms` | A radius of 5, 2001 or 120.5, a foreign job id or a non-boolean is 400 with text; 300 m saves (200 + message) and reads back; reset to 150. |
+| **TC-1792** | `dashboard/owner/api-team-comms` | A manager's PUT is 403 and changes nothing. |
+| **TC-1793** | `dashboard/owner/api-team-comms` | While off, the staff app's `/clock` answers `available: false, reason: NOT_ENABLED` with a message; `/me` has `mobileClockIn: false`. |
+| **TC-1794** | `dashboard/owner/api-team-comms` | A punch with no / out-of-range / non-numeric location is 400 `MOBILE_CLOCK_IN_REFUSED` / `INVALID_LOCATION`. |
+| **TC-1795** | `dashboard/owner/api-team-comms` | On for the Driver job: Dee's `/clock` is available (150 m, no shift, her job listed) and `/me` says `mobileClockIn: true`; Mia (no Driver job) gets `NOT_ELIGIBLE` on status and punch. |
+| **TC-1796** | `dashboard/owner/api-team-comms` | A punch ~5.5 km away is 403 `OUTSIDE_GEOFENCE` with `details.distanceMeters` / `radiusMeters` and the distance in the message (EN and ES); no shift opens. Settings back to off. |
+| **TC-1797** | `dashboard/owner/api-team-comms` | The owner sends to all staff: 201, text kept as typed, `recipientCount` ≥ 2, `readCount` 0. |
+| **TC-1798** | `dashboard/owner/api-team-comms` | Empty title 400 `TITLE_REQUIRED` ("Add a title." / ES "Agrega un título."); empty message `BODY_REQUIRED`; JOBS with no jobs `JOBS_REQUIRED`. |
+| **TC-1799** | `dashboard/owner/api-team-comms` | The manager's `managerCapabilities` include `announcements`; she sends to the Driver job: 201, `recipientCount` 1. |
+| **TC-1800** | `dashboard/owner/api-team-comms` | Dee's inbox lists both; `/me` carries `announcements: true` and the unread count; opening one records `readAt` and lowers the count; Mia reading the job announcement is 404. |
+| **TC-1801** | `dashboard/owner/api-team-comms` | The owner's list shows `readCount` 1; the detail lists Dee read and Mia unread, unread first. |
+| **TC-1802** | `dashboard/owner/api-team-comms` | Pin puts it first; archive drops it from the list and the inbox; `includeArchived=true` still shows it with `archivedAt`. |
+| **TC-1803** | `dashboard/owner/api-team-comms` | A restaurant without TIMECARDS: announcements (send + list) and the mobile clock-in settings are 403. |

@@ -163,7 +163,12 @@ test.describe("Manager dashboard role (API)", () => {
     const rows = (res.data.restaurant ?? []) as Rec[];
     const row = rows.find((r) => r.id === restaurantId);
     expect(row?.accessRole).toBe("MANAGER");
-    expect(row?.managerCapabilities).toEqual([
+    // RestauNax bo1031/growthb appends "announcements" (TC-1799 asserts it).
+    expect(
+      ((row?.managerCapabilities ?? []) as string[]).filter(
+        (c) => c !== "announcements"
+      )
+    ).toEqual([
       "orders",
       "menuAvailability",
       "schedule",

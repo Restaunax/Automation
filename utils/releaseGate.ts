@@ -12,7 +12,8 @@
  *
  * Select a part's tests with its tag: `--grep @training`, `--grep @closeout`,
  * `--grep @bugfix-1036`, `--grep @settings-safety`, `--grep @switch-click`,
- * `--grep @labor-engines`, `--grep @tax-depth`, `--grep @print-builders`.
+ * `--grep @labor-engines`, `--grep @tax-depth`, `--grep @print-builders`,
+ * `--grep @team-comms`.
  */
 import { test, expect } from "../fixtures/base";
 import { apiRequestRaw } from "./apiHelper";
@@ -71,6 +72,11 @@ export const RELEASED_ON_QA = {
    *  endpoints, the promo card builder, HQ shopping in the owner's own shop,
    *  and the reworked Finalise dialog (markup, packages, Finalise later). */
   printBuilders: false,
+  /** RestauNax back-office audit, growth track B (branch bo1031/growthb,
+   *  W0:MF-6 / MF-10): mobile clock-in from the staff app (owner settings,
+   *  geofenced punches) and one-way staff announcements with read receipts.
+   *  Flip once it is on QA. */
+  teamCommsGrowthB: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -99,6 +105,8 @@ const REASON: Record<ReleasePart, string> = {
     "The Stage 7 tax depth (RestauNax bo1031/taxdepth) is not on this environment yet — /api/tax/:id/rate-check answers 404",
   printBuilders:
     "Print builders (no free table-card print file, photo + follow code, promo card builder, HQ shops in the owner's shop) are not on this environment yet — /restaurant/:id/print-assets/social does not answer",
+  teamCommsGrowthB:
+    "Mobile clock-in + staff announcements (RestauNax bo1031/growthb, W0:MF-6 / MF-10) are not on this environment yet — /api/staff/announcements/:id answers 404",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
@@ -248,4 +256,22 @@ export async function probePrintBuilders(
     accessToken
   );
   return res.status === 200 && Array.isArray(res.data?.data?.social);
+}
+
+/**
+ * Are mobile clock-in + staff announcements deployed? `GET /api/staff/
+ * announcements/:rid` is a new router mount (404 before it exists); the
+ * owner of a TIMECARDS restaurant gets 200. Read-only.
+ */
+export async function probeTeamCommsGrowthB(
+  ownerToken: string,
+  restaurantId: string
+): Promise<boolean> {
+  const res = await apiRequestRaw(
+    "GET",
+    `/api/staff/announcements/${restaurantId}`,
+    undefined,
+    ownerToken
+  );
+  return res.status !== 404;
 }
