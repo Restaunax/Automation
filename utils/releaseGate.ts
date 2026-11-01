@@ -11,7 +11,8 @@
  * regression can't hide as a skip.
  *
  * Select a part's tests with its tag: `--grep @training`, `--grep @closeout`,
- * `--grep @bugfix-1036`, `--grep @settings-safety`, `--grep @switch-click`.
+ * `--grep @bugfix-1036`, `--grep @settings-safety`, `--grep @switch-click`,
+ * `--grep @labor-engines`.
  */
 import { test, expect } from "../fixtures/base";
 import { apiRequestRaw } from "./apiHelper";
@@ -41,6 +42,12 @@ export const RELEASED_ON_QA = {
    *  company staff read-only on payroll (L4); Partner API labor needs
    *  Timecards (M1). Flip once it is on QA. */
   paywallStage1: false,
+  /** RestauNax back-office audit, Stage 5 labor-law engines (branch
+   *  bo1031/engines, W3:M1 / H2 / M5): "Use my state's rules" overtime
+   *  (default STATE), break packs + break decisions, premium pay, the
+   *  owner's labor-rule confirmation (`/api/compliance/:rid/labor-rules`) and
+   *  predictive scheduling. Flip once it is on QA. */
+  laborEngines: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -59,6 +66,8 @@ const REASON: Record<ReleasePart, string> = {
     "Switches toggle only from the switch (RestauNax fix/switch-click-target) is not on this environment yet",
   paywallStage1:
     "The Stage 1 paywall fixes (RestauNax bo1031/paywall) are not on this environment yet",
+  laborEngines:
+    "The Stage 5 labor-law engines (RestauNax bo1031/engines) are not on this environment yet — /api/compliance/:id/labor-rules answers 404",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
@@ -137,4 +146,22 @@ export async function probePaywallStage1(
     ownerToken
   );
   return res.status === 403 && res.data?.error === "FEATURE_NOT_ENTITLED";
+}
+
+/**
+ * Are the Stage 5 labor-law engines deployed? `GET /api/compliance/:rid/
+ * labor-rules` is a core read (no add-on) for the restaurant's owner that
+ * only exists with the change. Read-only.
+ */
+export async function probeLaborEngines(
+  ownerToken: string,
+  restaurantId: string
+): Promise<boolean> {
+  const res = await apiRequestRaw(
+    "GET",
+    `/api/compliance/${restaurantId}/labor-rules`,
+    undefined,
+    ownerToken
+  );
+  return res.status !== 404;
 }
