@@ -1,7 +1,7 @@
 /**
  * 17-availability.spec.ts — what a guest sees on the ordering site when the
  * restaurant isn't taking orders: paused, closed for the night, not
- * published (docs/COVERAGE_MAP.md G15) (TC-L77..L82).
+ * published (docs/COVERAGE_MAP.md G15) (TC-L77..L82, TC-1369/1370).
  *
  * Browser on template-lima, a per-run throwaway restaurant with its own
  * ordering slug (a pause and a day close stop ordering, so never the seed):
@@ -19,6 +19,10 @@
  *          is off; an order is refused in words. Until RestauNax #1118 (on
  *          QA 2026-10-31) the site still offered checkout and refused only
  *          at Pay.
+ *   TC-1369 W0:J4-b the owner's Resume ordering lifts the night: Proceed to
+ *          Checkout is back and the storefront reports accepting orders.
+ *   TC-1370 W0:J4-b a close with the pause off (pauseOrdering: false) leaves
+ *          ordering open: checkout stays offered.
  *   TC-L81 Not published: browse only, in words; nothing can be added.
  *   TC-L82 A guest is refused in guest words: paused until resumed, not
  *          published (they read "closed or not accepting" and "Publish the
@@ -38,6 +42,7 @@ import {
   createSecondOwner,
   deleteTestRestaurant,
   ensureBusinessHours,
+  getRestaurantDetailsPublicRaw,
   ensureOrderingSlug,
   ensureTaxRate,
   setRestaurantPublishedApi,
@@ -48,6 +53,8 @@ import { expectSeenByUser } from "../../utils/humanQa";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
+
+type Rec = Record<string, unknown>;
 
 const NOT_ACCEPTING =
   "This restaurant is currently not accepting online orders";
@@ -119,6 +126,13 @@ test.describe("Ordering site — when the restaurant isn't taking orders", () =>
       body,
       ownerToken
     );
+  /** The public storefront payload's `settings.acceptingOrders`. */
+  const storefrontAccepting = async () => {
+    const r = await getRestaurantDetailsPublicRaw(restaurantId);
+    expect(r.status, JSON.stringify(r.data)).toBe(200);
+    const data = (r.data as Rec).data as Rec | undefined;
+    return (data?.settings as Rec | undefined)?.acceptingOrders;
+  };
   const expectClosedCart = async () => {
     await openCart();
     await expectSeenByUser(
@@ -196,12 +210,41 @@ test.describe("Ordering site — when the restaurant isn't taking orders", () =>
   test("TC-L80: closed for the night — the cart says so and checkout is off; an order is refused in words", async () => {
     const closed = await closeDayWebRaw(ownerToken, restaurantId);
     expect(closed.status, JSON.stringify(closed.data)).toBe(201);
+    // W0:J4-b: nothing sent = the default, pause until the next opening.
+    expect((closed.data.data as Rec | undefined)?.orderingPaused).toBe(true);
     const order = await placeOrder();
     expect(order.status).toBe(400);
     expect(String(order.data.message)).toBe(
       "This restaurant has closed for the night. Online ordering opens again in the morning."
     );
     await expectClosedCart();
+  });
+
+  test("TC-1369: W0:J4-b the owner's Resume lifts the night — checkout is back", async () => {
+    const resumed = await owner("resume");
+    expect(resumed.status, JSON.stringify(resumed.data)).toBe(200);
+    expect(
+      ((resumed.data as Rec | undefined)?.data as Rec | undefined)
+        ?.closedForNight
+    ).toBe(false);
+    expect(await storefrontAccepting()).toBe(true);
+    await openCart();
+    await expect(checkoutOffered()).toBeEnabled();
+    await expect(page().getByText(NOT_ACCEPTING)).toHaveCount(0);
+  });
+
+  test("TC-1370: W0:J4-b a close with the pause off leaves ordering open — checkout stays offered", async () => {
+    const closed = await closeDayWebRaw(ownerToken, restaurantId, {
+      depositAmount: 0,
+      reclose: true,
+      pauseOrdering: false,
+    });
+    expect(closed.status, JSON.stringify(closed.data)).toBe(201);
+    expect((closed.data.data as Rec | undefined)?.orderingPaused).toBe(false);
+    expect(await storefrontAccepting()).toBe(true);
+    await openCart();
+    await expect(checkoutOffered()).toBeEnabled();
+    await expect(page().getByText(NOT_ACCEPTING)).toHaveCount(0);
   });
 
   test("TC-L81: not published — browse only, in words; nothing can be added", async () => {

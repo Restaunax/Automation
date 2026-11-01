@@ -27,6 +27,7 @@
 import * as allure from "allure-js-commons";
 import type { Page } from "@playwright/test";
 import { test, expect } from "../../../fixtures/base";
+import { requireEnv, requireEnvHere } from "../../../utils/envGate";
 import { generateRunId, readSharedState } from "../../../utils/testData";
 import { loginViaUi } from "../../../utils/auth";
 import {
@@ -69,10 +70,7 @@ const PRODUCT_NAMES: Record<string, string> = {
 test.describe.configure({ mode: "serial" });
 
 test.describe("Owner — RestauNax Products: add-on previews, no prices", () => {
-  test.skip(
-    !OWNER_EMAIL || !OWNER_PASSWORD,
-    "OWNER_EMAIL / OWNER_PASSWORD not set (the seed restaurant)"
-  );
+  requireEnv(["OWNER_EMAIL", "OWNER_PASSWORD"], "the seed restaurant");
 
   let restaurantId = "";
 
@@ -190,9 +188,9 @@ test.describe("Owner — RestauNax Products: add-on previews, no prices", () => 
   test("a product without an active catalog row is still offered: an entry with addonId null, a card on the Products page", async ({
     ownerPage,
   }) => {
-    test.skip(
-      !ADMIN_EMAIL || !ADMIN_PASSWORD,
-      "ADMIN_EMAIL / ADMIN_PASSWORD not set (reads the add-on catalog)"
+    requireEnvHere(
+      ["ADMIN_EMAIL", "ADMIN_PASSWORD"],
+      "reads the add-on catalog"
     );
     const adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD))
       .accessToken;
@@ -360,10 +358,7 @@ test.describe("Owner — RestauNax Products: add-on previews, no prices", () => 
 });
 
 test.describe("Owner — a home-food restaurant is never offered Reservations, Scheduling or Payroll", () => {
-  test.skip(
-    !ADMIN_EMAIL || !ADMIN_PASSWORD,
-    "ADMIN_EMAIL / ADMIN_PASSWORD not set (mints a HOME_FOOD tenant)"
-  );
+  requireEnv(["ADMIN_EMAIL", "ADMIN_PASSWORD"], "mints a HOME_FOOD tenant");
 
   let adminToken = "";
   let restaurantId = "";

@@ -1,6 +1,6 @@
 /**
  * 15-day-close.spec.ts — closing and opening the business day from the POS
- * (docs/COVERAGE_MAP.md G9, the POS half) (TC-1051..1058).
+ * (docs/COVERAGE_MAP.md G9, the POS half) (TC-1051..1058, TC-1367/1368).
  *
  * No browser: the POS is played through its own API, as device-in-store's
  * Close Day and Open Day wizards call it. The web half (Daily Report → Close
@@ -31,6 +31,11 @@
  *           it), and the day can't be opened twice.
  *   TC-1058 The store reopened the same night: a second close is offered,
  *           and it counts the whole day (three orders, both deposits).
+ *   TC-1367 W0:J4-b the owner's Resume ordering lifts the overnight pause:
+ *           the storefront takes orders again, and Recent changes says so.
+ *   TC-1368 W0:J4-b a close with "pause online ordering" off
+ *           (pauseOrdering: false) leaves online ordering open. Every other
+ *           close here sends nothing: the default pauses (orderingPaused).
  *
  * The tenant is open 24 hours, so the overnight pause is due to lift at the
  * next 15-minute business-day sweep; TC-1054..1056 run within seconds.
@@ -61,9 +66,13 @@ import {
   closeRegisterSessionPosRaw,
   createTabletOrderRaw,
   apiRequestRaw,
+  getRestaurantDetailsPublicRaw,
   type LooseJson,
 } from "../../utils/apiHelper";
-import { orderingStatusRaw } from "../../utils/backOfficeApi";
+import {
+  orderingStatusRaw,
+  settingChangesRaw,
+} from "../../utils/backOfficeApi";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
@@ -72,6 +81,9 @@ type Rec = Record<string, LooseJson>;
 const msg = (data: unknown) => String((data as Rec | undefined)?.message ?? "");
 const dataOf = (data: unknown) =>
   ((data as Rec | undefined)?.data ?? {}) as Rec;
+/** The public storefront payload's `settings.acceptingOrders`. */
+const storefrontAccepting = (data: unknown) =>
+  (dataOf(data).settings as Rec | undefined)?.acceptingOrders;
 
 test.describe.configure({ mode: "serial" });
 
@@ -280,10 +292,14 @@ test.describe("POS day close and day open (API)", () => {
       heldAwaitingTip: [{ id: held.orderId, cardLast4: "4242" }],
       unpaidOrders: [],
     });
+    // Sales definitions 2 (W2:E2): gross = item sales (no tax, no tip);
+    // what the two orders charged is total collected.
     expect(d.summary).toMatchObject({
       orderCount: 2,
-      grossSales: 25.68,
+      definitionVersion: 2,
+      grossSales: 24,
       netSales: 24,
+      totalCollected: 25.68,
       tax: 1.68,
     });
   });
@@ -335,14 +351,18 @@ test.describe("POS day close and day open (API)", () => {
     expect(msg(closed.data)).toBe("Day closed.");
     expect(dataOf(closed.data)).toMatchObject({
       orderCount: 2,
-      grossSales: 25.68,
+      grossSales: 24,
       netSales: 24,
+      totalCollected: 25.68,
+      salesDefinitionVersion: 2,
       tax: 1.68,
       openingFloatTotal: 100,
       countedCashTotal: 112.84,
       overShortTotal: 0,
       depositAmount: 12.84,
       cardCapture: { total: 1, captured: 1, failed: [] },
+      // W0:J4-b: nothing sent = pause online ordering (old POS builds).
+      orderingPaused: true,
     });
     expect(await intentStatus()).toBe("succeeded");
 
@@ -476,13 +496,70 @@ test.describe("POS day close and day open (API)", () => {
     // The whole day: three paid burgers, two drawers, both bags.
     expect(dataOf(reclosed.data)).toMatchObject({
       orderCount: 3,
-      grossSales: 38.52,
+      grossSales: 36,
       netSales: 36,
+      totalCollected: 38.52,
       tax: 2.52,
       openingFloatTotal: 200,
       countedCashTotal: 225.68,
       overShortTotal: 0,
       depositAmount: 25.68,
+      orderingPaused: true,
     });
+  });
+
+  test("TC-1367: W0:J4-b the owner's Resume ordering lifts the overnight pause, and Recent changes records it", async () => {
+    const closed = await orderingStatusRaw(ownerToken, restaurantId);
+    expect(closed.data.data).toMatchObject({
+      state: "CLOSED_FOR_NIGHT",
+      closedForNight: true,
+    });
+    const before = await getRestaurantDetailsPublicRaw(restaurantId);
+    expect(storefrontAccepting(before.data)).toBe(false);
+
+    const resumed = await apiRequestRaw<Rec>(
+      "POST",
+      `/api/restaurantId/${restaurantId}/ordering/resume`,
+      {},
+      ownerToken
+    );
+    expect(resumed.status, JSON.stringify(resumed.data)).toBe(200);
+    expect(dataOf(resumed.data).closedForNight).toBe(false);
+
+    const status = await orderingStatusRaw(ownerToken, restaurantId);
+    expect(status.data.data?.closedForNight).toBe(false);
+    expect(status.data.data?.state).not.toBe("CLOSED_FOR_NIGHT");
+    const after = await getRestaurantDetailsPublicRaw(restaurantId);
+    expect(after.status, JSON.stringify(after.data)).toBe(200);
+    expect(storefrontAccepting(after.data)).toBe(true);
+
+    const history = await settingChangesRaw(ownerToken, restaurantId, {
+      area: "ordering",
+      limit: 20,
+    });
+    expect(history.status, JSON.stringify(history.data)).toBe(200);
+    const lifted = (history.data.data?.items ?? []).find(
+      (i) => i.field === "orderingPausedForDayClose"
+    );
+    expect(lifted, JSON.stringify(history.data.data?.items)).toBeTruthy();
+    expect(lifted).toMatchObject({ area: "ordering", newValue: false });
+    expect(lifted?.sentence).toBeTruthy();
+    expect(String(lifted?.sentence)).not.toMatch(/^[a-z]+:[\w.]+$/);
+  });
+
+  test("TC-1368: W0:J4-b a close with the pause off leaves online ordering open", async () => {
+    const reclosed = await closeDay(owner.session, {
+      depositAmount: 0,
+      reclose: true,
+      pauseOrdering: false,
+    });
+    expect(reclosed.status, JSON.stringify(reclosed.data)).toBe(201);
+    expect(dataOf(reclosed.data).orderingPaused).toBe(false);
+
+    const status = await orderingStatusRaw(ownerToken, restaurantId);
+    expect(status.data.data?.closedForNight).toBe(false);
+    expect(status.data.data?.state).not.toBe("CLOSED_FOR_NIGHT");
+    const details = await getRestaurantDetailsPublicRaw(restaurantId);
+    expect(storefrontAccepting(details.data)).toBe(true);
   });
 });

@@ -23,7 +23,9 @@
  *   TC-1078 An online order of 2 burgers, a beer and a water is priced by
  *           those settings: $30.00 food, $0.90 fee, $1.92 tax.
  *   TC-1079 The sales tax report for today agrees with the order, line by
- *           line and rate by rate.
+ *           line and rate by rate: gross receipts include the $0.90 fee
+ *           (untaxed), tax due sits next to tax collected (RestauNax audit
+ *           W4:C1a / H6).
  */
 import type { Locator, Page } from "@playwright/test";
 import * as allure from "allure-js-commons";
@@ -42,6 +44,7 @@ import {
   createMenuGroupNamed,
   createMenuItemFull,
   getOrderFullRaw,
+  taxRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
 import { placePaidOnlineOrder } from "../../../utils/comboFoodSurfaces";
@@ -340,23 +343,78 @@ test.describe("Sales tax and service fee (UI)", () => {
     }).format(new Date(Date.now() - 86_400_000));
     await page().getByRole("textbox", { name: "From" }).fill(yesterday);
     await page().getByRole("textbox", { name: "To" }).fill(today);
-    await expect(reportLine("Tax collected \\(you owe this\\)")).toContainText(
-      "$1.92",
-      { timeout: 20_000 }
-    );
-    await expect(reportLine("Taxable sales")).toContainText("$28.00");
-    await expect(reportLine("Non-taxable sales")).toContainText("$2.00");
+    // Tax due (taxable × rate) comes first; "collected" is no longer
+    // labelled "you owe this" (RestauNax audit W4:H6).
     await expect(
-      reportLine("Net tax \\(what you owe for the period\\)")
+      reportLine("Tax due \\(taxable sales × rate\\)")
+    ).toContainText("$1.92", { timeout: 20_000 });
+    await expect(reportLine("Tax collected")).toContainText("$1.92");
+    await expect(
+      reportLine("Net tax collected \\(after refunds\\)")
     ).toContainText("$1.92");
-    // By rate: the taxable amount and the tax, one row per rate used.
+    await expect(
+      reportLine("Difference \\(collected minus due\\)")
+    ).toContainText("$0.00");
+    await expect(page().getByText("you owe this")).toHaveCount(0);
+    await expect(
+      page().getByText("Figures to help prepare your return", { exact: false })
+    ).toBeVisible();
+    // Gross receipts carry the $0.90 Kitchen fee as its own line, untaxed
+    // (RestauNax audit W4:C1a): before, the fee appeared nowhere.
+    await expect(reportLine("Food and drink")).toContainText("$30.00");
     await expect(
       page().getByRole("row", {
-        name: /^Sales tax \(6%\) \$20\.00 \$1\.20 /,
+        name: /^Service fees Taxable \$0\.00 · not taxable \$0\.90 \$0\.90$/,
+      })
+    ).toBeVisible();
+    await expect(reportLine("Gross receipts")).toContainText("$30.90");
+    await expect(reportLine("Net sales")).toContainText("$30.90");
+    // net − non-taxable (water $2.00 + fee $0.90) − exempt = taxable.
+    await expect(reportLine("Non-taxable sales")).toContainText("$2.90");
+    await expect(reportLine("Taxable sales")).toContainText("$28.00");
+    // By rate: taxable amount, tax, refunded, net, tax due, difference.
+    await expect(
+      page().getByRole("row", {
+        name: /^Sales tax \(6%\) \$20\.00 \$1\.20 \$0\.00 \$1\.20 \$1\.20 \$0\.00$/,
       })
     ).toBeVisible();
     await expect(
-      page().getByRole("row", { name: /^Alcohol \(9%\) \$8\.00 \$0\.72 / })
+      page().getByRole("row", {
+        name: /^Alcohol \(9%\) \$8\.00 \$0\.72 \$0\.00 \$0\.72 \$0\.72 \$0\.00$/,
+      })
     ).toBeVisible();
+
+    // The same figures from the report API the page reads.
+    const r = await taxRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      `/report?startDate=${yesterday}&endDate=${today}`
+    );
+    expect(r.status, JSON.stringify(r.data)).toBe(200);
+    const t = (r.data.data as Rec).totals as unknown as {
+      netSales: number;
+      marketplaceSales: number;
+      nonTaxableSales: number;
+      exemptSales: number;
+      taxableSales: number;
+    };
+    expect(t).toMatchObject({
+      foodSales: 30,
+      serviceFees: 0.9,
+      taxableServiceFees: 0,
+      grossSales: 30.9,
+      netSales: 30.9,
+      nonTaxableSales: 2.9,
+      taxableSales: 28,
+      taxDue: 1.92,
+      taxCollected: 1.92,
+    });
+    expect(
+      Math.round(
+        (t.netSales - t.marketplaceSales - t.nonTaxableSales - t.exemptSales) *
+          100
+      )
+    ).toBe(Math.round(t.taxableSales * 100));
   });
 });

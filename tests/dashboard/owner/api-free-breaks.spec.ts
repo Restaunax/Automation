@@ -11,14 +11,24 @@
  *   - start / end a break on the time clock with no add-on;
  *   - hours: unpaid break time is not worked time, paid break time is
  *     (offline replay places the punches in the past, so the minutes are
- *     exact);
+ *     exact); an "unpaid" break under 20 minutes is paid, and a break type
+ *     can't be unpaid and under 20 minutes (29 CFR 785.18);
  *   - break RULES: ignored without TIMECARDS (no skipped-break question at
  *     clock-out), enforced with it (SCHEDULING brings TIMECARDS).
- * Serial.
+ *   - W3:H2 (TC-1435, Stage 5 labor-law engines, gated by
+ *     `RELEASED_ON_QA.laborEngines`): the 20 minutes is the federal floor; a
+ *     CONFIRMED state meal-break rule can raise it. The tenant is in Miami
+ *     (no Florida meal-break law), so the labor rules — a core read, no
+ *     add-on — report 20, matching TC-1150 / TC-1151. The manager's break
+ *     decision (Pay premium / Employee waived) is a timecards action: on the
+ *     free tier it answers 403 FEATURE_NOT_ENTITLED like the rest of payroll.
+ * Fails (never skips) without ADMIN_EMAIL / ADMIN_PASSWORD. Serial.
  */
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
 import { generateRunId } from "../../../utils/testData";
+import { requireRelease, probeLaborEngines } from "../../../utils/releaseGate";
+import { laborRulesRaw } from "../../../utils/backOfficeApi";
 import {
   apiLogin,
   createSecondOwner,
@@ -48,11 +58,6 @@ const minutesAgo = (m: number) =>
 test.describe.configure({ mode: "serial" });
 
 test.describe("Basic breaks without an add-on (API)", () => {
-  test.skip(
-    !ADMIN_EMAIL || !ADMIN_PASSWORD,
-    "ADMIN_EMAIL / ADMIN_PASSWORD not set (the file mints its own tenant)"
-  );
-
   const runId = generateRunId();
   let adminToken = "";
   let ownerToken = "";
@@ -81,7 +86,10 @@ test.describe("Basic breaks without an add-on (API)", () => {
 
   test.beforeAll(async () => {
     test.setTimeout(120_000);
-    if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return;
+    // Fail, never skip, without the environment (W5:T7): the file mints its
+    // own tenant.
+    if (!ADMIN_EMAIL || !ADMIN_PASSWORD)
+      throw new Error("[api-free-breaks] ADMIN_EMAIL / ADMIN_PASSWORD not set");
     adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
     const tenant = await createSecondOwner(adminToken, runId);
     if (!tenant.restaurantId) throw new Error("[api-free-breaks] no tenant");
@@ -221,6 +229,103 @@ test.describe("Basic breaks without an add-on (API)", () => {
       unpaidBreakMinutes: 30,
       paidMinutes: 70,
     });
+  });
+
+  // W3:H1 (29 CFR 785.18): breaks under 20 minutes are paid time. Since
+  // Stage 5 (W3:H2) 20 is the federal fallback; a confirmed state meal rule
+  // can raise it. Miami has none, so 20 stands.
+  test("TC-1150: an unpaid break type under 20 minutes is refused, in plain words", async () => {
+    const res = await ownerStaffRaw(
+      ownerToken,
+      restaurantId,
+      "PUT",
+      "/break-types",
+      {
+        breakTypes: [
+          {
+            id: "meal",
+            name: "Meal break",
+            expectedMinutes: 30,
+            isPaid: false,
+          },
+          { id: "smoke", name: "Smoke", expectedMinutes: 10, isPaid: false },
+        ],
+      }
+    );
+    expect(res.status, JSON.stringify(res.data)).toBe(400);
+    expect(String(res.data.message)).toContain("Smoke");
+    expect(String(res.data.message)).toContain("20 minutes");
+    // Nothing was saved.
+    const got = await ownerStaffRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      "/break-types"
+    );
+    expect(list(got.data.data.breakTypes).map((t) => t.id)).not.toContain(
+      "smoke"
+    );
+  });
+
+  test("TC-1151: an unpaid break taken for under 20 minutes stays paid time", async () => {
+    // After TC-638's shift: 17 minutes on the clock with a 12-minute meal.
+    const r = await replay(rae, [
+      { kind: "CLOCK_IN", occurredAt: minutesAgo(19) },
+      { kind: "BREAK_START", occurredAt: minutesAgo(17), breakTypeId: "meal" },
+      { kind: "BREAK_END", occurredAt: minutesAgo(5) },
+      { kind: "CLOCK_OUT", occurredAt: minutesAgo(2) },
+    ]);
+    expect(r.status, JSON.stringify(r.data)).toBe(200);
+    const shifts = await ownerStaffRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      `/shifts?from=${encodeURIComponent(minutesAgo(30))}&to=${encodeURIComponent(minutesAgo(-5))}`
+    );
+    expect(shifts.status, JSON.stringify(shifts.data)).toBe(200);
+    const mine = list(shifts.data.data).find(
+      (s) => s.staffMemberId === rae.id && s.durationMinutes === 17
+    );
+    expect(mine).toMatchObject({ unpaidBreakMinutes: 0, paidMinutes: 17 });
+  });
+
+  test("TC-1435: W3:H2 free tier — the labor rules say 20 minutes (federal floor); a break decision needs Timecards @labor-engines", async () => {
+    requireRelease(
+      "laborEngines",
+      await probeLaborEngines(ownerToken, restaurantId)
+    );
+    // Core read, no add-on: Florida has no meal-break law to raise the floor.
+    const rules = await laborRulesRaw(ownerToken, restaurantId);
+    expect(rules.status, JSON.stringify(rules.data)).toBe(200);
+    expect(rules.data.data).toMatchObject({ minUnpaidBreakMinutes: 20 });
+    const meal = list(rules.data.data?.rules).find(
+      (r) => r.ruleKey === "mealBreak"
+    );
+    // Florida's row says "no requirement" (value null), so nothing raises it.
+    expect(meal, JSON.stringify(rules.data.data?.rules)).toBeTruthy();
+    expect(meal?.value ?? null).toBeNull();
+
+    // Rae's 100-minute shift (TC-638): deciding on it is a payroll action.
+    const shifts = await ownerStaffRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      `/shifts?from=${encodeURIComponent(minutesAgo(24 * 60))}&to=${encodeURIComponent(minutesAgo(-5))}`
+    );
+    expect(shifts.status, JSON.stringify(shifts.data)).toBe(200);
+    const raes = list(shifts.data.data).find(
+      (s) => s.staffMemberId === rae.id && s.durationMinutes === 100
+    );
+    expect(raes, JSON.stringify(shifts.data.data)).toBeTruthy();
+    const decided = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "POST",
+      `/shifts/${String(raes?.id)}/break-decision`,
+      { decision: "PAY_PREMIUM" }
+    );
+    expect(decided.status, JSON.stringify(decided.data)).toBe(403);
+    expect((decided.data as Rec).error).toBe("FEATURE_NOT_ENTITLED");
   });
 
   test("TC-639: start and end a break on the time clock with no add-on", async () => {

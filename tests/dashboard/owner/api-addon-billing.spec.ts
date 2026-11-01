@@ -4,7 +4,15 @@
  * docs/features/back-office/E0_ENTITLEMENTS_AND_PACKAGING.md §5 "As built —
  * add-on requests"): the Add-ons page rows, the refusals, the Team bundle,
  * HQ's payroll headcount (TC-781..784), then the request flow (TC-894..896,
- * TC-786, TC-787) and the two flows QA still can't run (TC-785, TC-788 fixme).
+ * TC-786, TC-787), the Stage 6 request flow (TC-1530..1534: products and
+ * requests before the account is live, HQ's Waiting list, decline, the POS
+ * answer) and the two flows QA still can't run (TC-785, TC-788 fixme).
+ *
+ * Stage 6 (RestauNax bo1031/reqflow, W5:P1–P4): a throwaway restaurant has
+ * no subscription, so once Stage 6 is deployed its requests are WAITING, not
+ * OPEN — TC-894/895 follow whichever the backend does (probeRequestFlowStage6);
+ * an OPEN request HQ can mark done or decline then exists only on the seed
+ * restaurant (TC-1533).
  *
  * No browser. Since #998 owners never add or remove an add-on themselves: the
  * owner sends an AddonRequest (ADD / REMOVE, one OPEN per restaurant + add-on
@@ -31,6 +39,7 @@
  */
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
+import { requireEnv } from "../../../utils/envGate";
 import { generateRunId, readSharedState } from "../../../utils/testData";
 import {
   apiLogin,
@@ -39,6 +48,10 @@ import {
   setFeatureOverrideAdminRaw,
   deleteFeatureOverrideAdminRaw,
   getRestaurantFeaturesRaw,
+  apiRequestRaw,
+  createTabletDevice,
+  tabletLogin,
+  tabletRaw,
   ownerAddonsRaw,
   ownerAddonRemoveRaw,
   ownerAddonRequestRaw,
@@ -53,6 +66,10 @@ import {
   requireAddonRequests,
 } from "../../../utils/addonRequestGate";
 import { waitForEmail } from "../../../utils/emailHelper";
+import {
+  probeRequestFlowStage6,
+  requireRelease,
+} from "../../../utils/releaseGate";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
@@ -118,7 +135,18 @@ const MSG = {
   requestNotFound: "That request doesn't exist.",
   requestClosed: "That request has already been handled or cancelled.",
   hqHandled: "Marked done. The owners have been emailed.",
+  // Stage 6 (W5:P1/P4).
+  sentWaiting:
+    "Request saved. We'll set it up as soon as your account is live.",
+  waitingForAccount:
+    "This request is waiting for the restaurant's subscription to be active. It opens on its own when it is.",
+  notOpen: "Only an open request can be declined.",
+  declined: "Declined. The owners have been told.",
+  reasonText: "Available once your account is live",
+  reasonTextEs: "Disponible cuando tu cuenta esté activa",
 };
+/** The owners' "declined" email subject, EN or ES. */
+const DECLINED_SUBJECT = /About your|Sobre tu solicitud/;
 /** The owners' "done" email subject, EN or ES (billing-notice template). */
 const DONE_SUBJECT = /request is done|está lista/;
 /** Seed add-ons this file attaches and must always take off again. */
@@ -132,9 +160,9 @@ const SEED_FEATURES = [
 test.describe.configure({ mode: "serial" });
 
 test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle, payroll headcount (API)", () => {
-  test.skip(
-    !ADMIN_EMAIL || !ADMIN_PASSWORD,
-    "ADMIN_EMAIL / ADMIN_PASSWORD not set (the file mints its own tenants)"
+  requireEnv(
+    ["ADMIN_EMAIL", "ADMIN_PASSWORD"],
+    "the file mints its own tenants"
   );
 
   const runId = generateRunId();
@@ -145,6 +173,10 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
   let otherOwner = "";
   let otherId = "";
   let live = false;
+  /** Stage 6 request flow deployed (waiting / declined requests). */
+  let stage6 = false;
+  /** TC-1531's request, cancelled: TC-1532 tries to decline it. */
+  let cancelledWaitingId = "";
   let seedToken = "";
   let seedId = "";
 
@@ -157,7 +189,7 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
     list(data.features).find((f) => f.feature === feature);
   const featuresOf = async (token: string, id: string) =>
     (await getRestaurantFeaturesRaw(token, id)).data.data?.features ?? [];
-  const hqList = async (status: "OPEN" | "CLOSED") => {
+  const hqList = async (status: "OPEN" | "WAITING" | "CLOSED") => {
     const r = await adminAddonsRaw(
       adminToken,
       "GET",
@@ -166,7 +198,7 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
     expect(r.status, JSON.stringify(r.data)).toBe(200);
     return list(r.data.data);
   };
-  const hqFind = async (status: "OPEN" | "CLOSED", id: string) =>
+  const hqFind = async (status: "OPEN" | "WAITING" | "CLOSED", id: string) =>
     (await hqList(status)).find((x) => x.id === id);
   const request = async (
     token: string,
@@ -240,6 +272,7 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
     otherId = other.restaurantId;
     otherOwner = other.accessToken;
     live = await addonRequestsLive(adminToken);
+    stage6 = live && (await probeRequestFlowStage6(adminToken));
     if (OWNER_EMAIL && OWNER_PASSWORD) {
       seedToken = (await apiLogin(OWNER_EMAIL, OWNER_PASSWORD)).accessToken;
       seedId = readSharedState().restaurantId;
@@ -498,16 +531,19 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
     );
     const note = `automation ${runId}: best time is mornings`;
 
+    // Stage 6: a restaurant with no active subscription parks the request
+    // as WAITING (HQ's Waiting list), before it it was OPEN.
+    const status = stage6 ? "WAITING" : "OPEN";
     const first = await request(ownerToken, restaurantId, addonId, "ADD", note);
     expect(first.status).toBe(201);
-    expect(first.message).toBe(MSG.sent);
-    expect(first.data).toMatchObject({ addonId, kind: "ADD", status: "OPEN" });
+    expect(first.message).toBe(stage6 ? MSG.sentWaiting : MSG.sent);
+    expect(first.data).toMatchObject({ addonId, kind: "ADD", status });
     const id = String(first.data.id);
 
-    // One OPEN request per (restaurant, add-on, kind): the second is the first.
+    // One live request per (restaurant, add-on, kind): the second is the first.
     const again = await request(ownerToken, restaurantId, addonId, "ADD");
     expect(again.status).toBe(200);
-    expect(again.message).toBe(MSG.alreadySent);
+    expect(again.message).toBe(stage6 ? MSG.sentWaiting : MSG.alreadySent);
     expect(again.data.id).toBe(id);
 
     // The card shows it as sent, with nothing turned on.
@@ -519,11 +555,11 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
     });
 
     // HQ → Add-ons → Add-on requests lists it with who asked and the note.
-    const hq = await hqFind("OPEN", id);
-    expect(hq, "the request is in HQ's open list").toBeTruthy();
+    const hq = await hqFind(status, id);
+    expect(hq, `the request is in HQ's ${status} list`).toBeTruthy();
     expect(hq).toMatchObject({
       kind: "ADD",
-      status: "OPEN",
+      status,
       note,
       handledAt: null,
       restaurant: { id: restaurantId, subscriptionStatus: null },
@@ -549,7 +585,7 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
     expect(twice.status).toBe(409);
     expect(twice.data.message).toBe(MSG.requestClosed);
     expect(row(await rows(), "SCHEDULING")).toMatchObject({ pendingAdd: null });
-    expect(await hqFind("OPEN", id)).toBeUndefined();
+    expect(await hqFind(status, id)).toBeUndefined();
     expect(await hqFind("CLOSED", id)).toMatchObject({ status: "CANCELLED" });
 
     // A cancelled request can't be handled by HQ any more.
@@ -572,6 +608,27 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
     const sent = await request(ownerToken, restaurantId, addonId, "ADD");
     expect(sent.status).toBe(201);
     const id = String(sent.data.id);
+    if (stage6) {
+      // Stage 6: no subscription = WAITING. HQ can neither attach it nor
+      // mark it done until the account is live; Mark done on an OPEN
+      // request is TC-1533 (the seed restaurant).
+      expect(sent.data.status).toBe("WAITING");
+      for (const action of ["fulfil", "done"]) {
+        const r = await adminAddonsRaw(
+          adminToken,
+          "POST",
+          `/requests/${id}/${action}`,
+          {}
+        );
+        expect(r.status, `${action} on a waiting request`).toBe(409);
+        expect(r.data.message).toBe(MSG.waitingForAccount);
+      }
+      expect(await hqFind("WAITING", id)).toMatchObject({ status: "WAITING" });
+      expect(
+        (await ownerAddonRequestCancelRaw(ownerToken, restaurantId, id)).status
+      ).toBe(200);
+      return;
+    }
     const restaurantName = String(
       ((await hqFind("OPEN", id))?.restaurant as Rec).name
     );
@@ -860,6 +917,239 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
       await resetSeed();
     }
     expect(await featuresOf(seedToken, seedId)).not.toContain("TEAM_BUNDLE");
+  });
+
+  // ── Stage 6 (RestauNax bo1031/reqflow, W5:P1–P4) ──────────────────────────
+
+  test("TC-1530: an account that isn't live sees every product, marked 'available once your account is live' (EN and ES)", async () => {
+    requireAddonRequests(live);
+    requireRelease("requestFlowStage6", stage6);
+    const en = await getRestaurantFeaturesRaw(ownerToken, restaurantId);
+    expect(en.status).toBe(200);
+    const data = en.data.data as Rec;
+    expect(data.accountLive).toBe(false);
+    const products = list(data.availableProducts);
+    expect(products.length, "the list is not empty").toBeGreaterThan(0);
+    expect((data.available as string[]).length).toBe(products.length);
+    for (const p of products) {
+      expect(p).toMatchObject({
+        accountLive: false,
+        reason: "ACCOUNT_NOT_ACTIVE",
+        reasonText: MSG.reasonText,
+      });
+      expect(p).toHaveProperty("pendingRequestStatus");
+    }
+    const es = await apiRequestRaw<{ data?: Rec }>(
+      "GET",
+      `/restaurant/restaurantId/${restaurantId}/features`,
+      undefined,
+      ownerToken,
+      { "Accept-Language": "es" }
+    );
+    expect(list(es.data.data?.availableProducts)[0]?.reasonText).toBe(
+      MSG.reasonTextEs
+    );
+    // The Products page's own answer says the same.
+    expect((await rows()).accountLive).toBe(false);
+  });
+
+  test("TC-1531: a request before the account is live waits: HQ's Waiting list (with its count), not Open; HQ can't attach it; the owner can cancel it", async () => {
+    requireAddonRequests(live);
+    requireRelease("requestFlowStage6", stage6);
+    const asked = await ownerAddonRequestRaw(ownerToken, restaurantId, {
+      feature: "PAYROLL",
+      kind: "ADD",
+      source: "products_page",
+    });
+    expect(asked.status, JSON.stringify(asked.data)).toBe(201);
+    expect(asked.data.message).toBe(MSG.sentWaiting);
+    const req = asked.data.data as Rec;
+    expect(req).toMatchObject({ feature: "PAYROLL", status: "WAITING" });
+    const id = String(req.id);
+
+    const payroll = list(
+      (
+        (await getRestaurantFeaturesRaw(ownerToken, restaurantId)).data
+          .data as Rec
+      ).availableProducts
+    ).find((p) => p.feature === "PAYROLL");
+    expect(payroll).toMatchObject({
+      pendingRequestStatus: "WAITING",
+      pendingRequestAt: req.createdAt,
+    });
+
+    const waiting = await adminAddonsRaw(
+      adminToken,
+      "GET",
+      "/requests?status=WAITING"
+    );
+    expect(waiting.status).toBe(200);
+    expect(typeof (waiting.data as Rec).waitingCount).toBe("number");
+    expect(Number((waiting.data as Rec).waitingCount)).toBeGreaterThanOrEqual(
+      1
+    );
+    expect(list(waiting.data.data).find((x) => x.id === id)).toMatchObject({
+      status: "WAITING",
+      feature: "PAYROLL",
+      restaurant: { id: restaurantId, subscriptionStatus: null },
+    });
+    expect(await hqFind("OPEN", id)).toBeUndefined();
+
+    const attach = await adminAddonsRaw(
+      adminToken,
+      "POST",
+      `/requests/${id}/fulfil`,
+      {}
+    );
+    expect(attach.status).toBe(409);
+    expect(attach.data.message).toBe(MSG.waitingForAccount);
+
+    const cancel = await ownerAddonRequestCancelRaw(
+      ownerToken,
+      restaurantId,
+      id
+    );
+    expect(cancel.status).toBe(200);
+    expect(await hqFind("CLOSED", id)).toMatchObject({ status: "CANCELLED" });
+    cancelledWaitingId = id;
+  });
+
+  test("TC-1532: decline is HQ's only: 401 without a sign-in, 403 for an owner, 404 for no such request, 409 when it isn't open", async () => {
+    requireAddonRequests(live);
+    requireRelease("requestFlowStage6", stage6);
+    expect(cancelledWaitingId, "TC-1531 ran").not.toBe("");
+    const path = (id: string) => `/api/admin/addons/requests/${id}/decline`;
+    expect(
+      (await apiRequestRaw("POST", path(cancelledWaitingId), {})).status
+    ).toBe(401);
+    expect(
+      (await apiRequestRaw("POST", path(cancelledWaitingId), {}, ownerToken))
+        .status
+    ).toBe(403);
+    expect(
+      (await adminAddonsRaw(adminToken, "POST", `/requests/${ZERO_ID}/decline`))
+        .status
+    ).toBe(404);
+    const closed = await adminAddonsRaw(
+      adminToken,
+      "POST",
+      `/requests/${cancelledWaitingId}/decline`,
+      { reason: "automation" }
+    );
+    expect(closed.status).toBe(409);
+    expect(closed.data.message).toBe(MSG.notOpen);
+  });
+
+  test("TC-1533: on a live account a request is OPEN; HQ declines it (reason emailed, Closed shows Declined); asked again, Mark done closes it", async () => {
+    requireAddonRequests(live);
+    requireRelease("requestFlowStage6", stage6);
+    test.skip(
+      !seedToken || !seedId,
+      "OWNER_EMAIL / OWNER_PASSWORD not set (the seed restaurant)"
+    );
+    const features = (await getRestaurantFeaturesRaw(seedToken, seedId)).data
+      .data as Rec;
+    expect(features.accountLive, "the seed restaurant is live").toBe(true);
+    // A product the seed can ask for and hasn't, never one TC-896/786/787 attach.
+    const product = list(features.availableProducts).find(
+      (p) =>
+        !p.pendingRequestStatus && !SEED_FEATURES.includes(String(p.feature))
+    );
+    test.skip(!product, "the seed restaurant has no product left to ask for");
+    const feature = String(product!.feature);
+    expect(product).toMatchObject({ accountLive: true, reason: null });
+
+    const askFeature = async () => {
+      const r = await ownerAddonRequestRaw(seedToken, seedId, {
+        feature,
+        kind: "ADD",
+        source: "products_page",
+        note: `automation ${runId}`,
+      });
+      expect(r.status, JSON.stringify(r.data)).toBe(201);
+      expect(r.data.data).toMatchObject({ feature, status: "OPEN" });
+      return String((r.data.data as Rec).id);
+    };
+    const pendingOf = async () =>
+      list(
+        ((await getRestaurantFeaturesRaw(seedToken, seedId)).data.data as Rec)
+          .availableProducts
+      ).find((p) => p.feature === feature);
+
+    const asked = new Date();
+    const id = await askFeature();
+    expect(await pendingOf()).toMatchObject({ pendingRequestStatus: "OPEN" });
+    expect(await hqFind("OPEN", id)).toMatchObject({ status: "OPEN" });
+
+    const declined = await adminAddonsRaw(
+      adminToken,
+      "POST",
+      `/requests/${id}/decline`,
+      { reason: `automation ${runId}: not for this restaurant yet` }
+    );
+    expect(declined.status, JSON.stringify(declined.data)).toBe(200);
+    expect(declined.data).toMatchObject({
+      data: { id, status: "DECLINED" },
+      message: MSG.declined,
+    });
+    const closed = await hqFind("CLOSED", id);
+    expect(closed).toMatchObject({ status: "DECLINED" });
+    expect(closed?.handledBy).not.toBeNull();
+    expect(await pendingOf()).toMatchObject({ pendingRequestStatus: null });
+
+    if (MAILPIT) {
+      const mail = await waitForEmail(OWNER_EMAIL, {
+        subjectPattern: DECLINED_SUBJECT,
+        notBefore: asked,
+        timeoutMs: 60_000,
+      });
+      expect(mail.html_body + mail.text_body).toContain(
+        "not for this restaurant yet"
+      );
+    }
+
+    // Declined is not forever: asked again, Mark done closes it (DONE).
+    const again = await askFeature();
+    expect(again).not.toBe(id);
+    const done = await adminAddonsRaw(
+      adminToken,
+      "POST",
+      `/requests/${again}/done`
+    );
+    expect(done.status, JSON.stringify(done.data)).toBe(200);
+    expect(done.data).toMatchObject({
+      data: { id: again, status: "DONE" },
+      message: MSG.hqHandled,
+    });
+    expect(await pendingOf()).toMatchObject({ pendingRequestStatus: null });
+  });
+
+  test("TC-1534: the POS answer carries the products with their request status, and whether the account is live", async () => {
+    requireAddonRequests(live);
+    requireRelease("requestFlowStage6", stage6);
+    const device = await createTabletDevice(
+      adminToken,
+      restaurantId,
+      `auto-reqflow-${runId}`
+    );
+    const tabletToken = await tabletLogin(device.name, device.code);
+    const pos = await tabletRaw<Rec>(tabletToken, "GET", "/features");
+    expect(pos.status, JSON.stringify(pos.data)).toBe(200);
+    expect(pos.data.accountLive).toBe(false);
+    const products = list(pos.data.availableProducts);
+    expect(products.length).toBeGreaterThan(0);
+    // The old key list stays, the same products.
+    expect((pos.data.available as string[]).sort()).toEqual(
+      products.map((p) => String(p.feature)).sort()
+    );
+    for (const p of products) {
+      expect(p).toMatchObject({
+        accountLive: false,
+        reason: "ACCOUNT_NOT_ACTIVE",
+      });
+      expect(p).toHaveProperty("pendingRequestAt");
+      expect(p).toHaveProperty("pendingRequestStatus");
+    }
   });
 
   test.fixme("TC-785: trial — HQ attaching a requested add-on with 'Start the free trial' starts its 30-day trial once per feature; a second attach after removal bills at once", async () => {

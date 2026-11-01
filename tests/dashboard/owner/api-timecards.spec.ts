@@ -14,11 +14,47 @@
  *   - a missed required break blocks approval until reviewed;
  *   - approve locks, reopen needs a reason, the staff app shows hours before
  *     approval and pay only after (and never with "show pay" off);
- *   - the POS: job picker, job not held, breaks on the time clock.
+ *   - the POS: job picker, job not held, breaks on the time clock;
+ *   - W3:C3 (TC-1264/1265): Miami's $15.00 minimum ($11.98 tipped cash wage,
+ *     a CONFIRMED rule) refuses a low rate; a tipped server at the cash
+ *     wage working 45 h with no tips gets overtime on the full minimum
+ *     ($7.50 premium an hour, not half the cash wage) and a weekly top-up.
+ *   - W3:H7 (TC-1360..1363): P1 marked paid → PAID with paidAt, idempotent;
+ *     a paid period is never reopened (403 PERIOD_PAID); a correction inside
+ *     it is allowed and its pay difference is carried by the next open
+ *     period (the current one) as a prior-period adjustment. Safe on QA: the
+ *     tenant is this file's own and is deleted in afterAll, so a PAID period
+ *     (which can't be reopened) never outlives the run.
+ *   - W3:M1 / H2 (TC-1430..1434, Stage 5 labor-law engines, gated by
+ *     `RELEASED_ON_QA.laborEngines`): the timecards carry `laborRules`
+ *     (overtime applied and why, break / premium rules, the 20-minute
+ *     federal unpaid-break floor in Florida) and premium fields; a missed
+ *     break is settled by a break decision (Pay premium, or Employee waived
+ *     with what they attested to) as well as by the old "Mark reviewed"
+ *     (TC-584, kept for older builds); "Use my state's rules" (STATE) is the
+ *     default overtime preset and is accepted on save; the owner reads and
+ *     confirms the state's labor rules. Florida has no state overtime beyond
+ *     the federal 40 hours and no state meal-break law, so every amount the
+ *     older cases assert is unchanged under STATE.
+ *   - W0:J5 (TC-1730, Stage 6 daily views, gated by
+ *     `RELEASED_ON_QA.dailyViewsStage6`): the approve preview of an approved
+ *     period is its frozen snapshot; reopened, the preview rebuilds the
+ *     snapshot approval would store — the same per-person figures and
+ *     totals — and wages + premiums = the timecards' total.
  * Restaurant is in Miami (America/New_York). Serial.
  */
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
+import {
+  requireRelease,
+  probeLaborEngines,
+  probeDailyViewsStage6,
+} from "../../../utils/releaseGate";
+import {
+  laborRulesRaw,
+  confirmLaborRuleRaw,
+  looksLikeKey,
+} from "../../../utils/backOfficeApi";
 import { generateRunId, recordUserForCleanup } from "../../../utils/testData";
 import { waitForEmail, extractInviteToken } from "../../../utils/emailHelper";
 import {
@@ -59,15 +95,6 @@ const REASON = "Entered from the paper sheet";
 test.describe.configure({ mode: "serial" });
 
 test.describe("Timecards — overtime, breaks, approval (API)", () => {
-  test.skip(
-    !ADMIN_EMAIL || !ADMIN_PASSWORD,
-    "ADMIN_EMAIL / ADMIN_PASSWORD not set (the file mints its own tenant)"
-  );
-  test.skip(
-    !MAILPIT,
-    "Requires Mailpit (MAILPIT_BASE_URL): the invite token travels by email"
-  );
-
   const runId = generateRunId();
   let adminToken = "";
   let ownerToken = "";
@@ -84,6 +111,8 @@ test.describe("Timecards — overtime, breaks, approval (API)", () => {
   let monBarista = "";
   let satShift = "";
   let sunShift = "";
+  /** The settings GET before this file saved anything (W3:M1 default). */
+  let unsavedSettings: Rec = {};
 
   const timecards = async (start: string) => {
     const r = await payrollRaw(
@@ -124,7 +153,13 @@ test.describe("Timecards — overtime, breaks, approval (API)", () => {
 
   test.beforeAll(async () => {
     test.setTimeout(240_000);
-    if (!ADMIN_EMAIL || !ADMIN_PASSWORD || !MAILPIT) return;
+    // Fail, never skip, without the environment (W5:T7).
+    if (!ADMIN_EMAIL || !ADMIN_PASSWORD)
+      throw new Error("[api-timecards] ADMIN_EMAIL / ADMIN_PASSWORD not set");
+    if (!MAILPIT)
+      throw new Error(
+        "[api-timecards] MAILPIT_BASE_URL not set: the invite token travels by email"
+      );
     adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
     const tenant = await createSecondOwner(adminToken, runId);
     if (!tenant.restaurantId) throw new Error("[api-timecards] no tenant");
@@ -191,6 +226,16 @@ test.describe("Timecards — overtime, breaks, approval (API)", () => {
       { pin: GUS_PIN }
     );
 
+    // Read before the first save: what a restaurant without saved settings
+    // gets (TC-1432 asserts it once the Stage 5 change is on QA).
+    const unsaved = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      "/settings"
+    );
+    unsavedSettings = ((unsaved.data.data as Rec | undefined)?.settings ??
+      {}) as Rec;
     const saved = await settings({
       payFrequency: "WEEKLY",
       periodAnchorDate: "2026-01-04",
@@ -608,6 +653,67 @@ test.describe("Timecards — overtime, breaks, approval (API)", () => {
     expect(re.status, JSON.stringify(re.data)).toBe(200);
   });
 
+  test("TC-1730: W0:J5 the approve preview equals the snapshot approval freezes @daily-views", async () => {
+    requireRelease(
+      "dailyViewsStage6",
+      await probeDailyViewsStage6(ownerToken, restaurantId)
+    );
+    const preview = async () => {
+      const r = await payrollRaw<{ data: Rec }>(
+        ownerToken,
+        restaurantId,
+        "GET",
+        `/pay-periods/${p1}/approve-preview`
+      );
+      expect(r.status, JSON.stringify(r.data)).toBe(200);
+      return r.data.data;
+    };
+    // P1 is approved (TC-585): the preview is the stored snapshot.
+    const frozen = await preview();
+    expect(frozen.frozen).toBe(true);
+    const card = await gusCard(p1);
+    const gusLine = list(frozen.people).find(
+      (p) => p.staffMemberId === gus.staffMemberId
+    );
+    expect(gusLine, "Gus has a line").toBeTruthy();
+    expect(Number(gusLine?.wagesCents) + Number(gusLine?.premiumsCents)).toBe(
+      card.totalCents
+    );
+    expect(Number(gusLine?.minutes)).toBe(
+      card.regularMinutes + card.overtimeMinutes + card.doubleTimeMinutes
+    );
+    // Reopened, nothing changed: the rebuilt preview is the same document.
+    const reopened = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "POST",
+      `/pay-periods/${p1}/reopen`,
+      { reason: "Check the approve preview" }
+    );
+    expect(reopened.status, JSON.stringify(reopened.data)).toBe(200);
+    const open = await preview();
+    expect(open.frozen).toBe(false);
+    expect(open.people).toEqual(frozen.people);
+    expect(open.totals).toEqual(frozen.totals);
+    // Plain sentences, never codes, for anything to confirm.
+    for (const n of list(open.notices)) {
+      expect(String(n.message)).not.toMatch(/^api:|approveNotice/);
+    }
+    const again = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "POST",
+      `/pay-periods/${p1}/approve`,
+      {
+        acknowledge: list(open.notices)
+          .filter((n) => n.needsConfirmation)
+          .map((n) => n.code),
+      }
+    );
+    expect(again.status, JSON.stringify(again.data)).toBe(200);
+    expect((await preview()).totals).toEqual(open.totals);
+  });
+
   test("TC-586: periods that aren't over can't be approved; 'show pay' off hides approved pay", async () => {
     const periods = await payrollRaw(
       ownerToken,
@@ -662,7 +768,8 @@ test.describe("Timecards — overtime, breaks, approval (API)", () => {
 
     const other = await createStaffJobRaw(ownerToken, restaurantId, {
       name: `Host ${runId}`,
-      defaultHourlyRateCents: 1400,
+      // At or above Miami's $15.00 minimum (W3:C3).
+      defaultHourlyRateCents: 1600,
     });
     const notHeld = await tabletRaw(tabletToken, "POST", "/staff/clock-in", {
       staffMemberId: gus.staffMemberId,
@@ -695,5 +802,516 @@ test.describe("Timecards — overtime, breaks, approval (API)", () => {
     expect(end.status, JSON.stringify(end.data)).toBe(200);
     const out = await tabletRaw(tabletToken, "POST", "/staff/clock-out", body);
     expect(out.status, JSON.stringify(out.data)).toBe(200);
+  });
+
+  test("TC-1264: W3:C3 a rate below Miami's minimum is refused; the minimum and the tip credit read back", async () => {
+    const low = await createStaffJobRaw(ownerToken, restaurantId, {
+      name: `Dish ${runId}`,
+      defaultHourlyRateCents: 900,
+    });
+    expect(low.status).toBe(400);
+    expect(String((low.data as Rec).message)).toBe(
+      `$9.00 an hour for Dish ${runId} is below the minimum wage here: $15.00 an hour (FL state minimum wage).`
+    );
+    const credit = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      "/tip-credit"
+    );
+    expect(credit.status, JSON.stringify(credit.data)).toBe(200);
+    expect(credit.data.data).toMatchObject({
+      usesTipCredit: false,
+      floor: {
+        fullWageCents: 1500,
+        tippedCashWageCents: 1198,
+        status: "CONFIRMED",
+        fullWageSourceLabel: "FL state minimum wage",
+      },
+    });
+  });
+
+  test("TC-1265: W3:C2/C3 a tipped server at the cash wage, 45 h, no tips: OT on the full minimum + a weekly top-up", async () => {
+    const server = await createStaffJobRaw(ownerToken, restaurantId, {
+      name: `Server ${runId}`,
+      defaultHourlyRateCents: 1198,
+      isTipped: true,
+    });
+    expect(server.status, JSON.stringify(server.data)).toBe(201);
+    const serverId = String(server.data.data?.id);
+    await setMemberJobsRaw(ownerToken, restaurantId, gus.staffMemberId, [
+      { jobId: barista, isPrimary: true },
+      { jobId: lead },
+      { jobId: serverId },
+    ]);
+    // The tip credit is now derived from the rates.
+    const credit = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      "/tip-credit"
+    );
+    expect(credit.data.data.usesTipCredit).toBe(true);
+    // A free week three weeks back: Mon–Fri 9 h as Server = 45 h.
+    const week = addDays(p2, -7);
+    for (let d = 1; d <= 5; d++)
+      await enter(
+        at(addDays(week, d), "13:00"),
+        at(addDays(week, d), "22:00"),
+        serverId
+      );
+    const card = await gusCard(week);
+    // Straight 45 × $11.98 = $539.10. Regular rate = cash + $3.02 tip credit
+    // = $15.00, so 5 OT hours carry 5 × $7.50 = $37.50 (each OT hour pays
+    // $19.48 = 1.5 × $15.00 − $3.02). No tips: cash $539.10 is short of
+    // 45 × $15.00 = $675.00 by $135.90 — the top-up.
+    expect(card).toMatchObject({
+      regularMinutes: 2400,
+      overtimeMinutes: 300,
+      straightTimeCents: 53910,
+      overtimePremiumCents: 3750,
+      tipCreditCents: 45 * 302,
+      minimumWageTopUpCents: 13590,
+      totalCents: 53910 + 3750 + 13590,
+    });
+    expect(list(card.wageWeeks)[0]).toMatchObject({
+      weekStart: week,
+      regularRateCents: 1500,
+      requiredCents: 67500,
+      tipsCents: 0,
+      topUpCents: 13590,
+    });
+  });
+  // ── W3:H7: paid pay periods lock (RestauNax back-office audit Stage 4) ──
+  // P1 is APPROVED (re-approved in TC-585) and over. The tenant is this
+  // file's own, so marking it PAID — irreversible — touches nothing else.
+  let paidAt = "";
+
+  test("TC-1360: W3:H7 marking an approved, finished period paid makes it PAID with paidAt", async () => {
+    const r = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "POST",
+      `/pay-periods/${p1}/mark-paid`
+    );
+    expect(r.status, JSON.stringify(r.data)).toBe(200);
+    expect(r.data.data).toMatchObject({
+      startDate: p1,
+      endDate: addDays(p1, 6),
+      status: "PAID",
+    });
+    paidAt = String(r.data.data.paidAt ?? "");
+    expect(Number.isNaN(Date.parse(paidAt)), paidAt).toBe(false);
+    expect(String(r.data.message ?? "")).not.toMatch(/^api:/);
+
+    const periods = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      "/pay-periods?count=6"
+    );
+    expect(periods.status).toBe(200);
+    expect(
+      list(periods.data.data?.periods).find((p) => p.startDate === p1)
+    ).toMatchObject({ status: "PAID", paidAt });
+  });
+
+  test("TC-1361: W3:H7 mark-paid is idempotent — the same paidAt again", async () => {
+    const again = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "POST",
+      `/pay-periods/${p1}/mark-paid`
+    );
+    expect(again.status, JSON.stringify(again.data)).toBe(200);
+    expect(again.data.data).toMatchObject({ status: "PAID", paidAt });
+  });
+
+  test("TC-1362: W3:H7 a paid period is never reopened — 403 PERIOD_PAID, in words", async () => {
+    const r = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "POST",
+      `/pay-periods/${p1}/reopen`,
+      { reason: "Fix Monday again" }
+    );
+    expect(r.status, JSON.stringify(r.data)).toBe(403);
+    expect((r.data as Rec).details).toMatchObject({ code: "PERIOD_PAID" });
+    expect(String((r.data as Rec).message)).toBe(
+      "This pay period was paid, so it can't be reopened. Correct the shift instead: the difference is paid in the next pay period as a prior-period adjustment."
+    );
+  });
+
+  test("TC-1363: W3:H7 a correction inside the paid period is allowed and carried to the next period", async () => {
+    // Monday's Barista shift back to 09:00–15:00 local: +30 minutes.
+    const fix = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "PATCH",
+      `/shifts/${monBarista}`,
+      { clockOutAt: at(addDays(p1, 1), "19:00"), reason: REASON }
+    );
+    expect(fix.status, JSON.stringify(fix.data)).toBe(200);
+
+    // The paid period's own payday view still says PAID, with paidAt.
+    const paidDay = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      `/pay-periods/${p1}/payday`
+    );
+    expect(paidDay.status, JSON.stringify(paidDay.data)).toBe(200);
+    expect(paidDay.data.data.period).toMatchObject({
+      startDate: p1,
+      status: "PAID",
+      paidAt,
+    });
+
+    // The next open period (the current one) carries the difference. The
+    // week is already in overtime, so the 30 minutes pay at least $7.50.
+    const next = addDays(p1, 7);
+    const payday = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      `/pay-periods/${next}/payday`
+    );
+    expect(payday.status, JSON.stringify(payday.data)).toBe(200);
+    const carried = list(payday.data.data.adjustmentsIn).find(
+      (a) => a.staffMemberId === gus.staffMemberId && a.sourceStartDate === p1
+    );
+    expect(
+      carried,
+      JSON.stringify(payday.data.data.adjustmentsIn)
+    ).toBeTruthy();
+    expect(carried).toMatchObject({ name: "Gus Hale", minutes: 30 });
+    expect(Number(carried?.cents)).toBeGreaterThanOrEqual(750);
+    expect(carried?.reasons).toContain(REASON);
+  });
+
+  // ── W3:M1 / H2: labor-law engines (RestauNax back-office audit Stage 5) ──
+  // Gated: the change is not on QA yet (utils/releaseGate.ts). Florida:
+  // federal overtime (40 h weekly), no state meal or rest-break law, so no
+  // premium is earned here; the shapes are asserted, and the amounts stay
+  // exactly what TC-580..1363 already proved.
+  const PREMIUM_KINDS = [
+    "MEAL_BREAK",
+    "REST_BREAK",
+    "SPREAD_OF_HOURS",
+    "SPLIT_SHIFT",
+    "REPORTING_TIME",
+    "SHORT_REST",
+    "SCHEDULE_CHANGE",
+  ];
+  const VIOLATION_KINDS = [
+    "MEAL_MISSED",
+    "MEAL_LATE",
+    "MEAL_SHORT",
+    "REST_MISSED",
+    "REST_SHORT",
+  ];
+  const LABOR_RULE_KEYS = [
+    "overtime",
+    "mealBreak",
+    "restBreak",
+    "spreadOfHours",
+    "splitShift",
+    "reportingTime",
+    "predictiveScheduling",
+  ];
+  const STATUSES = ["CONFIRMED", "DRAFT", "MISSING"];
+  const gateLaborEngines = async () =>
+    requireRelease(
+      "laborEngines",
+      await probeLaborEngines(ownerToken, restaurantId)
+    );
+  /** The p2 13-hour Wednesday (TC-581): a missed meal under TC-584's rule. */
+  const missedBreakLine = async () => {
+    const line = list((await gusCard(p2)).shifts).find(
+      (s) => Array.isArray(s.flags) && s.flags.includes("MISSED_BREAK")
+    );
+    expect(line, "p2's 13-hour day has no meal break").toBeTruthy();
+    return line as Rec;
+  };
+
+  test("TC-1430: W3:M1/H2 timecards carry laborRules and the premium fields @labor-engines", async () => {
+    await gateLaborEngines();
+    const tc = await timecards(p2);
+    const rules = tc.laborRules as Rec;
+    expect(rules, JSON.stringify(tc)).toBeTruthy();
+    expect(rules).toMatchObject({
+      date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      // The federal floor: Florida has no state meal-break rule to raise it.
+      minUnpaidBreakMinutes: 20,
+      predictive: { covered: false, reason: "NO_RULE", noticeDays: null },
+    });
+    expect(String(rules.state ?? "")).toMatch(/^(FL|Florida)$/);
+    const ot = rules.overtime as Rec;
+    expect(["STATE", "FEDERAL", "CALIFORNIA", "CUSTOM"]).toContain(ot.preset);
+    expect(["STATE_RULE", "FEDERAL_UNTIL_CONFIRMED", "SAVED"]).toContain(
+      ot.applied
+    );
+    expect(STATUSES).toContain(ot.status);
+    expect(typeof ot.needsConfirmation).toBe("boolean");
+    expect(Array.isArray(ot.sources)).toBe(true);
+    // TC-581 left the saved preset FEDERAL: the saved numbers apply.
+    expect(ot).toMatchObject({ preset: "FEDERAL", applied: "SAVED" });
+    for (const r of list(rules.rules)) {
+      expect(LABOR_RULE_KEYS).toContain(r.ruleKey);
+      expect(STATUSES).toContain(r.status);
+      expect(["RULE", "OWNER", "NONE"]).toContain(r.decidedBy);
+      expect(typeof r.needsConfirmation).toBe("boolean");
+      expect(Array.isArray(r.sources)).toBe(true);
+    }
+    // The saved settings come back as saved, not with the rules filled in.
+    expect((tc.settings as Rec).overtime).toMatchObject({ preset: "FEDERAL" });
+
+    const card = await gusCard(p2);
+    for (const p of list(card.premiums)) {
+      expect(PREMIUM_KINDS).toContain(p.kind);
+      expect(p).toMatchObject({
+        date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+        hours: expect.any(Number),
+        rateCents: expect.any(Number),
+        cents: expect.any(Number),
+        paid: expect.any(Boolean),
+      });
+    }
+    // No state break or premium rule in Florida: nothing earned or owed.
+    expect(card.premiumPayCents ?? 0).toBe(0);
+    expect(card.premiumOwedCents ?? 0).toBe(0);
+    expect((tc.totals as Rec | undefined)?.premiumPayCents ?? 0).toBe(0);
+    expect(card.totalCents).toBe(13 * 1800);
+    for (const line of list(card.shifts)) {
+      for (const v of list(line.breakViolations)) {
+        expect(VIOLATION_KINDS).toContain(v.kind);
+        expect(typeof v.ordinal).toBe("number");
+      }
+      if (line.breakDecision !== undefined)
+        expect([null, "PAY_PREMIUM", "WAIVED"]).toContain(line.breakDecision);
+    }
+  });
+
+  test("TC-1431: W3:H2 a missed break is settled by a break decision — Pay premium, or a waiver with what was attested @labor-engines", async () => {
+    await gateLaborEngines();
+    const line = await missedBreakLine();
+    const shiftId = String(line.id);
+    expect(line.blockingFlags).toContain("MISSED_BREAK");
+    const decide = (token: string, body: Rec) =>
+      payrollRaw(
+        token,
+        restaurantId,
+        "POST",
+        `/shifts/${shiftId}/break-decision`,
+        body
+      );
+
+    const invalid = await decide(ownerToken, { decision: "MAYBE" });
+    expect(invalid.status, JSON.stringify(invalid.data)).toBe(400);
+    expect(String((invalid.data as Rec).message)).toBe(
+      "Choose Pay premium or Employee waived."
+    );
+    const noReason = await decide(ownerToken, { decision: "WAIVED" });
+    expect(noReason.status, JSON.stringify(noReason.data)).toBe(400);
+    expect(String((noReason.data as Rec).message)).toBe(
+      "Enter a reason for this change."
+    );
+    const blank = await decide(ownerToken, {
+      decision: "WAIVED",
+      reason: "   ",
+    });
+    expect(blank.status).toBe(400);
+    // Like "Mark reviewed": the employee can't settle it (MODIFY_RESTAURANT).
+    const staff = await decide(gus.token, { decision: "PAY_PREMIUM" });
+    expect(staff.status, JSON.stringify(staff.data)).toBe(403);
+    // Nothing above changed the shift.
+    expect((await missedBreakLine()).blockingFlags).toContain("MISSED_BREAK");
+
+    const paid = await decide(ownerToken, { decision: "PAY_PREMIUM" });
+    expect(paid.status, JSON.stringify(paid.data)).toBe(200);
+    expect(paid.data.data).toMatchObject({
+      id: shiftId,
+      breakDecision: "PAY_PREMIUM",
+      breakDecisionReason: null,
+    });
+    expect(
+      Number.isNaN(Date.parse(String(paid.data.data.breakDecisionAt)))
+    ).toBe(false);
+    expect(String((paid.data as Rec).message)).toBe(
+      "The break premium will be paid with this pay period."
+    );
+    let after = lineOf(await gusCard(p2), shiftId);
+    expect(after).toMatchObject({ breakDecision: "PAY_PREMIUM" });
+    // The flag stays visible; it no longer blocks approval.
+    expect(after.flags).toContain("MISSED_BREAK");
+    expect(after.blockingFlags).not.toContain("MISSED_BREAK");
+
+    const attested = "Employee chose to skip the meal and signed the waiver";
+    const waived = await decide(ownerToken, {
+      decision: "WAIVED",
+      reason: attested,
+    });
+    expect(waived.status, JSON.stringify(waived.data)).toBe(200);
+    expect(waived.data.data).toMatchObject({
+      breakDecision: "WAIVED",
+      breakDecisionReason: attested,
+    });
+    expect(String((waived.data as Rec).message)).toBe(
+      "Recorded: the employee chose to skip the break. No premium is paid."
+    );
+    after = lineOf(await gusCard(p2), shiftId);
+    expect(after.breakDecision).toBe("WAIVED");
+    expect(after.blockingFlags).not.toContain("MISSED_BREAK");
+    // A waiver pays nothing; Florida pays no break premium either way.
+    expect((await gusCard(p2)).premiumPayCents ?? 0).toBe(0);
+    // Both decisions are in the shift's history, the waiver with its reason.
+    const edits = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      `/shifts/${shiftId}/edits`
+    );
+    expect(edits.status).toBe(200);
+    expect(list(edits.data.data).map((e) => e.reason)).toEqual(
+      expect.arrayContaining([attested])
+    );
+  });
+
+  test('TC-1432: W3:M1 "Use my state\'s rules" (STATE) is the default overtime preset and is accepted on save @labor-engines', async () => {
+    await gateLaborEngines();
+    // A restaurant without saved settings (read before beforeAll's save).
+    expect(
+      unsavedSettings.overtime,
+      JSON.stringify(unsavedSettings)
+    ).toMatchObject({
+      preset: "STATE",
+      // Florida's stand-in numbers: federal.
+      weeklyThresholdHours: 40,
+      dailyThresholdHours: null,
+    });
+    const location = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      "/settings"
+    );
+    expect(location.status).toBe(200);
+    expect((location.data.data as Rec).location).toMatchObject({
+      recommendedPreset: "FEDERAL",
+    });
+
+    // Numbers sent with STATE are ignored: they come from the rules table.
+    const state = await settings({
+      overtime: { preset: "STATE", dailyThresholdHours: 6 },
+    });
+    expect(state.overtime).toMatchObject({
+      preset: "STATE",
+      weeklyThresholdHours: 40,
+      dailyThresholdHours: null,
+    });
+    expect(["MIDNIGHT", "SHIFT_START"]).toContain(state.overtime.workdayStart);
+    const ot = (await timecards(p2)).laborRules.overtime as Rec;
+    expect(ot.preset).toBe("STATE");
+    expect(["STATE_RULE", "FEDERAL_UNTIL_CONFIRMED"]).toContain(ot.applied);
+    // Federal or Florida, the 13-hour day is straight time.
+    expect((await gusCard(p2)).totalCents).toBe(13 * 1800);
+
+    // Editing a number is CUSTOM, as before.
+    const custom = await settings({
+      overtime: {
+        preset: "CUSTOM",
+        weeklyThresholdHours: 40,
+        dailyThresholdHours: null,
+        dailyDoubleTimeHours: null,
+        seventhConsecutiveDay: false,
+        overtimeMultiplier: 1.5,
+        doubleTimeMultiplier: 2,
+      },
+    });
+    expect(custom.overtime.preset).toBe("CUSTOM");
+    const back = await settings({ overtime: { preset: "STATE" } });
+    expect(back.overtime.preset).toBe("STATE");
+  });
+
+  test("TC-1433: W3:M1 GET /api/compliance/:id/labor-rules — every labor rule in words, with status and source @labor-engines", async () => {
+    await gateLaborEngines();
+    const r = await laborRulesRaw(ownerToken, restaurantId);
+    expect(r.status, JSON.stringify(r.data)).toBe(200);
+    const view = r.data.data as Rec;
+    expect(view).toMatchObject({
+      minUnpaidBreakMinutes: 20,
+      predictive: { covered: false, reason: "NO_RULE" },
+      overtime: { preset: "STATE" },
+    });
+    const rules = list(view.rules);
+    expect(rules.map((x) => x.ruleKey).sort()).toEqual(
+      [...LABOR_RULE_KEYS].sort()
+    );
+    for (const rule of rules) {
+      expect(STATUSES).toContain(rule.status);
+      expect(looksLikeKey(rule.label), String(rule.label)).toBe(false);
+      expect(looksLikeKey(rule.summary), String(rule.summary)).toBe(false);
+      expect(looksLikeKey(rule.statusLabel), String(rule.statusLabel)).toBe(
+        false
+      );
+      expect(typeof rule.needsConfirmation).toBe("boolean");
+      if (rule.needsConfirmation) expect(rule.status).toBe("DRAFT");
+      for (const src of list(rule.sources)) {
+        expect(typeof src.sourceUrl).toBe("string");
+        expect(looksLikeKey(src.jurisdictionLabel)).toBe(false);
+      }
+    }
+    // Florida's overtime row exists (weekly 40) and names its source.
+    const ot = rules.find((x) => x.ruleKey === "overtime") as Rec;
+    expect(ot.status).not.toBe("MISSING");
+    expect(list(ot.sources).length).toBeGreaterThan(0);
+    // The restaurant's own staff member can't read the owner's rules.
+    const staff = await laborRulesRaw(gus.token, restaurantId);
+    expect(staff.status).toBe(403);
+  });
+
+  test("TC-1434: W3:M1 the owner confirms the state's overtime rule; a made-up rule is refused @labor-engines", async () => {
+    await gateLaborEngines();
+    const bogus = await confirmLaborRuleRaw(ownerToken, restaurantId, "bogus");
+    expect(bogus.status, JSON.stringify(bogus.data)).toBe(400);
+    expect(String(bogus.data.message)).toBe(
+      "That isn't a labor rule we can confirm, or its value isn't valid."
+    );
+    // minimumWage is a compliance rule, but not one this endpoint confirms.
+    const notLabor = await confirmLaborRuleRaw(
+      ownerToken,
+      restaurantId,
+      "minimumWage"
+    );
+    expect(notLabor.status).toBe(400);
+    const staff = await confirmLaborRuleRaw(
+      gus.token,
+      restaurantId,
+      "overtime"
+    );
+    expect(staff.status, JSON.stringify(staff.data)).toBe(403);
+
+    const ok = await confirmLaborRuleRaw(ownerToken, restaurantId, "overtime");
+    expect(ok.status, JSON.stringify(ok.data)).toBe(200);
+    expect(ok.data.data).toMatchObject({ ruleKey: "overtime" });
+    expect(String(ok.data.message)).toMatch(
+      /: confirmed\. Pay follows this rule from now on\.$/
+    );
+    expect(looksLikeKey(ok.data.message)).toBe(false);
+
+    const after = await laborRulesRaw(ownerToken, restaurantId);
+    const ot = list((after.data.data as Rec).rules).find(
+      (x) => x.ruleKey === "overtime"
+    ) as Rec;
+    expect(ot).toMatchObject({ status: "CONFIRMED", needsConfirmation: false });
+    // Under STATE (TC-1432) a confirmed state rule is what pay uses.
+    const applied = (await timecards(p2)).laborRules.overtime as Rec;
+    expect(applied).toMatchObject({
+      preset: "STATE",
+      applied: "STATE_RULE",
+      status: "CONFIRMED",
+      needsConfirmation: false,
+    });
+    expect((await gusCard(p2)).totalCents).toBe(13 * 1800);
   });
 });
