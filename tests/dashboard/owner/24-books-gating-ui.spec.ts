@@ -170,7 +170,9 @@ test.describe("Owner — Books & taxes is hidden without its add-on; Connected a
           .getByTestId(`books-tab-toggle-${key}`)
           .locator("input");
         if (!(await input.isChecked())) {
-          await input.check();
+          // The switch is controlled: it turns on once the preference is
+          // saved, so click and wait (check() demands an instant change).
+          await input.click();
           await expect(input).toBeChecked({ timeout: 10_000 });
         }
       }
@@ -212,9 +214,11 @@ test.describe("Owner — Books & taxes is hidden without its add-on; Connected a
     await expect(
       page().getByRole("heading", { name: "RestauNax Books & Taxes" })
     ).toBeVisible({ timeout: 20_000 });
+    // The throwaway restaurant isn't live yet, so the ask reads "Ask us —
+    // we'll set it up when your account is live" (Stage 6 request flow).
     await expect(
       page()
-        .getByRole("button", { name: "Ask us to turn it on" })
+        .getByRole("button", { name: /^Ask us/ })
         .or(
           page().getByText(
             "RestauNax Books & Taxes isn't on for this restaurant. Your RestauNax team can help you with it."
@@ -333,8 +337,11 @@ test.describe("Owner — requests an add-on from Billing → Add-ons (UI)", () =
     await expect(
       ownerPage.getByText(/^Request sent\. We'll contact you/)
     ).toBeVisible({ timeout: 20_000 });
+    // The card's sent state (Stage 6 request flow): when it was asked.
     await expect(
-      card.getByText(/^Request sent .+\. We'll contact you\.$/)
+      card.getByText(
+        /^Requested on .+\. We usually reply within 1 business day\.$/
+      )
     ).toBeVisible();
     // A request turns nothing on.
     expect(

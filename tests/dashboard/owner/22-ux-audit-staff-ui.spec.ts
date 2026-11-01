@@ -225,22 +225,18 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI) @staff-setup", ()
         const focused = await groups.evaluateAll((els) =>
           els.findIndex((el) => el.getAttribute("aria-selected") === "true")
         );
-        // A one-screen group (People with Timecards) has no bar of its own:
-        // the group tab opens its screen.
-        if (focused === 0) {
-          await expect(groupTabs).toHaveCount(0);
-          reached += 1;
-          return;
-        }
+        // Every group has a bar of its own here: People with Timecards is
+        // People + Announcements (W0:MF-10).
         await expect(groupTabs.first()).toBeVisible({ timeout: 10_000 });
         // Focus moves into the group's own bar, then back to the groups.
         reached += await walk(groupTabs);
         await groups.nth(focused).focus();
       });
-      // People 1 · Schedule 2 (Schedule, Requests) · Payday 3 (Timecards,
-      // Payday, Labor) · Tips 2 · Settings 6 (Pay & overtime, Jobs & wages,
-      // Permissions, Schedule settings, Sick time & PTO, Employer group).
-      expect(reached).toBe(14);
+      // People 2 (People, Announcements) · Schedule 2 (Schedule, Requests) ·
+      // Payday 3 (Timecards, Payday, Labor) · Tips 2 · Settings 6 (Pay &
+      // overtime, Jobs & wages, Permissions, Schedule settings, Sick time &
+      // PTO, Employer group). Mobile clock-in is a card in Pay & overtime.
+      expect(reached).toBe(15);
       const overflow = await page().evaluate(
         () =>
           document.documentElement.scrollWidth -
@@ -255,7 +251,8 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI) @staff-setup", ()
   // Timecards, the plain Shifts list is Timecards and break types live in
   // Pay & overtime.
   const DEEP_LINKS: [string, string, string | null][] = [
-    ["people", "People", null],
+    ["people", "People", "People"],
+    ["announcements", "People", "Announcements"],
     ["shifts", "Payday", "Timecards"],
     ["timecards", "Payday", "Timecards"],
     ["payday", "Payday", "Payday"],
@@ -273,6 +270,8 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI) @staff-setup", ()
     ["sickTime", "Settings", "Sick time & PTO"],
     ["employer", "Settings", "Employer group"],
     ["settings", "Settings", "Pay & overtime"],
+    // The mobile clock-in card (W0:MF-6) sits in Pay & overtime.
+    ["mobileClockIn", "Settings", "Pay & overtime"],
   ];
 
   test("TC-1707: every old ?staffTab= link still lands on its screen in the new layout", async () => {
@@ -335,11 +334,15 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI) @staff-setup", ()
       .first()
       .click();
     expect((await saved).status()).toBe(200);
-    await expect(page().getByRole("tab", { name: "Personas" })).toBeVisible({
+    await expect(
+      page().getByTestId("staff-groups").getByRole("tab", { name: "Personas" })
+    ).toBeVisible({
       timeout: 15_000,
     });
     await page().reload({ waitUntil: "domcontentloaded" });
-    await expect(page().getByRole("tab", { name: "Personas" })).toBeVisible({
+    await expect(
+      page().getByTestId("staff-groups").getByRole("tab", { name: "Personas" })
+    ).toBeVisible({
       timeout: 20_000,
     });
     // Saved to the account, not just the browser: a fresh sign-in says es.

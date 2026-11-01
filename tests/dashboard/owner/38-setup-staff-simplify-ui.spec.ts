@@ -301,8 +301,12 @@ test.describe("Owner — setup interview and the simpler Staff page (UI) @staff-
     ).toHaveCount(0);
     for (const other of ["Connect your Gusto", "Yes, I use Gusto"])
       await expect(page().getByText(other)).toHaveCount(0);
+    // The RestauNax Payroll MODE is hidden in the payroll card. (The "More
+    // for your team" card above may still offer the product: a preview, not
+    // a payroll method.)
+    const payrollCard = page().locator(".MuiCard-root").filter({ has: mode });
     await expect(
-      page().getByText("RestauNax Payroll", { exact: true })
+      payrollCard.getByText("RestauNax Payroll", { exact: true })
     ).toHaveCount(0);
 
     await page().getByTestId("payroll-mode-change").click();

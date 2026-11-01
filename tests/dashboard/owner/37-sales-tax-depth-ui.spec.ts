@@ -142,9 +142,10 @@ test.describe("Sales tax depth (UI) @tax-depth", () => {
     await dialog.getByRole("button", { name: "Schedule" }).click();
     await expect(dialog).toBeHidden();
     await expect(changes).toContainText("8.5%");
-    // Still 8% today.
+    // Still 8% today: the rates table's row (the scheduled change is a
+    // "Sales tax 8% → 8.5% …" row of its own) still says Default 8%.
     await expect(
-      page().getByRole("row", { name: /^Sales tax\b/ })
+      page().getByRole("row", { name: /^Sales tax\b.*Default/ })
     ).toContainText("8%");
     await changes.getByRole("button", { name: "Cancel change" }).click();
     await expect(changes).not.toContainText("8.5%");
@@ -170,7 +171,9 @@ test.describe("Sales tax depth (UI) @tax-depth", () => {
     await certs.getByRole("button", { name: "Add certificate" }).click();
     const dialog = activeDialog(page());
     await dialog.getByRole("textbox", { name: "Buyer" }).fill(buyer);
-    await dialog.getByRole("combobox", { name: "Reason" }).click();
+    // The Reason select's FormLabel points at the select's div, which a
+    // label can't name: the combobox is named by its value. Open it by id.
+    await dialog.locator("#tax-cert-reason").click();
     await page().getByRole("option", { name: "Government" }).click();
     await dialog
       .getByRole("textbox", { name: "Certificate number" })
@@ -188,9 +191,7 @@ test.describe("Sales tax depth (UI) @tax-depth", () => {
     const dates = page().getByRole("group", { name: "Dates" });
     await dates.getByRole("button", { name: "Calendar dates" }).click();
     await expect(
-      page().getByText(
-        "Dates are calendar days, midnight to midnight local time."
-      )
+      page().getByText("Dates are calendar days, midnight to midnight.")
     ).toBeVisible();
     await dates.getByRole("button", { name: "Business days" }).click();
     await expect(page().getByText(/Dates are business days/)).toBeVisible();
