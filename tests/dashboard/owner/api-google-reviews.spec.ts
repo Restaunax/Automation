@@ -32,7 +32,9 @@ const OWNER2_PASSWORD = process.env.OWNER2_PASSWORD ?? "";
 const VIEWER_EMAIL = process.env.GBR_VIEWER_EMAIL ?? "";
 const VIEWER_PASSWORD = process.env.GBR_VIEWER_PASSWORD ?? "";
 
-test.describe.configure({ mode: "serial" });
+// Reply writes are throttled (10/min) and the helper waits the window out, so
+// a write test (plus its afterEach cleanup) can take over a minute.
+test.describe.configure({ mode: "serial", timeout: 180_000 });
 
 test.describe("Google review replies — API", () => {
   test.skip(
@@ -47,6 +49,16 @@ test.describe("Google review replies — API", () => {
   let connected = false;
   /** Reviews this test file replied to — deleted again in afterEach. */
   const replied = new Set<string>();
+
+  /** PUT a reply as the owner, tracking the review BEFORE the call is
+   *  asserted so a stored reply is always cleaned up, even if a check fails. */
+  const putTracked = (
+    reviewId: string,
+    body: Parameters<typeof gb.putReply>[3]
+  ) => {
+    replied.add(reviewId);
+    return gb.putReply(token, rid, reviewId, body);
+  };
 
   /** An unreplied review that has text, newest first, `skip` places in. */
   async function unrepliedReview(skip = 0): Promise<gb.GbReview> {
@@ -94,14 +106,21 @@ test.describe("Google review replies — API", () => {
   });
 
   test.afterEach(async () => {
+    test.setTimeout(180_000);
     if (!token || !rid) return;
     for (const id of [...replied]) {
-      await gb.deleteReply(token, rid, id);
       replied.delete(id);
+      try {
+        // 200 (removed / already gone) is all that matters; never throw here.
+        await gb.deleteReply(token, rid, id);
+      } catch {
+        /* best effort */
+      }
     }
   });
 
   test.afterAll(async () => {
+    test.setTimeout(120_000);
     if (!token || !rid) return;
     // Frees FAKE_PLACE_1 for the next run / other restaurants.
     await gb.disconnect(token, rid);
@@ -224,12 +243,11 @@ test.describe("Google review replies — API", () => {
       test.skip(!connected, "connect step did not complete");
       const review = await unrepliedReview(0);
       const text = "Thank you for visiting, we appreciate it.";
-      const res = await gb.putReply(token, rid, review.id, {
+      const res = await putTracked(review.id, {
         comment: text,
         source: "TYPED",
       });
       expect(res.status, JSON.stringify(res.data)).toBe(200);
-      replied.add(review.id);
       expect(res.data.data!.review.reply).toMatchObject({
         comment: text,
         source: "TYPED",
@@ -256,13 +274,12 @@ test.describe("Google review replies — API", () => {
       expect(s.data.data!.text.length).toBeGreaterThan(10);
       expect(s.data.data!.suggestionId).toBeTruthy();
 
-      const res = await gb.putReply(token, rid, review.id, {
+      const res = await putTracked(review.id, {
         comment: s.data.data!.text,
         source: "AI_ASSISTED",
         suggestionId: s.data.data!.suggestionId,
       });
       expect(res.status, JSON.stringify(res.data)).toBe(200);
-      replied.add(review.id);
       expect(res.data.data!.review.reply?.source).toBe("AI_ASSISTED");
       expect(res.data.data!.review.reply?.comment).toBe(s.data.data!.text);
     }
@@ -274,13 +291,12 @@ test.describe("Google review replies — API", () => {
     async () => {
       test.skip(!connected, "connect step did not complete");
       const review = await unrepliedReview(2);
-      const first = await gb.putReply(token, rid, review.id, {
+      const first = await putTracked(review.id, {
         comment: "First version of the reply.",
         source: "TYPED",
       });
       expect(first.status, JSON.stringify(first.data)).toBe(200);
-      replied.add(review.id);
-      const edited = await gb.putReply(token, rid, review.id, {
+      const edited = await putTracked(review.id, {
         comment: "Edited version of the reply.",
         source: "TYPED",
       });
@@ -303,13 +319,14 @@ test.describe("Google review replies — API", () => {
     async () => {
       test.skip(!connected, "connect step did not complete");
       const review = await unrepliedReview(3);
-      const put = await gb.putReply(token, rid, review.id, {
+      const put = await putTracked(review.id, {
         comment: "A reply that will be removed.",
         source: "TYPED",
       });
       expect(put.status, JSON.stringify(put.data)).toBe(200);
       const del = await gb.deleteReply(token, rid, review.id);
       expect(del.status, JSON.stringify(del.data)).toBe(200);
+      replied.delete(review.id); // already removed: no cleanup write needed
       expect(del.data.data!.review.reply).toBeNull();
       const unreplied = (
         await gb.listReviews(token, rid, { filter: "unreplied", limit: 50 })
@@ -324,12 +341,11 @@ test.describe("Google review replies — API", () => {
     async () => {
       test.skip(!connected, "connect step did not complete");
       const review = await unrepliedReview(4);
-      const put = await gb.putReply(token, rid, review.id, {
+      const put = await putTracked(review.id, {
         comment: "REJECT_ME please.",
         source: "TYPED",
       });
       expect(put.status, JSON.stringify(put.data)).toBe(200);
-      replied.add(review.id);
       expect(put.data.data!.review.reply?.state).toBe("REJECTED");
       expect(put.data.data!.review.reply?.policyViolation).toBeTruthy();
 
