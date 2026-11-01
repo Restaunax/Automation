@@ -1,5 +1,6 @@
 /**
- * 21-supply-shop-quotes-and-stands.spec.ts — Owner → Print Shop (TC-1014..1021).
+ * 21-supply-shop-quotes-and-stands.spec.ts — Owner → Print Shop (TC-1014..1021,
+ * TC-1127..1128).
  *
  * Two things a restaurant owner meets in the Print Shop since RestauNax
  * #1075/#1097/#1100:
@@ -11,6 +12,11 @@
  *     format; the server adds the stands, one per card, as a linked line the
  *     owner cannot change or remove on its own. Cards and stands are placed,
  *     removed and cancelled together.
+ *   - The Table QR cards builder since the print-builders release: no free
+ *     print file (the watermarked proof only; cards are ordered), and the
+ *     optional photo + follow-us code (TC-1127..1128, deploy-gated on
+ *     `printBuilders`). Saving the follow link writes to this throwaway
+ *     restaurant only.
  *
  * Own tenant (always fresh, so it never shares a cart with 20-supply-shop's
  * OWNER2), with SUPPLY_SHOP granted and an ordering slug (table cards print
@@ -40,7 +46,8 @@ import {
 } from "../../../utils/apiHelper";
 import { loginViaUi, type UiLoginSession } from "../../../utils/auth";
 import { waitForEmail } from "../../../utils/emailHelper";
-import { requireRelease } from "../../../utils/releaseGate";
+import { getPrintSocialRaw } from "../../../utils/printBuildersApi";
+import { probePrintBuilders, requireRelease } from "../../../utils/releaseGate";
 import {
   addSameTableCardsToCartRaw,
   checkoutSupplyCartRaw,
@@ -98,6 +105,8 @@ test.describe("Owner — Print Shop: quotes and stands that come with the cards 
   let session: UiLoginSession;
   let shop: OwnerSupplyCartPage;
   const placed: string[] = [];
+  /** The print-builders release is on this stack (TC-1127..1128). */
+  let printBuilders = false;
 
   /** Raw owner tokens have no refresh path — log in again for each API step. */
   const ownerToken = async () =>
@@ -155,6 +164,8 @@ test.describe("Owner — Print Shop: quotes and stands that come with the cards 
       restaurantId,
       `auto-stands-${runId}`
     );
+
+    printBuilders = await probePrintBuilders(adminToken, restaurantId);
 
     session = await loginViaUi(browser, ownerEmail, ownerPassword);
     shop = createOwnerSupplyCartPage(session.page);
@@ -495,5 +506,137 @@ test.describe("Owner — Print Shop: quotes and stands that come with the cards 
     const status = new Map(after.data.data.map((o) => [o.id, o.status]));
     expect(status.get(cardsId)).toBe("CANCELLED");
     expect(status.get(standsId)).toBe("CANCELLED");
+  });
+
+  test("TC-1127: the builder offers the watermarked proof and ordering — no 'Download and print myself' @print-builders", async () => {
+    await allure.description(
+      "No free print files (Neaj, 2026-10-31): the actions read 'Check and order your cards', 'Preview PDF' " +
+        "downloads the proof (`proof: true`, table-qr-cards-proof.pdf) and the page says RestauNax prints the " +
+        "cards. The self-print button is gone (the server refuses that file too — api-print-builders TC-1120)."
+    );
+    requireRelease("printBuilders", printBuilders);
+    const { page } = session;
+    await shop.goto(restaurantId);
+    await shop.openProduct("Table QR cards");
+    await expect(
+      page.getByRole("heading", { name: "Table QR cards" })
+    ).toBeVisible();
+    await shop.sameCardMode().check();
+    await shop.sameCount().fill("1");
+    await shop.sameCount().blur();
+
+    await expect(shop.actionsTitle()).toBeVisible();
+    await expect(shop.orderToPrintNote()).toBeVisible();
+    await expect(shop.selfPrintButton()).toHaveCount(0);
+    await expect(
+      page.getByText("Print your cards", { exact: true })
+    ).toHaveCount(0);
+
+    const pdf = page.waitForResponse(
+      (r) =>
+        /\/table-qr-cards\/pdf$/.test(r.url()) &&
+        r.request().method() === "POST"
+    );
+    const [download] = await Promise.all([
+      page.waitForEvent("download", { timeout: 120_000 }),
+      shop.previewPdfButton().click(),
+    ]);
+    const res = await pdf;
+    expect(res.status()).toBe(200);
+    expect(res.request().postDataJSON()).toMatchObject({ proof: true });
+    expect(download.suggestedFilename()).toBe("table-qr-cards-proof.pdf");
+  });
+
+  test("TC-1128: the builder's photo picker and follow-us code — a bad link is refused, a real profile is saved and previewed @print-builders", async () => {
+    await allure.description(
+      "'Photo and follow code (optional)': 'Add a photo' opens the picker with 'Your photos' and 'Menu items' " +
+        "(the menu tab searches). 'Add a follow-us code' shows the platforms (none linked on a fresh " +
+        "restaurant) and a paste-link field: a link on another host is refused with a message, an Instagram " +
+        "profile is saved on the restaurant (the toggle then shows its handle and the field goes away), and " +
+        "the card preview is re-drawn with `follow: INSTAGRAM`."
+    );
+    requireRelease("printBuilders", printBuilders);
+    const { page } = session;
+    await shop.goto(restaurantId);
+    await shop.openProduct("Table QR cards");
+    await expect(shop.extrasTitle()).toBeVisible();
+
+    await allure.step("Photo picker", async () => {
+      await shop.addPhotoButton().click();
+      await expect(shop.photoSourceTab("Your photos")).toBeVisible();
+      await expect(shop.photoSourceTab("Your photos")).toHaveAttribute(
+        "aria-selected",
+        "true"
+      );
+      await shop.photoSourceTab("Menu items").click();
+      await expect(shop.menuSearch()).toBeVisible();
+      await shop.closePhotoPicker();
+      await expect(shop.photoSourceTab("Menu items")).toBeHidden();
+      // Nothing chosen: no photo on the card.
+      await expect(shop.addPhotoButton()).toBeVisible();
+    });
+
+    const handle = `auto${runId.replace(/[^A-Za-z0-9]/g, "").toLowerCase()}`;
+    await allure.step("Follow-us code", async () => {
+      await expect(shop.followSwitch()).not.toBeChecked();
+      await shop.followSwitch().check();
+      for (const platform of ["Instagram", "Facebook", "TikTok"] as const) {
+        await expect(shop.platformToggle(platform)).toContainText(
+          "Not added yet"
+        );
+      }
+      await shop.platformToggle("Instagram").click();
+      await expect(shop.followLinkInput()).toBeVisible();
+
+      const refused = page.waitForResponse(
+        (r) =>
+          /\/print-assets\/social-link$/.test(r.url()) &&
+          r.request().method() === "PUT"
+      );
+      await shop.followLinkInput().fill("https://example.com/joespizza");
+      await shop.saveFollowLinkButton().click();
+      expect((await refused).status()).toBe(400);
+      await expect(
+        page.getByText(
+          "That doesn't look like a profile link for this platform. Copy the link from your profile page.",
+          { exact: true }
+        )
+      ).toBeVisible();
+      await expect(shop.platformToggle("Instagram")).toContainText(
+        "Not added yet"
+      );
+
+      const saved = page.waitForResponse(
+        (r) =>
+          /\/print-assets\/social-link$/.test(r.url()) &&
+          r.request().method() === "PUT"
+      );
+      const previewed = page.waitForResponse(
+        (r) =>
+          /\/table-qr-cards\/preview$/.test(r.url()) &&
+          r.request().method() === "POST" &&
+          (r.request().postDataJSON() as { follow?: string } | null)?.follow ===
+            "INSTAGRAM",
+        { timeout: 60_000 }
+      );
+      await shop.followLinkInput().fill(`https://www.instagram.com/${handle}`);
+      await shop.saveFollowLinkButton().click();
+      expect((await saved).status()).toBe(200);
+      await expect(shop.platformToggle("Instagram")).toContainText(
+        `@${handle}`
+      );
+      await expect(shop.followLinkInput()).toBeHidden();
+      expect((await previewed).status()).toBe(200);
+    });
+
+    const social = await getPrintSocialRaw(await ownerToken(), restaurantId);
+    expect(social.status).toBe(200);
+    expect(social.data.data.social).toEqual([
+      expect.objectContaining({
+        platform: "INSTAGRAM",
+        handle: `@${handle}`,
+        scope: "restaurant",
+      }),
+    ]);
   });
 });

@@ -12,7 +12,7 @@
  *
  * Select a part's tests with its tag: `--grep @training`, `--grep @closeout`,
  * `--grep @bugfix-1036`, `--grep @settings-safety`, `--grep @switch-click`,
- * `--grep @labor-engines`, `--grep @tax-depth`.
+ * `--grep @labor-engines`, `--grep @tax-depth`, `--grep @print-builders`.
  */
 import { test, expect } from "../fixtures/base";
 import { apiRequestRaw } from "./apiHelper";
@@ -65,6 +65,12 @@ export const RELEASED_ON_QA = {
    *  periods, exemption certificates, the DAVO feed (salesTax:read) and the
    *  year-end fees / gift-card sections. Flip once it is on QA. */
   taxDepthStage7: false,
+  /** RestauNax PR #1125, feat/supply-shop-table-card-extras (print builders):
+   *  no free table-card print file (owner self-print 403 ORDER_TO_PRINT),
+   *  the table card photo + follow code, /q/follow redirects, print-assets
+   *  endpoints, the promo card builder, HQ shopping in the owner's own shop,
+   *  and the reworked Finalise dialog (markup, packages, Finalise later). */
+  printBuilders: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -91,6 +97,8 @@ const REASON: Record<ReleasePart, string> = {
     "The Stage 5 labor-law engines (RestauNax bo1031/engines) are not on this environment yet — /api/compliance/:id/labor-rules answers 404",
   taxDepthStage7:
     "The Stage 7 tax depth (RestauNax bo1031/taxdepth) is not on this environment yet — /api/tax/:id/rate-check answers 404",
+  printBuilders:
+    "Print builders (no free table-card print file, photo + follow code, promo card builder, HQ shops in the owner's shop) are not on this environment yet — /restaurant/:id/print-assets/social does not answer",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
@@ -222,4 +230,22 @@ export async function probeTaxDepthStage7(
     ownerToken
   );
   return res.status !== 404;
+}
+
+/**
+ * Are the print builders deployed? `GET /restaurant/:id/print-assets/social`
+ * is a read the owner (and HQ) may call and only exists with the change; it
+ * answers `{ social: [] }` for a restaurant with no saved links. Read-only.
+ */
+export async function probePrintBuilders(
+  accessToken: string,
+  restaurantId: string
+): Promise<boolean> {
+  const res = await apiRequestRaw<{ data?: { social?: unknown } }>(
+    "GET",
+    `/restaurant/${restaurantId}/print-assets/social`,
+    undefined,
+    accessToken
+  );
+  return res.status === 200 && Array.isArray(res.data?.data?.social);
 }

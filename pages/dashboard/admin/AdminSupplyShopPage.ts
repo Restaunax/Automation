@@ -10,8 +10,9 @@ import {
  *
  * Three queues (Design queue / Fulfilment / History) over one table (a fourth
  * tab, Catalog, is go-live control), plus the dialogs that move an order
- * along: Upload artwork (design), the place-on-behalf dialog, and Finalise
- * (where the money moves). Since RestauNax #1075 a row's action cell is ONLY
+ * along: Upload artwork (design), "Place order for a restaurant" (which
+ * opens that restaurant's own Print Shop full-screen, as HQ — the old
+ * place-on-behalf form is gone), and Finalise (where the money moves). Since RestauNax #1075 a row's action cell is ONLY
  * a "More actions" (⋯) button: the next step (Upload artwork / Finalise &
  * charge / Place with vendor …) leads its menu, then Brief pack / Print file
  * / Card export. Finalise works on the whole basket (SupplyCheckout) the line
@@ -86,7 +87,7 @@ export const createAdminSupplyShopPage = (page: Page) => {
   const row = (orderNumber: string): Locator =>
     page.getByRole("row").filter({ hasText: orderNumber });
 
-  const rowChip = (orderNumber: string, label: string) =>
+  const rowChip = (orderNumber: string, label: string | RegExp) =>
     row(orderNumber).locator(".MuiChip-label", { hasText: label });
 
   const dialog = () => page.getByRole("dialog");
@@ -156,7 +157,12 @@ export const createAdminSupplyShopPage = (page: Page) => {
   };
 
   // ── Place order for a restaurant ───────────────────────────────────────────
-  const openPlaceDialog = async () => {
+  /**
+   * HQ picks the restaurant, then shops in that restaurant's own Print Shop
+   * (the owner's screens, full-screen, under an "Ordering for … as RestauNax
+   * HQ" bar). The server records HQ as the one who placed it.
+   */
+  const openShopForRestaurant = async () => {
     await page
       .getByRole("button", { name: "Place order for a restaurant" })
       .click();
@@ -165,57 +171,28 @@ export const createAdminSupplyShopPage = (page: Page) => {
 
   /**
    * Debounced server-search Autocomplete — needs real keystrokes. MUI's
-   * Autocomplete replaces the TextField's `id="place-restaurant"` with its own
-   * generated input id, so the input is found by role + its placeholder name.
+   * Autocomplete replaces the TextField's id with its own, so the input is
+   * found by its placeholder rather than its label.
    */
   const pickRestaurant = async (name: string) => {
-    const input = dialog().getByRole("combobox", { name: "Search by name" });
+    const input = dialog().getByPlaceholder("Search by name");
     await input.click();
     await input.pressSequentially(name, { delay: 100 });
     await page.getByRole("option", { name }).first().click();
   };
 
-  const selectMui = async (
-    selectLocator: Locator,
-    optionName: string | RegExp
-  ) => {
-    await selectLocator.click();
-    await page.getByRole("option", { name: optionName }).first().click();
-  };
+  const openTheirShopButton = () =>
+    dialog().getByRole("button", { name: "Open their shop", exact: true });
 
-  const pickProduct = (name: string) =>
-    selectMui(dialog().locator("#place-product"), name);
-  const pickQuantity = (qty: number) =>
-    selectMui(dialog().locator("#place-quantity"), new RegExp(`^${qty}$`));
+  /** The bar across HQ's full-screen view of the restaurant's shop. */
+  const shopForBanner = (restaurantName: string) =>
+    page.getByText(`Ordering for ${restaurantName} as RestauNax HQ`, {
+      exact: true,
+    });
 
-  const placeEstimate = () =>
-    dialog().getByText(/^Estimate the restaurant will see: /);
-  const placeVendorCost = () => dialog().getByText(/^Our expected cost: /);
-  const placeMessage = () => dialog().locator("#place-message");
-  const placeAdminNotes = () => dialog().locator("#place-admin-notes");
-  const placeCompReason = () => dialog().locator("#place-comp-reason");
-  const billingRadio = (
-    label: "Charge them when it goes to print" | "Comp — free of charge"
-  ) => dialog().getByRole("radio", { name: label });
-  const termRadio = (label: "Card on file" | "Next invoice") =>
-    dialog().getByRole("radio", { name: label });
-
-  const submitPlace = async () => {
-    const create = page.waitForResponse(
-      (r) =>
-        /\/api\/admin\/supply-shop\/orders$/.test(r.url()) &&
-        r.request().method() === "POST"
-    );
-    await dialog()
-      .getByRole("button", { name: "Place order", exact: true })
-      .click();
-    const res = await create;
-    expect(res.ok(), `on-behalf → ${res.status()}`).toBeTruthy();
+  const exitShopFor = async () => {
+    await dialog().getByRole("button", { name: "Exit", exact: true }).click();
     await expect(dialog()).toBeHidden();
-    await expect(
-      page.getByText("Order placed for the restaurant.")
-    ).toBeVisible();
-    return (await res.json()) as { data: { id: string; orderNumber: string } };
   };
 
   // ── Finalise ───────────────────────────────────────────────────────────────
@@ -249,11 +226,29 @@ export const createAdminSupplyShopPage = (page: Page) => {
     dialog().locator(`[id="finalise-0-${orderId}-price"]`);
   const unitCost = (orderId: string) =>
     dialog().locator(`[id="finalise-0-${orderId}-cost"]`);
+  /** Markup % on what the vendor charges; editing it reprices the line. */
+  const unitMarkup = (orderId: string) =>
+    dialog().locator(`[id="finalise-0-${orderId}-markup"]`);
+  /** "Quoted $1.95 each · estimate $207.00 – $258.75" under a line's name. */
+  const quotedLine = () => dialog().getByText(/^Quoted \$[\d.,]+ each/);
+  /** "Target 20% markup", or the under-target note in its place. */
+  const targetNote = () =>
+    dialog().getByText(/^(Target \d+% markup|Below the usual \d+% markup\.)/);
+  const useTargetButton = () =>
+    dialog().getByRole("button", { name: /^Use \d+%$/ });
+  const underTargetSummary = () =>
+    dialog().getByText("Some items are priced below their target markup.", {
+      exact: true,
+    });
   const shippingCharged = () =>
     dialog().locator("#finalise-0-shipping-charged");
-  // freeSolo Autocomplete: found by role + placeholder, not by id.
+  // freeSolo Autocomplete over the shared vendor list: found by its
+  // placeholder, not by id. The old placeholder stays accepted until the
+  // print-builders release (RELEASED_ON_QA.printBuilders) is on QA.
   const vendorInput = () =>
-    dialog().getByRole("combobox", { name: "Who is producing this?" });
+    dialog().getByPlaceholder(
+      /^(Search the vendor list|Who is producing this\?)$/
+    );
   const vendorShipping = () => dialog().locator("#finalise-0-vendor-shipping");
   const vendorTax = () => dialog().locator("#finalise-0-vendor-tax");
   const vendorRef = () => dialog().locator("#finalise-0-vendor-ref");
@@ -270,9 +265,8 @@ export const createAdminSupplyShopPage = (page: Page) => {
     );
   const settledAlert = () =>
     dialog().getByText("Already paid or billed.", { exact: false });
-  /** The set's "Revenue $A − cost $B = $C margin (P%)". */
-  const marginLine = () =>
-    dialog().getByText(/^Revenue \$[\d.,]+ − cost \$[\d.,]+ = /);
+  /** The summary's "Our margin: $C (P% markup)". */
+  const marginLine = () => dialog().getByText(/^Our margin: \$/);
   const confirmButton = () =>
     dialog().getByRole("button", {
       name: /^(Finalise & charge|Send for approval|Place with suppliers)$/,
@@ -349,24 +343,22 @@ export const createAdminSupplyShopPage = (page: Page) => {
     artworkPassed,
     artworkBlocked,
     sendProof,
-    openPlaceDialog,
+    openShopForRestaurant,
     pickRestaurant,
-    pickProduct,
-    pickQuantity,
-    placeEstimate,
-    placeVendorCost,
-    placeMessage,
-    placeAdminNotes,
-    placeCompReason,
-    billingRadio,
-    termRadio,
-    submitPlace,
+    openTheirShopButton,
+    shopForBanner,
+    exitShopFor,
     openFinalise,
     proofPendingBanner,
     compSwitch,
     noChargeChip,
     finalUnit,
     unitCost,
+    unitMarkup,
+    quotedLine,
+    targetNote,
+    useTargetButton,
+    underTargetSummary,
     shippingCharged,
     vendorInput,
     vendorShipping,
