@@ -51,7 +51,11 @@ const MENU_TVS = "RestauNax Menu TVs";
 // the product's tooltip line (products.json `pitch.<KEY>.tooltip`).
 const MENU_TVS_MARK = "Add-on: TV menu boards from your menu";
 const ASK = "Ask us to turn it on";
-const SENT = /Request sent .+\. We'll contact you\./;
+// The sent state (Stage 6 request flow): a "Request pending" badge and when
+// it was asked. A restaurant that isn't live yet reads the waiting line.
+const PENDING = "Request pending";
+const SENT =
+  /Requested on .+\. (We usually reply within 1 business day|We'll turn this on as soon as your account is live)\./;
 
 // The products the server can offer, with their EN names (dashboard
 // products.json `name.*`). VOICE_AI is left out: its offer comes from the
@@ -155,6 +159,9 @@ test.describe("Owner — RestauNax Products: add-on previews, no prices", () => 
     await expect(ask.or(sent)).toBeVisible({ timeout: 20_000 });
     if (await ask.isVisible()) await ask.click();
     await expect(sent).toBeVisible({ timeout: 20_000 });
+    await expect(
+      ownerPage.getByRole("status").getByText(PENDING, { exact: true })
+    ).toBeVisible();
     await expect(ask).toHaveCount(0);
   });
 

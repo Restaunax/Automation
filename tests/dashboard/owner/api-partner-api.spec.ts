@@ -55,6 +55,8 @@ const RECEIVER = `${(process.env.BACKEND_URL ?? "https://api.qa.restaunax.com").
 const SCOPES = [
   "sales.daily:read",
   "tax.daily:read",
+  // W4:H3 (Stage 7 tax depth): the daily sales-tax filing feed, built for DAVO.
+  "salesTax:read",
   "orders:read",
   "payments:read",
   "payouts:read",

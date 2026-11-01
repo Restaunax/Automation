@@ -257,14 +257,15 @@ test.describe("HQ — add-on requests (UI)", () => {
         "Asked before the restaurant's account was live. Each one opens here on its own as soon as the subscription activates, so there is nothing to do yet."
       )
     ).toBeVisible();
-    const req = card(page, "Scheduling");
+    // The card names the catalog add-on: "Scheduling & Timecards · Scheduling".
+    const req = card(page, "Scheduling & Timecards");
     await expect(req).toBeVisible({ timeout: 20_000 });
     await expect(req).toContainText("Waiting for the account");
     for (const name of ["Attach", "Mark done", "Decline"])
       await expect(req.getByRole("button", { name })).toHaveCount(0);
     // It is not in the Open list.
     await show(page, "Open");
-    await expect(card(page, "Scheduling")).toHaveCount(0);
+    await expect(card(page, "Scheduling & Timecards")).toHaveCount(0);
   });
 
   test("TC-1537: Decline on an open request (the seed's, made by this test): the dialog, Cancel, then Decline; Closed shows it Declined", async ({
@@ -327,7 +328,8 @@ test.describe("HQ — add-on requests (UI)", () => {
       await expectSeenByUser(
         page
           .getByRole("alert")
-          .filter({ hasText: "Request declined. The owners have been told." })
+          // The snackbar shows the server's message (backend api.json).
+          .filter({ hasText: "Declined. The owners have been told." })
           .first(),
         '"Request declined."'
       );

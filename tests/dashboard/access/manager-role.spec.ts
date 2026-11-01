@@ -91,7 +91,9 @@ test.describe("Manager dashboard role (API)", () => {
     if (!tenant.restaurantId) throw new Error("[manager-role] no tenant");
     restaurantId = tenant.restaurantId;
     ownerToken = tenant.accessToken;
-    for (const feature of ["SCHEDULING", "TIMECARDS", "TIP_MANAGEMENT"]) {
+    // SCHEDULING and TIP_MANAGEMENT each bring TIMECARDS, a component the
+    // server refuses to grant on its own.
+    for (const feature of ["SCHEDULING", "TIP_MANAGEMENT"]) {
       const g = await setFeatureOverrideAdminRaw(
         adminToken,
         restaurantId,
@@ -256,7 +258,9 @@ test.describe("Manager dashboard role (API)", () => {
     ];
     const wrong: string[] = [];
     for (const [method, path] of refused) {
-      const res = await call(managerToken, method, path, {}, "es");
+      // fetch refuses a body on GET; the writes send an empty one.
+      const body = method === "GET" ? undefined : {};
+      const res = await call(managerToken, method, path, body, "es");
       const ok =
         res.status === 403 &&
         res.data.error === "MANAGER_NOT_ALLOWED" &&

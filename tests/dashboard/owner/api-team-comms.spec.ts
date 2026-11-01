@@ -168,7 +168,9 @@ test.describe("Team comms — mobile clock-in + staff announcements (API) @team-
     if (!tenant.restaurantId) throw new Error("[api-team-comms] no tenant");
     restaurantId = tenant.restaurantId;
     ownerToken = tenant.accessToken;
-    for (const feature of ["SCHEDULING", "TIMECARDS"]) {
+    // SCHEDULING brings TIMECARDS (a component the server refuses to grant
+    // on its own; revoking it stays possible, see the bare tenant below).
+    for (const feature of ["SCHEDULING"]) {
       const g = await setFeatureOverrideAdminRaw(
         adminToken,
         restaurantId,

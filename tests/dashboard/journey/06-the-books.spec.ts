@@ -107,7 +107,8 @@ test.describe("Journey 6 — the books (partner restaurants, read-only)", () => 
       { waitUntil: "domcontentloaded" }
     );
     await expect(
-      page().getByRole("heading", { name: "Books & taxes" })
+      // exact: the Overview also has "Show more in Books & taxes".
+      page().getByRole("heading", { name: "Books & taxes", exact: true })
     ).toBeVisible({ timeout: 30_000 });
   };
   /** A posted day: one balanced entry, numbered RNX-yymmdd-<rid start>. */

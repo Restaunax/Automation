@@ -399,8 +399,10 @@ test.describe("Accountant access — invite, read-only, other clients invisible,
       ]);
       const closed = await accountantRaw(t, `/clients/${a.id}`);
       expect(closed.status).toBe(403);
+      // Products are named "RestauNax <Product>" (decision 2026-10-29); the
+      // products API carries no display name, so the EN text is spelled out.
       expect(closed.data.message).toBe(
-        "This restaurant's Books & Taxes add-on is off, so its numbers can't be opened right now."
+        "This restaurant's RestauNax Books & Taxes add-on is off, so its numbers can't be opened right now."
       );
     } finally {
       await setFeatureOverrideAdminRaw(
