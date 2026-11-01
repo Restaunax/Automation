@@ -280,10 +280,14 @@ test.describe("POS day close and day open (API)", () => {
       heldAwaitingTip: [{ id: held.orderId, cardLast4: "4242" }],
       unpaidOrders: [],
     });
+    // Sales definitions 2 (W2:E2): gross = item sales (no tax, no tip);
+    // what the two orders charged is total collected.
     expect(d.summary).toMatchObject({
       orderCount: 2,
-      grossSales: 25.68,
+      definitionVersion: 2,
+      grossSales: 24,
       netSales: 24,
+      totalCollected: 25.68,
       tax: 1.68,
     });
   });
@@ -335,8 +339,10 @@ test.describe("POS day close and day open (API)", () => {
     expect(msg(closed.data)).toBe("Day closed.");
     expect(dataOf(closed.data)).toMatchObject({
       orderCount: 2,
-      grossSales: 25.68,
+      grossSales: 24,
       netSales: 24,
+      totalCollected: 25.68,
+      salesDefinitionVersion: 2,
       tax: 1.68,
       openingFloatTotal: 100,
       countedCashTotal: 112.84,
@@ -476,8 +482,9 @@ test.describe("POS day close and day open (API)", () => {
     // The whole day: three paid burgers, two drawers, both bags.
     expect(dataOf(reclosed.data)).toMatchObject({
       orderCount: 3,
-      grossSales: 38.52,
+      grossSales: 36,
       netSales: 36,
+      totalCollected: 38.52,
       tax: 2.52,
       openingFloatTotal: 200,
       countedCashTotal: 225.68,
