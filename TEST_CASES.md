@@ -3867,6 +3867,23 @@ RestauNax back-office audit Stage 6, setup & staff simplification track (bo1031/
 | **TC-1711** | `dashboard/owner/38-setup-staff-simplify-ui` | With the payroll file chosen, Pay & overtime shows only it (no Gusto / RestauNax Payroll wording); "Change payroll method" brings back "Do you already use Gusto?". |
 | **TC-1712** | `dashboard/owner/38-setup-staff-simplify-ui` | Store Settings: an owner sees the RestauNax setup values as one line with a mailto "Contact support"; the values (e.g. "Business day ends at") only after "Show details". |
 
+## TC-1760 → TC-1771 — Stage 7: growth A (prime cost, staff import, cash tip-out sheet)
+
+| ID | Spec | What it proves |
+|---|---|---|
+| **TC-1760** | `dashboard/owner/api-growth-a` | Prime cost is gated like the labor report: 403 without Timecards; with it, 8 workweeks, each with labor and net sales and no prime cost % until costs are entered. |
+| **TC-1761** | `dashboard/owner/api-growth-a` | Typing a week's costs: a date that isn't a workweek start and a negative cost are refused in words (ES "Ingresa cada costo como 0 o más."); food and beverage saved as TYPED, paper/other NONE. |
+| **TC-1762** | `dashboard/owner/api-growth-a` | Invoice-total CSV: dry run (2 new, a bad date row reported), import, the same file again imports 0 (2 duplicates), paper/other comes from the invoice while food stays typed, undo removes 2. |
+| **TC-1763** | `dashboard/owner/api-growth-a` | Staff import dry run of Toast's TimeEntries.csv: 2 people to add, the latest shift's wage per job, new jobs listed, a $1.00 rate flagged below the minimum wage; nothing written. |
+| **TC-1764** | `dashboard/owner/api-growth-a` | Staff import: people, jobs and rates written, no email and no invite; the same file again adds nobody. |
+| **TC-1765** | `dashboard/owner/api-growth-a` | Unknown headers are refused (UNRECOGNISED) until a column mapping is sent; the mapped import adds the person with their email; the invite goes out only when asked (`/invites`), an empty pick is 400. |
+| **TC-1766** | `dashboard/owner/api-growth-a` | The cash tip-out sheet is off by default; paying while off is SHEET_OFF, in words. |
+| **TC-1767** | `dashboard/owner/api-growth-a` | Turned on: the day's sheet (lines, totals, no open drawers); paying without an open drawer of that day is DRAWER_NOT_OPEN (ES text). |
+| **TC-1768** | `dashboard/owner/api-growth-a` | Without Tip Management the sheet's routes answer 403. |
+| **TC-1769** | `dashboard/owner/38-growth-a-ui` | People → Import: a CSV shows "1 to add", Import says "1 added and 0 updated. No invites were sent.", the person is in the list. |
+| **TC-1770** | `dashboard/owner/38-growth-a-ui` | Analytics → Prime cost: Enter costs (Food 1500) saves and the week reads "Entered". |
+| **TC-1771** | `dashboard/owner/38-growth-a-ui` | Tips → Nightly cash tip-out sheet: off by default; on, the Business day picker and "No tips for this day yet."; turned back off. |
+
 ## TC-1790 → TC-1803 — Growth track B: mobile clock-in + staff announcements
 
 RestauNax back-office audit, growth track B (bo1031/growthb, W0:MF-6 mobile clock-in, W0:MF-10 staff announcements). Gated by `RELEASED_ON_QA.teamCommsGrowthB` (`utils/releaseGate.ts`, probe `GET /api/staff/announcements/:id`) until it reaches QA. Tag `@team-comms`. Spec: `dashboard/owner/api-team-comms` — a throwaway Miami restaurant created with coordinates (SCHEDULING + TIMECARDS, a Driver job), Dee (Driver, staff-app user) and Mia (manager), both invite → Mailpit → register, plus a second restaurant with TIMECARDS off. Settings are put back to off and every announcement is archived before both restaurants are deleted. Accepted punches (inside the fence, breaks, clock-out, MOBILE / OUTSIDE_GEOFENCE timecard flags) need a phone at the restaurant: restaunax `teamComms.int.test.ts` proves them.

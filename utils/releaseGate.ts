@@ -85,6 +85,11 @@ export const RELEASED_ON_QA = {
    *  one payroll mode shown, tip policy presets first + Advanced, and the
    *  RestauNax setup values on one line. Flip once it is on QA. */
   staffSetupStage6: false,
+  /** RestauNax back-office audit, Stage 7 growth A (branch bo1031/growtha,
+   *  W0:MF-5 / MF-7 / MF-9): prime cost (`/api/staff/prime-cost/:rid`),
+   *  staff/jobs/wages import (`/api/staff/import/:rid`) and the nightly cash
+   *  tip-out sheet (`/api/staff/tip-sheet/:rid`). Flip once it is on QA. */
+  growthAStage7: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -117,6 +122,8 @@ const REASON: Record<ReleasePart, string> = {
     "Print builders (no free table-card print file, photo + follow code, promo card builder, HQ shops in the owner's shop) are not on this environment yet — /restaurant/:id/print-assets/social does not answer",
   teamCommsGrowthB:
     "Mobile clock-in + staff announcements (RestauNax bo1031/growthb, W0:MF-6 / MF-10) are not on this environment yet — /api/staff/announcements/:id answers 404",
+  growthAStage7:
+    "The Stage 7 growth A track (RestauNax bo1031/growtha: prime cost, staff import, cash tip-out sheet) is not on this environment yet — /api/staff/tip-sheet/:id/settings answers 404",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
@@ -299,6 +306,23 @@ export async function probeStaffSetupStage6(
   const res = await apiRequestRaw(
     "GET",
     `/restaurant/${restaurantId}/back-office/setup-interview`,
+    undefined,
+    ownerToken
+  );
+  return res.status !== 404;
+}
+
+/**
+ * Is the Stage 7 growth A track deployed? `GET /api/staff/tip-sheet/:rid/settings`
+ * exists only with it (403 without Tip Management, never 404). Read-only.
+ */
+export async function probeGrowthAStage7(
+  ownerToken: string,
+  restaurantId: string
+): Promise<boolean> {
+  const res = await apiRequestRaw(
+    "GET",
+    `/api/staff/tip-sheet/${restaurantId}/settings`,
     undefined,
     ownerToken
   );
