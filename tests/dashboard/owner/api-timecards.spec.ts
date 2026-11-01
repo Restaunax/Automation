@@ -36,11 +36,20 @@
  *     confirms the state's labor rules. Florida has no state overtime beyond
  *     the federal 40 hours and no state meal-break law, so every amount the
  *     older cases assert is unchanged under STATE.
+ *   - W0:J5 (TC-1730, Stage 6 daily views, gated by
+ *     `RELEASED_ON_QA.dailyViewsStage6`): the approve preview of an approved
+ *     period is its frozen snapshot; reopened, the preview rebuilds the
+ *     snapshot approval would store — the same per-person figures and
+ *     totals — and wages + premiums = the timecards' total.
  * Restaurant is in Miami (America/New_York). Serial.
  */
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
-import { requireRelease, probeLaborEngines } from "../../../utils/releaseGate";
+import {
+  requireRelease,
+  probeLaborEngines,
+  probeDailyViewsStage6,
+} from "../../../utils/releaseGate";
 import {
   laborRulesRaw,
   confirmLaborRuleRaw,
@@ -642,6 +651,67 @@ test.describe("Timecards — overtime, breaks, approval (API)", () => {
       `/pay-periods/${p1}/approve`
     );
     expect(re.status, JSON.stringify(re.data)).toBe(200);
+  });
+
+  test("TC-1730: W0:J5 the approve preview equals the snapshot approval freezes @daily-views", async () => {
+    requireRelease(
+      "dailyViewsStage6",
+      await probeDailyViewsStage6(ownerToken, restaurantId)
+    );
+    const preview = async () => {
+      const r = await payrollRaw<{ data: Rec }>(
+        ownerToken,
+        restaurantId,
+        "GET",
+        `/pay-periods/${p1}/approve-preview`
+      );
+      expect(r.status, JSON.stringify(r.data)).toBe(200);
+      return r.data.data;
+    };
+    // P1 is approved (TC-585): the preview is the stored snapshot.
+    const frozen = await preview();
+    expect(frozen.frozen).toBe(true);
+    const card = await gusCard(p1);
+    const gusLine = list(frozen.people).find(
+      (p) => p.staffMemberId === gus.staffMemberId
+    );
+    expect(gusLine, "Gus has a line").toBeTruthy();
+    expect(Number(gusLine?.wagesCents) + Number(gusLine?.premiumsCents)).toBe(
+      card.totalCents
+    );
+    expect(Number(gusLine?.minutes)).toBe(
+      card.regularMinutes + card.overtimeMinutes + card.doubleTimeMinutes
+    );
+    // Reopened, nothing changed: the rebuilt preview is the same document.
+    const reopened = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "POST",
+      `/pay-periods/${p1}/reopen`,
+      { reason: "Check the approve preview" }
+    );
+    expect(reopened.status, JSON.stringify(reopened.data)).toBe(200);
+    const open = await preview();
+    expect(open.frozen).toBe(false);
+    expect(open.people).toEqual(frozen.people);
+    expect(open.totals).toEqual(frozen.totals);
+    // Plain sentences, never codes, for anything to confirm.
+    for (const n of list(open.notices)) {
+      expect(String(n.message)).not.toMatch(/^api:|approveNotice/);
+    }
+    const again = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "POST",
+      `/pay-periods/${p1}/approve`,
+      {
+        acknowledge: list(open.notices)
+          .filter((n) => n.needsConfirmation)
+          .map((n) => n.code),
+      }
+    );
+    expect(again.status, JSON.stringify(again.data)).toBe(200);
+    expect((await preview()).totals).toEqual(open.totals);
   });
 
   test("TC-586: periods that aren't over can't be approved; 'show pay' off hides approved pay", async () => {

@@ -13,7 +13,8 @@
  * Select a part's tests with its tag: `--grep @training`, `--grep @closeout`,
  * `--grep @bugfix-1036`, `--grep @settings-safety`, `--grep @switch-click`,
  * `--grep @labor-engines`, `--grep @tax-depth`, `--grep @print-builders`,
- * `--grep @team-comms`, `--grep @staff-setup`.
+ * `--grep @team-comms`, `--grep @staff-setup`, `--grep @daily-views`,
+ * `--grep @growth-a`.
  */
 import { test, expect } from "../fixtures/base";
 import { apiRequestRaw } from "./apiHelper";
@@ -90,6 +91,12 @@ export const RELEASED_ON_QA = {
    *  staff/jobs/wages import (`/api/staff/import/:rid`) and the nightly cash
    *  tip-out sheet (`/api/staff/tip-sheet/:rid`). Flip once it is on QA. */
   growthAStage7: false,
+  /** RestauNax back-office audit, Stage 6 daily views (branch bo1031/uxdaily,
+   *  W0:J5 / J6 / J2 / MF-4 / J8): the approve preview, "Send to my
+   *  accountant" (accountant-bundle + ZIP), the schedule forecast override and
+   *  target labor %, GET /api/today/:id, and every discount type in the
+   *  exceptions summary. Flip once it is on QA. */
+  dailyViewsStage6: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -124,6 +131,8 @@ const REASON: Record<ReleasePart, string> = {
     "Mobile clock-in + staff announcements (RestauNax bo1031/growthb, W0:MF-6 / MF-10) are not on this environment yet — /api/staff/announcements/:id answers 404",
   growthAStage7:
     "The Stage 7 growth A track (RestauNax bo1031/growtha: prime cost, staff import, cash tip-out sheet) is not on this environment yet — /api/staff/tip-sheet/:id/settings answers 404",
+  dailyViewsStage6:
+    "The Stage 6 daily views (RestauNax bo1031/uxdaily) are not on this environment yet — /api/today/:id answers 404",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
@@ -323,6 +332,24 @@ export async function probeGrowthAStage7(
   const res = await apiRequestRaw(
     "GET",
     `/api/staff/tip-sheet/${restaurantId}/settings`,
+    undefined,
+    ownerToken
+  );
+  return res.status !== 404;
+}
+
+/**
+ * Are the Stage 6 daily views deployed? `GET /api/today/:rid` is a read the
+ * restaurant's owner may always make; it only exists with the change.
+ * Read-only.
+ */
+export async function probeDailyViewsStage6(
+  ownerToken: string,
+  restaurantId: string
+): Promise<boolean> {
+  const res = await apiRequestRaw(
+    "GET",
+    `/api/today/${restaurantId}`,
     undefined,
     ownerToken
   );
