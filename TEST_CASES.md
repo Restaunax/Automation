@@ -3826,3 +3826,20 @@ RestauNax back-office audit Stage 7, tax depth track (bo1031/taxdepth, W4:H2, M3
 | **TC-1616** | `dashboard/owner/37-sales-tax-depth-ui` | Add certificate (buyer, Government, number, an expiry in the past): the row shows Government and is flagged expired. |
 | **TC-1617** | `dashboard/owner/37-sales-tax-depth-ui` | The report's Dates choice: Calendar dates shows "midnight to midnight"; Business days shows the business-day line. |
 | **TC-1618** | `dashboard/admin/tax-rate-review-ui` | HQ → Finance → Sales tax rate review lists the tenant at 8% with a result, no edit control, and downloads `tax-rate-review-<date>.csv`. |
+
+## TC-1760 → TC-1771 — Stage 7: growth A (prime cost, staff import, cash tip-out sheet)
+
+| ID | Spec | What it proves |
+|---|---|---|
+| **TC-1760** | `dashboard/owner/api-growth-a` | Prime cost is gated like the labor report: 403 without Timecards; with it, 8 workweeks, each with labor and net sales and no prime cost % until costs are entered. |
+| **TC-1761** | `dashboard/owner/api-growth-a` | Typing a week's costs: a date that isn't a workweek start and a negative cost are refused in words (ES "Ingresa cada costo como 0 o más."); food and beverage saved as TYPED, paper/other NONE. |
+| **TC-1762** | `dashboard/owner/api-growth-a` | Invoice-total CSV: dry run (2 new, a bad date row reported), import, the same file again imports 0 (2 duplicates), paper/other comes from the invoice while food stays typed, undo removes 2. |
+| **TC-1763** | `dashboard/owner/api-growth-a` | Staff import dry run of Toast's TimeEntries.csv: 2 people to add, the latest shift's wage per job, new jobs listed, a $1.00 rate flagged below the minimum wage; nothing written. |
+| **TC-1764** | `dashboard/owner/api-growth-a` | Staff import: people, jobs and rates written, no email and no invite; the same file again adds nobody. |
+| **TC-1765** | `dashboard/owner/api-growth-a` | Unknown headers are refused (UNRECOGNISED) until a column mapping is sent; the mapped import adds the person with their email; the invite goes out only when asked (`/invites`), an empty pick is 400. |
+| **TC-1766** | `dashboard/owner/api-growth-a` | The cash tip-out sheet is off by default; paying while off is SHEET_OFF, in words. |
+| **TC-1767** | `dashboard/owner/api-growth-a` | Turned on: the day's sheet (lines, totals, no open drawers); paying without an open drawer of that day is DRAWER_NOT_OPEN (ES text). |
+| **TC-1768** | `dashboard/owner/api-growth-a` | Without Tip Management the sheet's routes answer 403. |
+| **TC-1769** | `dashboard/owner/38-growth-a-ui` | People → Import: a CSV shows "1 to add", Import says "1 added and 0 updated. No invites were sent.", the person is in the list. |
+| **TC-1770** | `dashboard/owner/38-growth-a-ui` | Analytics → Prime cost: Enter costs (Food 1500) saves and the week reads "Entered". |
+| **TC-1771** | `dashboard/owner/38-growth-a-ui` | Tips → Nightly cash tip-out sheet: off by default; on, the Business day picker and "No tips for this day yet."; turned back off. |
