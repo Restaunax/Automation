@@ -21,7 +21,7 @@
  *                payroll file) until a mode is chosen;
  *   removed    → back to the core groups.
  * An add-on the restaurant lacks may show as a RestauNax product preview tab
- * (marked "RestauNax product"); the layout checks leave previews out.
+ * (marked with the plus icon); the layout checks leave previews out.
  * Plus: Permissions lists the four preset roles, Jobs & wages shows a job and
  * its rate, People shows an invited person. Gated by
  * `RELEASED_ON_QA.staffSetupStage6` until the layout is on QA.
@@ -115,21 +115,27 @@ test.describe("Owner — Staff area follows the add-ons (UI)", () => {
   };
   // RestauNax Products: an add-on the restaurant lacks but may ask for shows
   // as a preview tab (a whole group, or a tab like "RestauNax Team") carrying
-  // this marker. Previews are not the restaurant's own screens, so the
+  // the plus icon. Previews are not the restaurant's own screens, so the
   // layout below leaves them out; previews() lists them.
-  const PREVIEW_MARK = "RestauNax product";
-  const isPreview = (text: string) => text.includes(PREVIEW_MARK);
+  const isPreview = async (tab: Locator) =>
+    (await tab.locator('[data-testid^="add-on-mark-"]').count()) > 0;
+  const tabsOf = async (tabs: Locator, preview: boolean) => {
+    const out: string[] = [];
+    for (const tab of await tabs.all()) {
+      if ((await isPreview(tab)) === preview) {
+        out.push((await tab.textContent()) ?? "");
+      }
+    }
+    return out;
+  };
   /** Labels as shown (a badge count is stripped), previews left out. */
   const labels = async (tabs: Locator) =>
-    (await tabs.allTextContents())
-      .filter((t) => !isPreview(t))
+    (await tabsOf(tabs, false))
       .map((t) => t.replace(/\d+$/, "").trim())
       .filter(Boolean);
-  /** Every product preview tab in the group bar and the open group's bar. */
+  /** Every product preview tab in the group bar. */
   const previews = async (): Promise<string[]> =>
-    (await groupBar().getByRole("tab").allTextContents())
-      .filter(isPreview)
-      .map((t) => t.replace(PREVIEW_MARK, "").trim());
+    (await tabsOf(groupBar().getByRole("tab"), true)).map((t) => t.trim());
   /** Every group with its own tabs: open each group, read its tab bar. */
   const layout = async (): Promise<StaffLayout> => {
     const groups = await labels(groupBar().getByRole("tab"));
@@ -312,8 +318,7 @@ test.describe("Owner — Staff area follows the add-ons (UI)", () => {
     // to People — never a blank or a gated screen.
     const selected = groupBar().getByRole("tab", { selected: true });
     await expect(selected).toHaveCount(1);
-    const opened = (await selected.textContent()) ?? "";
-    if (isPreview(opened)) {
+    if (await isPreview(selected)) {
       await expect(page().getByRole("main")).toContainText(
         /Ask us|Request pending/
       );
