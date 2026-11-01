@@ -47,6 +47,13 @@ test.describe("Google review replies — API", () => {
   let strangerRid = "";
   let strangerToken = "";
   let connected = false;
+  /** Alert switches as found, restored in afterAll if a test left them flipped. */
+  let alertBaseline:
+    | Pick<
+        gb.GbReplySettings,
+        "alertLowRatings" | "alertHighRatings" | "dailyDigest"
+      >
+    | undefined;
   /** Reviews this test file replied to — deleted again in afterEach. */
   const replied = new Set<string>();
 
@@ -122,8 +129,15 @@ test.describe("Google review replies — API", () => {
   test.afterAll(async () => {
     test.setTimeout(120_000);
     if (!token || !rid) return;
-    // Frees FAKE_PLACE_1 for the next run / other restaurants.
-    await gb.disconnect(token, rid);
+    try {
+      // A failed alert-settings test must not leave the switches flipped.
+      if (alertBaseline) await gb.putReplySettings(token, rid, alertBaseline);
+    } catch {
+      /* best effort: the disconnect below must still run */
+    } finally {
+      // Frees FAKE_PLACE_1 for the next run / other restaurants.
+      await gb.disconnect(token, rid).catch(() => undefined);
+    }
   });
 
   test(
@@ -474,6 +488,57 @@ test.describe("Google review replies — API", () => {
           guidance: original.guidance ?? "",
         });
       }
+    }
+  );
+
+  test(
+    "alert settings: defaults, a PUT round-trip, non-booleans are a 400; restored after",
+    { tag: ["@google-reviews"] },
+    async () => {
+      const before = await gb.getReplySettings(token, rid);
+      expect(before.status, JSON.stringify(before.data)).toBe(200);
+      const s = before.data.data!.settings;
+      for (const k of [
+        "alertLowRatings",
+        "alertHighRatings",
+        "dailyDigest",
+      ] as const) {
+        expect(typeof s[k], k).toBe("boolean");
+      }
+      alertBaseline = {
+        alertLowRatings: s.alertLowRatings,
+        alertHighRatings: s.alertHighRatings,
+        dailyDigest: s.dailyDigest,
+      };
+      try {
+        const flip = {
+          alertLowRatings: !s.alertLowRatings,
+          alertHighRatings: !s.alertHighRatings,
+          dailyDigest: !s.dailyDigest,
+        };
+        const put = await gb.putReplySettings(token, rid, flip);
+        expect(put.status, JSON.stringify(put.data)).toBe(200);
+        expect(put.data.data!.settings).toMatchObject(flip);
+        const again = await gb.getReplySettings(token, rid);
+        expect(again.data.data!.settings).toMatchObject(flip);
+        // Only the fields sent change: tone is untouched.
+        expect(again.data.data!.settings.tone).toBe(s.tone);
+
+        const bad = await gb.putReplySettings(token, rid, {
+          alertLowRatings: "yes" as unknown as boolean,
+        });
+        expect(bad.status).toBe(400);
+        expect(bad.data.errorCode).toBe(
+          "GOOGLE_BUSINESS_REPLY_SETTINGS_INVALID"
+        );
+        expect(bad.data.details?.field).toBe("alertLowRatings");
+      } finally {
+        await gb.putReplySettings(token, rid, alertBaseline);
+        alertBaseline = undefined;
+      }
+      expect(
+        (await gb.getReplySettings(token, rid)).data.data!.settings
+      ).toMatchObject({ ...s });
     }
   );
 

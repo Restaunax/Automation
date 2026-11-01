@@ -125,17 +125,25 @@ test.describe(
 
     test.afterAll(async () => {
       test.setTimeout(180_000);
-      await clearOurReplies();
-      if (baselineSettings && token && rid) {
-        await gb.putReplySettings(token, rid, {
-          tone: baselineSettings.tone,
-          signOff: baselineSettings.signOff,
-          contactLine: baselineSettings.contactLine,
-          guidance: baselineSettings.guidance,
-        });
+      try {
+        await clearOurReplies();
+        if (baselineSettings && token && rid) {
+          await gb.putReplySettings(token, rid, {
+            tone: baselineSettings.tone,
+            signOff: baselineSettings.signOff,
+            contactLine: baselineSettings.contactLine,
+            guidance: baselineSettings.guidance,
+            alertLowRatings: baselineSettings.alertLowRatings,
+            alertHighRatings: baselineSettings.alertHighRatings,
+            dailyDigest: baselineSettings.dailyDigest,
+          });
+        }
+      } catch {
+        /* best effort: the disconnect below must still run */
+      } finally {
+        await disconnectQuietly();
+        await context?.close().catch(() => undefined);
       }
-      await disconnectQuietly();
-      await context?.close();
     });
 
     test("TC-1100 connect card → Connect → fake consent → Reviews list, Needs reply by default", async () => {

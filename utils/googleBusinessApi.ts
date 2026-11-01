@@ -21,7 +21,8 @@ export interface GbStatus {
   available: boolean;
   canManage: boolean;
   connection: {
-    googleEmail: string;
+    /** Null when Google didn't share the account's email. */
+    googleEmail: string | null;
     connectedByName: string | null;
     needsReconnect: boolean;
   } | null;
@@ -30,6 +31,7 @@ export interface GbStatus {
     address: string | null;
     lastSyncedAt: string | null;
     lastSyncError: string | null;
+    lastSyncErrorCode: "RECONNECT" | "FAILED" | null;
   } | null;
   counts: { total: number; unreplied: number; averageRating: number | null };
 }
@@ -66,6 +68,12 @@ export interface GbReplySettings {
   signOff: string | null;
   contactLine: string | null;
   guidance: string | null;
+  /** 1-3 star reviews push to the owner app (default true). */
+  alertLowRatings: boolean;
+  /** 4-5 star reviews push to the owner app (default false). */
+  alertHighRatings: boolean;
+  /** One 9 AM email with the last 24 hours of reviews (default false). */
+  dailyDigest: boolean;
 }
 
 /** Standard success / error envelope. */
