@@ -2654,7 +2654,7 @@ What PR #1074 added for the owner, and what these tests prove (spec: restaunax `
 | **TC-956** | Store Settings → Recent changes shows the owner's change as the server's sentence.                                                                                |
 | **TC-957** | Owner Settings → "Yesterday at your restaurant" switch saves off, then on (checked against the API).                                                              |
 
-The Staff regroup itself (Team · Schedule · Time & pay · Tips, then the group's own tabs) is covered by the rewritten TC-628 → TC-634 and TC-650 (`21-back-office-staff-ui`: the groups and tabs per add-on, deep links, the one-question payroll choice) and TC-664 (`22-ux-audit-staff-ui`: every group and every tab reachable at 1024 and 390 px, page never wider than the screen).
+The Staff regroup itself (People · Schedule · Payday · Tips · Settings since Stage 6, then the group's own tabs) is covered by the rewritten TC-628 → TC-634 and TC-650 (`21-back-office-staff-ui`: the groups and tabs per add-on, deep links, the one-question payroll choice) and TC-664 (`22-ux-audit-staff-ui`: every group and every tab reachable at 1024 and 390 px, page never wider than the screen).
 
 ---
 
@@ -3826,3 +3826,23 @@ RestauNax back-office audit Stage 7, tax depth track (bo1031/taxdepth, W4:H2, M3
 | **TC-1616** | `dashboard/owner/37-sales-tax-depth-ui` | Add certificate (buyer, Government, number, an expiry in the past): the row shows Government and is flagged expired. |
 | **TC-1617** | `dashboard/owner/37-sales-tax-depth-ui` | The report's Dates choice: Calendar dates shows "midnight to midnight"; Business days shows the business-day line. |
 | **TC-1618** | `dashboard/admin/tax-rate-review-ui` | HQ → Finance → Sales tax rate review lists the tenant at 8% with a result, no edit control, and downloads `tax-rate-review-<date>.csv`. |
+
+## TC-1700 → TC-1712 — Stage 6: setup interview and the simpler Staff page
+
+RestauNax back-office audit Stage 6, setup & staff simplification track (bo1031/uxsetup, W0:J1-a, J1-b, OB-1, OB-3, OB-4, OB-5). Gated by `RELEASED_ON_QA.staffSetupStage6` (`utils/releaseGate.ts`, probe `GET /restaurant/:id/back-office/setup-interview`) until it reaches QA. Tag `@staff-setup`. A CONFIRMED pay-frequency rule refusing the interview needs an owner confirmation QA can't make: restaunax `setupInterview.int.test.ts` proves it. The rewritten Staff-layout tests TC-628 → TC-634, TC-650 (`21-back-office-staff-ui`), TC-664 (`22-ux-audit-staff-ui`) and TC-677 (`23-tip-waterfall-ui`) carry the same gate where they read the new layout.
+
+| TC | Spec | What it proves |
+| --- | --- | --- |
+| **TC-1700** | `dashboard/owner/api-setup-interview` | GET for an Arizona counter-service owner (Scheduling + Tips): state AZ / Arizona from the address, pool by hours recommended, four pay frequencies (monthly flagged with a note), payroll file / own Gusto only (no Payroll add-on), "do you schedule" yes; text, never keys; the checklist reports the interview as available, not answered. |
+| **TC-1701** | `dashboard/owner/api-setup-interview` | POST writes all five in one go: overtime preset STATE, every two weeks, payroll file, no schedule (clock-in rule off), a pool by hours (a Counter job made); the checklist's jobs, pay schedule, tip rules, payroll and schedule steps are done; the settings history (area staff) has a row per answer. |
+| **TC-1702** | `dashboard/owner/api-setup-interview` | The same answers again change nothing (no job, 0 history rows); GET reads them back. |
+| **TC-1703** | `dashboard/owner/api-setup-interview` | RestauNax Payroll without the add-on is skipped with a sentence (ES) and the file stays chosen (provider `chosenMode` FILE); monthly in Arizona saves with a pay-frequency warning while the rule is DRAFT (refused once CONFIRMED). |
+| **TC-1704** | `dashboard/owner/api-setup-interview` | A state other than the address's is 400 STATE_NOT_ADDRESS naming AZ (the full name "Arizona" is accepted); an unknown pay frequency or a missing payroll mode is 400 INVALID_ANSWER. |
+| **TC-1705** | `dashboard/owner/api-setup-interview` | Another owner is refused (403/404) both ways; a restaurant without Timecards gets 200 `available:false` on GET and 403 FEATURE_NOT_ENTITLED on POST; no token is 401. |
+| **TC-1706** | `dashboard/owner/api-setup-interview` | Choosing own Gusto adds "Connect your Gusto account" to the checklist (payroll mode still done); back to the file removes it. |
+| **TC-1707** | `dashboard/owner/22-ux-audit-staff-ui` | Every old `?staffTab=` link lands on its screen in People · Schedule · Payday · Tips · Settings (roles → Permissions, shifts → Timecards and breaks → Pay & overtime with Timecards, `settings` → Settings); roles opens the one Permissions screen with both sections. |
+| **TC-1708** | `dashboard/owner/23-tip-waterfall-ui` | Tip policy: the presets card sits above the tip-outs; a Bar sales rule hides its category choice and the approval guard until Advanced is opened. |
+| **TC-1709** | `dashboard/owner/38-setup-staff-simplify-ui` | The interview dialog from the setup card: Arizona from the address, pool by hours pre-picked, no RestauNax Payroll, save → overtime preset STATE, every two weeks, payroll file; the checklist steps are done and struck through on the card. |
+| **TC-1710** | `dashboard/owner/38-setup-staff-simplify-ui` | One Permissions screen: Shift lead loses "Comp an item" (Save role) and comps need a reason (Save permissions) without leaving it; the exceptions link opens People. |
+| **TC-1711** | `dashboard/owner/38-setup-staff-simplify-ui` | With the payroll file chosen, Pay & overtime shows only it (no Gusto / RestauNax Payroll wording); "Change payroll method" brings back "Do you already use Gusto?". |
+| **TC-1712** | `dashboard/owner/38-setup-staff-simplify-ui` | Store Settings: an owner sees the RestauNax setup values as one line with a mailto "Contact support"; the values (e.g. "Business day ends at") only after "Show details". |

@@ -287,3 +287,47 @@ export const AUTO_GRATUITY_HOUSE: Record<string, LooseJson> = {
   taxable: false,
   distribution: "HOUSE",
 };
+
+// ── Setup interview (back-office audit Stage 6, W0:J1-a) ────────────────────
+
+/** The five answers (POST body). */
+export interface SetupInterviewAnswers {
+  state?: string | null;
+  tipPreset?: "POOL_BY_HOURS" | "SERVER_TIP_OUT" | "KEEP_OWN" | string | null;
+  payFrequency?: string;
+  payrollMode?: "FILE" | "OWN_GUSTO" | "RESTAUNAX_PAYROLL" | string;
+  usesSchedule?: boolean | null;
+}
+
+/**
+ * GET|POST /restaurant/:rid/back-office/setup-interview — the questions with
+ * the current answers (GET), or the answers written in one go (POST →
+ * `{ skipped[], warnings[], createdJobs[], changes, checklist }`).
+ */
+export const setupInterviewRaw = (
+  token: string,
+  rid: string,
+  answers?: SetupInterviewAnswers,
+  headers?: Record<string, string>
+) =>
+  apiRequestRaw<{
+    success?: boolean;
+    data?: Rec;
+    error?: string;
+    message?: string;
+  }>(
+    answers ? "POST" : "GET",
+    `/restaurant/${rid}/back-office/setup-interview`,
+    answers,
+    token,
+    headers
+  );
+
+/** GET /restaurant/:rid/staff/capabilities — the catalogue and the roles. */
+export const staffCapabilitiesRaw = (token: string, rid: string) =>
+  apiRequestRaw<{ success?: boolean; data?: Rec }>(
+    "GET",
+    `/restaurant/${rid}/staff/capabilities`,
+    undefined,
+    token
+  );
