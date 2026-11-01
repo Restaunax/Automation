@@ -11,7 +11,8 @@
  * regression can't hide as a skip.
  *
  * Select a part's tests with its tag: `--grep @training`, `--grep @closeout`,
- * `--grep @bugfix-1036`, `--grep @settings-safety`, `--grep @switch-click`.
+ * `--grep @bugfix-1036`, `--grep @settings-safety`, `--grep @switch-click`,
+ * `--grep @labor-engines`.
  */
 import { test, expect } from "../fixtures/base";
 import { apiRequestRaw } from "./apiHelper";
@@ -52,6 +53,12 @@ export const RELEASED_ON_QA = {
    *  (close.volume, time.laborPercent, tips.cashDeclared, …). Flip once the
    *  simulator with them runs on QA. */
   simScenariosStage6: false,
+  /** RestauNax back-office audit, Stage 5 labor-law engines (branch
+   *  bo1031/engines, W3:M1 / H2 / M5): "Use my state's rules" overtime
+   *  (default STATE), break packs + break decisions, premium pay, the
+   *  owner's labor-rule confirmation (`/api/compliance/:rid/labor-rules`) and
+   *  predictive scheduling. Flip once it is on QA. */
+  laborEngines: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -74,6 +81,8 @@ const REASON: Record<ReleasePart, string> = {
     "The Stage 6 simulator checks (W0:SIM-10..12) are not in QA's daily report yet",
   requestFlowStage6:
     "Waiting / declined add-on requests (RestauNax bo1031/reqflow, Stage 6) are not on this environment yet — HQ's request list has no waitingCount",
+  laborEngines:
+    "The Stage 5 labor-law engines (RestauNax bo1031/engines) are not on this environment yet — /api/compliance/:id/labor-rules answers 404",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
@@ -169,4 +178,22 @@ export async function probeRequestFlowStage6(
     adminToken
   );
   return res.status === 200 && typeof res.data?.waitingCount === "number";
+}
+
+/**
+ * Are the Stage 5 labor-law engines deployed? `GET /api/compliance/:rid/
+ * labor-rules` is a core read (no add-on) for the restaurant's owner that
+ * only exists with the change. Read-only.
+ */
+export async function probeLaborEngines(
+  ownerToken: string,
+  restaurantId: string
+): Promise<boolean> {
+  const res = await apiRequestRaw(
+    "GET",
+    `/api/compliance/${restaurantId}/labor-rules`,
+    undefined,
+    ownerToken
+  );
+  return res.status !== 404;
 }

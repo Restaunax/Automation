@@ -164,6 +164,21 @@ nightly runs them instead of skipping.
   only logged as `pos_tax_mismatch`), so a device that sends `tax: 0` on
   taxable items is accepted (the service fee's tax is still the server's).
 
+### Labor-law engines (back-office audit Stage 5, TC-1430..1438)
+
+Added to rows 4, 5 and 13 (`api-scheduling`, `api-timecards`,
+`api-free-breaks`) and gated by `RELEASED_ON_QA.laborEngines` until
+`bo1031/engines` is on QA. "Use my state's rules" (STATE) is now the default
+overtime preset. In Florida it pays exactly what FEDERAL did, so TC-580/581
+are unchanged. A missed break is settled by a break decision (TC-1431) as
+well as by "Mark reviewed" (TC-584, kept for older builds). The owner reads
+and confirms the state's labor rules (TC-1433/1434). The 20-minute unpaid
+break minimum is the federal floor that a CONFIRMED state meal rule can raise
+(TC-1435). The schedule week and publish carry predictive scheduling, with no
+premium in Miami (TC-1436..1438). Earning a premium under a CONFIRMED rule
+needs a California / New York / Seattle tenant, so the backend integration
+test covers it.
+
 ## Pay at the table (restaunax #926)
 
 Not back office, but table service, and the same throwaway-tenant pattern:

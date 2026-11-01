@@ -6993,7 +6993,13 @@ export function publishScheduleRaw(
   notifyMode: "CHANGED" | "ALL" | "NONE" = "NONE"
 ): Promise<
   RawResponse<{
-    data?: { published: number; notified: number; publicationId: string };
+    data?: {
+      published: number;
+      notified: number;
+      publicationId: string;
+      /** W3:M5 (Stage 5): predictability pay this publish owes. */
+      premiums?: LooseJson[];
+    };
   }>
 > {
   return apiRequestRaw(

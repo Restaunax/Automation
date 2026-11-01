@@ -14,13 +14,22 @@
  *     early window, OFF;
  *   - request settings for their effect: time-off notice (sick exempt),
  *     blackouts, availability and shift changes without approval, "show pay".
+ *   - W3:M5 (TC-1436..1438, Stage 5 labor-law engines, gated by
+ *     `RELEASED_ON_QA.laborEngines`): the week carries `predictiveScheduling`
+ *     (Miami has no fair-workweek rule: NO_RULE, not covered, the owner's
+ *     8-hour minimum rest still drives SHORT_REST) and any NOTICE_PREMIUM
+ *     warning has the contract's shape; `scheduling.predictive` is saved and
+ *     normalized (bad values keep / clamp, never 400); publish answers with a
+ *     `premiums` array (empty here).
  *
- * Restaurant is in Miami (FL → FEDERAL overtime, America/New_York). Serial.
- * Skips without ADMIN creds or Mailpit.
+ * Restaurant is in Miami (FL → federal overtime under the default "Use my
+ * state's rules", America/New_York). Serial. Fails (never skips) without
+ * ADMIN creds or Mailpit.
  */
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
 import { generateRunId, recordUserForCleanup } from "../../../utils/testData";
+import { requireRelease, probeLaborEngines } from "../../../utils/releaseGate";
 import { waitForEmail, extractInviteToken } from "../../../utils/emailHelper";
 import {
   apiLogin,
@@ -66,15 +75,6 @@ const at = (date: string, hhmm: string) => `${date}T${hhmm}:00.000Z`;
 test.describe.configure({ mode: "serial" });
 
 test.describe("Scheduling — build, cost, warn, publish, clock-in rule (API)", () => {
-  test.skip(
-    !ADMIN_EMAIL || !ADMIN_PASSWORD,
-    "ADMIN_EMAIL / ADMIN_PASSWORD not set (the file mints its own tenant)"
-  );
-  test.skip(
-    !MAILPIT,
-    "Requires Mailpit (MAILPIT_BASE_URL): invites and schedules travel by email"
-  );
-
   const runId = generateRunId();
   let adminToken = "";
   let ownerToken = "";
@@ -205,7 +205,13 @@ test.describe("Scheduling — build, cost, warn, publish, clock-in rule (API)", 
 
   test.beforeAll(async () => {
     test.setTimeout(300_000);
-    if (!ADMIN_EMAIL || !ADMIN_PASSWORD || !MAILPIT) return;
+    // Fail, never skip, without the environment (W5:T7).
+    if (!ADMIN_EMAIL || !ADMIN_PASSWORD)
+      throw new Error("[api-scheduling] ADMIN_EMAIL / ADMIN_PASSWORD not set");
+    if (!MAILPIT)
+      throw new Error(
+        "[api-scheduling] MAILPIT_BASE_URL not set: invites and schedules travel by email"
+      );
     adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
     const tenant = await createSecondOwner(adminToken, runId);
     if (!tenant.restaurantId) throw new Error("[api-scheduling] no tenant");
@@ -761,5 +767,182 @@ test.describe("Scheduling — build, cost, warn, publish, clock-in rule (API)", 
       });
       await settings({ clockInRule: "OFF" });
     }
+  });
+
+  // ── W3:M5: predictive scheduling (RestauNax back-office audit Stage 5) ──
+  // Gated: not on QA yet (utils/releaseGate.ts). Miami has no fair-workweek
+  // rule, so nothing is covered and no predictability pay is owed; the
+  // shapes are asserted for when a rule applies.
+  const REASONS = [
+    "NO_RULE",
+    "OWNER_COVERED",
+    "OWNER_NOT_COVERED",
+    "AUTO_COVERED",
+    "AUTO_NOT_COVERED",
+  ];
+  const gateLaborEngines = async () =>
+    requireRelease(
+      "laborEngines",
+      await probeLaborEngines(ownerToken, restaurantId)
+    );
+  const expectNoticePremiumShape = (x: Rec) =>
+    expect(x).toMatchObject({
+      code: "NOTICE_PREMIUM",
+      staffMemberId: expect.any(String),
+      shiftId: expect.any(String),
+      kind: expect.stringMatching(/^(ADDED_HOURS|REDUCED_HOURS)$/),
+      payMinutes: expect.any(Number),
+      amountCents: expect.any(Number),
+      paid: expect.any(Boolean),
+    });
+
+  test("TC-1436: W3:M5 the week carries predictiveScheduling — Miami: no rule, not covered, the owner's minimum rest @labor-engines", async () => {
+    await gateLaborEngines();
+    const w = await week(w1);
+    const p = w.predictiveScheduling as Rec;
+    expect(p, JSON.stringify(Object.keys(w))).toBeTruthy();
+    expect(REASONS).toContain(p.reason);
+    expect(["CONFIRMED", "DRAFT", "MISSING"]).toContain(p.status);
+    expect(typeof p.needsConfirmation).toBe("boolean");
+    expect(Array.isArray(p.sources)).toBe(true);
+    expect(p).toMatchObject({
+      covered: false,
+      reason: "NO_RULE",
+      noticeDays: null,
+      value: null,
+      // Not covered: the warnings use the owner's setting.
+      minRestHours: (w.settings as Rec).minRestHours,
+    });
+    expect((w.settings as Rec).predictive).toEqual({
+      coverage: "AUTO",
+      franchiseNetwork: false,
+      networkLocations: null,
+      networkEmployees: null,
+    });
+    // No covered restaurant, no predictability pay on any week.
+    for (const date of [w1, w2, w3]) {
+      const notices = codes(await week(date), "NOTICE_PREMIUM");
+      notices.forEach(expectNoticePremiumShape);
+      expect(notices).toEqual([]);
+    }
+  });
+
+  test("TC-1437: W3:M5 scheduling.predictive is saved and normalized — bad values keep or clamp @labor-engines", async () => {
+    await gateLaborEngines();
+    const chosen = {
+      coverage: "COVERED",
+      franchiseNetwork: true,
+      networkLocations: 12,
+      networkEmployees: 300,
+    };
+    await settings({ predictive: chosen });
+    // The owner's "covered" can't invent a rule: Miami still has none.
+    let w = await week(w1);
+    expect(w.predictiveScheduling).toMatchObject({
+      covered: false,
+      reason: "NO_RULE",
+    });
+    expect((w.settings as Rec).predictive).toEqual(chosen);
+
+    const put = async (predictive: Rec) => {
+      const r = await putPayrollSettingsRaw(ownerToken, restaurantId, {
+        scheduling: { predictive },
+      });
+      expect(r.status, JSON.stringify(r.data)).toBe(200);
+      return (r.data.data as Rec).settings.scheduling.predictive as Rec;
+    };
+    // An unknown coverage and a non-boolean keep what was saved; counts
+    // clamp to 0..10,000,000 and round to whole numbers.
+    expect(
+      await put({
+        coverage: "SOMETIMES",
+        franchiseNetwork: "yes",
+        networkLocations: -5,
+        networkEmployees: 2.6,
+      })
+    ).toEqual({
+      coverage: "COVERED",
+      franchiseNetwork: true,
+      networkLocations: 0,
+      networkEmployees: 3,
+    });
+    expect(
+      await put({ networkLocations: 99_999_999, networkEmployees: "lots" })
+    ).toEqual({
+      coverage: "COVERED",
+      franchiseNetwork: true,
+      networkLocations: 10_000_000,
+      networkEmployees: 3,
+    });
+    // null clears a count; leaving a key out keeps it.
+    expect(
+      await put({ coverage: "NOT_COVERED", networkLocations: null })
+    ).toEqual({
+      coverage: "NOT_COVERED",
+      franchiseNetwork: true,
+      networkLocations: null,
+      networkEmployees: 3,
+    });
+    w = await week(w1);
+    expect(w.predictiveScheduling).toMatchObject({
+      covered: false,
+      reason: "NO_RULE",
+    });
+    await settings({
+      predictive: {
+        coverage: "AUTO",
+        franchiseNetwork: false,
+        networkLocations: null,
+        networkEmployees: null,
+      },
+    });
+  });
+
+  test("TC-1438: W3:M5 publish answers with the predictability pay it owes — none in Miami @labor-engines", async () => {
+    await gateLaborEngines();
+    // Week 2 (TC-571's six shifts) was never published.
+    const before = await week(w2);
+    expect(before.pendingCount).toBeGreaterThan(0);
+    const pub = await publishScheduleRaw(ownerToken, restaurantId, w2, "NONE");
+    expect(pub.status, JSON.stringify(pub.data)).toBe(200);
+    expect(pub.data.data).toMatchObject({
+      published: before.pendingCount,
+      notified: 0,
+    });
+    const premiums = pub.data.data?.premiums;
+    expect(Array.isArray(premiums), JSON.stringify(pub.data.data)).toBe(true);
+    for (const p of list(premiums))
+      expect(p).toMatchObject({
+        staffMemberId: expect.any(String),
+        scheduledShiftId: expect.any(String),
+        localDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+        kind: expect.any(String),
+        payMinutes: expect.any(Number),
+        rateCents: expect.any(Number),
+        amountCents: expect.any(Number),
+        paid: expect.any(Boolean),
+      });
+    expect(premiums).toEqual([]);
+
+    // A change to a published shift: still no notice premium (not covered),
+    // and the republish owes nothing.
+    const first = list((await week(w2)).shifts)[0];
+    const edited = await schedulingRaw(
+      ownerToken,
+      restaurantId,
+      "PATCH",
+      `/shifts/${String(first?.id)}`,
+      { breakMinutes: 30 }
+    );
+    expect(edited.status, JSON.stringify(edited.data)).toBe(200);
+    expect(codes(await week(w2), "NOTICE_PREMIUM")).toEqual([]);
+    const again = await publishScheduleRaw(
+      ownerToken,
+      restaurantId,
+      w2,
+      "NONE"
+    );
+    expect(again.status, JSON.stringify(again.data)).toBe(200);
+    expect(again.data.data).toMatchObject({ published: 1, premiums: [] });
   });
 });
