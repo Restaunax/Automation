@@ -16,6 +16,10 @@
  * overtime on Barista — puts the premium on the full regular rate that the
  * provider's 1.5 × $15 leaves out on an "overtime premium adjustment"
  * earning in every format, and Gusto gets one row per job.
+ * W4:M8 (TC-1473): Hal's 4 h of federal overtime adds the FLSA / state-only
+ * overtime hours and the qualified overtime premium to the RestauNax file
+ * (only because there is overtime; TC-1469 in api-staff-ops pins the
+ * no-overtime file without them).
  * W3:H7 (TC-1364..1366): mark-paid refuses a period that isn't approved (P1,
  * reopened in TC-603); P2 (exported) marked paid stays PAID through a
  * re-export and the file is unchanged; a shift added to paid P2 for Ivy
@@ -394,13 +398,14 @@ test.describe("Payroll export — every format from the approved period (API)", 
     expect(rows).toHaveLength(3);
     // periodStart, periodEnd, payrollId, last, first, job, jobCode, rate,
     // reg h, OT h, DT h, straight, premium, wages, tipsPaid, fromDrawer,
-    // declared, serviceCharges, minimumWageTopUp, grossPaid — sorted by
-    // last name.
+    // declared, serviceCharges, minimumWageTopUp, [W4:M8, TC-1473: FLSA
+    // overtime h, state-only overtime h, qualified overtime premium — Hal's
+    // 4 h of federal overtime puts them in], grossPaid — sorted by last name.
     expect(rows[1]).toBe(
-      `${p1},${addDays(p1, 6)},E-100,Avery,Hal,${baristaName},BAR,15.00,40.00,4.00,0.00,660.00,30.00,690.00,0.00,0.00,12.34,0.00,0.00,690.00`
+      `${p1},${addDays(p1, 6)},E-100,Avery,Hal,${baristaName},BAR,15.00,40.00,4.00,0.00,660.00,30.00,690.00,0.00,0.00,12.34,0.00,0.00,4.00,0.00,30.00,690.00`
     );
     expect(rows[2]).toBe(
-      `${p1},${addDays(p1, 6)},,Zane,Ivy,${hostName},,16.00,8.00,0.00,0.00,128.00,0.00,128.00,0.00,0.00,0.00,0.00,0.00,128.00`
+      `${p1},${addDays(p1, 6)},,Zane,Ivy,${hostName},,16.00,8.00,0.00,0.00,128.00,0.00,128.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00,128.00`
     );
     const wages = rows
       .slice(1)
@@ -416,6 +421,38 @@ test.describe("Payroll export — every format from the approved period (API)", 
     expect(
       list(periods.data.data.periods).find((p) => p.startDate === p1)?.status
     ).toBe("EXPORTED");
+  });
+
+  test("TC-1473: W4:M8 overtime in the file adds the federal / state split and the qualified premium (report only, not in gross)", async () => {
+    // Hal: 44 h at $15.00 in Miami (no state overtime) → 4.00 federal hours,
+    // 0.00 state-only, $30.00 qualified premium (half the rate on 4 h).
+    const r = await file("RESTAUNAX");
+    expect(r.status, String(r.data)).toBe(200);
+    const rows = lines(r.data);
+    const header = (rows[0] ?? "").split(",");
+    const flsa = header.indexOf("Federal (FLSA) overtime hours (report only)");
+    const state = header.indexOf("State-only overtime hours (report only)");
+    const premium = header.indexOf(
+      "Qualified overtime premium for the W-2 (report only)"
+    );
+    expect(flsa, header.join(",")).toBeGreaterThan(-1);
+    expect(state).toBe(flsa + 1);
+    expect(premium).toBe(flsa + 2);
+    expect(header.at(-1)).toBe("Gross paid");
+    const row = (last: string) =>
+      rows.find((l) => l.split(",")[3] === last)?.split(",") ?? [];
+    expect([
+      row("Avery")[flsa],
+      row("Avery")[state],
+      row("Avery")[premium],
+    ]).toEqual(["4.00", "0.00", "30.00"]);
+    expect([
+      row("Zane")[flsa],
+      row("Zane")[state],
+      row("Zane")[premium],
+    ]).toEqual(["0.00", "0.00", "0.00"]);
+    // Report only: gross is still wages + paid tips + service + top-up.
+    expect(row("Avery").at(-1)).toBe("690.00");
   });
 
   test("TC-600: Gusto, ADP RUN and Paychex files carry the same hours and money", async () => {
