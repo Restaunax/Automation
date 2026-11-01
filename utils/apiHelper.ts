@@ -185,10 +185,19 @@ export async function setPassProcessingFee(
  * ARCHIVED (soft delete, still in the database). Returns which one happened,
  * so a test that must leave nothing behind can assert "purged".
  */
+/**
+ * KEEP_TEST_DATA=true turns the post-run cleanup deletes below into no-ops —
+ * for runs against a developer's LOCAL stack, whose database must never lose
+ * rows (throwaway tenants stay behind there). QA/CI never set it.
+ */
+export const keepTestData = (): boolean =>
+  process.env.KEEP_TEST_DATA === "true";
+
 export async function deleteTestRestaurant(
   adminAccessToken: string,
   restaurantId: string
 ): Promise<"purged" | "archived" | undefined> {
+  if (keepTestData()) return undefined;
   const data = await apiRequest<{ action?: "purged" | "archived" }>(
     "DELETE",
     `/api/admin/restaurants/${restaurantId}`,
@@ -226,6 +235,7 @@ export async function permanentlyDeleteMenuItemApi(
   adminToken: string,
   menuItemId: string
 ): Promise<void> {
+  if (keepTestData()) return;
   await apiRequest<unknown>(
     "DELETE",
     `/menu/menuItemId/${menuItemId}/permanent`,
@@ -241,6 +251,7 @@ export async function deleteTestMenuGroup(
   accessToken: string,
   menuGroupId: string
 ): Promise<void> {
+  if (keepTestData()) return;
   await apiRequest<unknown>(
     "DELETE",
     `/menu/group/${menuGroupId}`,
@@ -3748,7 +3759,9 @@ export function listReservationServicePeriodsOwnerRaw(
 /** GET /restaurant/:rid/reservation-service-periods/suggested — booking
  *  windows suggested from the restaurant's business hours (2026-10-08).
  *  Data: {hasBusinessHours, windows: [{dayOfWeek, startTime, endTime}],
- *  skipped: [{dayOfWeek, reason: "CLOSED"|"OPEN_24_HOURS"|"TOO_SHORT"}]}. */
+ *  skipped: [{dayOfWeek, reason: "CLOSED"|"OPEN_24_HOURS"|"TOO_SHORT"}],
+ *  suggestedMaxPartiesPerSlot, suggestedSlotIntervalMinutes} (the last two
+ *  2026-10-31: max(1, round(sellable tables × 15 / default duration))). */
 export function suggestReservationServicePeriodsOwnerRaw(
   ownerToken: string,
   restaurantId: string
@@ -4522,7 +4535,11 @@ export function notifyReservationTabletRaw(
 }
 
 /** POST /api/tablet/reservations/:id/status {action: "confirm"|"arrive"|
- *  "partially_seat"|"no_show"|"cancel"|"complete"} — lifecycle transition. */
+ *  "partially_seat"|"seat"|"no_show"|"cancel"|"complete"|"reinstate"} —
+ *  lifecycle transition. `seat` (2026-10-31) is only "the rest of the party
+ *  arrived": PARTIALLY_SEATED → SEATED on the tables they already have (any
+ *  other status → 400 RESERVATION_INVALID_TRANSITION; a first seating goes
+ *  through /seat). */
 export function reservationStatusTabletRaw(
   tabletToken: string,
   staffSession: string,
@@ -4531,9 +4548,11 @@ export function reservationStatusTabletRaw(
     | "confirm"
     | "arrive"
     | "partially_seat"
+    | "seat"
     | "no_show"
     | "cancel"
     | "complete"
+    | "reinstate"
 ): Promise<RawResponse<Record<string, unknown>>> {
   return apiRequestRaw(
     "POST",
@@ -4546,7 +4565,9 @@ export function reservationStatusTabletRaw(
 
 /** POST /api/tablet/reservations/:id/seat {tableIds, guestCount?,
  *  clientRequestId?} — seat a reservation; response carries
- *  {reservation, prefill} (prefill feeds the create-order screen). */
+ *  {reservation, prefill} (prefill feeds the create-order screen).
+ *  `guestCount` below the party size → PARTIALLY_SEATED (2026-10-31);
+ *  omitted or the full count → SEATED. */
 export function seatReservationTabletRaw(
   tabletToken: string,
   staffSession: string,
@@ -4589,11 +4610,15 @@ export function holdReservationTablesTabletRaw(
 }
 
 /** PATCH /api/tablet/reservations/:id {guestName?, guestPhone?, partySize?,
- *  scheduledAt?, guestNotes?, internalNotes?} — the host stand edits a
- *  booking that hasn't arrived (BOOKED/CONFIRMED RESERVATION only, else 409
- *  RESERVATION_NOT_EDITABLE). A move into the past → 400
- *  RESERVATION_IN_PAST; moving the time releases a held table (2026-10-12).
- *  Data: the serialized reservation. */
+ *  scheduledAt?, guestNotes?, internalNotes?, quotedWaitMinutes?} — the host
+ *  stand edits a row. What it accepts (2026-10-31, editableFieldsFor): a
+ *  BOOKED/CONFIRMED booking everything; an ARRIVED booking partySize + notes;
+ *  a WAITLIST entry in BOOKED/NOTIFIED name, phone, party, notes and
+ *  quotedWaitMinutes (createdAt kept); anything else 409
+ *  RESERVATION_NOT_EDITABLE. A move into the past → 400 RESERVATION_IN_PAST;
+ *  a bad quote → 400 RESERVATION_QUOTED_WAIT_INVALID; moving the time
+ *  releases a held table. Data: the serialized reservation (+ advisory
+ *  `pacingExceeded` / `tablesExceeded`, present only when true). */
 export function updateReservationTabletRaw(
   tabletToken: string,
   staffSession: string,
@@ -4782,7 +4807,9 @@ export function keepReservationHoldTabletRaw(
 // ── Public reservations (no auth) ────────────────────────────────────────────
 
 /** GET /api/public/restaurants/:rid/reservation-availability?date=&partySize=
- *  — the storefront/booking-widget availability check. */
+ *  — the storefront/booking-widget availability check. Data also carries
+ *  (2026-10-31) `timeZone` (IANA) and `minPartySize` / `maxPartySize` (over
+ *  the active PACED periods; null when none); slots are unique + sorted. */
 export function getPublicAvailabilityRaw(
   restaurantId: string,
   date: string,
@@ -4816,7 +4843,8 @@ export function getPublicAvailabilityDaysRaw(
 
 /** POST /api/public/restaurants/:rid/reservations {guestName, guestPhone,
  *  partySize, scheduledAt, guestEmail?, guestNotes?, clientRequestId?} —
- *  guest self-service booking. */
+ *  guest self-service booking. Caps (2026-10-31): guestName 100, guestNotes
+ *  500, guestEmail 254 + email-shaped — else 400 SYSTEM_VALIDATION_ERROR. */
 export function createPublicReservationRaw(
   restaurantId: string,
   body: Record<string, unknown>
@@ -4829,7 +4857,8 @@ export function createPublicReservationRaw(
 }
 
 /** GET /api/public/reservations/manage/:manageToken — guest self-manage view
- *  (the link sent by the confirmation SMS/email). */
+ *  (the link sent by the confirmation SMS/email). Carries `timeZone` since
+ *  2026-10-31. */
 export function getManagedReservationRaw(
   manageToken: string
 ): Promise<RawResponse<Record<string, unknown>>> {
