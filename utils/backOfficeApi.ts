@@ -11,6 +11,7 @@
  *   GET  /api/restaurantId/:rid/ordering-status
  *   GET  /api/restaurantId/:rid/settings/changes?area=&limit=
  *   GET|PUT /api/owner-settings/reports/:rid          — morningSummaryEnabled
+ *   GET  /api/compliance/:rid/rules?date=             — labor + tax rules (Stage 2)
  *
  * Every text field these return is resolved on the server (never an i18n
  * key), so specs assert the English sentence.
@@ -57,6 +58,24 @@ export const needsYouRaw = (token: string, rid: string) =>
     `/api/needs-you/restaurant/${rid}`,
     undefined,
     token
+  );
+
+/**
+ * The labor and tax rules in force at the restaurant's location on `date`
+ * (default: today there): resolved text, value, status and source per rule
+ * (back-office audit 2026-10, Stage 2).
+ */
+export const complianceRulesRaw = (
+  token: string,
+  rid: string,
+  opts: { date?: string; lang?: string } = {}
+) =>
+  apiRequestRaw<{ success?: boolean; data?: Rec; message?: string }>(
+    "GET",
+    `/api/compliance/${rid}/rules${opts.date ? `?date=${encodeURIComponent(opts.date)}` : ""}`,
+    undefined,
+    token,
+    opts.lang ? { "Accept-Language": opts.lang } : undefined
   );
 
 export const needsYouMineRaw = (token: string) =>
