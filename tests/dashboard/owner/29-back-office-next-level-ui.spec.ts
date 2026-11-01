@@ -7,7 +7,8 @@
  *
  *   TC-952  Today (the restaurant's landing page) shows "Needs you today"
  *           with the period to approve; its button opens Timecards on it.
- *   TC-953  Staff → Time & pay → Payday: the deadline sentence and the steps.
+ *   TC-953  Staff → Payday (Time & pay before Stage 6) → Payday: the
+ *           deadline sentence and the steps.
  *   TC-954  The "Set up your back office" card on Staff shows the next step;
  *           its button opens that step's screen.
  *   TC-955  Store Settings → Ordering & hours → Holiday & special hours lists
@@ -172,7 +173,7 @@ test.describe("Owner — back office next level (UI)", () => {
     );
   });
 
-  test("TC-953: Time & pay → Payday shows the deadline in words and the steps", async () => {
+  test("TC-953: Payday → Payday shows the deadline in words and the steps", async () => {
     const api = await paydayRaw(ownerToken, restaurantId, period.startDate);
     const text = String((api.data.data as Rec).deadline?.text ?? "");
     expect(text).not.toBe("");
@@ -180,8 +181,11 @@ test.describe("Owner — back office next level (UI)", () => {
     await page().goto(portal("?tab=staff&staffTab=timecards"), {
       waitUntil: "domcontentloaded",
     });
-    // Reach it the way an owner does: the group, then its tab.
-    await groupBar().getByRole("tab", { name: "Time & pay" }).click();
+    // Reach it the way an owner does: the group, then its tab. The group is
+    // "Payday" since the Stage 6 Staff page (W0:OB-1), "Time & pay" before.
+    await groupBar()
+      .getByRole("tab", { name: /^(Payday|Time & pay)$/ })
+      .click();
     await groupTabs().filter({ hasText: "Payday" }).click();
     await expect(page()).toHaveURL(/staffTab=payday/);
     await expect(page().getByTestId("payday-deadline")).toHaveText(text, {

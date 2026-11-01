@@ -5,7 +5,7 @@
  * api-staff-ops.spec.ts (TC-1460..1472); these only prove the owner can see
  * and use the new settings.
  *
- *   TC-1474  Staff → Time & pay → Payroll settings shows the two staffOps
+ *   TC-1474  Staff → Payroll settings (Settings → Pay & overtime since Stage 6) shows the two staffOps
  *            switches: "Clock out forgotten shifts at the end of the business
  *            day" (on by default) and "Large food establishment" (off).
  *   TC-1475  Staff → Team → Jobs & wages → Add job: a tipped job offers the

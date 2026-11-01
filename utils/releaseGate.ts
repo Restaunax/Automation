@@ -13,7 +13,7 @@
  * Select a part's tests with its tag: `--grep @training`, `--grep @closeout`,
  * `--grep @bugfix-1036`, `--grep @settings-safety`, `--grep @switch-click`,
  * `--grep @labor-engines`, `--grep @tax-depth`, `--grep @print-builders`,
- * `--grep @team-comms`.
+ * `--grep @team-comms`, `--grep @staff-setup`.
  */
 import { test, expect } from "../fixtures/base";
 import { apiRequestRaw } from "./apiHelper";
@@ -77,6 +77,14 @@ export const RELEASED_ON_QA = {
    *  geofenced punches) and one-way staff announcements with read receipts.
    *  Flip once it is on QA. */
   teamCommsGrowthB: false,
+  /** RestauNax back-office audit, Stage 6 setup & staff simplification
+   *  (branch bo1031/uxsetup, W0:J1-a / J1-b / OB-1 / OB-3 / OB-4 / OB-5):
+   *  the five-question setup interview
+   *  (`/restaurant/:rid/back-office/setup-interview`), the Staff page as
+   *  People · Schedule · Payday · Tips · Settings, one Permissions screen,
+   *  one payroll mode shown, tip policy presets first + Advanced, and the
+   *  RestauNax setup values on one line. Flip once it is on QA. */
+  staffSetupStage6: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -101,6 +109,8 @@ const REASON: Record<ReleasePart, string> = {
     "Waiting / declined add-on requests (RestauNax bo1031/reqflow, Stage 6) are not on this environment yet — HQ's request list has no waitingCount",
   laborEngines:
     "The Stage 5 labor-law engines (RestauNax bo1031/engines) are not on this environment yet — /api/compliance/:id/labor-rules answers 404",
+  staffSetupStage6:
+    "The Stage 6 setup interview and Staff page simplification (RestauNax bo1031/uxsetup) are not on this environment yet — /restaurant/:id/back-office/setup-interview answers 404",
   taxDepthStage7:
     "The Stage 7 tax depth (RestauNax bo1031/taxdepth) is not on this environment yet — /api/tax/:id/rate-check answers 404",
   printBuilders:
@@ -270,6 +280,25 @@ export async function probeTeamCommsGrowthB(
   const res = await apiRequestRaw(
     "GET",
     `/api/staff/announcements/${restaurantId}`,
+    undefined,
+    ownerToken
+  );
+  return res.status !== 404;
+}
+
+/**
+ * Is the Stage 6 setup & staff simplification deployed? `GET
+ * /restaurant/:rid/back-office/setup-interview` answers every owner of the
+ * restaurant (an unavailable interview says so, never a 403) and only exists
+ * with the change; the dashboard's new Staff layout ships with it. Read-only.
+ */
+export async function probeStaffSetupStage6(
+  ownerToken: string,
+  restaurantId: string
+): Promise<boolean> {
+  const res = await apiRequestRaw(
+    "GET",
+    `/restaurant/${restaurantId}/back-office/setup-interview`,
     undefined,
     ownerToken
   );
