@@ -1171,6 +1171,39 @@ export async function setBusinessHoursApi(
 }
 
 /**
+ * Open every day 00:00–23:59 — NOT 24 hours. A day close pauses online
+ * ordering until the next opening; for a 24-hour venue that is "now", so the
+ * pause lifts at once (by design, restaunax nextOpeningAt.test.ts). With
+ * these hours the next opening is tomorrow at midnight, so "closed for the
+ * night" holds while a test checks it. Replaces the restaurant's rows.
+ */
+export async function setOpenAllDayHours(
+  accessToken: string,
+  restaurantId: string
+): Promise<void> {
+  const days = [
+    "MONDAY",
+    "TUESDAY",
+    "WEDNESDAY",
+    "THURSDAY",
+    "FRIDAY",
+    "SATURDAY",
+    "SUNDAY",
+  ];
+  await setBusinessHoursApi(
+    accessToken,
+    restaurantId,
+    days.map((day) => ({
+      day,
+      openingTime: "00:00:00",
+      closingTime: "23:59:00",
+      isClosed: false,
+      is24Hours: false,
+    }))
+  );
+}
+
+/**
  * Give a restaurant a tax rate if it has none — PUT /api/restaurantId/:id/settings
  * {tax}. Chain-location provisioning leaves tax null and the public /quote
  * endpoint refuses to price ("hasn't set its tax rate yet"), so fixture

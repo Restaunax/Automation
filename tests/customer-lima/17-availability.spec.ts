@@ -5,7 +5,8 @@
  *
  * Browser on template-lima, a per-run throwaway restaurant with its own
  * ordering slug (a pause and a day close stop ordering, so never the seed):
- * 7% tax, open 24 hours, Burger $12. One guest's cart is kept across the
+ * 7% tax, open every day 00:00–23:59 (not 24 hours, or a close's pause
+ * would lift at once), Burger $12. One guest's cart is kept across the
  * file; the owner flips the restaurant's state through the API between
  * tests, the way the dashboard's Store status does. Each state is checked on
  * the cart (where checkout starts) and by placing an order the way the site
@@ -41,7 +42,7 @@ import {
   createMenuItemFull,
   createSecondOwner,
   deleteTestRestaurant,
-  ensureBusinessHours,
+  setOpenAllDayHours,
   getRestaurantDetailsPublicRaw,
   ensureOrderingSlug,
   ensureTaxRate,
@@ -158,7 +159,8 @@ test.describe("Ordering site — when the restaurant isn't taking orders", () =>
     });
     await ensureTaxRate(ownerToken, restaurantId, 7);
     await setRestaurantPublishedApi(adminToken, restaurantId, true);
-    await ensureBusinessHours(ownerToken, restaurantId);
+    // Not 24 hours: a close then pauses ordering until tomorrow's opening.
+    await setOpenAllDayHours(ownerToken, restaurantId);
     await stripeTestOnboardingRaw(ownerToken, restaurantId);
     await ensureOrderingSlug(adminToken, "restaurant", restaurantId, slug);
     const food = await createMenuGroupNamed(ownerToken, `Food ${runId}`, {

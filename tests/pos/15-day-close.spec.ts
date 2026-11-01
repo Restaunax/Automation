@@ -37,8 +37,10 @@
  *           (pauseOrdering: false) leaves online ordering open. Every other
  *           close here sends nothing: the default pauses (orderingPaused).
  *
- * The tenant is open 24 hours, so the overnight pause is due to lift at the
- * next 15-minute business-day sweep; TC-1054..1056 run within seconds.
+ * The tenant is open every day 00:00–23:59 (setOpenAllDayHours), not 24
+ * hours: for a 24-hour venue the post-close pause lifts at once, by design.
+ * With these hours it lasts until tomorrow's opening, so TC-1055 sees the
+ * night closed.
  */
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../fixtures/base";
@@ -49,7 +51,7 @@ import {
   deleteTestRestaurant,
   updateRestaurantSettingsApi,
   ensureTaxRate,
-  ensureBusinessHours,
+  setOpenAllDayHours,
   setRestaurantPublishedApi,
   stripeTestOnboardingRaw,
   stripeConfigRaw,
@@ -173,7 +175,8 @@ test.describe("POS day close and day open (API)", () => {
     });
     await ensureTaxRate(ownerToken, restaurantId, 7);
     await setRestaurantPublishedApi(adminToken, restaurantId, true);
-    await ensureBusinessHours(ownerToken, restaurantId);
+    // Not 24 hours: a close then pauses ordering until tomorrow's opening.
+    await setOpenAllDayHours(ownerToken, restaurantId);
     const onboard = await stripeTestOnboardingRaw(ownerToken, restaurantId);
     if (onboard.status !== 200)
       throw new Error(`[day-close] stripe: ${JSON.stringify(onboard.data)}`);

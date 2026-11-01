@@ -277,7 +277,8 @@ test.describe("Sick time and PTO — policies and balances (API)", () => {
         usedThisYearMinutes: 0,
       });
       expect(b.policyId).toBe(b.kind === "SICK" ? sickId : ptoId);
-      expect(String(b.policyYear)).toMatch(/^\d{4}$/);
+      // The YYYY-MM-DD of the policy year's first day.
+      expect(String(b.policyYear)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     }
     expect(balances.find((b) => b.kind === "PTO")?.annualCapMinutes).toBe(2400);
   });

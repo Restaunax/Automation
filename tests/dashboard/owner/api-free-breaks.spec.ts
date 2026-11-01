@@ -70,10 +70,12 @@ test.describe("Basic breaks without an add-on (API)", () => {
   const uma: Person = { id: "", pin: "6491" }; // rules without TIMECARDS
   const vic: Person = { id: "", pin: "7359" }; // rules with TIMECARDS
 
-  const replay = (who: Person, events: Rec[]) =>
+  // `tag` keeps clientEventIds unique per replay: a reused id comes back as a
+  // duplicate (TC-1151 once replayed TC-638's ids and its CLOCK_OUT bounced).
+  const replay = (who: Person, events: Rec[], tag: string) =>
     tabletRaw<Rec>(tabletToken, "POST", "/staff/time-clock/replay", {
       events: events.map((e, i) => ({
-        clientEventId: `${runId}-${who.id}-${i}-${String(e.kind)}`,
+        clientEventId: `${runId}-${tag}-${who.id}-${i}-${String(e.kind)}`,
         staffMemberId: who.id,
         ...e,
       })),
@@ -201,14 +203,26 @@ test.describe("Basic breaks without an add-on (API)", () => {
   test("TC-638: hours — an unpaid break isn't worked time, a paid one is", async () => {
     // 100 minutes on the clock: a 30-minute meal (unpaid) and a 10-minute
     // coffee (paid) → 70 paid minutes.
-    const r = await replay(rae, [
-      { kind: "CLOCK_IN", occurredAt: minutesAgo(120) },
-      { kind: "BREAK_START", occurredAt: minutesAgo(100), breakTypeId: "meal" },
-      { kind: "BREAK_END", occurredAt: minutesAgo(70) },
-      { kind: "BREAK_START", occurredAt: minutesAgo(60), breakTypeId: "rest" },
-      { kind: "BREAK_END", occurredAt: minutesAgo(50) },
-      { kind: "CLOCK_OUT", occurredAt: minutesAgo(20) },
-    ]);
+    const r = await replay(
+      rae,
+      [
+        { kind: "CLOCK_IN", occurredAt: minutesAgo(120) },
+        {
+          kind: "BREAK_START",
+          occurredAt: minutesAgo(100),
+          breakTypeId: "meal",
+        },
+        { kind: "BREAK_END", occurredAt: minutesAgo(70) },
+        {
+          kind: "BREAK_START",
+          occurredAt: minutesAgo(60),
+          breakTypeId: "rest",
+        },
+        { kind: "BREAK_END", occurredAt: minutesAgo(50) },
+        { kind: "CLOCK_OUT", occurredAt: minutesAgo(20) },
+      ],
+      "tc638"
+    );
     expect(r.status, JSON.stringify(r.data)).toBe(200);
     expect(list(r.data.data?.results).map((x) => x.status)).toEqual(
       Array(6).fill("applied")
@@ -269,13 +283,24 @@ test.describe("Basic breaks without an add-on (API)", () => {
 
   test("TC-1151: an unpaid break taken for under 20 minutes stays paid time", async () => {
     // After TC-638's shift: 17 minutes on the clock with a 12-minute meal.
-    const r = await replay(rae, [
-      { kind: "CLOCK_IN", occurredAt: minutesAgo(19) },
-      { kind: "BREAK_START", occurredAt: minutesAgo(17), breakTypeId: "meal" },
-      { kind: "BREAK_END", occurredAt: minutesAgo(5) },
-      { kind: "CLOCK_OUT", occurredAt: minutesAgo(2) },
-    ]);
+    const r = await replay(
+      rae,
+      [
+        { kind: "CLOCK_IN", occurredAt: minutesAgo(19) },
+        {
+          kind: "BREAK_START",
+          occurredAt: minutesAgo(17),
+          breakTypeId: "meal",
+        },
+        { kind: "BREAK_END", occurredAt: minutesAgo(5) },
+        { kind: "CLOCK_OUT", occurredAt: minutesAgo(2) },
+      ],
+      "tc1151"
+    );
     expect(r.status, JSON.stringify(r.data)).toBe(200);
+    expect(list(r.data.data?.results).map((x) => x.status)).toEqual(
+      Array(4).fill("applied")
+    );
     const shifts = await ownerStaffRaw(
       ownerToken,
       restaurantId,
@@ -392,9 +417,11 @@ test.describe("Basic breaks without an add-on (API)", () => {
     await deleteFeatureOverrideAdminRaw(adminToken, restaurantId, "SCHEDULING");
 
     // 45 minutes on the clock, no break, past the 30-minute rule.
-    const inn = await replay(uma, [
-      { kind: "CLOCK_IN", occurredAt: minutesAgo(45) },
-    ]);
+    const inn = await replay(
+      uma,
+      [{ kind: "CLOCK_IN", occurredAt: minutesAgo(45) }],
+      "tc640"
+    );
     expect(inn.status, JSON.stringify(inn.data)).toBe(200);
     const out = await tabletRaw(tabletToken, "POST", "/staff/clock-out", {
       staffMemberId: uma.id,
@@ -412,9 +439,11 @@ test.describe("Basic breaks without an add-on (API)", () => {
       true
     );
     try {
-      const inn = await replay(vic, [
-        { kind: "CLOCK_IN", occurredAt: minutesAgo(45) },
-      ]);
+      const inn = await replay(
+        vic,
+        [{ kind: "CLOCK_IN", occurredAt: minutesAgo(45) }],
+        "tc641"
+      );
       expect(inn.status, JSON.stringify(inn.data)).toBe(200);
       const body = {
         staffMemberId: vic.id,
