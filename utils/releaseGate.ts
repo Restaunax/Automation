@@ -42,42 +42,52 @@ export const RELEASED_ON_QA = {
    *  docs/features/back-office/audit-2026-10/W5_PAYWALL_TASKS.md): Menu TVs,
    *  Social Media and Voice AI gated; 404 before the add-on check (L2);
    *  company staff read-only on payroll (L4); Partner API labor needs
-   *  Timecards (M1). Flip once it is on QA. */
+   *  Timecards (M1). Flip once it is on QA. On QA since 2026-11-01, but
+   *  kept false: TC-1183 (Voice AI gating) fails against QA and is with the
+   *  backend investigation. Flip once it passes. */
   paywallStage1: false,
   /** RestauNax back-office audit, Stage 6 request flow (branch
    *  bo1031/reqflow, W5:P1–P4): a request made before the subscription is
    *  active waits (WAITING) and opens on activation; HQ lists waiting ones
    *  (?status=WAITING, waitingCount) and can decline (DECLINED); products
    *  carry accountLive / pendingRequestStatus. Flip once it is on QA. */
-  requestFlowStage6: false,
+  requestFlowStage6: true,
   /** RestauNax back-office audit, Stage 6 simulator (W0:SIM-10..12): the
    *  QA sim's daily report carries the volume, labour and scenario checks
    *  (close.volume, time.laborPercent, tips.cashDeclared, …). Flip once the
-   *  simulator with them runs on QA. */
+   *  simulator with them runs on QA. Still false on 2026-11-01 although the
+   *  code is merged: flip it only after the QA sim restaurants are
+   *  re-enrolled AND the first live day has run on the new code (TC-1535
+   *  reads that day's report). */
   simScenariosStage6: false,
   /** RestauNax back-office audit, Stage 5 labor-law engines (branch
    *  bo1031/engines, W3:M1 / H2 / M5): "Use my state's rules" overtime
    *  (default STATE), break packs + break decisions, premium pay, the
    *  owner's labor-rule confirmation (`/api/compliance/:rid/labor-rules`) and
-   *  predictive scheduling. Flip once it is on QA. */
+   *  predictive scheduling. Flip once it is on QA. On QA since 2026-11-01,
+   *  but kept false: TC-580 (blended overtime) and TC-1151 fail against QA
+   *  and are with the backend investigation. Flip once they pass. */
   laborEngines: false,
   /** RestauNax back-office audit, Stage 7 tax depth (branch
    *  bo1031/taxdepth, W4:H2 / M3 / H3 / M5 / M4 / M9 / L5): scheduled rate
    *  changes, the rate check + HQ rate review, filing classes, calendar
    *  periods, exemption certificates, the DAVO feed (salesTax:read) and the
    *  year-end fees / gift-card sections. Flip once it is on QA. */
-  taxDepthStage7: false,
+  taxDepthStage7: true,
   /** RestauNax PR #1125, feat/supply-shop-table-card-extras (print builders):
    *  no free table-card print file (owner self-print 403 ORDER_TO_PRINT),
    *  the table card photo + follow code, /q/follow redirects, print-assets
    *  endpoints, the promo card builder, HQ shopping in the owner's own shop,
-   *  and the reworked Finalise dialog (markup, packages, Finalise later). */
+   *  and the reworked Finalise dialog (markup, packages, Finalise later).
+   *  Kept false (2026-11-01): not part of the back-office QA run, and
+   *  TC-1120 answers 400 instead of 403 TABLE_QR_ORDER_TO_PRINT on QA — not
+   *  investigated yet. */
   printBuilders: false,
   /** RestauNax back-office audit, growth track B (branch bo1031/growthb,
    *  W0:MF-6 / MF-10): mobile clock-in from the staff app (owner settings,
    *  geofenced punches) and one-way staff announcements with read receipts.
    *  Flip once it is on QA. */
-  teamCommsGrowthB: false,
+  teamCommsGrowthB: true,
   /** RestauNax back-office audit, Stage 6 setup & staff simplification
    *  (branch bo1031/uxsetup, W0:J1-a / J1-b / OB-1 / OB-3 / OB-4 / OB-5):
    *  the five-question setup interview
@@ -85,18 +95,21 @@ export const RELEASED_ON_QA = {
    *  People · Schedule · Payday · Tips · Settings, one Permissions screen,
    *  one payroll mode shown, tip policy presets first + Advanced, and the
    *  RestauNax setup values on one line. Flip once it is on QA. */
-  staffSetupStage6: false,
+  staffSetupStage6: true,
   /** RestauNax back-office audit, Stage 7 growth A (branch bo1031/growtha,
    *  W0:MF-5 / MF-7 / MF-9): prime cost (`/api/staff/prime-cost/:rid`),
    *  staff/jobs/wages import (`/api/staff/import/:rid`) and the nightly cash
-   *  tip-out sheet (`/api/staff/tip-sheet/:rid`). Flip once it is on QA. */
+   *  tip-out sheet (`/api/staff/tip-sheet/:rid`). Flip once it is on QA. On
+   *  QA since 2026-11-01, but kept false: TC-1769 fails on a dashboard bug
+   *  (People → Import posts the CSV as JSON, so the server answers "Choose
+   *  a CSV file to import."). Flip once that is fixed. */
   growthAStage7: false,
   /** RestauNax back-office audit, Stage 6 daily views (branch bo1031/uxdaily,
    *  W0:J5 / J6 / J2 / MF-4 / J8): the approve preview, "Send to my
    *  accountant" (accountant-bundle + ZIP), the schedule forecast override and
    *  target labor %, GET /api/today/:id, and every discount type in the
    *  exceptions summary. Flip once it is on QA. */
-  dailyViewsStage6: false,
+  dailyViewsStage6: true,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
