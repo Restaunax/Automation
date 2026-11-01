@@ -24,6 +24,12 @@
  * capture FAILED (W4:M6) can't be staged on QA without Stripe's secret key
  * (the hold must be cancelled and the day closed): the backend integration
  * test salesTax.int proves the report leaves it out.
+ *
+ * RestauNax audit Stage 7 (TC-1637): this restaurant never turned on tax
+ * math v2 (W4:M2 + H5), so its report is exactly the figures above — no tax
+ * backed out of any price, nothing "included". The v2 cases (switch, combo
+ * per component, tax-included prices, POS preview) are api-tax-math-v2.spec.ts
+ * (TC-1630..1636).
  * Serial.
  */
 import * as allure from "allure-js-commons";
@@ -289,6 +295,31 @@ test.describe("Sales tax and reports agree with the orders (API)", () => {
     expect(
       rows.some((l) => /^"?Figures to help prepare your return/.test(l))
     ).toBe(true);
+  });
+
+  test("TC-1637: a restaurant that never opted in to tax math v2 keeps today's report — nothing backed out of a price", async () => {
+    const math = await taxRaw<{ data?: Rec }>(
+      ownerToken,
+      restaurantId,
+      "GET",
+      "/tax-math"
+    );
+    expect(math.status, JSON.stringify(math.data)).toBe(200);
+    expect(math.data.data?.enabled).toBe(false);
+    expect(math.data.data?.taxIncludedItems).toBe(0);
+    const r = await taxRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      `/report?startDate=${from}&endDate=${to}`
+    );
+    expect(r.status, JSON.stringify(r.data)).toBe(200);
+    // Food sales = what the lines charged; tax collected = tax on top.
+    expect(r.data.data.totals).toMatchObject({
+      foodSales: 30,
+      taxCollected: 1.92,
+    });
+    expect(r.data.data.unallocatedTax).toBe(0);
   });
 
   test("TC-622: changing a rate later never changes what past orders owe", async () => {
