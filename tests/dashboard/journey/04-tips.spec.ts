@@ -391,6 +391,12 @@ test.describe("Journey 4 — the owner shares the tips", () => {
     await page()
       .getByRole("switch", { name: "Take the card fee out of card tips" })
       .click();
+    // A new policy offers the percentage-only card fee first (W3:H4).
+    await expect(
+      page().getByRole("radio", {
+        name: "Only the card company's percentage, no fixed fee (recommended)",
+      })
+    ).toBeChecked();
     await page()
       .getByRole("radio", {
         name: "A fixed percent (never more than the actual fee)",

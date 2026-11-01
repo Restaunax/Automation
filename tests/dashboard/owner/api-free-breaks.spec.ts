@@ -11,7 +11,8 @@
  *   - start / end a break on the time clock with no add-on;
  *   - hours: unpaid break time is not worked time, paid break time is
  *     (offline replay places the punches in the past, so the minutes are
- *     exact);
+ *     exact); an "unpaid" break under 20 minutes is paid, and a break type
+ *     can't be unpaid and under 20 minutes (29 CFR 785.18);
  *   - break RULES: ignored without TIMECARDS (no skipped-break question at
  *     clock-out), enforced with it (SCHEDULING brings TIMECARDS).
  * Serial.
@@ -221,6 +222,62 @@ test.describe("Basic breaks without an add-on (API)", () => {
       unpaidBreakMinutes: 30,
       paidMinutes: 70,
     });
+  });
+
+  // W3:H1 (29 CFR 785.18): breaks under 20 minutes are paid time.
+  test("TC-1150: an unpaid break type under 20 minutes is refused, in plain words", async () => {
+    const res = await ownerStaffRaw(
+      ownerToken,
+      restaurantId,
+      "PUT",
+      "/break-types",
+      {
+        breakTypes: [
+          {
+            id: "meal",
+            name: "Meal break",
+            expectedMinutes: 30,
+            isPaid: false,
+          },
+          { id: "smoke", name: "Smoke", expectedMinutes: 10, isPaid: false },
+        ],
+      }
+    );
+    expect(res.status, JSON.stringify(res.data)).toBe(400);
+    expect(String(res.data.message)).toContain("Smoke");
+    expect(String(res.data.message)).toContain("20 minutes");
+    // Nothing was saved.
+    const got = await ownerStaffRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      "/break-types"
+    );
+    expect(list(got.data.data.breakTypes).map((t) => t.id)).not.toContain(
+      "smoke"
+    );
+  });
+
+  test("TC-1151: an unpaid break taken for under 20 minutes stays paid time", async () => {
+    // After TC-638's shift: 17 minutes on the clock with a 12-minute meal.
+    const r = await replay(rae, [
+      { kind: "CLOCK_IN", occurredAt: minutesAgo(19) },
+      { kind: "BREAK_START", occurredAt: minutesAgo(17), breakTypeId: "meal" },
+      { kind: "BREAK_END", occurredAt: minutesAgo(5) },
+      { kind: "CLOCK_OUT", occurredAt: minutesAgo(2) },
+    ]);
+    expect(r.status, JSON.stringify(r.data)).toBe(200);
+    const shifts = await ownerStaffRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      `/shifts?from=${encodeURIComponent(minutesAgo(30))}&to=${encodeURIComponent(minutesAgo(-5))}`
+    );
+    expect(shifts.status, JSON.stringify(shifts.data)).toBe(200);
+    const mine = list(shifts.data.data).find(
+      (s) => s.staffMemberId === rae.id && s.durationMinutes === 17
+    );
+    expect(mine).toMatchObject({ unpaidBreakMinutes: 0, paidMinutes: 17 });
   });
 
   test("TC-639: start and end a break on the time clock with no add-on", async () => {

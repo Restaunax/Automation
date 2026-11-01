@@ -18,6 +18,7 @@ import { test, expect } from "../../../fixtures/base";
 import { generateRunId } from "../../../utils/testData";
 import { readZip, type ZipEntry } from "../../../utils/zipReader";
 import { pdfText } from "../../../utils/pdfText";
+import { settingChangesRaw } from "../../../utils/backOfficeApi";
 import {
   apiLogin,
   createSecondOwner,
@@ -487,5 +488,54 @@ test.describe("Books & taxes — tax calendar, year-end package, card deposits (
     expect((overview.data.data as Rec).deposits).toMatchObject({
       state: "SETTING_UP",
     });
+  });
+
+  // W2:A7 — a wider tolerance only turned red days green: at most $5.00 a
+  // day now, and books settings and account mapping changes are in the
+  // settings change history (who, from what, to what).
+  test("TC-1154: the rounding tolerance is capped at $5.00; tolerance and mapping changes are in Recent changes", async () => {
+    const tooHigh = await accountingRaw(
+      ownerToken,
+      restaurantId,
+      "PATCH",
+      "/settings",
+      { toleranceCents: 501 }
+    );
+    expect(tooHigh.status).toBe(400);
+    expect(String(tooHigh.data.message)).toBe(
+      "The rounding tolerance can be at most $5.00 a day."
+    );
+    const ok = await accountingRaw(
+      ownerToken,
+      restaurantId,
+      "PATCH",
+      "/settings",
+      {
+        toleranceCents: 300,
+      }
+    );
+    expect(ok.status, JSON.stringify(ok.data)).toBe(200);
+    const mapped = await accountingRaw(
+      ownerToken,
+      restaurantId,
+      "PUT",
+      "/mapping",
+      { mapping: { tips: { name: "Tips Payable", code: "2150" } } }
+    );
+    expect(mapped.status, JSON.stringify(mapped.data)).toBe(200);
+
+    const r = await settingChangesRaw(ownerToken, restaurantId, {
+      area: "books",
+    });
+    expect(r.status, JSON.stringify(r.data)).toBe(200);
+    const items = r.data.data?.items ?? [];
+    expect(
+      items.find((i) => i.field === "accountingToleranceCents"),
+      JSON.stringify(items)
+    ).toMatchObject({ area: "books", actorType: "OWNER", newValue: 300 });
+    expect(
+      items.find((i) => i.field === "accountMapping"),
+      JSON.stringify(items)
+    ).toMatchObject({ area: "books", newValue: "2150 Tips Payable" });
   });
 });

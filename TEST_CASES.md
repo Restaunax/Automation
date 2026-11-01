@@ -3530,3 +3530,19 @@ A failed test means something in the software is not working as expected. The te
 
 **Q: Why are some tests skipped?**
 Skipped tests fall into three categories: (1) the feature is restricted to a different role on QA (e.g. `/publish` is employee-only, so owner tests get Access Denied — the tax settings tests used to be in this category too, but they've since been moved to run under the employee role instead, where they pass); (2) the UI doesn't yet expose the needed button or element (e.g. no delete button on menu item cards); or (3) the test case has been documented but the automated test code hasn't been written yet. Each skipped test explains its specific reason in the Status line.
+
+---
+
+## TC-1150 → TC-1154 — Payroll and books audit fixes, Stage 1 (API)
+
+**Status:** ⏳ Written 2026-10-31; fails on QA until the restaunax back-office audit fixes (`bo1031/payroll`, W3:H1, W3:H4, W2:A7) are deployed there.
+
+| TC          | Spec                              | What it checks                                                                                                                                   |
+| ----------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **TC-1150** | `dashboard/owner/api-free-breaks` | An unpaid break type under 20 minutes is refused (400, names the type and "20 minutes"); nothing is saved.                                       |
+| **TC-1151** | `dashboard/owner/api-free-breaks` | An unpaid break taken for 12 minutes stays paid time: `unpaidBreakMinutes` 0, `paidMinutes` = the whole shift (29 CFR 785.18).                   |
+| **TC-1152** | `dashboard/owner/api-tips`        | A new tip policy defaults to `PERCENT_ONLY` card-fee withholding; a saved `ACTUAL_FEE` mode is kept.                                             |
+| **TC-1153** | `dashboard/owner/api-tips`        | With the address in CA: the saved withholding reads as off, saving withholding is refused in plain words, saving it off works; moved back to FL. |
+| **TC-1154** | `dashboard/owner/api-books-taxes` | Rounding tolerance above $5.00 refused in plain words; a tolerance and a mapping change show in Recent changes (area `books`, who, new value).   |
+
+`journey/04-tips` also checks the percentage-only radio is the default when withholding is switched on.
