@@ -166,7 +166,8 @@ test.describe("Owner — back office next level (API)", () => {
     // Adding a job ticks its step and unblocks the ones waiting for it.
     const job = await createStaffJobRaw(ownerToken, restaurantId, {
       name: `Server ${runId}`,
-      defaultHourlyRateCents: 1200,
+      // At least Miami's $15.00 minimum wage (W3:C3).
+      defaultHourlyRateCents: 1500,
     });
     expect(job.status, JSON.stringify(job.data)).toBe(201);
     const after = await backOfficeSetupRaw(ownerToken, restaurantId);

@@ -196,7 +196,8 @@ test.describe("Journey 4 — the owner shares the tips", () => {
       return String(r.data.data?.id);
     };
     const server = await job("Server", 1200);
-    const busser = await job("Busser", 1100);
+    // At least Miami's $11.98 tipped cash wage (W3:C3: $11.00 is refused).
+    const busser = await job("Busser", 1200);
 
     const device = await createTabletDevice(
       adminToken,
