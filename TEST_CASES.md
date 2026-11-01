@@ -2656,6 +2656,34 @@ The Staff regroup itself (Team · Schedule · Time & pay · Tips, then the group
 
 ---
 
+## TC-1180 → TC-1186 — Paid add-ons: Menu TVs, Social Media, Voice AI, partner labor, company staff (API)
+
+**Status:** ⏳ Written 2026-10-31; skips on QA (`RELEASED_ON_QA.paywallStage1` false) until the RestauNax Stage 1 paywall fixes (`bo1031/paywall`, back-office audit W5) are deployed there, then fails if they regress. Missing ADMIN (or EMPLOYEE) credentials fail these in CI and skip only locally (`utils/envGate.ts`, W5:T7).
+
+### `dashboard/owner/api-addon-gating.spec.ts` (second block, two throwaway owners)
+
+| TC          | What it checks |
+| ----------- | -------------- |
+| **TC-1180** | Without Menu TVs: claiming a TV, the TV list and layouts answer 403 `FEATURE_NOT_ENTITLED` in words; starting a pairing stays free and the TV waits on its code. |
+| **TC-1181** | With an HQ Menu TVs grant the TV is claimed and shows the menu; taking the grant away pauses it: `/me` 200, empty menu, `paused.reason` ADDON_OFF and a resolved message, heartbeat still 200, unpairing still allowed. |
+| **TC-1182** | Social Media: accounts, posts, featured reels, creating a post and AI media quota refuse without the add-on and answer 200 with an HQ grant. |
+| **TC-1183** | Voice AI: the owner summary needs the add-on; PATCH voice config `enabled: true` is refused without it. |
+| **TC-1184** | Another owner probing payroll, tips, scheduling, payroll provider, accounting, Menu TVs and social routes gets 404, add-ons on or off — never "you lack the add-on". |
+
+### `dashboard/owner/api-partner-api.spec.ts`
+
+| TC          | What it checks |
+| ----------- | -------------- |
+| **TC-1185** | Labor is the Timecards package: once the location loses it, `/labor` answers 403 `FEATURE_NOT_ENTITLED`, the owner's scope list drops `labor:read` and a new key with it is refused; granting it back restores `/labor`. (TC-754 now expects `labor:read` missing from a no-add-on location's catalogue.) |
+
+### `dashboard/employee/payroll-read-only.spec.ts`
+
+| TC          | What it checks |
+| ----------- | -------------- |
+| **TC-1186** | Company staff (EMPLOYEE) read jobs, settings and the tip policy; creating a job, changing payroll settings or the tip policy answers 403 `PLATFORM_EMPLOYEE_READ_ONLY` in words; the same job created by an ADMIN goes through. |
+
+---
+
 ## TC-1099 → TC-1102 — Customers: the numbers add up (API)
 
 **Status:** ⏳ Written 2026-10-31; fails on QA until the restaunax fix (`fix/customer-insights-numbers`) is deployed there.
@@ -3469,6 +3497,7 @@ This step is unavoidable for every single new restaurant, and its default-value 
 | TC-914 → TC-917   | Wind: a card that needs a 3D Secure bank check — Complete and Fail, in the page AND as a real full-page redirect to wind's own `/checkout/return`: order confirmed + paid once + cart empty, or the error on checkout + nothing charged (`customer/12-3ds-bank-check`, `@3ds`)                                                                                                                                                                                                                                                                                                                                                   | Customer                 | ✅ Passing (2026-10-23)                                                                                                                   |
 | TC-L73 → TC-L76   | Lima: the same four, the redirect returning to `/<slug>/checkout/return` inside the tenant basename (`customer-lima/16-3ds-bank-check`, `@3ds`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Customer (Lima)          | ✅ Passing (2026-10-23)                                                                                                                   |
 | TC-L77 → TC-L82   | Lima: the ordering site when the restaurant isn't taking orders: paused, resumed, closed for the night, not published, guest wording (`customer-lima/17-availability`)                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Customer (Lima)          | ✅ Passing (2026-10-31)                                                                                                                   |
+| TC-1180 → TC-1186 | Paid add-ons (throwaway tenants, API): Menu TVs claim/list/layouts gated and the TV paused not unpaired, Social Media and AI media, Voice AI summary and re-enable, another owner gets 404, partner labor needs Timecards, company staff read-only on payroll (`owner/api-addon-gating`, `owner/api-partner-api`, `employee/payroll-read-only`) | Owner / Employee | ⏳ Needs RestauNax Stage 1 paywall on QA |
 | TC-1099 → TC-1102 | Customers numbers (throwaway tenant): profile id, walk-ins not customers, new + returning add up, segments partition, distinct Groups total (`owner/api-customer-insights`)                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Owner                    | ⏳ Needs restaunax fix on QA                                                                                                              |
 | TC-1098           | A click on a switch's label text does not flip it; only the switch does (`admin/marketing-automations`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Admin                    | ⏳ Written 2026-10-31 (needs the frontend fix on QA)                                                                                      |
 | TC-1094 → TC-1097 | HQ add-on requests (browser, throwaway owner): the request under Open, Attach refused in words without a subscription, Mark done, an owner-withdrawn request (`admin/addon-requests-ui`)                                                                                                                                                                                                                                                                                                                                                                                                                                         | Admin                    | ✅ Passing (2026-10-31)                                                                                                                   |

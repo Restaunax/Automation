@@ -16,6 +16,7 @@
 import * as allure from "allure-js-commons";
 import type { Page, Response as PwResponse } from "@playwright/test";
 import { test, expect } from "../../../fixtures/base";
+import { requireEnv } from "../../../utils/envGate";
 import { generateRunId, readSharedState } from "../../../utils/testData";
 import { loginViaUi, type UiLoginSession } from "../../../utils/auth";
 import {
@@ -49,9 +50,9 @@ const SECTIONS = [
 test.describe.configure({ mode: "serial" });
 
 test.describe("Owner — Books & taxes is hidden without its add-on; Connected apps is free (UI)", () => {
-  test.skip(
-    !ADMIN_EMAIL || !ADMIN_PASSWORD,
-    "ADMIN_EMAIL / ADMIN_PASSWORD not set (the file mints its own tenant)"
+  requireEnv(
+    ["ADMIN_EMAIL", "ADMIN_PASSWORD"],
+    "the file mints its own tenant"
   );
 
   const runId = generateRunId();
@@ -198,10 +199,7 @@ test.describe("Owner — Books & taxes is hidden without its add-on; Connected a
 // ("No Subscription Assigned" otherwise), and the seed is the one QA
 // restaurant with one. A request turns nothing on and is cancelled here.
 test.describe("Owner — requests an add-on from Billing → Add-ons (UI)", () => {
-  test.skip(
-    !ADMIN_EMAIL || !ADMIN_PASSWORD,
-    "ADMIN_EMAIL / ADMIN_PASSWORD not set (gate + cleanup use HQ)"
-  );
+  requireEnv(["ADMIN_EMAIL", "ADMIN_PASSWORD"], "gate + cleanup use HQ");
   test.skip(
     !process.env.OWNER_EMAIL || !process.env.OWNER_PASSWORD,
     "OWNER_EMAIL / OWNER_PASSWORD not set (the seed restaurant)"
