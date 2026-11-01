@@ -10,7 +10,10 @@
  *   Water   $2.00 — tax-free
  * Three online orders (placed through the public pricing engine, then
  * confirmed): 2 × Burger, 1 × Beer, 1 × Water → $30.00 food, tax
- * $1.20 + $0.72 = $1.92. Every report is read for [yesterday, today] in the
+ * $1.20 + $0.72 = $1.92. The report's gross receipts / tax due shape is the
+ * RestauNax audit fix W4:C1a + H6 + L1 (fees and marketplace in gross, tax
+ * due next to tax collected); the fee line itself is TC-1079 (a real order
+ * with a service fee). Every report is read for [yesterday, today] in the
  * restaurant's zone so a run just after midnight still sees its own orders.
  * Serial.
  */
@@ -192,23 +195,52 @@ test.describe("Sales tax and reports agree with the orders (API)", () => {
     const report = r.data.data as Rec;
     expect(report.totals).toMatchObject({
       orders: 3,
+      // Gross receipts = food + service fees + auto-gratuity + delivery fees
+      // + marketplace sales (RestauNax audit W4:C1a / L1); none here.
+      foodSales: 30,
+      serviceFees: 0,
+      autoGratuities: 0,
+      deliveryFees: 0,
+      marketplaceSales: 0,
       grossSales: 30,
       netSales: 30,
       taxableSales: 28,
       nonTaxableSales: 2,
       exemptSales: 0,
       taxCollected: 1.92,
+      // Tax due = taxable base × rate, next to what was collected (W4:H6).
+      taxDue: 1.92,
+      taxDifference: 0,
     });
+    const t = report.totals as unknown as {
+      netSales: number;
+      marketplaceSales: number;
+      nonTaxableSales: number;
+      exemptSales: number;
+      taxableSales: number;
+    };
+    // net − marketplace − non-taxable − exempt = taxable, to the cent.
+    expect(
+      Math.round(
+        (t.netSales - t.marketplaceSales - t.nonTaxableSales - t.exemptSales) *
+          100
+      )
+    ).toBe(Math.round(t.taxableSales * 100));
+    expect(t.taxableSales).toBeLessThanOrEqual(t.netSales);
     const byName = new Map(list(report.byRate).map((l) => [l.name, l]));
     expect(byName.get("State")).toMatchObject({
       percent: 6,
       taxableBase: 20,
       tax: 1.2,
+      taxDue: 1.2,
+      difference: 0,
     });
     expect(byName.get("Alcohol")).toMatchObject({
       percent: 9,
       taxableBase: 8,
       tax: 0.72,
+      taxDue: 0.72,
+      difference: 0,
     });
     expect(report.unallocatedTax).toBe(0);
 
@@ -220,14 +252,26 @@ test.describe("Sales tax and reports agree with the orders (API)", () => {
     );
     expect(csv.status).toBe(200);
     const rows = lines(csv.data);
-    // rate, percent, taxable base, tax, refunded tax, net tax — the refund
-    // columns joined in RestauNax aab02ca41 (refund tax per rate); nothing is
-    // refunded here, so net = tax.
-    expect(rows.some((l) => /^State,6,20\.00,1\.20,0\.00,1\.20$/.test(l))).toBe(
-      true
-    );
+    // rate, percent, taxable base, tax, refunded tax, net tax, tax due,
+    // difference — the refund columns joined in RestauNax aab02ca41, tax due
+    // and the difference in the audit fix W4:H6; nothing is refunded here.
     expect(
-      rows.some((l) => /^Alcohol,9,8\.00,0\.72,0\.00,0\.72$/.test(l))
+      rows.some((l) => /^State,6,20\.00,1\.20,0\.00,1\.20,1\.20,0\.00$/.test(l))
+    ).toBe(true);
+    expect(
+      rows.some((l) =>
+        /^Alcohol,9,8\.00,0\.72,0\.00,0\.72,0\.72,0\.00$/.test(l)
+      )
+    ).toBe(true);
+    // The summary: gross receipts lines, then tax due vs collected; never
+    // "owed by the restaurant" on the collected line.
+    expect(rows).toContain("Gross receipts,30.00");
+    expect(rows).toContain("Tax due (taxable amount × rate),1.92");
+    expect(rows).toContain("Tax collected,1.92");
+    expect(rows).toContain("Difference (collected minus due),0.00");
+    expect(rows.some((l) => /owed by the restaurant/.test(l))).toBe(false);
+    expect(
+      rows.some((l) => /^"?Figures to help prepare your return/.test(l))
     ).toBe(true);
   });
 
