@@ -3723,3 +3723,33 @@ Skipped tests fall into three categories: (1) the feature is restricted to a dif
 | **TC-1343** | `dashboard/owner/api-accountant-multi-client` | Browser: Journal, Deposits, Accounts and Sales summary tabs load with no 401/403; the file download is offered.                                    |
 
 `api-accountant-access` TC-779 also tries the new writes (Simple preset on the owner route, posting a day and saving the mapping under `/api/accountant`).
+
+---
+
+## TC-1400 → TC-1418 — Employer group, combined overtime, sick time and PTO, Stage 5 (API)
+
+**Status:** ⏳ Written 2026-11-01; fails on QA until the restaunax back-office audit Stage 5 employer track (`bo1031/employer`: W3:C4, W3:H5) is deployed there.
+
+| TC          | Spec                                    | What it checks                                                                                                                                          |
+| ----------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **TC-1400** | `dashboard/owner/api-employer-group`    | `/api/employers` list, create and read are 401 without a sign-in.                                                                                       |
+| **TC-1401** | `dashboard/owner/api-employer-group`    | Create refuses a 9-digit EIN (last 4 only), an unknown pay frequency, a bad workweek day / anchor date and a blank name: 400 INVALID + field.           |
+| **TC-1402** | `dashboard/owner/api-employer-group`    | The owner groups their two restaurants: 201 view (EIN last 4, weekly calendar, no payroll company, canManage); in the list and on read.                 |
+| **TC-1403** | `dashboard/owner/api-employer-group`    | A restaurant the owner doesn't control is 404; one already grouped is 400 ALREADY_GROUPED; another owner gets 404 and doesn't see it listed.            |
+| **TC-1404** | `dashboard/owner/api-employer-group`    | People: the owner's two staff records are unlinked and suggested as one person `matchedBy: ACCOUNT`; record shape.                                      |
+| **TC-1405** | `dashboard/owner/api-employer-group`    | Link needs two records (one → 400); linked → one person, suggestion gone; unlinking prunes the person; unknown record 404.                              |
+| **TC-1406** | `dashboard/owner/api-employer-group`    | A member's `GET /settings` names the employer; changing payFrequency there is 403 SET_BY_EMPLOYER; same value 200; an employer change shows on both.    |
+| **TC-1407** | `dashboard/owner/api-employer-group`    | `GET /payroll/:rid/employer` summary (`combinedOvertime: true`); removed from the group the restaurant edits its own calendar; re-adding is idempotent. |
+| **TC-1408** | `dashboard/owner/api-employer-group`    | A group PTO policy (employerId set) blocks delete: 400 HAS_ACCRUAL_POLICIES, still refused after retiring it.                                           |
+| **TC-1409** | `dashboard/owner/api-employer-group`    | RestauNax EMPLOYEE reads the group (canManage false); create, change, delete, add-restaurant are 403 PLATFORM_EMPLOYEE_READ_ONLY.                       |
+| **TC-1410** | `dashboard/owner/api-employer-overtime` | Linked person, one week: 25 h at A + 25 h at B → A 25 h regular / 0 OT, B 15 h regular / 10 h OT, $150.00 premium.                                      |
+| **TC-1411** | `dashboard/owner/api-employer-overtime` | Unlinked, the same hours are two 25 h weeks with no overtime; linking again brings B's overtime back.                                                   |
+| **TC-1412** | `dashboard/owner/api-employer-overtime` | Deleting the employer (nothing attached) makes both restaurants independent: `/employer` null, group 404, no overtime.                                  |
+| **TC-1413** | `dashboard/owner/api-time-off-accrual`  | No policy: scope RESTAURANT, the CA sick leave rule suggested (60 min per 30 h), nothing applied; the Staff app's balances are empty.                   |
+| **TC-1414** | `dashboard/owner/api-time-off-accrual`  | `fromRule` on a DRAFT rule is 400 DRAFT_RULE; with `acknowledgeDraft` → 201 SICK policy from the rule; the suggestion goes away.                        |
+| **TC-1415** | `dashboard/owner/api-time-off-accrual`  | Custom PTO 201; a second PTO or sick policy 400 POLICY_EXISTS; zero accrual / unknown kind 400 INVALID.                                                 |
+| **TC-1416** | `dashboard/owner/api-time-off-accrual`  | `GET /accrual/balances`: the owner's record with a zero SICK and PTO balance view each.                                                                 |
+| **TC-1417** | `dashboard/owner/api-time-off-accrual`  | Staff app `time-off-balances`: both balances (no policy ids), empty history.                                                                            |
+| **TC-1418** | `dashboard/owner/api-time-off-accrual`  | Retiring both policies: none in force, the suggestion returns, Staff app empty; an unknown policy id is 404 POLICY_NOT_FOUND.                           |
+
+`api-employer-group` leaves one empty Employer row per run by design: a group that ever had a sick/PTO policy can't be deleted (TC-1408).
