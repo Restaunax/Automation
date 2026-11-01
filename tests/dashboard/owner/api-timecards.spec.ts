@@ -1122,8 +1122,9 @@ test.describe("Timecards — overtime, breaks, approval (API)", () => {
     });
     expect(blank.status).toBe(400);
     // Like "Mark reviewed": the employee can't settle it (MODIFY_RESTAURANT).
+    // Someone with no control of the restaurant reads as 404 (W5:L2).
     const staff = await decide(gus.token, { decision: "PAY_PREMIUM" });
-    expect(staff.status, JSON.stringify(staff.data)).toBe(403);
+    expect(staff.status, JSON.stringify(staff.data)).toBe(404);
     // Nothing above changed the shift.
     expect((await missedBreakLine()).blockingFlags).toContain("MISSED_BREAK");
 

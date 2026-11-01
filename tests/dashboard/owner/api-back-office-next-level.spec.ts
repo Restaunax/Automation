@@ -459,6 +459,8 @@ test.describe("Owner — back office next level (API)", () => {
         "devices",
         "stations",
         "setup",
+        "books",
+        "staff",
         "other",
       ]);
 

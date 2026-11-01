@@ -29,7 +29,7 @@ import {
   deleteTestRestaurant,
   setFeatureOverrideAdminRaw,
   registerWithInvite,
-  loginWithInviteRaw,
+  claimStaffInviteSignedInRaw,
   booksRaw,
   accountantRaw,
   accountantAnyRaw,
@@ -158,13 +158,12 @@ test.describe("Accountant across clients — the books, read-only (W2:A10, API +
     expect(claimed.role).toBe("USER");
     const b = await invite("b");
     accountant.rowB = b.rowId;
-    const login = await loginWithInviteRaw(
-      accountant.email,
-      accountant.password,
-      b.token
-    );
-    expect(login.status, JSON.stringify(login.data)).toBe(200);
-    accountant.token = String(login.data.accessToken);
+    // An existing account takes a second client while signed in, as the
+    // invitation page does: password login ignores an invitation token.
+    const login = await apiLogin(accountant.email, accountant.password);
+    accountant.token = login.accessToken;
+    const claim = await claimStaffInviteSignedInRaw(accountant.token, b.token);
+    expect(claim.status, JSON.stringify(claim.data)).toBe(200);
 
     const clients = await accountantRaw(accountant.token, "/clients");
     expect(clients.status).toBe(200);
@@ -324,6 +323,9 @@ test.describe("Accountant across clients — the books, read-only (W2:A10, API +
       for (const tab of ["Journal", "Deposits", "Accounts", "Sales summary"]) {
         await page.getByRole("tab", { name: tab }).click();
       }
+      // The summary opens on last month; the day this suite closed is today.
+      await page.locator("#sales-summary-start").fill(tenants.a.day);
+      await page.locator("#sales-summary-end").fill(tenants.a.day);
       await expect(
         page.getByText("Ties to the books", { exact: false }).first()
       ).toBeVisible({
