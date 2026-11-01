@@ -18,6 +18,8 @@
  * two days back, so a day that hasn't posted yet doesn't either.
  *
  *   TC-1028 my 2 store: Overview says each connection is working, in words.
+ *   TC-1303 my 2 store: every posted day keeps what was posted as a version
+ *           (W2:A3 history drawer).
  *   TC-1029 my 2 store: each recent day is posted to QuickBooks as one
  *           balanced entry with its own number.
  *   TC-1030 my 2 store: on days without refunds, the tax Avalara has is the
@@ -115,7 +117,19 @@ test.describe("Journey 6 — the books (partner restaurants, read-only)", () => 
     provider: string
   ): Promise<Rec> => {
     const day = await dayEntry(id, date);
-    expect(day.status, `${date}: ${JSON.stringify(day.error)}`).toBe("POSTED");
+    // W2:A3: a day posted under the older journal rules that changed since
+    // waits for the owner (STALE, rulesChanged) instead of being re-posted
+    // behind their back; it is still in the books.
+    if (day.status === "STALE" && day.rulesChanged === true) {
+      test.info().annotations.push({
+        type: "note",
+        description: `${date} posted under older journal rules; waits for a re-send`,
+      });
+    } else {
+      expect(day.status, `${date}: ${JSON.stringify(day.error)}`).toBe(
+        "POSTED"
+      );
+    }
     expect(day.provider).toBe(provider);
     expect(day.externalId, `${date} has no id in the books`).toBeTruthy();
     expect(String(day.docNumber)).toBe(
@@ -198,6 +212,35 @@ test.describe("Journey 6 — the books (partner restaurants, read-only)", () => 
         page().getByText(/failed|refused|disconnected/i)
       ).toHaveCount(0);
       await expectHumanText(page().getByRole("main"), "Books & taxes");
+    }
+  );
+
+  test(
+    "TC-1303: my 2 store — every posted day keeps what was posted as a version (history drawer)",
+    PARTNER,
+    async () => {
+      const { id, integration } = await books("my 2 store");
+      test.skip(integration.connected !== true, "my 2 store is not connected");
+      const days = (await recentDays(id)).filter((d) => d.status === "POSTED");
+      test.skip(days.length === 0, "no posted day two or more days back");
+      for (const d of days) {
+        const date = String(d.businessDate ?? d.date);
+        const r = await accountingRaw(
+          adminToken,
+          id,
+          "GET",
+          `/days/${date}/history`
+        );
+        expect(r.status, JSON.stringify(r.data)).toBe(200);
+        const h = r.data.data as Rec;
+        expect(h.businessDate).toBe(date);
+        // Backfilled for days posted before versions existed (W2:A3).
+        expect(list(h.versions).length, date).toBeGreaterThanOrEqual(1);
+        for (const v of list(h.versions)) {
+          for (const l of list(v.lines))
+            expect(String(l.label)).not.toMatch(/^[a-z_]+:/);
+        }
+      }
     }
   );
 

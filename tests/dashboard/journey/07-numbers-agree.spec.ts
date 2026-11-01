@@ -423,11 +423,12 @@ test.describe("Journey 7 — one closed day reads the same everywhere", () => {
     );
   });
 
-  test("TC-1038: the books entry — balanced, the report's sales and net tax, the refund split into tax and the rest", async () => {
+  test("TC-1038: the books entry — balanced, the report's sales and net tax, the refund split into sales, tax, tip and fees, the drawer", async () => {
     expect(journal).toMatchObject({ balanced: true, orderCount: 3 });
     expect(journal.debitCents).toBe(journal.creditCents);
-    // The books credit sales at the subtotal and debit the refund's sales
-    // part on its own line: sales − refunds = the close's net sales.
+    // The books credit sales at menu price (no comps or discounts on this
+    // day) and debit the refund's sales part on its own line: sales −
+    // refunds = the close's net sales.
     expect(journalSum("sales:")).toBe(cents(close.grossSales));
     expect(journalSum("sales:") - (428 - 24)).toBe(cents(close.netSales));
     // Net tax: collected less what the refund gave back (RestauNax #1104).
@@ -438,6 +439,22 @@ test.describe("Journey 7 — one closed day reads the same everywhere", () => {
     expect(-journalSum("refunds")).toBe(428 - 24);
     expect(-journalSum("tender:cash")).toBe(4780);
     expect(-journalSum("tender:card")).toBe(2012 - 428);
+    // W2:A13: an item refund is sales and tax only — the tip stays the
+    // staff's and no fee comes back.
+    expect(journal.refundSplit).toEqual({
+      salesCents: 428 - 24,
+      taxCents: 24,
+      tipCents: 0,
+      feeCents: 0,
+    });
+    // W2:A1: no paid-outs, paid-ins or tip-outs this day: the drawer adds
+    // nothing, and cash is exactly what was taken.
+    expect(journal.drawer).toEqual({
+      paidInCents: 0,
+      paidOutCents: 0,
+      tipsPaidCashCents: 0,
+      giftCardCashRefundCents: 0,
+    });
   });
 
   test("TC-1039: the partner API's day is closed and says the same, line for line", async () => {
