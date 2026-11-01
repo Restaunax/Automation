@@ -15,6 +15,7 @@
     "test:training": "playwright test --grep @training",
     "test:closeout": "playwright test --grep @closeout",
     "test:bugfix-1036": "playwright test --grep @bugfix-1036",
+    "test:google-reviews": "playwright test --grep @google-reviews",
     "test:settings-safety": "playwright test --grep @settings-safety",
     "test:print-builders": "playwright test --grep @print-builders",
     "test:unit": "playwright test -c playwright.unit.config.ts",

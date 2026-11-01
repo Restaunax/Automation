@@ -36,6 +36,10 @@ export const RELEASED_ON_QA = {
   /** RestauNax branch fix/switch-click-target — a click on a switch's label
    *  text or row no longer toggles it; only the switch does (theme-level). */
   switchClickTarget: false,
+  /** RestauNax branch feat/google-review-replies — /api/google-business/*
+   *  (connect a Google Business Profile, list reviews, post/edit/delete
+   *  replies, AI drafts, reply settings). */
+  googleReviews: false,
   /** RestauNax PR #1125, feat/supply-shop-table-card-extras (print builders):
    *  no free table-card print file (owner self-print 403 ORDER_TO_PRINT),
    *  the table card photo + follow code, /q/follow redirects, print-assets
@@ -58,6 +62,8 @@ const REASON: Record<ReleasePart, string> = {
     "Removing cards also removes their stands (RestauNax PR #1102) is not on this environment yet",
   switchClickTarget:
     "Switches toggle only from the switch (RestauNax fix/switch-click-target) is not on this environment yet",
+  googleReviews:
+    "Google review replies (RestauNax feat/google-review-replies) is not on this environment yet — /api/google-business/:id answers 404",
   printBuilders:
     "Print builders (no free table-card print file, photo + follow code, promo card builder, HQ shops in the owner's shop) are not on this environment yet — /restaurant/:id/print-assets/social does not answer",
 };
@@ -116,6 +122,24 @@ export async function probeSettingsSafety(
   const res = await apiRequestRaw(
     "GET",
     `/api/restaurantId/${restaurantId}/settings/setup`,
+    undefined,
+    accessToken
+  );
+  return res.status !== 404;
+}
+
+/**
+ * Are Google review replies deployed? `GET /api/google-business/:id` answers
+ * every signed-in user who controls the restaurant (never 404 once the route
+ * exists), so a 404 means the change is not on this environment.
+ */
+export async function probeGoogleReviews(
+  accessToken: string,
+  restaurantId: string
+): Promise<boolean> {
+  const res = await apiRequestRaw(
+    "GET",
+    `/api/google-business/${restaurantId}`,
     undefined,
     accessToken
   );
