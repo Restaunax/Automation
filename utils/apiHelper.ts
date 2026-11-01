@@ -3220,11 +3220,20 @@ export function cancelOrderRaw(
   );
 }
 
-/** POST /api/order/statistics/refund/:orderId — standalone (partial) refund. */
+/**
+ * POST /api/order/statistics/refund/:orderId — standalone (partial) refund.
+ * `items` names the refunded lines: the tax given back is then those lines'
+ * own rates (RestauNax audit W4:M7); without it the refund is prorated over
+ * the sale without its tip.
+ */
 export function refundOrderRaw(
   accessToken: string,
   orderId: string,
-  body: { amount?: number | string; reason?: string } = {}
+  body: {
+    amount?: number | string;
+    reason?: string;
+    items?: { orderItemId: string; quantity: number }[];
+  } = {}
 ): Promise<RawResponse<Record<string, unknown>>> {
   return apiRequestRaw<Record<string, unknown>>(
     "POST",
