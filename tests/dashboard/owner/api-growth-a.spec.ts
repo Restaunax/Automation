@@ -120,7 +120,8 @@ test.describe("Growth A — prime cost, staff import, cash tip-out sheet (API) @
   test("TC-1760: prime cost is gated like the labor report — no Timecards, no prime cost; with it, 8 workweeks", async () => {
     const before = await apiRequestRaw("GET", pc(), undefined, ownerToken);
     expect(before.status).toBe(403);
-    for (const feature of ["TIMECARDS", "TIP_MANAGEMENT"]) {
+    // TIP_MANAGEMENT brings TIMECARDS (a component, never granted alone).
+    for (const feature of ["TIP_MANAGEMENT"]) {
       const g = await setFeatureOverrideAdminRaw(
         adminToken,
         restaurantId,

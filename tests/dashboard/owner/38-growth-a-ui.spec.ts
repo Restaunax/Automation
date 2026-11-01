@@ -64,7 +64,8 @@ test.describe("Growth A — import, prime cost, cash tip-out sheet (UI) @growth-
       throw new Error("[growth-a-ui] no tenant");
     restaurantId = tenant.restaurantId;
     ownerToken = tenant.accessToken;
-    for (const feature of ["TIMECARDS", "TIP_MANAGEMENT"]) {
+    // TIP_MANAGEMENT brings TIMECARDS (a component, never granted alone).
+    for (const feature of ["TIP_MANAGEMENT"]) {
       const g = await setFeatureOverrideAdminRaw(
         adminToken,
         restaurantId,
