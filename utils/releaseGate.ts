@@ -12,7 +12,7 @@
  *
  * Select a part's tests with its tag: `--grep @training`, `--grep @closeout`,
  * `--grep @bugfix-1036`, `--grep @settings-safety`, `--grep @switch-click`,
- * `--grep @labor-engines`, `--grep @tax-depth`.
+ * `--grep @labor-engines`, `--grep @tax-depth`, `--grep @daily-views`.
  */
 import { test, expect } from "../fixtures/base";
 import { apiRequestRaw } from "./apiHelper";
@@ -65,6 +65,12 @@ export const RELEASED_ON_QA = {
    *  periods, exemption certificates, the DAVO feed (salesTax:read) and the
    *  year-end fees / gift-card sections. Flip once it is on QA. */
   taxDepthStage7: false,
+  /** RestauNax back-office audit, Stage 6 daily views (branch bo1031/uxdaily,
+   *  W0:J5 / J6 / J2 / MF-4 / J8): the approve preview, "Send to my
+   *  accountant" (accountant-bundle + ZIP), the schedule forecast override and
+   *  target labor %, GET /api/today/:id, and every discount type in the
+   *  exceptions summary. Flip once it is on QA. */
+  dailyViewsStage6: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -91,6 +97,8 @@ const REASON: Record<ReleasePart, string> = {
     "The Stage 5 labor-law engines (RestauNax bo1031/engines) are not on this environment yet — /api/compliance/:id/labor-rules answers 404",
   taxDepthStage7:
     "The Stage 7 tax depth (RestauNax bo1031/taxdepth) is not on this environment yet — /api/tax/:id/rate-check answers 404",
+  dailyViewsStage6:
+    "The Stage 6 daily views (RestauNax bo1031/uxdaily) are not on this environment yet — /api/today/:id answers 404",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
@@ -218,6 +226,24 @@ export async function probeTaxDepthStage7(
   const res = await apiRequestRaw(
     "GET",
     `/api/tax/${restaurantId}/rate-check`,
+    undefined,
+    ownerToken
+  );
+  return res.status !== 404;
+}
+
+/**
+ * Are the Stage 6 daily views deployed? `GET /api/today/:rid` is a read the
+ * restaurant's owner may always make; it only exists with the change.
+ * Read-only.
+ */
+export async function probeDailyViewsStage6(
+  ownerToken: string,
+  restaurantId: string
+): Promise<boolean> {
+  const res = await apiRequestRaw(
+    "GET",
+    `/api/today/${restaurantId}`,
     undefined,
     ownerToken
   );

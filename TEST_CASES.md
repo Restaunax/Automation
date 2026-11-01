@@ -3826,3 +3826,18 @@ RestauNax back-office audit Stage 7, tax depth track (bo1031/taxdepth, W4:H2, M3
 | **TC-1616** | `dashboard/owner/37-sales-tax-depth-ui` | Add certificate (buyer, Government, number, an expiry in the past): the row shows Government and is flagged expired. |
 | **TC-1617** | `dashboard/owner/37-sales-tax-depth-ui` | The report's Dates choice: Calendar dates shows "midnight to midnight"; Business days shows the business-day line. |
 | **TC-1618** | `dashboard/admin/tax-rate-review-ui` | HQ → Finance → Sales tax rate review lists the tenant at 8% with a result, no edit control, and downloads `tax-rate-review-<date>.csv`. |
+
+## TC-1730 → TC-1735 — Stage 6: daily views
+
+RestauNax back-office audit Stage 6, daily views track (bo1031/uxdaily, W0:J5, J6/OB-2, J2, MF-4, J8). Gated by `RELEASED_ON_QA.dailyViewsStage6` (`utils/releaseGate.ts`, probe `GET /api/today/:id`) until it reaches QA. Tag `@daily-views`. The overtime-approaching and void/comp pushes are proved by restaunax unit tests (`ownerAlertRules`, `voidCompAlert`) and `dailyViews.int.test.ts` (QA has no push inbox).
+
+| TC | Spec | What it proves |
+| --- | --- | --- |
+| **TC-1730** | `dashboard/owner/api-timecards` | The approve preview of an approved period is its frozen snapshot (Gus: wages + premiums = the timecards' total, minutes match); reopened with nothing changed, the rebuilt preview has the same people and totals; notices are sentences; re-approving keeps the totals. |
+| **TC-1731** | `dashboard/owner/api-daily-views` | `GET /api/today/:id`: business date, last year's date 364 days back, sales / labor / on the clock, and the owner's money fields (labor cost, discounts, comps, voids); a fresh restaurant has no last-year figure. |
+| **TC-1732** | `dashboard/owner/api-daily-views` | "Send to my accountant": last month's figures (sales tax, payroll with no periods) and the ZIP in RestauNax, QuickBooks and Xero layouts (PK header, README, sales-tax and payroll CSVs); month `2026-13` is 400. |
+| **TC-1733** | `dashboard/owner/api-daily-views` | An expected-sales override of $600 makes that day `OVERRIDE` with labor % = wages / $600; a 25% target marks it over when above; clearing goes back to history; a negative amount and a 120% target are 400 in words. |
+| **TC-1734** | `dashboard/owner/api-daily-views` | Preferences: a new restaurant reads void/comp off at $25, overtime at 38 h, Books tabs off; a partial save keeps the rest; overtime 0 minutes is 400. |
+| **TC-1735** | `dashboard/owner/api-discount-permissions` | A $2 coupon on Kim's order is in the exceptions summary as `discountsByType.COUPON` (and on Kim's row); DEAL, POINTS and CASH_DISCOUNT are listed. |
+
+`dashboard/owner/24-books-gating-ui` TC-790 (updated): with the change deployed, the accountant tab is "Send to my accountant" (figures + download, invite below) and Card deposits, Tax calendar and Year end are turned on from Overview → "Show more in Books & taxes" before every section is opened.

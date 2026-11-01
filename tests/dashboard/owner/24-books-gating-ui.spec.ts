@@ -11,6 +11,11 @@
  * the "Books & Taxes" add-on (ACCOUNTING_SYNC) is switched by admin override
  * between steps. Every /api/ response is watched: a screen the owner can see
  * must never answer 401/403 while it loads (feedback: screen loads never 403).
+ * W0:J6 / OB-2 (once `dailyViewsStage6` is deployed, probed per run): the
+ * accountant tab is "Send to my accountant" (the month's figures + one ZIP,
+ * the invite below), and Card deposits, Tax calendar and Year end show only
+ * once turned on in Overview → "Show more in Books & taxes" — TC-790 turns
+ * on any that are off, then opens every section.
  * Serial.
  */
 import * as allure from "allure-js-commons";
@@ -30,6 +35,7 @@ import {
   ownerAddonRequestCancelRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
+import { probeDailyViewsStage6 } from "../../../utils/releaseGate";
 import {
   addonRequestsLive,
   requireAddonRequests,
@@ -46,6 +52,16 @@ const SECTIONS = [
   "Year end",
   "Your accountant",
 ];
+/** W0:J6 / OB-2: the accountant tab's new name; the optional tabs. */
+const DAILY_SECTIONS = [
+  "Overview",
+  "Books",
+  "Card deposits",
+  "Tax calendar",
+  "Year end",
+  "Send to my accountant",
+];
+const OPTIONAL_TOGGLES = ["deposits", "calendar", "yearEnd"];
 
 test.describe.configure({ mode: "serial" });
 
@@ -58,6 +74,7 @@ test.describe("Owner — Books & taxes is hidden without its add-on; Connected a
   const runId = generateRunId();
   let adminToken = "";
   let restaurantId = "";
+  let ownerToken = "";
   let session: UiLoginSession | undefined;
   const refused: string[] = [];
 
@@ -91,6 +108,7 @@ test.describe("Owner — Books & taxes is hidden without its add-on; Connected a
     const tenant = await createSecondOwner(adminToken, runId);
     if (!tenant.restaurantId) throw new Error("[books-ui] no tenant");
     restaurantId = tenant.restaurantId;
+    ownerToken = tenant.accessToken;
     session = await loginViaUi(
       browser,
       tenant.email,
@@ -141,16 +159,38 @@ test.describe("Owner — Books & taxes is hidden without its add-on; Connected a
     await expect(item).toBeVisible({ timeout: 20_000 });
     await item.click();
     await expect(page()).toHaveURL(/tab=books-taxes/);
-    for (const name of SECTIONS) {
+    const daily = await probeDailyViewsStage6(ownerToken, restaurantId);
+    if (daily) {
+      // Overview → "Show more": turn on the optional tabs that are off.
+      await expect(page().getByTestId("books-more-tabs")).toBeVisible({
+        timeout: 20_000,
+      });
+      for (const key of OPTIONAL_TOGGLES) {
+        const input = page()
+          .getByTestId(`books-tab-toggle-${key}`)
+          .locator("input");
+        if (!(await input.isChecked())) {
+          await input.check();
+          await expect(input).toBeChecked({ timeout: 10_000 });
+        }
+      }
+    }
+    const accountantTab = daily ? "Send to my accountant" : "Your accountant";
+    for (const name of daily ? DAILY_SECTIONS : SECTIONS) {
       const tab = page().getByRole("tab", { name, exact: true });
       await expect(tab).toBeVisible({ timeout: 20_000 });
       await tab.click();
       await expect(tab).toHaveAttribute("aria-selected", "true");
     }
     // The accountant section offers the invite; the year end offers the ZIP.
-    await page()
-      .getByRole("tab", { name: "Your accountant", exact: true })
-      .click();
+    await page().getByRole("tab", { name: accountantTab, exact: true }).click();
+    if (daily) {
+      // W0:J6: the month's figures and the one-file download sit above it.
+      await expect(page().getByTestId("accountant-bundle")).toBeVisible();
+      await expect(
+        page().getByTestId("accountant-bundle-download")
+      ).toBeVisible();
+    }
     await expect(
       page()
         .getByRole("button", { name: /invite/i })
