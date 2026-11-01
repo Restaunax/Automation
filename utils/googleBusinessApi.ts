@@ -68,11 +68,11 @@ export interface GbReplySettings {
   signOff: string | null;
   contactLine: string | null;
   guidance: string | null;
-  /** 1-3 star reviews push to the owner app (default true). */
+  /** 1–3 star reviews alert (push, or email without the owner app; default true). */
   alertLowRatings: boolean;
-  /** 4-5 star reviews push to the owner app (default false). */
+  /** 4–5 star reviews alert (push, or email without the owner app; default false). */
   alertHighRatings: boolean;
-  /** One 9 AM email with the last 24 hours of reviews (default false). */
+  /** One email 9–12 restaurant time on days with new reviews (default false). */
   dailyDigest: boolean;
 }
 
@@ -172,6 +172,37 @@ export const listReviews = (
     token
   );
 };
+
+/** What POST /api/google-business-oauth/fake-add-review answers. */
+export interface GbFakeAddedReview {
+  /** The new review's Google name (accounts/…/locations/…/reviews/…). */
+  reviewName: string;
+  /** 21:00–08:00 restaurant time: the alert is held until 08:00. */
+  quietHours: boolean;
+  /** False before the link's first sync: the review would import as history
+   *  and never alert. */
+  firstSyncDone: boolean;
+}
+
+/**
+ * FAKE provider only (404 otherwise, e.g. with the real Google client): a
+ * guest leaves a new review on the restaurant's linked fake listing, so the
+ * next POST /sync sees it and new-review alerts can be tried. The review lives
+ * in the backend process's memory (gone on restart). The route also opens the
+ * 2-minute sync window, so the very next syncReviews really syncs.
+ */
+export const fakeAddReview = (
+  token: string,
+  rid: string,
+  rating: number,
+  comment?: string
+) =>
+  call<GbFakeAddedReview>(
+    "POST",
+    "/api/google-business-oauth/fake-add-review",
+    token,
+    { restaurantId: rid, rating, ...(comment ? { comment } : {}) }
+  );
 
 export const syncReviews = (token: string, rid: string) =>
   call<{ lastSyncedAt: string | null }>("POST", `${base(rid)}/sync`, token);

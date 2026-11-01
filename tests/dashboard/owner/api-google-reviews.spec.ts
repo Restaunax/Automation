@@ -15,6 +15,9 @@
  *   GBR_VIEWER_EMAIL/GBR_VIEWER_PASSWORD — a user with VIEW_RESTAURANT only
  *     who is a co-owner of the OWNER's first restaurant (canManage:false)
  * Each optional case skips with a reason when its credentials are missing.
+ * The new-review alert case also needs Mailpit (MAILPIT_BASE_URL) and an
+ * OWNER with no owner-app push token on the target (with one, the alert is a
+ * push and no email is sent).
  *
  * Gated by RELEASED_ON_QA.googleReviews: while false, the file skips when the
  * routes answer 404; against a stack that has the change it runs for real.
@@ -22,6 +25,7 @@
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
 import { apiLogin, getOwnerRestaurants } from "../../../utils/apiHelper";
+import { listEmailIds, waitForEmail } from "../../../utils/emailHelper";
 import { requireRelease, probeGoogleReviews } from "../../../utils/releaseGate";
 import * as gb from "../../../utils/googleBusinessApi";
 
@@ -31,6 +35,7 @@ const OWNER2_EMAIL = process.env.OWNER2_EMAIL ?? "";
 const OWNER2_PASSWORD = process.env.OWNER2_PASSWORD ?? "";
 const VIEWER_EMAIL = process.env.GBR_VIEWER_EMAIL ?? "";
 const VIEWER_PASSWORD = process.env.GBR_VIEWER_PASSWORD ?? "";
+const MAILPIT = !!process.env.MAILPIT_BASE_URL;
 
 // Reply writes are throttled (10/min) and the helper waits the window out, so
 // a write test (plus its afterEach cleanup) can take over a minute.
@@ -539,6 +544,94 @@ test.describe("Google review replies — API", () => {
       expect(
         (await gb.getReplySettings(token, rid)).data.data!.settings
       ).toMatchObject({ ...s });
+    }
+  );
+
+  test(
+    "a new review alerts the owner by email once: fake review -> sync -> one email; a second sync sends nothing",
+    { tag: ["@google-reviews"] },
+    async () => {
+      test.skip(!connected, "connect step did not complete");
+      test.skip(
+        !MAILPIT,
+        "Requires Mailpit (MAILPIT_BASE_URL): an owner without the owner app gets the alert by email"
+      );
+      const before = await gb.getReplySettings(token, rid);
+      expect(before.status, JSON.stringify(before.data)).toBe(200);
+      const s = before.data.data!.settings;
+      alertBaseline ??= {
+        alertLowRatings: s.alertLowRatings,
+        alertHighRatings: s.alertHighRatings,
+        dailyDigest: s.dailyDigest,
+      };
+      const subjectPattern = /^New review at /;
+      try {
+        // A 1-star review alerts only with low-rating alerts on (the default).
+        if (!s.alertLowRatings) {
+          await gb.putReplySettings(token, rid, { alertLowRatings: true });
+        }
+        // The link's first sync imports history (never alerts); make sure it
+        // has run before the "guest" reviews.
+        expect((await gb.syncReviews(token, rid)).status).toBe(200);
+
+        const notBefore = new Date();
+        const comment = `Automation alert check ${Date.now()}`;
+        const added = await gb.fakeAddReview(token, rid, 1, comment);
+        expect(added.status, JSON.stringify(added.data)).toBe(201);
+        expect(added.data.data?.firstSyncDone).toBe(true);
+        // Quiet hours (21:00–08:00 restaurant time) HOLD alerts until the
+        // first sync after 08:00, so nothing would arrive now.
+        test.skip(
+          added.data.data?.quietHours === true,
+          "The restaurant is in quiet hours (21:00–08:00 local): the alert is held until 08:00"
+        );
+
+        const sync = await gb.syncReviews(token, rid);
+        expect(sync.status, JSON.stringify(sync.data)).toBe(200);
+        const list = await gb.listReviews(token, rid, { limit: 5 });
+        expect(
+          list.data.data?.reviews.some((r) => r.comment === comment),
+          "the sync picked up the fake review"
+        ).toBe(true);
+
+        const mail = await waitForEmail(OWNER_EMAIL, {
+          subjectPattern,
+          notBefore,
+          timeoutMs: 45_000,
+        });
+        // The button opens the restaurant's Reviews tab (Handlebars escapes
+        // the "=" in the href).
+        expect(mail.html_body).toMatch(
+          /restaurantManagement\?tab(=|&#x3D;)reviews/
+        );
+        expect(mail.html_body).toContain("Automation alert check");
+
+        // A second sync: the review was already alerted, so no new email.
+        const seen = new Set(
+          await listEmailIds(OWNER_EMAIL, { subjectPattern, notBefore })
+        );
+        expect((await gb.syncReviews(token, rid)).status).toBe(200);
+        await new Promise((r) => setTimeout(r, 8_000));
+        const fresh = (
+          await listEmailIds(OWNER_EMAIL, { subjectPattern, notBefore })
+        ).filter((id) => !seen.has(id));
+        expect(fresh, "no second alert email").toEqual([]);
+      } finally {
+        await gb.putReplySettings(token, rid, alertBaseline);
+        alertBaseline = undefined;
+      }
+    }
+  );
+
+  test(
+    "fake-add-review: a 1–5 rating is required",
+    { tag: ["@google-reviews"] },
+    async () => {
+      test.skip(!connected, "connect step did not complete");
+      for (const rating of [0, 6, 2.5]) {
+        const res = await gb.fakeAddReview(token, rid, rating);
+        expect(res.status, String(rating)).toBe(400);
+      }
     }
   );
 
