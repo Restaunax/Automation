@@ -7570,6 +7570,31 @@ export function accountantRaw<T = { data?: LooseJson; message?: string }>(
   return apiRequestRaw("GET", `/api/accountant${path}`, undefined, token);
 }
 
+/** Any method under `/api/accountant{path}` — the workspace is read-only, so
+ *  every non-GET answers 403 (restaunax W2:A10). */
+export function accountantAnyRaw<T = { data?: LooseJson; message?: string }>(
+  token: string,
+  method: Method,
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(method, `/api/accountant${path}`, body, token);
+}
+
+/** POST /login with an invitation token: an EXISTING account claims an
+ *  invite (e.g. a second restaurant's accountant invite). */
+export function loginWithInviteRaw(
+  email: string,
+  password: string,
+  userInvitationToken: string
+): Promise<RawResponse<{ accessToken?: string; message?: string }>> {
+  return apiRequestRaw("POST", "/login", {
+    email,
+    password,
+    userInvitationToken,
+  });
+}
+
 /** HQ add-on catalog and billing: `/api/admin/addons{path}` (ADMIN). */
 export function adminAddonsRaw<T = { data?: LooseJson; message?: string }>(
   token: string,
