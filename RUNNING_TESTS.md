@@ -113,6 +113,49 @@ hard-deletes its sweeps, so run only self-contained files (ones that mint
 their own tenant) with a config that leaves `globalSetup`/`globalTeardown`
 out.
 
+### Real Stripe test payments and webhooks, against a running backend
+
+The deposit specs (`@reservations-phase4`: `tests/pos/22-*`, `tests/dashboard/owner/37-*`,
+the guest flows) make real test-mode charges. A backend that is already running only
+accepts webhooks signed with its own `STRIPE_WEBHOOK_SECRET`, and `stripe listen` signs
+with its own, so the suite does this instead (`utils/stripeTestMode.ts`):
+
+1. confirm the PaymentIntent with `pm_card_visa` / `pm_card_chargeDeclined`, or a test
+   card in the real Payment Element;
+2. read the REAL event Stripe emitted from the Events API;
+3. POST it to `/api/stripe/webhook`, signed with the backend's secret.
+
+Signature check, idempotency and routing all run for real, and no server restarts.
+`scripts/with-stripe-test-env.sh` supplies the two secrets from Infisical without
+echoing them, passes on nothing else, and refuses a non-test key:
+
+```bash
+# .env: the local URLs + logins as above, plus
+#   E2E_LOCAL_DATABASE_URL=<your own local Postgres, must be localhost>
+export BACKEND_DIR=/path/to/restaunax-backend
+scripts/with-stripe-test-env.sh npx playwright test tests/pos/22-reservation-deposits.spec.ts
+```
+
+Each Stripe tenant gets its own real Custom test account (`createChargeableTestAccount`):
+dummy onboarding can't reach "charges enabled", because Stripe won't let the platform
+accept an Express account's ToS. `E2E_LOCAL_DATABASE_URL` (localhost only, never a
+DELETE) points the throwaway tenant at that account, reads `SmsLog` and ages rows instead
+of sleeping. `--grep-invert @slow` skips TC-1211, which waits up to 5 minutes for the real
+sweep. Without these variables the tests skip, so on QA they stay skipped until QA has a
+route for linking a test account.
+
+**Guest flows** run on a template dev server pinned to one tenant:
+
+```bash
+scripts/with-stripe-test-env.sh npx tsx scripts/mint-reservation-guest-tenant.ts   # prints its id
+# template-wind:  NEXT_PUBLIC_RESTAURANT_ID=<id> NEXT_PUBLIC_API_URL=http://localhost:9000 npx next dev -p 3411
+# template-lima:  VITE_REACT_APP_RESTAURANT_ID=<id> VITE_REACT_APP_BACKEND_URL=http://localhost:9000 npx vite --port 5411 --strictPort
+TEMPLATE_WIND_URL=http://localhost:3411 LIMA_ORDERING_URL=http://localhost:5411 \
+  scripts/with-stripe-test-env.sh npx playwright test tests/customer/14-* tests/customer-lima/19-*
+```
+
+Set `E2E_SHOT_DIR` to keep screenshots.
+
 ## 4. See the report
 
 Two human-readable reports are generated on **every** run:

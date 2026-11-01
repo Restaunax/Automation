@@ -15,7 +15,7 @@
  *
  * Tenants: `t` (Stripe + a $20-per-guest rule, the main stage), `m` (Stripe, rule
  * matching and "Require deposit"), `ns` (add-on, deposits off, no Stripe), `bare`
- * (no add-on). TC-1180 → TC-1213. Gated on probeReservationsPhase4.
+ * (no add-on). TC-1180 → TC-1211. Gated on probeReservationsPhase4.
  */
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../fixtures/base";
