@@ -19,6 +19,7 @@
  */
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
+import { requireEnv } from "../../../utils/envGate";
 import { generateRunId } from "../../../utils/testData";
 import {
   apiLogin,
@@ -63,9 +64,9 @@ const BACK_OFFICE = ["PAYROLL", "SCHEDULING", "TIMECARDS", "TIP_MANAGEMENT"];
 test.describe.configure({ mode: "serial" });
 
 test.describe("Back-office add-ons gate every surface (API)", () => {
-  test.skip(
-    !ADMIN_EMAIL || !ADMIN_PASSWORD,
-    "ADMIN_EMAIL / ADMIN_PASSWORD not set (the file mints its own tenant)"
+  requireEnv(
+    ["ADMIN_EMAIL", "ADMIN_PASSWORD"],
+    "the file mints its own tenant"
   );
 
   const runId = generateRunId();

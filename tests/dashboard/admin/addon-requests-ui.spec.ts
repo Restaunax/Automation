@@ -28,6 +28,7 @@
 import type { Locator, Page } from "@playwright/test";
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
+import { requireEnv } from "../../../utils/envGate";
 import { generateRunId } from "../../../utils/testData";
 import {
   apiLogin,
@@ -48,9 +49,9 @@ type Rec = Record<string, LooseJson>;
 test.describe.configure({ mode: "serial" });
 
 test.describe("HQ — add-on requests (UI)", () => {
-  test.skip(
-    !ADMIN_EMAIL || !ADMIN_PASSWORD,
-    "ADMIN_EMAIL / ADMIN_PASSWORD not set (the file mints its own tenant)"
+  requireEnv(
+    ["ADMIN_EMAIL", "ADMIN_PASSWORD"],
+    "the file mints its own tenant"
   );
 
   const runId = generateRunId();

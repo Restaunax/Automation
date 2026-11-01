@@ -35,6 +35,12 @@ export const RELEASED_ON_QA = {
   /** RestauNax branch fix/switch-click-target — a click on a switch's label
    *  text or row no longer toggles it; only the switch does (theme-level). */
   switchClickTarget: false,
+  /** RestauNax back-office audit, Stage 1 paywall (branch bo1031/paywall,
+   *  docs/features/back-office/audit-2026-10/W5_PAYWALL_TASKS.md): Menu TVs,
+   *  Social Media and Voice AI gated; 404 before the add-on check (L2);
+   *  company staff read-only on payroll (L4); Partner API labor needs
+   *  Timecards (M1). Flip once it is on QA. */
+  paywallStage1: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -51,6 +57,8 @@ const REASON: Record<ReleasePart, string> = {
     "Removing cards also removes their stands (RestauNax PR #1102) is not on this environment yet",
   switchClickTarget:
     "Switches toggle only from the switch (RestauNax fix/switch-click-target) is not on this environment yet",
+  paywallStage1:
+    "The Stage 1 paywall fixes (RestauNax bo1031/paywall) are not on this environment yet",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
@@ -111,4 +119,22 @@ export async function probeSettingsSafety(
     accessToken
   );
   return res.status !== 404;
+}
+
+/**
+ * Is the Stage 1 paywall deployed? On a restaurant WITHOUT Menu TVs, the TV
+ * list answers 403 FEATURE_NOT_ENTITLED once the gate exists (200 before).
+ * Read-only.
+ */
+export async function probePaywallStage1(
+  ownerToken: string,
+  restaurantIdWithoutMenuTvs: string
+): Promise<boolean> {
+  const res = await apiRequestRaw<{ error?: string }>(
+    "GET",
+    `/api/menu-tv/restaurants/${restaurantIdWithoutMenuTvs}/devices`,
+    undefined,
+    ownerToken
+  );
+  return res.status === 403 && res.data?.error === "FEATURE_NOT_ENTITLED";
 }

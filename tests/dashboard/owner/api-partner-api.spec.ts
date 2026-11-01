@@ -20,6 +20,7 @@
  */
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
+import { requireEnv } from "../../../utils/envGate";
 import { generateRunId, generateSeedPhone } from "../../../utils/testData";
 import {
   apiLogin,
@@ -61,9 +62,9 @@ const SCOPES = [
 test.describe.configure({ mode: "serial" });
 
 test.describe("Partner data API — keys, location scope, webhooks (B3, API)", () => {
-  test.skip(
-    !ADMIN_EMAIL || !ADMIN_PASSWORD,
-    "ADMIN_EMAIL / ADMIN_PASSWORD not set (the file mints its own tenants)"
+  requireEnv(
+    ["ADMIN_EMAIL", "ADMIN_PASSWORD"],
+    "the file mints its own tenants"
   );
 
   const runId = generateRunId();
