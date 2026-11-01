@@ -229,7 +229,8 @@ test.describe("Scheduling — build, cost, warn, publish, clock-in rule (API)", 
     jobId = String(job.data.data?.id);
     const other = await createStaffJobRaw(ownerToken, restaurantId, {
       name: `Dish ${runId}`,
-      defaultHourlyRateCents: 1300,
+      // At least Miami's $15.00 minimum wage (W3:C3).
+      defaultHourlyRateCents: 1550,
     });
     otherJobId = String(other.data.data?.id);
     // Dee earns her own $20.00; Eve the job's $15.00.

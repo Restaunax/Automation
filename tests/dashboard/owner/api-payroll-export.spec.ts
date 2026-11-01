@@ -6,11 +6,16 @@
  * and last week's (finished) period P1 filled by manager entry:
  *   Hal — Barista $15.00: Mon–Fri 8 h + Sat 4 h = 44 h → 40 × $15 + 4 × $22.50
  *         = $690.00 (straight $660.00 + premium $30.00); declared cash $12.34.
- *   Ivy — Host $14.00: two 4 h shifts = 8 h → $112.00; no payroll ID.
+ *   Ivy — Host $16.00: two 4 h shifts = 8 h → $128.00; no payroll ID.
+ *         (W3:C3: Miami's $15.00 minimum refuses the old $14.00 rate.)
  * Approve P1 → preview warnings per format → set the IDs/codes → the files,
  * row by row; the export marks the period EXPORTED; a re-export after a raise
  * is byte-identical (the snapshot, not today's rates); an unapproved period
  * can't be exported; the staff app shows the approved wages.
+ * W3:C1 (TC-1263): a two-rate week in P2 — Lead $20 then Barista $15, the
+ * overtime on Barista — puts the premium on the full regular rate that the
+ * provider's 1.5 × $15 leaves out on an "overtime premium adjustment"
+ * earning in every format, and Gusto gets one row per job.
  *
  * Restaurant is in Miami (America/New_York). Serial. Needs Mailpit (Hal claims
  * his invite so the staff-app check is real).
@@ -61,15 +66,6 @@ const lines = (body: unknown) =>
 test.describe.configure({ mode: "serial" });
 
 test.describe("Payroll export — every format from the approved period (API)", () => {
-  test.skip(
-    !ADMIN_EMAIL || !ADMIN_PASSWORD,
-    "ADMIN_EMAIL / ADMIN_PASSWORD not set (the file mints its own tenant)"
-  );
-  test.skip(
-    !MAILPIT,
-    "Requires Mailpit (MAILPIT_BASE_URL): the invite token travels by email"
-  );
-
   const runId = generateRunId();
   let adminToken = "";
   let ownerToken = "";
@@ -116,7 +112,15 @@ test.describe("Payroll export — every format from the approved period (API)", 
 
   test.beforeAll(async () => {
     test.setTimeout(240_000);
-    if (!ADMIN_EMAIL || !ADMIN_PASSWORD || !MAILPIT) return;
+    // Fail, never skip, without the environment (W5:T7).
+    if (!ADMIN_EMAIL || !ADMIN_PASSWORD)
+      throw new Error(
+        "[api-payroll-export] ADMIN_EMAIL / ADMIN_PASSWORD not set"
+      );
+    if (!MAILPIT)
+      throw new Error(
+        "[api-payroll-export] MAILPIT_BASE_URL not set: the invite token travels by email"
+      );
     adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
     const tenant = await createSecondOwner(adminToken, runId);
     if (!tenant.restaurantId) throw new Error("[api-payroll-export] no tenant");
@@ -187,7 +191,7 @@ test.describe("Payroll export — every format from the approved period (API)", 
       (
         await createStaffJobRaw(ownerToken, restaurantId, {
           name: hostName,
-          defaultHourlyRateCents: 1400,
+          defaultHourlyRateCents: 1600,
         })
       ).data.data?.id
     );
@@ -265,7 +269,7 @@ test.describe("Payroll export — every format from the approved period (API)", 
     await allure.label("severity", "critical");
   });
 
-  test("TC-597: only an approved period exports; approval freezes $690.00 + $112.00", async () => {
+  test("TC-597: only an approved period exports; approval freezes $690.00 + $128.00", async () => {
     const early = await file("RESTAUNAX");
     expect(early.status, "not approved yet").toBe(400);
 
@@ -287,9 +291,12 @@ test.describe("Payroll export — every format from the approved period (API)", 
     });
     expect(by.get(ivy.id)).toMatchObject({
       regularMinutes: 480,
-      totalCents: 11200,
+      totalCents: 12800,
+      // W3:C3: both paid at least the $15.00 minimum — nothing to top up.
+      minimumWageTopUpCents: 0,
     });
-    expect(cards.data.data.totals.totalCents).toBe(80200);
+    expect(by.get(hal.id)?.minimumWageTopUpCents).toBe(0);
+    expect(cards.data.data.totals.totalCents).toBe(81800);
 
     const ok = await payrollRaw(
       ownerToken,
@@ -378,17 +385,18 @@ test.describe("Payroll export — every format from the approved period (API)", 
     expect(rows).toHaveLength(3);
     // periodStart, periodEnd, payrollId, last, first, job, jobCode, rate,
     // reg h, OT h, DT h, straight, premium, wages, tipsPaid, fromDrawer,
-    // declared, grossPaid — sorted by last name.
+    // declared, serviceCharges, minimumWageTopUp, grossPaid — sorted by
+    // last name.
     expect(rows[1]).toBe(
-      `${p1},${addDays(p1, 6)},E-100,Avery,Hal,${baristaName},BAR,15.00,40.00,4.00,0.00,660.00,30.00,690.00,0.00,0.00,12.34,690.00`
+      `${p1},${addDays(p1, 6)},E-100,Avery,Hal,${baristaName},BAR,15.00,40.00,4.00,0.00,660.00,30.00,690.00,0.00,0.00,12.34,0.00,0.00,690.00`
     );
     expect(rows[2]).toBe(
-      `${p1},${addDays(p1, 6)},,Zane,Ivy,${hostName},,14.00,8.00,0.00,0.00,112.00,0.00,112.00,0.00,0.00,0.00,112.00`
+      `${p1},${addDays(p1, 6)},,Zane,Ivy,${hostName},,16.00,8.00,0.00,0.00,128.00,0.00,128.00,0.00,0.00,0.00,0.00,0.00,128.00`
     );
     const wages = rows
       .slice(1)
       .reduce((s, l) => s + Math.round(Number(l.split(",")[13]) * 100), 0);
-    expect(wages).toBe(80200);
+    expect(wages).toBe(81800);
 
     const periods = await payrollRaw(
       ownerToken,
@@ -404,12 +412,16 @@ test.describe("Payroll export — every format from the approved period (API)", 
   test("TC-600: Gusto, ADP RUN and Paychex files carry the same hours and money", async () => {
     const gusto = await csvOf("GUSTO");
     expect(gusto[0]).toBe(
-      "Last_name,First_name,Gusto_employee_id,Title,Regular_hours,Overtime_hours,Double_overtime_hours,paycheck_tips,cash_tips"
+      "Last_name,First_name,Gusto_employee_id,Title,Regular_hours,Overtime_hours,Double_overtime_hours,paycheck_tips,cash_tips,service_charges,overtime_premium_adjustment,minimum_wage_top_up"
+    );
+    // One job, one rate, no tip credit: Gusto's own 1.5 × $15 is the
+    // engine's premium, so no adjustment.
+    expect(gusto).toContain(
+      `Avery,Hal,E-100,${baristaName},40.00,4.00,0.00,0.00,12.34,0.00,0.00,0.00`
     );
     expect(gusto).toContain(
-      `Avery,Hal,E-100,${baristaName},40.00,4.00,0.00,0.00,12.34`
+      `Zane,Ivy,,${hostName},8.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00`
     );
-    expect(gusto).toContain(`Zane,Ivy,,${hostName},8.00,0.00,0.00,0.00,0.00`);
 
     const adp = await csvOf("ADP_RUN");
     const dates = `W,${usDate(p1)},${usDate(addDays(p1, 6))}`;
@@ -432,7 +444,7 @@ test.describe("Payroll export — every format from the approved period (API)", 
         "9876,E-100,BAR,REG,15.00,40.00,",
         "9876,E-100,BAR,OT,15.00,4.00,",
         "9876,E-100,BAR,CTIPS,,,12.34",
-        "9876,,,REG,14.00,8.00,",
+        "9876,,,REG,16.00,8.00,",
       ])
     );
   });
@@ -482,5 +494,137 @@ test.describe("Payroll export — every format from the approved period (API)", 
     expect((await file("RESTAUNAX")).status, "reopened = not exportable").toBe(
       400
     );
+  });
+
+  test("TC-1263: W3:C1 a two-rate week — the premium the provider's 1.5× leaves out rides on its own earning, every format", async () => {
+    // P2: Hal is Lead at $20 Mon–Tue (7.5 h each), then Barista at $15
+    // Wed–Fri (10 h each) = 45 h; the 5 overtime hours are the last ones,
+    // on Barista. Regular rate (300 + 450) / 45 = $16.667 → premium
+    // 0.5 × 16.667 × 5 = $41.67; the provider's 1.5 × $15 pays $37.50 of it
+    // → a $4.17 overtime premium adjustment. Total $750.00 + $41.67.
+    const lead = await createStaffJobRaw(ownerToken, restaurantId, {
+      name: `Lead ${runId}`,
+      defaultHourlyRateCents: 2000,
+    });
+    expect(lead.status, JSON.stringify(lead.data)).toBe(201);
+    const leadId = String(lead.data.data?.id);
+    await payrollRaw(ownerToken, restaurantId, "PATCH", `/jobs/${leadId}`, {
+      payrollCode: "LEAD",
+    });
+    await setMemberJobsRaw(ownerToken, restaurantId, hal.id, [
+      { jobId: barista, isPrimary: true, hourlyRateCents: 1500 },
+      { jobId: leadId },
+    ]);
+    const enter = async (
+      date: string,
+      from: string,
+      to: string,
+      jobId: string
+    ) => {
+      const r = await payrollRaw(ownerToken, restaurantId, "POST", "/shifts", {
+        staffMemberId: hal.id,
+        clockInAt: at(date, from),
+        clockOutAt: at(date, to),
+        jobId,
+        reason: "Paper timesheet",
+      });
+      expect(r.status, JSON.stringify(r.data)).toBe(201);
+    };
+    await enter(addDays(p2, 1), "13:00", "20:30", leadId);
+    await enter(addDays(p2, 2), "13:00", "20:30", leadId);
+    for (const d of [3, 4, 5])
+      await enter(addDays(p2, d), "12:00", "22:00", barista);
+
+    const cards = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      `/timecards?startDate=${p2}&endDate=${addDays(p2, 6)}`
+    );
+    const halCard = list(cards.data.data.employees).find(
+      (e) => e.staffMemberId === hal.id
+    ) as Rec;
+    expect(halCard).toMatchObject({
+      regularMinutes: 2400,
+      overtimeMinutes: 300,
+      straightTimeCents: 75000,
+      overtimePremiumCents: 4167,
+      totalCents: 79167,
+    });
+    const ok = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "POST",
+      `/pay-periods/${p2}/approve`
+    );
+    expect(ok.status, JSON.stringify(ok.data)).toBe(200);
+
+    const codesNow = {
+      regular: "REG",
+      overtime: "OT",
+      doubleTime: "DT",
+      tipsPaid: "TIPS",
+      tipsReported: "CTIPS",
+      serviceCharges: "SVC",
+      overtimePremiumAdjustment: "OTADJ",
+      minimumWageTopUp: "MWTU",
+    };
+    const saved = await putPayrollSettingsRaw(ownerToken, restaurantId, {
+      export: {
+        defaultFormat: "ADP_RUN",
+        adp: { companyCode: "ABC", earningCodes: codesNow },
+        paychex: { clientId: "9876", payComponents: codesNow },
+      },
+    });
+    expect(saved.status, JSON.stringify(saved.data)).toBe(200);
+    const csv = async (format: string) => {
+      const r = await file(format, p2);
+      expect(r.status, JSON.stringify(r.data)).toBe(200);
+      return lines(r.data);
+    };
+
+    const gusto = await csv("GUSTO");
+    expect(gusto).toEqual(
+      expect.arrayContaining([
+        `Avery,Hal,E-100,${baristaName},25.00,5.00,0.00,0.00,0.00,0.00,4.17,0.00`,
+        `Avery,Hal,E-100,Lead ${runId},15.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00`,
+      ])
+    );
+    const dates = `W,${usDate(p2)},${usDate(addDays(p2, 6))}`;
+    const adp = await csv("ADP_RUN");
+    expect(adp).toEqual(
+      expect.arrayContaining([
+        `ABC,${dates},E-100,REG,25.00,,BAR`,
+        `ABC,${dates},E-100,OT,5.00,,BAR`,
+        `ABC,${dates},E-100,REG,15.00,,LEAD`,
+        `ABC,${dates},E-100,OTADJ,,4.17,BAR`,
+      ])
+    );
+    const paychex = await csv("PAYCHEX");
+    expect(paychex).toEqual(
+      expect.arrayContaining([
+        "9876,E-100,BAR,REG,15.00,25.00,",
+        "9876,E-100,BAR,OT,15.00,5.00,",
+        "9876,E-100,LEAD,REG,20.00,15.00,",
+        "9876,E-100,BAR,OTADJ,,,4.17",
+      ])
+    );
+    // Σ provider pay + adjustment = the engine's $791.67, in Paychex terms.
+    const paid = paychex.slice(1).reduce((sum, row) => {
+      const [, , , code, rate, hrs, amount] = row.split(",");
+      const mult = code === "OT" ? 1.5 : code === "REG" ? 1 : 0;
+      return (
+        sum +
+        Math.round(Number(rate || 0) * 100) * Number(hrs || 0) * mult +
+        (code === "OTADJ" ? Math.round(Number(amount) * 100) : 0)
+      );
+    }, 0);
+    expect(Math.round(paid)).toBe(79167);
+    const rx = await csv("RESTAUNAX");
+    const premium = rx
+      .slice(1)
+      .filter((l) => l.includes(`${p2},`))
+      .reduce((sum, l) => sum + Math.round(Number(l.split(",")[12]) * 100), 0);
+    expect(premium).toBe(4167);
   });
 });

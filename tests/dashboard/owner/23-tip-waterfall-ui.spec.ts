@@ -119,7 +119,8 @@ test.describe("Owner — tip-out waterfall (UI)", () => {
         (
           await createStaffJobRaw(ownerToken, restaurantId, {
             name: `${name} ${runId}`,
-            defaultHourlyRateCents: 1000,
+            // At least Miami's $11.98 tipped cash wage (W3:C3).
+            defaultHourlyRateCents: 1200,
             isTipped: true,
           })
         ).data.data?.id

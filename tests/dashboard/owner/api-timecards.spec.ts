@@ -14,7 +14,11 @@
  *   - a missed required break blocks approval until reviewed;
  *   - approve locks, reopen needs a reason, the staff app shows hours before
  *     approval and pay only after (and never with "show pay" off);
- *   - the POS: job picker, job not held, breaks on the time clock.
+ *   - the POS: job picker, job not held, breaks on the time clock;
+ *   - W3:C3 (TC-1264/1265): Miami's $15.00 minimum ($11.98 tipped cash wage,
+ *     a CONFIRMED rule) refuses a low rate; a tipped server at the cash
+ *     wage working 45 h with no tips gets overtime on the full minimum
+ *     ($7.50 premium an hour, not half the cash wage) and a weekly top-up.
  * Restaurant is in Miami (America/New_York). Serial.
  */
 import * as allure from "allure-js-commons";
@@ -59,15 +63,6 @@ const REASON = "Entered from the paper sheet";
 test.describe.configure({ mode: "serial" });
 
 test.describe("Timecards — overtime, breaks, approval (API)", () => {
-  test.skip(
-    !ADMIN_EMAIL || !ADMIN_PASSWORD,
-    "ADMIN_EMAIL / ADMIN_PASSWORD not set (the file mints its own tenant)"
-  );
-  test.skip(
-    !MAILPIT,
-    "Requires Mailpit (MAILPIT_BASE_URL): the invite token travels by email"
-  );
-
   const runId = generateRunId();
   let adminToken = "";
   let ownerToken = "";
@@ -124,7 +119,13 @@ test.describe("Timecards — overtime, breaks, approval (API)", () => {
 
   test.beforeAll(async () => {
     test.setTimeout(240_000);
-    if (!ADMIN_EMAIL || !ADMIN_PASSWORD || !MAILPIT) return;
+    // Fail, never skip, without the environment (W5:T7).
+    if (!ADMIN_EMAIL || !ADMIN_PASSWORD)
+      throw new Error("[api-timecards] ADMIN_EMAIL / ADMIN_PASSWORD not set");
+    if (!MAILPIT)
+      throw new Error(
+        "[api-timecards] MAILPIT_BASE_URL not set: the invite token travels by email"
+      );
     adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
     const tenant = await createSecondOwner(adminToken, runId);
     if (!tenant.restaurantId) throw new Error("[api-timecards] no tenant");
@@ -662,7 +663,8 @@ test.describe("Timecards — overtime, breaks, approval (API)", () => {
 
     const other = await createStaffJobRaw(ownerToken, restaurantId, {
       name: `Host ${runId}`,
-      defaultHourlyRateCents: 1400,
+      // At or above Miami's $15.00 minimum (W3:C3).
+      defaultHourlyRateCents: 1600,
     });
     const notHeld = await tabletRaw(tabletToken, "POST", "/staff/clock-in", {
       staffMemberId: gus.staffMemberId,
@@ -695,5 +697,84 @@ test.describe("Timecards — overtime, breaks, approval (API)", () => {
     expect(end.status, JSON.stringify(end.data)).toBe(200);
     const out = await tabletRaw(tabletToken, "POST", "/staff/clock-out", body);
     expect(out.status, JSON.stringify(out.data)).toBe(200);
+  });
+
+  test("TC-1264: W3:C3 a rate below Miami's minimum is refused; the minimum and the tip credit read back", async () => {
+    const low = await createStaffJobRaw(ownerToken, restaurantId, {
+      name: `Dish ${runId}`,
+      defaultHourlyRateCents: 900,
+    });
+    expect(low.status).toBe(400);
+    expect(String((low.data as Rec).message)).toBe(
+      `$9.00 an hour for Dish ${runId} is below the minimum wage here: $15.00 an hour (FL state minimum wage).`
+    );
+    const credit = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      "/tip-credit"
+    );
+    expect(credit.status, JSON.stringify(credit.data)).toBe(200);
+    expect(credit.data.data).toMatchObject({
+      usesTipCredit: false,
+      floor: {
+        fullWageCents: 1500,
+        tippedCashWageCents: 1198,
+        status: "CONFIRMED",
+        fullWageSourceLabel: "FL state minimum wage",
+      },
+    });
+  });
+
+  test("TC-1265: W3:C2/C3 a tipped server at the cash wage, 45 h, no tips: OT on the full minimum + a weekly top-up", async () => {
+    const server = await createStaffJobRaw(ownerToken, restaurantId, {
+      name: `Server ${runId}`,
+      defaultHourlyRateCents: 1198,
+      isTipped: true,
+    });
+    expect(server.status, JSON.stringify(server.data)).toBe(201);
+    const serverId = String(server.data.data?.id);
+    await setMemberJobsRaw(ownerToken, restaurantId, gus.staffMemberId, [
+      { jobId: barista, isPrimary: true },
+      { jobId: lead },
+      { jobId: serverId },
+    ]);
+    // The tip credit is now derived from the rates.
+    const credit = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      "/tip-credit"
+    );
+    expect(credit.data.data.usesTipCredit).toBe(true);
+    // A free week three weeks back: Mon–Fri 9 h as Server = 45 h.
+    const week = addDays(p2, -7);
+    for (let d = 1; d <= 5; d++)
+      await enter(
+        at(addDays(week, d), "13:00"),
+        at(addDays(week, d), "22:00"),
+        serverId
+      );
+    const card = await gusCard(week);
+    // Straight 45 × $11.98 = $539.10. Regular rate = cash + $3.02 tip credit
+    // = $15.00, so 5 OT hours carry 5 × $7.50 = $37.50 (each OT hour pays
+    // $19.48 = 1.5 × $15.00 − $3.02). No tips: cash $539.10 is short of
+    // 45 × $15.00 = $675.00 by $135.90 — the top-up.
+    expect(card).toMatchObject({
+      regularMinutes: 2400,
+      overtimeMinutes: 300,
+      straightTimeCents: 53910,
+      overtimePremiumCents: 3750,
+      tipCreditCents: 45 * 302,
+      minimumWageTopUpCents: 13590,
+      totalCents: 53910 + 3750 + 13590,
+    });
+    expect(list(card.wageWeeks)[0]).toMatchObject({
+      weekStart: week,
+      regularRateCents: 1500,
+      requiredCents: 67500,
+      tipsCents: 0,
+      topUpCents: 13590,
+    });
   });
 });
