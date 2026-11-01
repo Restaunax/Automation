@@ -15,6 +15,15 @@
  * due next to tax collected); the fee line itself is TC-1079 (a real order
  * with a service fee). Every report is read for [yesterday, today] in the
  * restaurant's zone so a run just after midnight still sees its own orders.
+ *
+ * RestauNax audit Stage 3 (TC-1254..1256): the delivery fee asks the owner
+ * while the state's rule is only suggested; a refund that names the beer
+ * gives back alcohol-rate tax only and the books agree with the report per
+ * rate (W4:M7); POS tax refusal is per restaurant (readiness + opt-in + the
+ * admin kill switch, replacing POS_TAX_REFUSAL_ENABLED). A sale whose card
+ * capture FAILED (W4:M6) can't be staged on QA without Stripe's secret key
+ * (the hold must be cancelled and the day closed): the backend integration
+ * test salesTax.int proves the report leaves it out.
  * Serial.
  */
 import * as allure from "allure-js-commons";
@@ -34,8 +43,15 @@ import {
   taxRaw,
   reportsRaw,
   accountingRaw,
+  apiRequestRaw,
+  ensureBusinessHours,
+  getOrderFullRaw,
+  refundOrderRaw,
+  stripeConfigRaw,
+  stripeTestOnboardingRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
+import { placePaidOnlineOrder } from "../../../utils/comboFoodSurfaces";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
@@ -349,5 +365,182 @@ test.describe("Sales tax and reports agree with the orders (API)", () => {
       sales: 3000,
       tax: 192,
     });
+  });
+
+  test("TC-1254: the delivery fee asks the owner while the state's rule is only a suggestion", async () => {
+    const r = await taxRaw<{ data?: Rec }>(
+      ownerToken,
+      restaurantId,
+      "GET",
+      "/delivery-fee"
+    );
+    expect(r.status, JSON.stringify(r.data)).toBe(200);
+    const d = r.data.data as Rec;
+    // No CONFIRMED rule on QA: today's behaviour, and the owner is asked.
+    expect(d.rules).toBe("LEGACY");
+    expect(d.needsOwnerAnswer).toBe(true);
+    expect(["DRAFT", "MISSING"]).toContain(
+      String((d.stateRule as Rec | null)?.status)
+    );
+    expect(String(d.explanation)).toMatch(/confirmed/);
+  });
+
+  test("TC-1255: refunding only the beer gives back alcohol-rate tax only; the books agree with the report per rate", async () => {
+    test.setTimeout(120_000);
+    await ensureBusinessHours(ownerToken, restaurantId);
+    const onboard = await stripeTestOnboardingRaw(ownerToken, restaurantId);
+    expect(onboard.status, JSON.stringify(onboard.data)).toBe(200);
+    const pk = String(
+      (await stripeConfigRaw()).data.data?.publishableKey ?? ""
+    );
+    expect(pk, "QA publishes a Stripe TEST key").toMatch(/^pk_test_/);
+    // Burger $10.00 at State 6% = $0.60; Beer $8.00 at Alcohol 10% (TC-622)
+    // = $0.80; a $2.00 tip.
+    const web = await placePaidOnlineOrder(pk, restaurantId, {
+      orderType: "PICKUP",
+      subtotal: 18,
+      tax: 1.4,
+      tip: 2,
+      deliveryFee: 0,
+      total: 21.4,
+      customerEmail: `auto-refund-${runId}@restaunax-test.com`,
+      customerPhone: "5555550199",
+      firstName: "Rita",
+      lastName: "Refund",
+      orderItems: [
+        {
+          menuItemId: items.Burger.id,
+          menuItemName: items.Burger.name,
+          quantity: 1,
+          price: 10,
+        },
+        {
+          menuItemId: items.Beer.id,
+          menuItemName: items.Beer.name,
+          quantity: 1,
+          price: 8,
+        },
+      ],
+    });
+    const full = await getOrderFullRaw(ownerToken, web.id);
+    const beer = list((full.data as Rec).orderItems).find(
+      (l) => l.menuItemId === items.Beer.id
+    );
+    expect(beer, "the order has the beer line").toBeTruthy();
+
+    const refund = await refundOrderRaw(ownerToken, web.id, {
+      amount: 8.8,
+      reason: "Wrong beer",
+      items: [{ orderItemId: String(beer!.id), quantity: 1 }],
+    });
+    expect(refund.status, JSON.stringify(refund.data)).toBe(200);
+
+    const r = await taxRaw<{ data?: Rec }>(
+      ownerToken,
+      restaurantId,
+      "GET",
+      `/report?startDate=${from}&endDate=${to}`
+    );
+    expect(r.status, JSON.stringify(r.data)).toBe(200);
+    const report = r.data.data as Rec;
+    const byRate = list(report.byRate);
+    const state = byRate.filter((l) => l.taxRateId === rates.State.id);
+    const alcohol10 = byRate.find(
+      (l) => l.taxRateId === rates.Alcohol.id && l.percent === 10
+    );
+    // Only alcohol-rate tax came back (was: a share of every rate, tip
+    // included).
+    expect(alcohol10).toMatchObject({ tax: 0.8, refundedTax: 0.8, netTax: 0 });
+    expect(state.reduce((s, l) => s + Number(l.refundedTax), 0)).toBe(0);
+    expect((report.totals as Rec).refundedTax).toBe(0.8);
+
+    // The books post the same tax per rate, net of the refund.
+    const books = new Map<string, number>();
+    for (const date of [from, to]) {
+      const day = await accountingRaw(
+        ownerToken,
+        restaurantId,
+        "GET",
+        `/days/${date}?rebuild=1`
+      );
+      expect(day.status, JSON.stringify(day.data)).toBe(200);
+      for (const line of list(day.data.data?.entry?.lines)) {
+        const key = String(line.key);
+        if (!key.startsWith("tax:")) continue;
+        const cents = (line.side === "CREDIT" ? 1 : -1) * Number(line.cents);
+        books.set(key, (books.get(key) ?? 0) + cents);
+      }
+    }
+    for (const rate of [rates.State, rates.Alcohol]) {
+      const netCents = Math.round(
+        byRate
+          .filter((l) => l.taxRateId === rate.id)
+          .reduce((s, l) => s + Number(l.netTax), 0) * 100
+      );
+      expect(books.get(`tax:${rate.id}`) ?? 0, String(rate.name)).toBe(
+        netCents
+      );
+    }
+  });
+
+  test("TC-1256: POS tax refusal is per restaurant — off until ready and opted in; the admin kill switch is a platform setting", async () => {
+    const get = await taxRaw<{ data?: Rec }>(
+      ownerToken,
+      restaurantId,
+      "GET",
+      "/pos-refusal"
+    );
+    expect(get.status, JSON.stringify(get.data)).toBe(200);
+    expect(get.data.data).toMatchObject({ refusalOn: false, optedIn: false });
+    expect(get.data.data?.blockers).toContain("NOT_OPTED_IN");
+
+    const bad = await taxRaw(ownerToken, restaurantId, "PUT", "/pos-refusal", {
+      optIn: "yes",
+    });
+    expect(bad.status).toBe(400);
+
+    try {
+      const on = await taxRaw<{ data?: Rec }>(
+        ownerToken,
+        restaurantId,
+        "PUT",
+        "/pos-refusal",
+        { optIn: true }
+      );
+      expect(on.status, JSON.stringify(on.data)).toBe(200);
+      // Opted in, but no register has sold here: still accepted and recorded.
+      expect(on.data.data).toMatchObject({ optedIn: true, refusalOn: false });
+      expect(on.data.data?.blockers).not.toContain("NOT_OPTED_IN");
+      expect(on.data.data?.blockers).toContain("NO_ACTIVE_DEVICES");
+    } finally {
+      await taxRaw(ownerToken, restaurantId, "PUT", "/pos-refusal", {
+        optIn: false,
+      });
+    }
+
+    // The global kill switch: admins only, and validated. Never flipped here
+    // (it pauses refusal for every restaurant on QA).
+    const admin = await apiRequestRaw<{ data?: Rec }>(
+      "GET",
+      "/api/admin/pos-tax-refusal",
+      undefined,
+      adminToken
+    );
+    expect(admin.status, JSON.stringify(admin.data)).toBe(200);
+    expect(typeof admin.data.data?.killSwitch).toBe("boolean");
+    const owner = await apiRequestRaw(
+      "GET",
+      "/api/admin/pos-tax-refusal",
+      undefined,
+      ownerToken
+    );
+    expect(owner.status).toBe(403);
+    const invalid = await apiRequestRaw(
+      "PUT",
+      "/api/admin/pos-tax-refusal",
+      { quietDays: 0 },
+      adminToken
+    );
+    expect(invalid.status).toBe(400);
   });
 });

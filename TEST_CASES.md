@@ -2702,6 +2702,30 @@ Throwaway restaurant (Miami, FL). The rules are seeded on every backend start; o
 
 ---
 
+
+## TC-1251 → TC-1256 — Sales-tax rules, refund split and POS refusal (API)
+
+**Status:** ⏳ Written 2026-11-01; passes once RestauNax back-office audit Stage 3 tax track (`bo1031/taxrules`) is on QA.
+
+Every sales-tax rule on QA is DRAFT (a suggestion until the CPA confirms) and no restaurant is opted in to POS refusal, so these check that nothing changes until someone confirms, and what a confirmation does. TC-611 was rewritten with them: a never-saved service fee now starts taxable.
+
+### `dashboard/owner/api-service-fee.spec.ts`
+
+| TC          | What it checks                                                                                                                                                       |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **TC-1251** | `GET /service-charge`: the state's rule with status (DRAFT or MISSING) and source, nothing confirmed, the owner asked; a fee saved untaxed is still charged untaxed. |
+| **TC-1252** | A bad answer and a non-sales-tax rule key are refused (400); the owner confirms, the rule reads decided by the owner and the HOUSE fee is taxed on the next order.   |
+| **TC-1253** | Under the confirmed rule, saving `taxable: false` still taxes the fee (the server sets it from who keeps it), and the POS settings carry the same flag.              |
+
+### `dashboard/owner/api-sales-tax-reports.spec.ts`
+
+| TC          | What it checks                                                                                                                                                                                      |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **TC-1254** | `GET /delivery-fee`: legacy rules, `needsOwnerAnswer`, a DRAFT or MISSING state rule, and the explanation says nobody has confirmed it.                                                             |
+| **TC-1255** | A paid online order (burger + beer + tip); refunding only the beer by its line gives back $0.80 alcohol-rate tax and nothing at the food rate; the books' tax per rate equals the report's net tax. |
+| **TC-1256** | `GET/PUT /pos-refusal`: off and not opted in; opting in still leaves it off (no register has sold); a bad value is refused; the admin kill switch is admin-only and validated (never flipped).      |
+
+A sale whose card capture FAILED (audit W4:M6) can't be staged on QA without Stripe's secret key; the backend integration test `salesTax.int` proves the report leaves it out.
 ## TC-1099 → TC-1102 — Customers: the numbers add up (API)
 
 **Status:** ⏳ Written 2026-10-31; fails on QA until the restaunax fix (`fix/customer-insights-numbers`) is deployed there.
