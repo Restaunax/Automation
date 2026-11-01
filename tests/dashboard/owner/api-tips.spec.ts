@@ -15,6 +15,8 @@
  * Not covered here (QA can't produce it): card-fee withholding needs a CAPTURED
  * card tip, which needs Stripe Terminal or a Connect-onboarded storefront. The
  * policy save + engine math for it are unit-tested in restaunax (tipEngine).
+ * The policy side is covered: PERCENT_ONLY default, and the hard block in a
+ * state that bans withholding (TC-1152, TC-1153).
  *
  * Serial. Needs ADMIN creds. The tenant is moved to a zone where it is about
  * noon (zoneAtMidday), so "today's finished hours" hold at any hour.
@@ -537,5 +539,63 @@ test.describe("Tips — pools, tip-outs, cash (API)", () => {
     expect(rows).toContain(
       "Ben Tipsy,1.00,0.00,0.00,0.00,6.50,0.00,0.00,0.00,3.20,0.00,3.20,0.00,0.00,0.00,0.00"
     );
+  });
+
+  // W3:H4 — PERCENT_ONLY (Stripe's percentage of the tip, no fixed fee) is
+  // the default for a new policy; a saved mode is kept.
+  test("TC-1152: a new tip policy defaults to the percentage-only card fee; a saved mode is kept", async () => {
+    const fresh = await tipsRaw(ownerToken, restaurantId, "PUT", "/policy", {
+      pool: { enabled: false, contributors: [], recipients: [] },
+    });
+    expect(fresh.status, JSON.stringify(fresh.data)).toBe(200);
+    expect(fresh.data.data.policy.cardFeeWithholding).toMatchObject({
+      enabled: false,
+      mode: "PERCENT_ONLY",
+    });
+    const actual = await tipsRaw(ownerToken, restaurantId, "PUT", "/policy", {
+      cardFeeWithholding: { enabled: true, mode: "ACTUAL_FEE" },
+    });
+    expect(actual.status, JSON.stringify(actual.data)).toBe(200);
+    expect(actual.data.data.policy.cardFeeWithholding).toMatchObject({
+      enabled: true,
+      mode: "ACTUAL_FEE",
+    });
+  });
+
+  // W3:H4 — where state law bans card-fee withholding (CA Lab. Code §351,
+  // MA c.149 §152A), saving it is refused, and a saved one stops applying.
+  test("TC-1153: in California, card-fee withholding is refused and a saved one is off", async () => {
+    const move = (state: string, city: string, zipCode: string) =>
+      restaurantBasicInfoRaw(adminToken, restaurantId, {
+        address: { street: "300 Other Street", city, state, zipCode },
+      });
+    const ca = await move("CA", "Los Angeles", "90012");
+    expect(ca.status, JSON.stringify(ca.data)).toBe(200);
+    try {
+      // TC-1152 left withholding on (ACTUAL_FEE): it no longer applies here.
+      const view = await tipsRaw(ownerToken, restaurantId, "GET", "/policy");
+      expect(view.status).toBe(200);
+      expect(view.data.data.stateRules).toContain("NO_CARD_FEE_WITHHOLDING");
+      expect(view.data.data.policy.cardFeeWithholding.enabled).toBe(false);
+      const refused = await tipsRaw(
+        ownerToken,
+        restaurantId,
+        "PUT",
+        "/policy",
+        {
+          cardFeeWithholding: { enabled: true, mode: "PERCENT_ONLY" },
+        }
+      );
+      expect(refused.status).toBe(400);
+      expect(String(refused.data.message)).toBe(
+        "Card fees can't be taken out of tips in CA. Turn off card-fee withholding."
+      );
+      const off = await tipsRaw(ownerToken, restaurantId, "PUT", "/policy", {
+        cardFeeWithholding: { enabled: false, mode: "PERCENT_ONLY" },
+      });
+      expect(off.status, JSON.stringify(off.data)).toBe(200);
+    } finally {
+      await move("FL", "Miami", "33101");
+    }
   });
 });
