@@ -1,7 +1,8 @@
 /**
  * api-books-taxes.spec.ts — Books & taxes B5 tax calendar and year-end
  * package, and the B2 card-deposit surface on a restaurant with no books
- * connection (TC-763..771).
+ * connection (TC-763..771), and the closed-period lock (W2:A3) on that
+ * CSV-only tenant (TC-1300..1302).
  *
  * restaunax docs/features/back-office/BOOKS_B5_ACCOUNTANT_AND_YEAR_END.md and
  * ACCOUNTING_SYNC.md → B2 (#943). No browser. One throwaway restaurant; the
@@ -39,6 +40,10 @@ type Rec = Record<string, LooseJson>;
 const list = (v: unknown) => (Array.isArray(v) ? (v as Rec[]) : []);
 const DISCLAIMER = "worksheets for your accountant, not a tax filing";
 const YEAR = new Date().getUTCFullYear() - 1;
+/** A day that has surely ended in every US zone (W2:A3 lock tests). */
+const LOCK_DAY = new Date(Date.now() - 3 * 86_400_000)
+  .toISOString()
+  .slice(0, 10);
 const CSV_FILES = [
   "01-sales-by-month.csv",
   "02-sales-by-category.csv",
@@ -537,5 +542,125 @@ test.describe("Books & taxes — tax calendar, year-end package, card deposits (
       items.find((i) => i.field === "accountMapping"),
       JSON.stringify(items)
     ).toMatchObject({ area: "books", newValue: "2150 Tips Payable" });
+  });
+
+  // W2:A3 — "books closed through": after it, a change to a day never edits
+  // the entry already in the books; it goes in as an adjusting entry on the
+  // first open day. Set, moved and cleared by the owner; logged.
+  test("TC-1300: books closed through — refused on a day that hasn't ended, saved for yesterday, logged, then reopened", async () => {
+    const empty = await accountingRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      "/books-closed"
+    );
+    expect(empty.status, JSON.stringify(empty.data)).toBe(200);
+    expect(empty.data.data).toMatchObject({
+      booksClosedThrough: null,
+      providerClosedThrough: null,
+      effectiveClosedThrough: null,
+    });
+    const tomorrow = new Date(Date.now() + 2 * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const future = await accountingRaw(
+      ownerToken,
+      restaurantId,
+      "PUT",
+      "/books-closed",
+      { closedThrough: tomorrow }
+    );
+    expect(future.status).toBe(400);
+    expect(String(future.data.message)).toBe(
+      "Books can only be closed through a day that has ended."
+    );
+    const bad = await accountingRaw(
+      ownerToken,
+      restaurantId,
+      "PUT",
+      "/books-closed",
+      { closedThrough: "last week" }
+    );
+    expect(bad.status).toBe(400);
+
+    const saved = await accountingRaw(
+      ownerToken,
+      restaurantId,
+      "PUT",
+      "/books-closed",
+      { closedThrough: LOCK_DAY }
+    );
+    expect(saved.status, JSON.stringify(saved.data)).toBe(200);
+    expect(saved.data.data).toMatchObject({
+      booksClosedThrough: LOCK_DAY,
+      effectiveClosedThrough: LOCK_DAY,
+    });
+    const overview = await accountingRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      "/overview"
+    );
+    expect(overview.data.data?.setup?.booksClosedThrough).toBe(LOCK_DAY);
+    expect(overview.data.data?.week).toMatchObject({
+      provisional: 0,
+      adjustments: 0,
+    });
+    const r = await settingChangesRaw(ownerToken, restaurantId, {
+      area: "books",
+    });
+    expect(
+      (r.data.data?.items ?? []).find((i) => i.field === "booksClosedThrough"),
+      JSON.stringify(r.data)
+    ).toMatchObject({ area: "books", actorType: "OWNER", newValue: LOCK_DAY });
+  });
+
+  test("TC-1301: a day the books are closed through — Re-send is refused (an adjustment instead); its history says locked", async () => {
+    const resend = await accountingRaw(
+      ownerToken,
+      restaurantId,
+      "POST",
+      `/days/${LOCK_DAY}/resend`
+    );
+    expect(resend.status).toBe(400);
+    expect(String(resend.data.message)).toContain("adjusting entry");
+    const history = await accountingRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      `/days/${LOCK_DAY}/history`
+    );
+    expect(history.status, JSON.stringify(history.data)).toBe(200);
+    expect(history.data.data).toMatchObject({
+      businessDate: LOCK_DAY,
+      locked: true,
+    });
+    expect(Array.isArray(history.data.data?.versions)).toBe(true);
+    expect(Array.isArray(history.data.data?.adjustments)).toBe(true);
+
+    const reopened = await accountingRaw(
+      ownerToken,
+      restaurantId,
+      "PUT",
+      "/books-closed",
+      { closedThrough: null }
+    );
+    expect(reopened.status, JSON.stringify(reopened.data)).toBe(200);
+    expect(reopened.data.data?.booksClosedThrough).toBeNull();
+  });
+
+  // W2:A1, A2a, A4a, A5 — the new journal lines are mappable, in words.
+  test("TC-1302: the accounts list has the Stage 4 lines (cash paid out, tips paid in cash, comps…) in words", async () => {
+    const r = await accountingRaw(ownerToken, restaurantId, "GET", "/lines");
+    expect(r.status, JSON.stringify(r.data)).toBe(200);
+    const byKey = new Map(
+      list(r.data.data).map((l) => [String(l.key), String(l.label)])
+    );
+    expect(byKey.get("paid_out")).toBe("Cash paid out");
+    expect(byKey.get("paid_in")).toBe("Cash paid in");
+    expect(byKey.get("tips_paid_cash")).toBe("Tips paid out in cash");
+    expect(byKey.get("tips_card_fee")).toBe("Card fee withheld from tips");
+    expect(byKey.get("comps")).toBe("Comps");
+    expect(byKey.get("unpaid_collected")).toBe("Unpaid orders collected");
   });
 });
