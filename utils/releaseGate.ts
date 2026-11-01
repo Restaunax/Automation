@@ -35,6 +35,10 @@ export const RELEASED_ON_QA = {
   /** RestauNax branch fix/switch-click-target — a click on a switch's label
    *  text or row no longer toggles it; only the switch does (theme-level). */
   switchClickTarget: false,
+  /** RestauNax branch feat/google-review-replies — /api/google-business/*
+   *  (connect a Google Business Profile, list reviews, post/edit/delete
+   *  replies, AI drafts, reply settings). */
+  googleReviews: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -51,6 +55,8 @@ const REASON: Record<ReleasePart, string> = {
     "Removing cards also removes their stands (RestauNax PR #1102) is not on this environment yet",
   switchClickTarget:
     "Switches toggle only from the switch (RestauNax fix/switch-click-target) is not on this environment yet",
+  googleReviews:
+    "Google review replies (RestauNax feat/google-review-replies) is not on this environment yet — /api/google-business/:id answers 404",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
@@ -107,6 +113,24 @@ export async function probeSettingsSafety(
   const res = await apiRequestRaw(
     "GET",
     `/api/restaurantId/${restaurantId}/settings/setup`,
+    undefined,
+    accessToken
+  );
+  return res.status !== 404;
+}
+
+/**
+ * Are Google review replies deployed? `GET /api/google-business/:id` answers
+ * every signed-in user who controls the restaurant (never 404 once the route
+ * exists), so a 404 means the change is not on this environment.
+ */
+export async function probeGoogleReviews(
+  accessToken: string,
+  restaurantId: string
+): Promise<boolean> {
+  const res = await apiRequestRaw(
+    "GET",
+    `/api/google-business/${restaurantId}`,
     undefined,
     accessToken
   );
