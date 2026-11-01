@@ -3005,8 +3005,8 @@ Dashboard-wide rule set in the theme: a click on a switch's label text, descript
 | **TC-1075** | Drinks → Alcohol (9%) by category; Water → Tax-free by item; Save; after a reload: Drinks "Alcohol (9%)", Food "Default (Sales tax)", Water "Tax-free", Beer "Same as its category" / "Taxed at Alcohol".   |
 | **TC-1076** | Editing Alcohol to 10% asks first ("Change Alcohol?"); Cancel keeps 9%.                                                                                                                                     |
 | **TC-1077** | Service fee 3% "Kitchen fee": "A $20.00 order pays $0.60.", "Guests see “Kitchen fee”."; Save asks "Start charging a service fee?"; "Service fee saved"; kept after a reload.                               |
-| **TC-1078** | An online order (2 burgers, a beer, a water) is priced by those settings: $30.00 food, $0.90 fee, $1.92 tax ($1.20 + $0.72), $32.82.                                                                        |
-| **TC-1079** | The sales tax report for yesterday–today: taxable $28.00, non-taxable $2.00, tax collected and net tax $1.92; by rate: Sales tax (6%) $20.00 → $1.20, Alcohol (9%) $8.00 → $0.72.                           |
+| **TC-1078** | An online order (2 burgers, a beer, a water) is priced by those settings: $30.00 food, $0.90 fee (taxable by default since Stage 3), $1.97 tax ($1.20 + $0.72 + $0.05), $32.87.                             |
+| **TC-1079** | The sales tax report for yesterday–today: taxable $28.90 (fee included), non-taxable $2.00, tax collected and net tax $1.97; by rate: Sales tax (6%) $20.90 → $1.25, Alcohol (9%) $8.00 → $0.72.            |
 
 ---
 
@@ -3119,11 +3119,11 @@ The last part of "a week in a restaurant" (`docs/COVERAGE_MAP.md` §3, phase 8).
 
 | TC          | What it checks                                                                                                                                                                                                                                                       |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **TC-1034** | The day close (sales definitions 2, W2:E2): 3 orders, $56.00 gross, $51.96 net (the refund's $4.04 of sales out), $67.92 collected, $3.92 tax, $8.00 tips, 1 refund $4.28; cash 2 / $47.80, card 1 / $20.12; float $100, expected = counted $147.80, deposit $47.80. |
+| **TC-1034** | The day close (sales definitions 2, W2:E2): 3 orders, $56.00 gross, $52.00 net (the refund's $4.00 of sales out), $67.92 collected, $3.92 tax, $8.00 tips, 1 refund $4.28; cash 2 / $47.80, card 1 / $20.12; float $100, expected = counted $147.80, deposit $47.80. |
 | **TC-1035** | The owner's Daily Report on the closed day: "Day closed by … · Deposit $47.80 · "Journey day 7""; Net sales $56.00, Tax $3.92, Tips $8.00, Gross $67.92, Refunds (1) $4.28; Cash 2 $47.80, Card 1 $20.12; no raw text.                                               |
-| **TC-1036** | Sales tax report: 3 orders, $56.00 taxable, $3.92 collected, $0.24 given back with the refund ($4.28 × $1.12 / $20.12), $3.68 net — the one rate the same; collected = the close's tax.                                                                              |
-| **TC-1037** | Sales-by-day CSV: the day, 3 orders, $56.00 net = the close.                                                                                                                                                                                                         |
-| **TC-1038** | The books entry: balanced, 3 orders; sales = $56.00, tax = $3.68 net (RestauNax #1104), tips = $8.00, refunds $4.04 (the $4.28 less its tax), cash $47.80, card $20.12 − $4.28.                                                                                      |
+| **TC-1036** | Sales tax report: 3 orders, $56.00 taxable, $3.92 collected, $0.28 given back with the refund (the $4.00 fries at 7%, never tax on the tip — W4:M7), $3.64 net — the one rate the same; collected = the close's tax.                                                 |
+| **TC-1037** | Sales-by-day CSV: the day, 3 orders, net sales $52.00 after refunds = the close (W2:A8), refunds $4.00, $56.00 before refunds.                                                                                                                                       |
+| **TC-1038** | The books entry: balanced, 3 orders; sales = $56.00, tax = $3.64 net (RestauNax #1104), tips = $8.00, refunds $4.00 (the $4.28 less its $0.28 tax), cash $47.80, card $20.12 − $4.28.                                                                                |
 | **TC-1039** | The partner API's day: CLOSED, version 1, 3 orders, net sales, tax = the entry's net tax, tips 800, refunds 404, tenders CASH 4780 / CARD 1584 (cents), and the same journal lines as the books entry.                                                               |
 
 ---
