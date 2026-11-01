@@ -37,6 +37,7 @@ import {
   deleteTestRestaurant,
   partnerAccessRaw,
   partnerApiRaw,
+  setRestaurantPublishedApi,
   tabletLogin,
   taxRaw,
   updateRestaurantSettingsApi,
@@ -90,6 +91,9 @@ test.describe("Sales tax depth — rates, classes, periods, certificates, DAVO f
     if (!tenant.restaurantId) throw new Error("[api-tax-depth] no tenant");
     restaurantId = tenant.restaurantId;
     ownerToken = tenant.accessToken;
+    // A fresh tenant is unpublished (preview mode), and an unpublished
+    // restaurant refuses online orders — publish it so the seeded order lands.
+    await setRestaurantPublishedApi(adminToken, restaurantId, true);
     await updateRestaurantSettingsApi(ownerToken, restaurantId, {
       acceptingOrders: true,
     });
@@ -569,7 +573,8 @@ test.describe("Sales tax depth — rates, classes, periods, certificates, DAVO f
     expect(res.status).toBe(200);
     const rows = list((res.data.data as Rec).rows);
     const mine = rows.find((r) => r.restaurantId === restaurantId);
-    expect(mine).toMatchObject({ defaultPercent: 8, state: "NY" });
+    // createSecondOwner puts the tenant in Miami, FL.
+    expect(mine).toMatchObject({ defaultPercent: 8, state: "FL" });
     expect(["MATCHES", "DIFFERENT", "NO_REFERENCE"]).toContain(mine?.verdict);
     notAKey(mine?.verdictLabel);
     // Worst first: no "Matches" row before a "Different" one.
