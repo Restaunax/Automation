@@ -7627,11 +7627,18 @@ export function ownerAddonRequestCancelRaw(
 }
 
 /** POST `/restaurant/:rid/daily-close` — close the current business day from
- *  the dashboard (fires the partner API's `day.closed`). */
+ *  the dashboard (fires the partner API's `day.closed`). `pauseOrdering`
+ *  (W0:J4-b): absent or true pauses online ordering until the next opening;
+ *  only `false` keeps it open (`data.orderingPaused` says which). */
 export function closeDayWebRaw(
   token: string,
   restaurantId: string,
-  body: { depositAmount: number; note?: string; reclose?: boolean } = {
+  body: {
+    depositAmount: number;
+    note?: string;
+    reclose?: boolean;
+    pauseOrdering?: boolean;
+  } = {
     depositAmount: 0,
   }
 ): Promise<RawResponse<{ data?: LooseJson; message?: string }>> {
