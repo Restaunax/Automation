@@ -3753,3 +3753,17 @@ Skipped tests fall into three categories: (1) the feature is restricted to a dif
 | **TC-1418** | `dashboard/owner/api-time-off-accrual`  | Retiring both policies: none in force, the suggestion returns, Staff app empty; an unknown policy id is 404 POLICY_NOT_FOUND.                           |
 
 `api-employer-group` leaves one empty Employer row per run by design: a group that ever had a sick/PTO policy can't be deleted (TC-1408).
+## TC-1530 → TC-1537 — Stage 6: add-on request flow and simulator checks
+
+RestauNax back-office audit Stage 6 (bo1031/reqflow, W5:P1–P4, W0:SIM-10..12). Gated by `RELEASED_ON_QA.requestFlowStage6` / `simScenariosStage6` (`utils/releaseGate.ts`) until it reaches QA. Once it is there, a throwaway restaurant's requests are WAITING, so TC-894/895 and TC-1094..1097 follow whichever the backend does, and TC-1095/1096 skip because they need an OPEN request (TC-1537 covers that on the seed).
+
+| TC | Spec | What it proves |
+| --- | --- | --- |
+| **TC-1530** | `dashboard/owner/api-addon-billing` | An account that isn't live gets every product with `accountLive: false`, `reason: ACCOUNT_NOT_ACTIVE` and the text "Available once your account is live" (and the ES text). The Products page answer also has `accountLive: false`. |
+| **TC-1531** | `dashboard/owner/api-addon-billing` | Asking before the account is live returns 201 WAITING with "Request saved…". The product shows `pendingRequestStatus: WAITING`. HQ `?status=WAITING` lists it with `waitingCount`; it is not in Open. Attach answers 409; the owner can cancel. |
+| **TC-1532** | `dashboard/owner/api-addon-billing` | Decline: 401 without sign-in, 403 for an owner, 404 for an unknown id, 409 "Only an open request can be declined." |
+| **TC-1533** | `dashboard/owner/api-addon-billing` | Seed (live): the request is OPEN. HQ declines it with a reason: DECLINED, shown under Closed, reason emailed. When the owner asks again, Mark done closes it. |
+| **TC-1534** | `dashboard/owner/api-addon-billing` | `GET /api/tablet/features` returns `accountLive` and `availableProducts` (request date and status, reason); `available` lists the same products. |
+| **TC-1535** | `dashboard/admin/demo/03-qa-sim-day` | Every day checked with the Stage 6 rules carries all ten checks (close.volume … close.lateSales), as text. Read-only. |
+| **TC-1536** | `dashboard/admin/addon-requests-ui` | The Waiting toggle shows a count and the note. A not-live restaurant's request is shown as "Waiting for the account", with no Attach, Mark done or Decline. |
+| **TC-1537** | `dashboard/admin/addon-requests-ui` | Seed, using its own request: the Decline dialog (product + restaurant, optional reason). Cancel keeps the request open. Decline shows "Request declined…" and Closed shows Declined. |

@@ -1,6 +1,7 @@
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../../fixtures/base";
 import { apiLogin, BACKEND_URL } from "../../../../utils/apiHelper";
+import { requireRelease } from "../../../../utils/releaseGate";
 
 /**
  * QA "Run a day" (back-office audit W0:SIM-1..6): the simulator's daily check,
@@ -14,6 +15,14 @@ import { apiLogin, BACKEND_URL } from "../../../../utils/apiHelper";
  *   tip-outs with receivers.
  * - The reference tax-rate check is at worst amber: the simulator never
  *   changes an owner's rate, it only shows the difference.
+ *
+ * - TC-1535 (Stage 6, W0:SIM-10..12): every day the simulator checked with
+ *   the Stage 6 rules carries all of them — volume vs plan, labour %, cash
+ *   tips declared, the overnight shift, the unclosed day's reminder and
+ *   provisional books, the void after payment, the item refund's tax, the
+ *   split-check tips and the after-midnight sales — each as text. A rule
+ *   that doesn't apply that day still shows (grey, "not checked"). Read-only:
+ *   it never runs the simulator.
  *
  * Days before QA_SIM_LIVE_SINCE (default 2026-11-02, the first full live
  * day) are left out: they were played by the old simulator.
@@ -29,6 +38,20 @@ const NEVER_RED = [
   "time.shortShift",
   "tips.managerReceives",
   "tips.noReceiverDays",
+];
+
+/** The Stage 6 simulator checks (restaunax qaSim/verify/rules/scenarios.ts). */
+const STAGE6_CHECKS = [
+  "close.volume",
+  "time.laborPercent",
+  "tips.cashDeclared",
+  "time.openOvernight",
+  "close.reminderSent",
+  "books.provisionalPosted",
+  "close.voidAfterPayment",
+  "tax.refundNetted",
+  "tips.splitLegs",
+  "close.lateSales",
 ];
 
 interface CheckLine {
@@ -130,6 +153,41 @@ test.describe(
           expect(line.text, line.check).not.toMatch(/^api:|qaSim\.checks\./);
         }
       }
+    });
+
+    test("TC-1535: each day checked with the Stage 6 rules carries every one of them, as text", async () => {
+      await allure.severity("normal");
+      const enabled = rows.filter((r) => r.enabled);
+      test.skip(
+        enabled.length === 0,
+        "No enrolled test restaurant on this environment"
+      );
+      let seen = false;
+      const missing: string[] = [];
+      for (const r of enabled) {
+        const d = await hqGet<ChecksDetail>(
+          token,
+          `/api/admin/qa-sim/checks/${r.restaurantId}`
+        );
+        const all = [...d.problems, ...d.waiting, ...d.ok, ...d.notChecked];
+        const byDate = new Map<string, Set<string>>();
+        for (const line of all) {
+          if (!STAGE6_CHECKS.includes(line.check)) continue;
+          expect(line.text, line.check).not.toMatch(/^api:|qaSim\.checks\./);
+          const set = byDate.get(line.businessDate) ?? new Set<string>();
+          set.add(line.check);
+          byDate.set(line.businessDate, set);
+        }
+        for (const [date, checks] of byDate) {
+          seen = true;
+          const absent = STAGE6_CHECKS.filter((c) => !checks.has(c));
+          if (absent.length)
+            missing.push(`${d.restaurantName} ${date}: ${absent.join(", ")}`);
+        }
+      }
+      // Before the Stage 6 simulator reaches QA no day has these checks.
+      requireRelease("simScenariosStage6", seen);
+      expect(missing).toEqual([]);
     });
   }
 );

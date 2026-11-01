@@ -41,6 +41,17 @@ export const RELEASED_ON_QA = {
    *  company staff read-only on payroll (L4); Partner API labor needs
    *  Timecards (M1). Flip once it is on QA. */
   paywallStage1: false,
+  /** RestauNax back-office audit, Stage 6 request flow (branch
+   *  bo1031/reqflow, W5:P1–P4): a request made before the subscription is
+   *  active waits (WAITING) and opens on activation; HQ lists waiting ones
+   *  (?status=WAITING, waitingCount) and can decline (DECLINED); products
+   *  carry accountLive / pendingRequestStatus. Flip once it is on QA. */
+  requestFlowStage6: false,
+  /** RestauNax back-office audit, Stage 6 simulator (W0:SIM-10..12): the
+   *  QA sim's daily report carries the volume, labour and scenario checks
+   *  (close.volume, time.laborPercent, tips.cashDeclared, …). Flip once the
+   *  simulator with them runs on QA. */
+  simScenariosStage6: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -59,6 +70,10 @@ const REASON: Record<ReleasePart, string> = {
     "Switches toggle only from the switch (RestauNax fix/switch-click-target) is not on this environment yet",
   paywallStage1:
     "The Stage 1 paywall fixes (RestauNax bo1031/paywall) are not on this environment yet",
+  simScenariosStage6:
+    "The Stage 6 simulator checks (W0:SIM-10..12) are not in QA's daily report yet",
+  requestFlowStage6:
+    "Waiting / declined add-on requests (RestauNax bo1031/reqflow, Stage 6) are not on this environment yet — HQ's request list has no waitingCount",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
@@ -137,4 +152,21 @@ export async function probePaywallStage1(
     ownerToken
   );
   return res.status === 403 && res.data?.error === "FEATURE_NOT_ENTITLED";
+}
+
+/**
+ * Is the Stage 6 request flow deployed? HQ's request list answers a numeric
+ * `waitingCount` next to `openCount` only with it. Read-only (the countOnly
+ * form loads no requests).
+ */
+export async function probeRequestFlowStage6(
+  adminToken: string
+): Promise<boolean> {
+  const res = await apiRequestRaw<{ waitingCount?: unknown }>(
+    "GET",
+    "/api/admin/addons/requests?countOnly=1",
+    undefined,
+    adminToken
+  );
+  return res.status === 200 && typeof res.data?.waitingCount === "number";
 }
