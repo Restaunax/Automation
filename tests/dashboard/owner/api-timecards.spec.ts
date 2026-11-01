@@ -19,6 +19,12 @@
  *     a CONFIRMED rule) refuses a low rate; a tipped server at the cash
  *     wage working 45 h with no tips gets overtime on the full minimum
  *     ($7.50 premium an hour, not half the cash wage) and a weekly top-up.
+ *   - W3:H7 (TC-1360..1363): P1 marked paid → PAID with paidAt, idempotent;
+ *     a paid period is never reopened (403 PERIOD_PAID); a correction inside
+ *     it is allowed and its pay difference is carried by the next open
+ *     period (the current one) as a prior-period adjustment. Safe on QA: the
+ *     tenant is this file's own and is deleted in afterAll, so a PAID period
+ *     (which can't be reopened) never outlives the run.
  * Restaurant is in Miami (America/New_York). Serial.
  */
 import * as allure from "allure-js-commons";
@@ -776,5 +782,111 @@ test.describe("Timecards — overtime, breaks, approval (API)", () => {
       tipsCents: 0,
       topUpCents: 13590,
     });
+  });
+  // ── W3:H7: paid pay periods lock (RestauNax back-office audit Stage 4) ──
+  // P1 is APPROVED (re-approved in TC-585) and over. The tenant is this
+  // file's own, so marking it PAID — irreversible — touches nothing else.
+  let paidAt = "";
+
+  test("TC-1360: W3:H7 marking an approved, finished period paid makes it PAID with paidAt", async () => {
+    const r = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "POST",
+      `/pay-periods/${p1}/mark-paid`
+    );
+    expect(r.status, JSON.stringify(r.data)).toBe(200);
+    expect(r.data.data).toMatchObject({
+      startDate: p1,
+      endDate: addDays(p1, 6),
+      status: "PAID",
+    });
+    paidAt = String(r.data.data.paidAt ?? "");
+    expect(Number.isNaN(Date.parse(paidAt)), paidAt).toBe(false);
+    expect(String(r.data.message ?? "")).not.toMatch(/^api:/);
+
+    const periods = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      "/pay-periods?count=6"
+    );
+    expect(periods.status).toBe(200);
+    expect(
+      list(periods.data.data?.periods).find((p) => p.startDate === p1)
+    ).toMatchObject({ status: "PAID", paidAt });
+  });
+
+  test("TC-1361: W3:H7 mark-paid is idempotent — the same paidAt again", async () => {
+    const again = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "POST",
+      `/pay-periods/${p1}/mark-paid`
+    );
+    expect(again.status, JSON.stringify(again.data)).toBe(200);
+    expect(again.data.data).toMatchObject({ status: "PAID", paidAt });
+  });
+
+  test("TC-1362: W3:H7 a paid period is never reopened — 403 PERIOD_PAID, in words", async () => {
+    const r = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "POST",
+      `/pay-periods/${p1}/reopen`,
+      { reason: "Fix Monday again" }
+    );
+    expect(r.status, JSON.stringify(r.data)).toBe(403);
+    expect((r.data as Rec).details).toMatchObject({ code: "PERIOD_PAID" });
+    expect(String((r.data as Rec).message)).toBe(
+      "This pay period was paid, so it can't be reopened. Correct the shift instead: the difference is paid in the next pay period as a prior-period adjustment."
+    );
+  });
+
+  test("TC-1363: W3:H7 a correction inside the paid period is allowed and carried to the next period", async () => {
+    // Monday's Barista shift back to 09:00–15:00 local: +30 minutes.
+    const fix = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "PATCH",
+      `/shifts/${monBarista}`,
+      { clockOutAt: at(addDays(p1, 1), "19:00"), reason: REASON }
+    );
+    expect(fix.status, JSON.stringify(fix.data)).toBe(200);
+
+    // The paid period's own payday view still says PAID, with paidAt.
+    const paidDay = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      `/pay-periods/${p1}/payday`
+    );
+    expect(paidDay.status, JSON.stringify(paidDay.data)).toBe(200);
+    expect(paidDay.data.data.period).toMatchObject({
+      startDate: p1,
+      status: "PAID",
+      paidAt,
+    });
+
+    // The next open period (the current one) carries the difference. The
+    // week is already in overtime, so the 30 minutes pay at least $7.50.
+    const next = addDays(p1, 7);
+    const payday = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      `/pay-periods/${next}/payday`
+    );
+    expect(payday.status, JSON.stringify(payday.data)).toBe(200);
+    const carried = list(payday.data.data.adjustmentsIn).find(
+      (a) => a.staffMemberId === gus.staffMemberId && a.sourceStartDate === p1
+    );
+    expect(
+      carried,
+      JSON.stringify(payday.data.data.adjustmentsIn)
+    ).toBeTruthy();
+    expect(carried).toMatchObject({ name: "Gus Hale", minutes: 30 });
+    expect(Number(carried?.cents)).toBeGreaterThanOrEqual(750);
+    expect(carried?.reasons).toContain(REASON);
   });
 });

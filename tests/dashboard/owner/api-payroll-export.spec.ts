@@ -16,6 +16,13 @@
  * overtime on Barista — puts the premium on the full regular rate that the
  * provider's 1.5 × $15 leaves out on an "overtime premium adjustment"
  * earning in every format, and Gusto gets one row per job.
+ * W3:H7 (TC-1364..1366): mark-paid refuses a period that isn't approved (P1,
+ * reopened in TC-603); P2 (exported) marked paid stays PAID through a
+ * re-export and the file is unchanged; a shift added to paid P2 for Ivy
+ * (4 h × $16 = $64.00) is carried by the next open period — P1 — and P1's
+ * files get the prior-period adjustment column, only then. The tenant is
+ * this file's own (deleted in afterAll), so PAID — which can't be reopened —
+ * never outlives the run.
  *
  * Restaurant is in Miami (America/New_York). Serial. Needs Mailpit (Hal claims
  * his invite so the staff-app check is real).
@@ -79,6 +86,8 @@ test.describe("Payroll export — every format from the approved period (API)", 
   let p1 = "";
   let p2 = "";
   let restaunaxFile = "";
+  /** P2's RestauNax file as exported in TC-1263 (lines). */
+  let p2Restaunax: string[] = [];
 
   const preview = async (format: string) => {
     const r = await payrollRaw(
@@ -621,10 +630,151 @@ test.describe("Payroll export — every format from the approved period (API)", 
     }, 0);
     expect(Math.round(paid)).toBe(79167);
     const rx = await csv("RESTAUNAX");
+    p2Restaunax = rx;
     const premium = rx
       .slice(1)
       .filter((l) => l.includes(`${p2},`))
       .reduce((sum, l) => sum + Math.round(Number(l.split(",")[12]) * 100), 0);
     expect(premium).toBe(4167);
+  });
+  // ── W3:H7: paid pay periods lock (RestauNax back-office audit Stage 4) ──
+
+  test("TC-1364: W3:H7 mark-paid refuses a period that isn't approved — 400 PERIOD_NOT_APPROVED", async () => {
+    // P1 was reopened in TC-603: not approved.
+    const r = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "POST",
+      `/pay-periods/${p1}/mark-paid`
+    );
+    expect(r.status, JSON.stringify(r.data)).toBe(400);
+    expect((r.data as Rec).details).toMatchObject({
+      code: "PERIOD_NOT_APPROVED",
+    });
+    expect(String((r.data as Rec).message)).toBe(
+      "This pay period isn't approved."
+    );
+  });
+
+  test("TC-1365: W3:H7 an exported period marked paid stays PAID through a re-export; the file is unchanged", async () => {
+    // Exported, not yet paid: still locked for corrections (PERIOD_LOCKED).
+    const locked = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "POST",
+      "/shifts",
+      {
+        staffMemberId: ivy.id,
+        clockInAt: at(addDays(p2, 6), "14:00"),
+        clockOutAt: at(addDays(p2, 6), "18:00"),
+        jobId: host,
+        reason: "Paper timesheet",
+      }
+    );
+    expect(locked.status, JSON.stringify(locked.data)).toBe(403);
+    expect((locked.data as Rec).details).toMatchObject({
+      code: "PERIOD_LOCKED",
+    });
+
+    const paid = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "POST",
+      `/pay-periods/${p2}/mark-paid`
+    );
+    expect(paid.status, JSON.stringify(paid.data)).toBe(200);
+    expect(paid.data.data).toMatchObject({ startDate: p2, status: "PAID" });
+    const paidAt = String(paid.data.data.paidAt ?? "");
+    expect(Number.isNaN(Date.parse(paidAt)), paidAt).toBe(false);
+
+    const again = await file("RESTAUNAX", p2);
+    expect(again.status, JSON.stringify(again.data)).toBe(200);
+    // No adjustments carried: byte-identical to before, no new column.
+    expect(lines(again.data)).toEqual(p2Restaunax);
+    const gusto = await file("GUSTO", p2);
+    expect(gusto.status, JSON.stringify(gusto.data)).toBe(200);
+    expect(lines(gusto.data)[0]).not.toContain("prior_period_adjustment");
+
+    const periods = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      "/pay-periods?count=4"
+    );
+    expect(
+      list(periods.data.data.periods).find((p) => p.startDate === p2)
+    ).toMatchObject({ status: "PAID", paidAt });
+  });
+
+  test("TC-1366: W3:H7 a correction in the paid period is carried by the next open period, and only its files get the adjustment column", async () => {
+    const REASON = "Ivy's Saturday was missing";
+    // Ivy, Saturday of paid P2: 4 h × $16.00 = $64.00, no overtime.
+    const added = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "POST",
+      "/shifts",
+      {
+        staffMemberId: ivy.id,
+        clockInAt: at(addDays(p2, 6), "14:00"),
+        clockOutAt: at(addDays(p2, 6), "18:00"),
+        jobId: host,
+        reason: REASON,
+      }
+    );
+    expect(added.status, JSON.stringify(added.data)).toBe(201);
+
+    // P1 (the next period, reopened → not frozen) carries it.
+    const payday = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      `/pay-periods/${p1}/payday`
+    );
+    expect(payday.status, JSON.stringify(payday.data)).toBe(200);
+    expect(list(payday.data.data.adjustmentsIn)).toEqual([
+      expect.objectContaining({
+        staffMemberId: ivy.id,
+        name: "Ivy Zane",
+        sourceStartDate: p2,
+        cents: 6400,
+        minutes: 240,
+        reasons: [REASON],
+      }),
+    ]);
+    const paidDay = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      `/pay-periods/${p2}/payday`
+    );
+    expect(paidDay.data.data.period).toMatchObject({ status: "PAID" });
+    expect(paidDay.data.data.period.paidAt).toBeTruthy();
+
+    // P2's own file is untouched (the paid snapshot is never rewritten).
+    expect(lines((await file("RESTAUNAX", p2)).data)).toEqual(p2Restaunax);
+
+    // Approve P1 again: its files carry the prior-period adjustment.
+    const ok = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "POST",
+      `/pay-periods/${p1}/approve`
+    );
+    expect(ok.status, JSON.stringify(ok.data)).toBe(200);
+    const rx = await csvOf("RESTAUNAX");
+    const header = rx[0] ?? "";
+    const col = header.split(",").indexOf("Prior-period adjustment");
+    expect(col, header).toBeGreaterThan(-1);
+    const row = (last: string) =>
+      rx.find((l) => l.split(",")[3] === last)?.split(",") ?? [];
+    expect(row("Zane")[col]).toBe("64.00");
+    expect(row("Avery")[col]).toBe("0.00");
+
+    const gusto = await csvOf("GUSTO");
+    expect(gusto[0] ?? "").toMatch(/,prior_period_adjustment$/);
+    expect(gusto).toContain(
+      `Zane,Ivy,,${hostName},8.00,0.00,0.00,0.00,0.00,0.00,0.00,0.00,64.00`
+    );
   });
 });
