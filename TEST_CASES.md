@@ -3800,3 +3800,29 @@ RestauNax back-office audit Stage 6 (bo1031/reqflow, W5:P1–P4, W0:SIM-10..12).
 | **TC-1535** | `dashboard/admin/demo/03-qa-sim-day` | Every day checked with the Stage 6 rules carries all ten checks (close.volume … close.lateSales), as text. Read-only. |
 | **TC-1536** | `dashboard/admin/addon-requests-ui` | The Waiting toggle shows a count and the note. A not-live restaurant's request is shown as "Waiting for the account", with no Attach, Mark done or Decline. |
 | **TC-1537** | `dashboard/admin/addon-requests-ui` | Seed, using its own request: the Decline dialog (product + restaurant, optional reason). Cancel keeps the request open. Decline shows "Request declined…" and Closed shows Declined. |
+
+## TC-1600 → TC-1618 — Stage 7: sales tax depth
+
+RestauNax back-office audit Stage 7, tax depth track (bo1031/taxdepth, W4:H2, M3, H3, M5, M4, M9, L5). Gated by `RELEASED_ON_QA.taxDepthStage7` (`utils/releaseGate.ts`, probe `GET /api/tax/:id/rate-check`) until it reaches QA. Tag `@tax-depth`. The midnight switch-over of a scheduled rate is proved by restaunax `taxDepth.int.test.ts` (QA has no clock control).
+
+| TC | Spec | What it proves |
+| --- | --- | --- |
+| **TC-1600** | `dashboard/owner/api-tax-depth` | The rate check: default rate, reference, review window, warnings as text. "My rates are right" records `confirmedAt`; the review is no longer due. |
+| **TC-1601** | `dashboard/owner/api-tax-depth` | Scheduling a rate: today, a past date or a malformed date is 400; a date 45 days out is 201, listed as pending with the current percent; the rate still charges 8%. |
+| **TC-1602** | `dashboard/owner/api-tax-depth` | Cancelling a scheduled change removes it from pending; cancelling it again is 404. |
+| **TC-1603** | `dashboard/owner/api-tax-depth` | A rate takes a filing class (017 on create, 011 on edit); a non-code is 400. `/filing-classes` answers 200 with a list for any state (empty for NY). |
+| **TC-1604** | `dashboard/owner/api-tax-depth` | The report discloses its period: `BUSINESS_DAY` with the cutoff by default, `CALENDAR` (cutoff null) with `basis=calendar`; the CSV's second line says which; `byClass` is a list. |
+| **TC-1605** | `dashboard/owner/api-tax-depth` | Certificates: missing buyer / unknown reason refused; create normalises the state (NY) and flags EXPIRED; an edit to a later expiry clears it; listed. |
+| **TC-1606** | `dashboard/owner/api-tax-depth` | A certificate image: a text file is 400, a PDF is stored and served as an https link. |
+| **TC-1607** | `dashboard/owner/api-tax-depth` | Linking a certificate to a sale that wasn't exempt is 400; an unknown order is 404. |
+| **TC-1608** | `dashboard/owner/api-tax-depth` | The POS list (`/api/tablet/tax-exempt-certificates`) carries the certificate with its reason in the device's language (ES "Gobierno"); no device = 401; an archived certificate leaves the list. |
+| **TC-1609** | `dashboard/owner/api-tax-depth` | The card-surcharge rule for NY: pass-through off, rule DRAFT → allowed, untaxed, warning UNCONFIRMED as text. |
+| **TC-1610** | `dashboard/owner/api-tax-depth` | The DAVO feed: a `salesTax:read` key reads two days; jurisdictions add up to net tax collected, which ties to the report; `basis=calendar` honoured; the CSV bridge header; a `menu:read` key is 403. |
+| **TC-1611** | `dashboard/owner/api-tax-depth` | The HQ rate review: owner 403; admin sees the tenant's row (8%, NY) with a result as text, worst first, and the CSV. |
+| **TC-1612** | `dashboard/owner/api-books-taxes` | The year-end package has `12-fees-paid-to-restaunax.csv` and `13-gift-card-liability-at-year-end.csv`; both download alone; a fresh tenant's fees are all 0.00 and its gift card balance 0 on Dec 31. (TC-767 now accepts the later stages' files, in order, after the first nine.) |
+| **TC-1613** | `dashboard/owner/37-sales-tax-depth-ui` | "Check your rate" shows 8%; "My rates are right" shows the thanks and records the check. |
+| **TC-1614** | `dashboard/owner/37-sales-tax-depth-ui` | "Schedule a change" (New rate 8.5%, Starts on +45 days) is listed under Scheduled rate changes; the rate row still says 8%; Cancel change removes it. |
+| **TC-1615** | `dashboard/owner/37-sales-tax-depth-ui` | A new rate "Packaged beer" with Business class 017 shows the class in the rates list. |
+| **TC-1616** | `dashboard/owner/37-sales-tax-depth-ui` | Add certificate (buyer, Government, number, an expiry in the past): the row shows Government and is flagged expired. |
+| **TC-1617** | `dashboard/owner/37-sales-tax-depth-ui` | The report's Dates choice: Calendar dates shows "midnight to midnight"; Business days shows the business-day line. |
+| **TC-1618** | `dashboard/admin/tax-rate-review-ui` | HQ → Finance → Sales tax rate review lists the tenant at 8% with a result, no edit control, and downloads `tax-rate-review-<date>.csv`. |

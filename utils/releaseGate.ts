@@ -12,7 +12,7 @@
  *
  * Select a part's tests with its tag: `--grep @training`, `--grep @closeout`,
  * `--grep @bugfix-1036`, `--grep @settings-safety`, `--grep @switch-click`,
- * `--grep @labor-engines`.
+ * `--grep @labor-engines`, `--grep @tax-depth`.
  */
 import { test, expect } from "../fixtures/base";
 import { apiRequestRaw } from "./apiHelper";
@@ -59,6 +59,12 @@ export const RELEASED_ON_QA = {
    *  owner's labor-rule confirmation (`/api/compliance/:rid/labor-rules`) and
    *  predictive scheduling. Flip once it is on QA. */
   laborEngines: false,
+  /** RestauNax back-office audit, Stage 7 tax depth (branch
+   *  bo1031/taxdepth, W4:H2 / M3 / H3 / M5 / M4 / M9 / L5): scheduled rate
+   *  changes, the rate check + HQ rate review, filing classes, calendar
+   *  periods, exemption certificates, the DAVO feed (salesTax:read) and the
+   *  year-end fees / gift-card sections. Flip once it is on QA. */
+  taxDepthStage7: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -83,6 +89,8 @@ const REASON: Record<ReleasePart, string> = {
     "Waiting / declined add-on requests (RestauNax bo1031/reqflow, Stage 6) are not on this environment yet — HQ's request list has no waitingCount",
   laborEngines:
     "The Stage 5 labor-law engines (RestauNax bo1031/engines) are not on this environment yet — /api/compliance/:id/labor-rules answers 404",
+  taxDepthStage7:
+    "The Stage 7 tax depth (RestauNax bo1031/taxdepth) is not on this environment yet — /api/tax/:id/rate-check answers 404",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
@@ -192,6 +200,24 @@ export async function probeLaborEngines(
   const res = await apiRequestRaw(
     "GET",
     `/api/compliance/${restaurantId}/labor-rules`,
+    undefined,
+    ownerToken
+  );
+  return res.status !== 404;
+}
+
+/**
+ * Is the Stage 7 tax depth deployed? `GET /api/tax/:rid/rate-check` is a
+ * core read for the restaurant's owner that only exists with the change.
+ * Read-only.
+ */
+export async function probeTaxDepthStage7(
+  ownerToken: string,
+  restaurantId: string
+): Promise<boolean> {
+  const res = await apiRequestRaw(
+    "GET",
+    `/api/tax/${restaurantId}/rate-check`,
     undefined,
     ownerToken
   );
