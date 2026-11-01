@@ -2,19 +2,19 @@
  * 36-google-reviews-ui.spec.ts — the owner dashboard's "Google reviews" tab
  * (RestauNax feat/google-review-replies), UI level. Tag `@google-reviews`.
  *
- *   TC-1100  Connect card → Connect → (fake) consent → return page → back on
+ *   TC-1129  Connect card → Connect → (fake) consent → return page → back on
  *            the Reviews tab with the list; "Needs reply" is the default.
- *   TC-1101  Reply with AI → the draft is labelled "check before posting" →
+ *   TC-1130  Reply with AI → the draft is labelled "check before posting" →
  *            edit it → Post → "Waiting for Google to publish" (the posted
  *            review leaves Needs reply and shows under Replied).
- *   TC-1102  Type a reply by hand → Post → shown under Replied.
- *   TC-1103  Edit a posted reply.
- *   TC-1104  Delete a reply: confirm dialog, then the reply is gone.
- *   TC-1105  A translated review shows the translation toggle; it flips
+ *   TC-1131  Type a reply by hand → Post → shown under Replied.
+ *   TC-1132  Edit a posted reply.
+ *   TC-1133  Delete a reply: confirm dialog, then the reply is gone.
+ *   TC-1134  A translated review shows the translation toggle; it flips
  *            between the translation and the original.
- *   TC-1106  Reply settings dialog saves tone / sign-off / contact line /
+ *   TC-1135  Reply settings dialog saves tone / sign-off / contact line /
  *            guidance (and the baseline is restored afterwards).
- *   TC-1107  Chain "Reviews" page lists the chain's locations (skips when the
+ *   TC-1136  Chain "Reviews" page lists the chain's locations (skips when the
  *            owner has no chain).
  *
  * Runs against the backend's FAKE Google client (GOOGLE_BUSINESS_PROVIDER=fake,
@@ -146,7 +146,7 @@ test.describe(
       }
     });
 
-    test("TC-1100 connect card → Connect → fake consent → Reviews list, Needs reply by default", async () => {
+    test("TC-1129 connect card → Connect → fake consent → Reviews list, Needs reply by default", async () => {
       await reviews.goto(rid);
       await expect(reviews.connectButton()).toBeVisible({ timeout: 30_000 });
       await reviews.connectButton().click();
@@ -174,7 +174,7 @@ test.describe(
       await expect(reviews.cardFor("Ben Carter")).toBeVisible();
     });
 
-    test("TC-1101 Reply with AI → edit → Post → Waiting for Google to publish", async () => {
+    test("TC-1130 Reply with AI → edit → Post → Waiting for Google to publish", async () => {
       const card = reviews.cardFor("Ben Carter");
       await reviews.openEditor(card);
       await reviews.aiButton(card).click();
@@ -200,7 +200,7 @@ test.describe(
       );
     });
 
-    test("TC-1102 type a reply by hand → Post", async () => {
+    test("TC-1131 type a reply by hand → Post", async () => {
       await reviews.selectFilter("unreplied");
       const card = reviews.cardFor("Chris Dole");
       await reviews.openEditor(card);
@@ -217,7 +217,7 @@ test.describe(
       await expect(replied).toContainText(text);
     });
 
-    test("TC-1103 edit a posted reply", async () => {
+    test("TC-1132 edit a posted reply", async () => {
       await reviews.selectFilter("replied");
       const card = reviews.cardFor("Ben Carter");
       await reviews.openEditor(card);
@@ -231,7 +231,7 @@ test.describe(
       );
     });
 
-    test("TC-1104 delete a reply with confirmation", async () => {
+    test("TC-1133 delete a reply with confirmation", async () => {
       await reviews.selectFilter("replied");
       const card = reviews.cardFor("Chris Dole");
       await expect(card).toBeVisible();
@@ -244,7 +244,7 @@ test.describe(
       await expect(reviews.cardFor("Chris Dole")).toBeVisible();
     });
 
-    test("TC-1105 translated review: toggle between translation and original", async () => {
+    test("TC-1134 translated review: toggle between translation and original", async () => {
       await reviews.selectFilter("all");
       const card = reviews.cardFor("Hugo Ruiz");
       await expect(card).toBeVisible();
@@ -266,7 +266,7 @@ test.describe(
       ).toHaveCount(0);
     });
 
-    test("TC-1106 reply settings dialog saves tone, sign-off, contact line and guidance", async () => {
+    test("TC-1135 reply settings dialog saves tone, sign-off, contact line and guidance", async () => {
       await reviews.openSettings();
       await reviews.pickTone("Professional");
       await reviews.settingsField("signoff").fill("- Maria, owner");
@@ -303,7 +303,7 @@ test.describe(
       expect(restored.data.data?.settings.guidance ?? "").toBe("");
     });
 
-    test("TC-1107 chain Reviews page lists the chain's locations", async () => {
+    test("TC-1136 chain Reviews page lists the chain's locations", async () => {
       const chains = await getOwnedChains(token);
       const chain = chains.find((c) => c.restaurants.some((r) => r.id === rid));
       test.skip(!chain, "the test owner has no chain containing this location");

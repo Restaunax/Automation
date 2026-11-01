@@ -11,7 +11,8 @@
  * regression can't hide as a skip.
  *
  * Select a part's tests with its tag: `--grep @training`, `--grep @closeout`,
- * `--grep @bugfix-1036`, `--grep @settings-safety`, `--grep @switch-click`.
+ * `--grep @bugfix-1036`, `--grep @settings-safety`, `--grep @switch-click`,
+ * `--grep @print-builders`.
  */
 import { test, expect } from "../fixtures/base";
 import { apiRequestRaw } from "./apiHelper";
@@ -39,6 +40,12 @@ export const RELEASED_ON_QA = {
    *  (connect a Google Business Profile, list reviews, post/edit/delete
    *  replies, AI drafts, reply settings). */
   googleReviews: false,
+  /** RestauNax PR #1125, feat/supply-shop-table-card-extras (print builders):
+   *  no free table-card print file (owner self-print 403 ORDER_TO_PRINT),
+   *  the table card photo + follow code, /q/follow redirects, print-assets
+   *  endpoints, the promo card builder, HQ shopping in the owner's own shop,
+   *  and the reworked Finalise dialog (markup, packages, Finalise later). */
+  printBuilders: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -57,6 +64,8 @@ const REASON: Record<ReleasePart, string> = {
     "Switches toggle only from the switch (RestauNax fix/switch-click-target) is not on this environment yet",
   googleReviews:
     "Google review replies (RestauNax feat/google-review-replies) is not on this environment yet — /api/google-business/:id answers 404",
+  printBuilders:
+    "Print builders (no free table-card print file, photo + follow code, promo card builder, HQ shops in the owner's shop) are not on this environment yet — /restaurant/:id/print-assets/social does not answer",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
@@ -135,4 +144,22 @@ export async function probeGoogleReviews(
     accessToken
   );
   return res.status !== 404;
+}
+
+/**
+ * Are the print builders deployed? `GET /restaurant/:id/print-assets/social`
+ * is a read the owner (and HQ) may call and only exists with the change; it
+ * answers `{ social: [] }` for a restaurant with no saved links. Read-only.
+ */
+export async function probePrintBuilders(
+  accessToken: string,
+  restaurantId: string
+): Promise<boolean> {
+  const res = await apiRequestRaw<{ data?: { social?: unknown } }>(
+    "GET",
+    `/restaurant/${restaurantId}/print-assets/social`,
+    undefined,
+    accessToken
+  );
+  return res.status === 200 && Array.isArray(res.data?.data?.social);
 }
