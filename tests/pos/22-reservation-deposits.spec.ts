@@ -141,15 +141,21 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
   /** A slot a few hours from now: inside a 24-hour refund window. */
   const slotInHours = async (tenant: Phase4Tenant, hours: number) => {
     const at = new Date(Date.now() + hours * HOUR);
-    const date = localDateKey(tenant.timeZone, 0, at);
-    const avail = unwrap(
-      await getPublicAvailabilityRaw(tenant.restaurantId, date, 2)
-    );
-    const slots = (avail.slots as { scheduledAt: string }[]).filter(
-      (s) => new Date(s.scheduledAt).getTime() >= at.getTime()
-    );
-    expect(slots.length, `no slot ${hours}h from now`).toBeGreaterThan(0);
-    return slots[slotIndex++ % slots.length]!.scheduledAt;
+    // The last start of a day leaves room for the turn (about 22:15 here), so
+    // in the evening the next slot is already tomorrow.
+    for (const daysAhead of [0, 1]) {
+      const date = localDateKey(tenant.timeZone, daysAhead, at);
+      const avail = unwrap(
+        await getPublicAvailabilityRaw(tenant.restaurantId, date, 2)
+      );
+      const slots = (avail.slots as { scheduledAt: string }[]).filter(
+        (s) => new Date(s.scheduledAt).getTime() >= at.getTime()
+      );
+      if (slots.length > 0) {
+        return slots[slotIndex++ % slots.length]!.scheduledAt;
+      }
+    }
+    throw new Error(`no slot ${hours}h from now`);
   };
 
   interface Booked {
