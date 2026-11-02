@@ -266,6 +266,9 @@ test.describe("Owner — Reservations: booking hours, after-payment policy, insi
         "after a reload the auto-free radio is still checked."
     );
     await reservationsPage.gotoSettingsSubTab(restaurantId);
+    // "After guests pay" sits in the collapsed Advanced section since the
+    // reservations audit fixes.
+    await reservationsPage.ensureAdvancedOpen();
     await expect(
       reservationsPage.afterPaymentRadio("Show as Paid until someone taps")
     ).toBeChecked();
@@ -289,6 +292,7 @@ test.describe("Owner — Reservations: booking hours, after-payment policy, insi
     expect(settings.autoClearMinutes).toBe(7);
 
     await reservationsPage.gotoSettingsSubTab(restaurantId);
+    await reservationsPage.ensureAdvancedOpen();
     await expect(
       reservationsPage.afterPaymentRadio(
         "Show as Paid, then free it automatically"

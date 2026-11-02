@@ -14,7 +14,7 @@
  * `--grep @bugfix-1036`, `--grep @settings-safety`, `--grep @switch-click`,
  * `--grep @labor-engines`, `--grep @tax-depth`, `--grep @print-builders`,
  * `--grep @team-comms`, `--grep @staff-setup`, `--grep @daily-views`,
- * `--grep @growth-a`.
+ * `--grep @growth-a`, `--grep @reservations-audit`.
  */
 import { test, expect } from "../fixtures/base";
 import { apiRequestRaw } from "./apiHelper";
@@ -79,6 +79,12 @@ export const RELEASED_ON_QA = {
    *  TC-1120 answers 400 instead of 403 TABLE_QR_ORDER_TO_PRINT on QA — not
    *  investigated yet. */
   printBuilders: false,
+  /** RestauNax branch fix/reservations-audit (2026-10-31 audit fixes):
+   *  allergyAlert / createdAt on staff rows, public timeZone + party bounds,
+   *  checked waitlist/ARRIVED edits, partial seating, CONFIRMED linkable,
+   *  RESERVATION_TABLES_REQUIRED, public input caps, pacing suggestion, and
+   *  the dashboard's reworked Bookings/Settings screens. */
+  reservationsAudit: false,
   /** RestauNax back-office audit, growth track B (branch bo1031/growthb,
    *  W0:MF-6 / MF-10): mobile clock-in from the staff app (owner settings,
    *  geofenced punches) and one-way staff announcements with read receipts.
@@ -121,6 +127,8 @@ const REASON: Record<ReleasePart, string> = {
     "Removing cards also removes their stands (RestauNax PR #1102) is not on this environment yet",
   switchClickTarget:
     "Switches toggle only from the switch (RestauNax fix/switch-click-target) is not on this environment yet",
+  reservationsAudit:
+    "The reservations audit fixes (RestauNax fix/reservations-audit) are not on this environment yet — the booking-hours suggestion carries no suggestedMaxPartiesPerSlot",
   paywallStage1:
     "The Stage 1 paywall fixes (RestauNax bo1031/paywall) are not on this environment yet",
   simScenariosStage6:
@@ -155,6 +163,41 @@ export function requireRelease(
     return;
   }
   test.skip(!present, reason);
+}
+
+/**
+ * Like requireRelease, for a test whose OLD half still runs on a stack
+ * without the change: returns whether the change is present (so the caller
+ * runs the new assertions only then), and fails once the part's flag is on
+ * and the change is missing.
+ */
+export function releasePresent(part: ReleasePart, present: boolean): boolean {
+  if (RELEASED_ON_QA[part]) expect(present, REASON[part]).toBe(true);
+  return present;
+}
+
+/**
+ * Are the reservations audit fixes deployed? The booking-hours suggestion
+ * (`GET /restaurant/:id/reservation-service-periods/suggested`, an owner read
+ * on an entitled restaurant) carries `suggestedMaxPartiesPerSlot` only with
+ * the change. Read-only.
+ */
+export async function probeReservationsAudit(
+  ownerToken: string,
+  restaurantId: string
+): Promise<boolean> {
+  const res = await apiRequestRaw<{
+    data?: { suggestedMaxPartiesPerSlot?: unknown };
+  }>(
+    "GET",
+    `/restaurant/${restaurantId}/reservation-service-periods/suggested`,
+    undefined,
+    ownerToken
+  );
+  return (
+    res.status === 200 &&
+    typeof res.data?.data?.suggestedMaxPartiesPerSlot === "number"
+  );
 }
 
 /**
