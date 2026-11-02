@@ -27,6 +27,7 @@
 import * as allure from "allure-js-commons";
 import type { Page } from "@playwright/test";
 import { test, expect } from "../../../fixtures/base";
+import { requireEnv, requireEnvHere } from "../../../utils/envGate";
 import { generateRunId, readSharedState } from "../../../utils/testData";
 import { loginViaUi } from "../../../utils/auth";
 import {
@@ -50,7 +51,11 @@ const MENU_TVS = "RestauNax Menu TVs";
 // the product's tooltip line (products.json `pitch.<KEY>.tooltip`).
 const MENU_TVS_MARK = "Add-on: TV menu boards from your menu";
 const ASK = "Ask us to turn it on";
-const SENT = /Request sent .+\. We'll contact you\./;
+// The sent state (Stage 6 request flow): a "Request pending" badge and when
+// it was asked. A restaurant that isn't live yet reads the waiting line.
+const PENDING = "Request pending";
+const SENT =
+  /Requested on .+\. (We usually reply within 1 business day|We'll turn this on as soon as your account is live)\./;
 
 // The products the server can offer, with their EN names (dashboard
 // products.json `name.*`). VOICE_AI is left out: its offer comes from the
@@ -69,10 +74,7 @@ const PRODUCT_NAMES: Record<string, string> = {
 test.describe.configure({ mode: "serial" });
 
 test.describe("Owner — RestauNax Products: add-on previews, no prices", () => {
-  test.skip(
-    !OWNER_EMAIL || !OWNER_PASSWORD,
-    "OWNER_EMAIL / OWNER_PASSWORD not set (the seed restaurant)"
-  );
+  requireEnv(["OWNER_EMAIL", "OWNER_PASSWORD"], "the seed restaurant");
 
   let restaurantId = "";
 
@@ -157,6 +159,9 @@ test.describe("Owner — RestauNax Products: add-on previews, no prices", () => 
     await expect(ask.or(sent)).toBeVisible({ timeout: 20_000 });
     if (await ask.isVisible()) await ask.click();
     await expect(sent).toBeVisible({ timeout: 20_000 });
+    await expect(
+      ownerPage.getByRole("status").getByText(PENDING, { exact: true })
+    ).toBeVisible();
     await expect(ask).toHaveCount(0);
   });
 
@@ -190,9 +195,9 @@ test.describe("Owner — RestauNax Products: add-on previews, no prices", () => 
   test("a product without an active catalog row is still offered: an entry with addonId null, a card on the Products page", async ({
     ownerPage,
   }) => {
-    test.skip(
-      !ADMIN_EMAIL || !ADMIN_PASSWORD,
-      "ADMIN_EMAIL / ADMIN_PASSWORD not set (reads the add-on catalog)"
+    requireEnvHere(
+      ["ADMIN_EMAIL", "ADMIN_PASSWORD"],
+      "reads the add-on catalog"
     );
     const adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD))
       .accessToken;
@@ -360,10 +365,7 @@ test.describe("Owner — RestauNax Products: add-on previews, no prices", () => 
 });
 
 test.describe("Owner — a home-food restaurant is never offered Reservations, Scheduling or Payroll", () => {
-  test.skip(
-    !ADMIN_EMAIL || !ADMIN_PASSWORD,
-    "ADMIN_EMAIL / ADMIN_PASSWORD not set (mints a HOME_FOOD tenant)"
-  );
+  requireEnv(["ADMIN_EMAIL", "ADMIN_PASSWORD"], "mints a HOME_FOOD tenant");
 
   let adminToken = "";
   let restaurantId = "";

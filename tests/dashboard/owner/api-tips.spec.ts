@@ -15,6 +15,13 @@
  * Not covered here (QA can't produce it): card-fee withholding needs a CAPTURED
  * card tip, which needs Stripe Terminal or a Connect-onboarded storefront. The
  * policy save + engine math for it are unit-tested in restaunax (tipEngine).
+ * The policy side is covered: PERCENT_ONLY default, and the hard block in a
+ * state that bans withholding (TC-1152, TC-1153).
+ *
+ * Rates (W3:C3): the tenant is in Miami, FL ($15.00 full minimum wage,
+ * $11.98 tipped cash wage, a CONFIRMED rule). The tipped jobs pay $12.00,
+ * so a tip credit is DERIVED from the rates (never the client's checkbox)
+ * and the untipped Host may not share the pool; Host pays $15.00.
  *
  * Serial. Needs ADMIN creds. The tenant is moved to a zone where it is about
  * noon (zoneAtMidday), so "today's finished hours" hold at any hour.
@@ -55,6 +62,9 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 const ZONE = zoneAtMidday();
 
 type Rec = Record<string, LooseJson>;
+/** FL 2026 (W3:C3): above the $11.98 tipped cash wage, below the $15 full. */
+const TIPPED_RATE = 1200;
+const FULL_RATE = 1500;
 const list = (v: unknown) => (Array.isArray(v) ? (v as Rec[]) : []);
 const localToday = () =>
   new Intl.DateTimeFormat("en-CA", { timeZone: ZONE }).format(new Date());
@@ -166,7 +176,9 @@ test.describe("Tips — pools, tip-outs, cash (API)", () => {
     ) => {
       const r = await createStaffJobRaw(ownerToken, restaurantId, {
         name: `${name} ${runId}`,
-        defaultHourlyRateCents: 1000,
+        // Lawful in FL (W3:C3): tipped jobs at the $11.98 cash wage or more,
+        // the rest at the $15.00 full minimum wage.
+        defaultHourlyRateCents: extra.isTipped ? TIPPED_RATE : FULL_RATE,
         ...extra,
       });
       if (r.status !== 201)
@@ -406,11 +418,16 @@ test.describe("Tips — pools, tip-outs, cash (API)", () => {
       recipients: [{ jobId: jobs.manager, points: 1 }],
     });
     expect(manager.status).toBe(400);
+    // W3:C3: the tip credit is derived from the $12.00 tipped rates — the
+    // client saying "no tip credit" changes nothing.
     const credit = await policy(
       { recipients: [{ jobId: jobs.host, points: 1 }] },
-      { usesTipCredit: true }
+      { usesTipCredit: false }
     );
     expect(credit.status).toBe(400);
+    expect(String(credit.data.message)).toMatch(
+      /below the full minimum wage.*tip credit/
+    );
     const fine = await policy(
       {
         contributors: [
@@ -537,5 +554,119 @@ test.describe("Tips — pools, tip-outs, cash (API)", () => {
     expect(rows).toContain(
       "Ben Tipsy,1.00,0.00,0.00,0.00,6.50,0.00,0.00,0.00,3.20,0.00,3.20,0.00,0.00,0.00,0.00"
     );
+  });
+
+  // W3:H4 — PERCENT_ONLY (Stripe's percentage of the tip, no fixed fee) is
+  // the default for a new policy; a saved mode is kept.
+  test("TC-1152: a new tip policy defaults to the percentage-only card fee; a saved mode is kept", async () => {
+    const fresh = await tipsRaw(ownerToken, restaurantId, "PUT", "/policy", {
+      pool: { enabled: false, contributors: [], recipients: [] },
+    });
+    expect(fresh.status, JSON.stringify(fresh.data)).toBe(200);
+    expect(fresh.data.data.policy.cardFeeWithholding).toMatchObject({
+      enabled: false,
+      mode: "PERCENT_ONLY",
+    });
+    const actual = await tipsRaw(ownerToken, restaurantId, "PUT", "/policy", {
+      cardFeeWithholding: { enabled: true, mode: "ACTUAL_FEE" },
+    });
+    expect(actual.status, JSON.stringify(actual.data)).toBe(200);
+    expect(actual.data.data.policy.cardFeeWithholding).toMatchObject({
+      enabled: true,
+      mode: "ACTUAL_FEE",
+    });
+  });
+
+  // W3:H4 — where state law bans card-fee withholding (CA Lab. Code §351,
+  // MA c.149 §152A), saving it is refused, and a saved one stops applying.
+  test("TC-1153: in California, card-fee withholding is refused and a saved one is off", async () => {
+    const move = (state: string, city: string, zipCode: string) =>
+      restaurantBasicInfoRaw(adminToken, restaurantId, {
+        address: { street: "300 Other Street", city, state, zipCode },
+      });
+    const ca = await move("CA", "Los Angeles", "90012");
+    expect(ca.status, JSON.stringify(ca.data)).toBe(200);
+    try {
+      // TC-1152 left withholding on (ACTUAL_FEE): it no longer applies here.
+      const view = await tipsRaw(ownerToken, restaurantId, "GET", "/policy");
+      expect(view.status).toBe(200);
+      expect(view.data.data.stateRules).toContain("NO_CARD_FEE_WITHHOLDING");
+      expect(view.data.data.policy.cardFeeWithholding.enabled).toBe(false);
+      const refused = await tipsRaw(
+        ownerToken,
+        restaurantId,
+        "PUT",
+        "/policy",
+        {
+          cardFeeWithholding: { enabled: true, mode: "PERCENT_ONLY" },
+        }
+      );
+      expect(refused.status).toBe(400);
+      expect(String(refused.data.message)).toBe(
+        "Card fees can't be taken out of tips in CA. Turn off card-fee withholding."
+      );
+      const off = await tipsRaw(ownerToken, restaurantId, "PUT", "/policy", {
+        cardFeeWithholding: { enabled: false, mode: "PERCENT_ONLY" },
+      });
+      expect(off.status, JSON.stringify(off.data)).toBe(200);
+    } finally {
+      await move("FL", "Miami", "33101");
+    }
+  });
+
+  test("TC-1260: W3:C3 the policy reports the tip credit derived from the rates", async () => {
+    const r = await tipsRaw(ownerToken, restaurantId, "GET", "/policy");
+    expect(r.status, JSON.stringify(r.data)).toBe(200);
+    const data = r.data.data as Rec;
+    expect((data.policy as Rec).usesTipCredit).toBe(true);
+    const credit = data.tipCredit as Rec;
+    expect(credit.usesTipCredit).toBe(true);
+    expect((credit.floor as Rec).fullWageCents).toBe(FULL_RATE);
+    expect((credit.floor as Rec).tippedCashWageCents).toBe(1198);
+    expect(list(credit.jobs).map((j) => j.jobId)).toEqual(
+      expect.arrayContaining([jobs.server, jobs.busser])
+    );
+  });
+
+  test("TC-1261: W3:C3 a tipped rate that would start a tip credit is refused while Host is in the pool", async () => {
+    const patch = (jobId: string, cents: number) =>
+      payrollRaw(ownerToken, restaurantId, "PATCH", `/jobs/${jobId}`, {
+        defaultHourlyRateCents: cents,
+      });
+    // Everyone at the full wage: no tip credit, so Host may share the pool.
+    for (const id of [jobs.server, jobs.busser, jobs.manager]) {
+      const up = await patch(id, FULL_RATE);
+      expect(up.status, JSON.stringify(up.data)).toBe(200);
+    }
+    await save({ recipients: [{ jobId: jobs.host, points: 1 }] });
+    // Back below the full wage would mean a tip credit: refused, by name.
+    const down = await patch(jobs.server, TIPPED_RATE);
+    expect(down.status).toBe(400);
+    expect(String(down.data.message)).toContain(`Host ${runId}`);
+    expect(String(down.data.message)).toContain("$15.00");
+    // Restore: busser-only pool, then the $12.00 tipped rates.
+    await save({ recipients: [{ jobId: jobs.busser, points: 1 }] });
+    for (const id of [jobs.server, jobs.busser, jobs.manager]) {
+      const back = await patch(id, TIPPED_RATE);
+      expect(back.status, JSON.stringify(back.data)).toBe(200);
+    }
+  });
+
+  test("TC-1262: W3:C3 a rate below the FL minimum is refused, naming the minimum and its source", async () => {
+    const low = await createStaffJobRaw(ownerToken, restaurantId, {
+      name: `Dish ${runId}`,
+      defaultHourlyRateCents: 1400,
+    });
+    expect(low.status).toBe(400);
+    expect(String((low.data as Rec).message)).toMatch(
+      /\$14\.00 an hour for Dish .* is below the minimum wage here: \$15\.00 an hour \(FL state minimum wage\)/
+    );
+    const tippedLow = await createStaffJobRaw(ownerToken, restaurantId, {
+      name: `Runner ${runId}`,
+      defaultHourlyRateCents: 1100,
+      isTipped: true,
+    });
+    expect(tippedLow.status).toBe(400);
+    expect(String((tippedLow.data as Rec).message)).toContain("$11.98");
   });
 });

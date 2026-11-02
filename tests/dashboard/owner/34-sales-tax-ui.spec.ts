@@ -21,9 +21,12 @@
  *   TC-1077 A 3% service fee called "Kitchen fee": the form shows what a
  *           $20.00 order pays, saves once, and survives a reload.
  *   TC-1078 An online order of 2 burgers, a beer and a water is priced by
- *           those settings: $30.00 food, $0.90 fee, $1.92 tax.
+ *           those settings: $30.00 food, $0.90 fee, $1.97 tax (a new service
+ *           fee is taxable by default since Stage 3: 6% of $0.90 = $0.05).
  *   TC-1079 The sales tax report for today agrees with the order, line by
- *           line and rate by rate.
+ *           line and rate by rate: gross receipts include the $0.90 fee
+ *           (taxable), tax due sits next to tax collected (RestauNax audit
+ *           W4:C1a / H6).
  */
 import type { Locator, Page } from "@playwright/test";
 import * as allure from "allure-js-commons";
@@ -42,6 +45,7 @@ import {
   createMenuGroupNamed,
   createMenuItemFull,
   getOrderFullRaw,
+  taxRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
 import { placePaidOnlineOrder } from "../../../utils/comboFoodSurfaces";
@@ -321,12 +325,13 @@ test.describe("Sales tax and service fee (UI)", () => {
     const full = await getOrderFullRaw(ownerToken, order.id);
     expect(full.ok, JSON.stringify(full.data)).toBe(true);
     const o = full.data as Rec;
-    // Burgers $20 × 6% = $1.20; the beer $8 × 9% = $0.72; water tax-free.
+    // Burgers $20 × 6% = $1.20; the beer $8 × 9% = $0.72; water tax-free;
+    // the fee (taxable by default since Stage 3) $0.90 × 6% = $0.05.
     expect(o).toMatchObject({
       subtotal: 30,
       serviceFee: 0.9,
-      tax: 1.92,
-      total: 32.82,
+      tax: 1.97,
+      total: 32.87,
     });
   });
 
@@ -338,25 +343,94 @@ test.describe("Sales tax and service fee (UI)", () => {
     const yesterday = new Intl.DateTimeFormat("en-CA", {
       timeZone: "America/New_York",
     }).format(new Date(Date.now() - 86_400_000));
+    // One date at a time, each after its report has answered: the page
+    // shows whichever report answers LAST, so two fills in a row could leave
+    // the From-only report (an empty day) on screen.
+    const reportFor = (start: string, end: string) =>
+      page().waitForResponse(
+        (r) =>
+          r.url().includes(`/report?startDate=${start}&endDate=${end}`) &&
+          r.request().method() === "GET"
+      );
+    const fromLoaded = reportFor(yesterday, "");
     await page().getByRole("textbox", { name: "From" }).fill(yesterday);
+    await fromLoaded;
+    const toLoaded = reportFor(yesterday, today);
     await page().getByRole("textbox", { name: "To" }).fill(today);
-    await expect(reportLine("Tax collected \\(you owe this\\)")).toContainText(
-      "$1.92",
-      { timeout: 20_000 }
-    );
-    await expect(reportLine("Taxable sales")).toContainText("$28.00");
-    await expect(reportLine("Non-taxable sales")).toContainText("$2.00");
+    await toLoaded;
+    // Tax due (taxable × rate) comes first; "collected" is no longer
+    // labelled "you owe this" (RestauNax audit W4:H6).
     await expect(
-      reportLine("Net tax \\(what you owe for the period\\)")
-    ).toContainText("$1.92");
-    // By rate: the taxable amount and the tax, one row per rate used.
+      reportLine("Tax due \\(taxable sales × rate\\)")
+    ).toContainText("$1.97", { timeout: 20_000 });
+    await expect(reportLine("Tax collected")).toContainText("$1.97");
+    await expect(
+      reportLine("Net tax collected \\(after refunds\\)")
+    ).toContainText("$1.97");
+    await expect(
+      reportLine("Difference \\(collected minus due\\)")
+    ).toContainText("$0.00");
+    await expect(page().getByText("you owe this")).toHaveCount(0);
+    await expect(
+      page().getByText("Figures to help prepare your return", { exact: false })
+    ).toBeVisible();
+    // Gross receipts carry the $0.90 Kitchen fee as its own line, taxable
+    // (RestauNax audit W4:C1a): before, the fee appeared nowhere.
+    await expect(reportLine("Food and drink")).toContainText("$30.00");
     await expect(
       page().getByRole("row", {
-        name: /^Sales tax \(6%\) \$20\.00 \$1\.20 /,
+        name: /^Service fees Taxable \$0\.90 · not taxable \$0\.00 \$0\.90$/,
+      })
+    ).toBeVisible();
+    await expect(reportLine("Gross receipts")).toContainText("$30.90");
+    await expect(reportLine("Net sales")).toContainText("$30.90");
+    // net − non-taxable (water $2.00) − exempt = taxable (fee included).
+    await expect(reportLine("Non-taxable sales")).toContainText("$2.00");
+    await expect(reportLine("Taxable sales")).toContainText("$28.90");
+    // By rate: taxable amount, tax, refunded, net, tax due, difference. The
+    // fee is taxed at the default rate: $20.90 at 6%.
+    await expect(
+      page().getByRole("row", {
+        name: /^Sales tax \(6%\) \$20\.90 \$1\.25 \$0\.00 \$1\.25 \$1\.25 \$0\.00$/,
       })
     ).toBeVisible();
     await expect(
-      page().getByRole("row", { name: /^Alcohol \(9%\) \$8\.00 \$0\.72 / })
+      page().getByRole("row", {
+        name: /^Alcohol \(9%\) \$8\.00 \$0\.72 \$0\.00 \$0\.72 \$0\.72 \$0\.00$/,
+      })
     ).toBeVisible();
+
+    // The same figures from the report API the page reads.
+    const r = await taxRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      `/report?startDate=${yesterday}&endDate=${today}`
+    );
+    expect(r.status, JSON.stringify(r.data)).toBe(200);
+    const t = (r.data.data as Rec).totals as unknown as {
+      netSales: number;
+      marketplaceSales: number;
+      nonTaxableSales: number;
+      exemptSales: number;
+      taxableSales: number;
+    };
+    expect(t).toMatchObject({
+      foodSales: 30,
+      serviceFees: 0.9,
+      taxableServiceFees: 0.9,
+      grossSales: 30.9,
+      netSales: 30.9,
+      nonTaxableSales: 2,
+      taxableSales: 28.9,
+      taxDue: 1.97,
+      taxCollected: 1.97,
+    });
+    expect(
+      Math.round(
+        (t.netSales - t.marketplaceSales - t.nonTaxableSales - t.exemptSales) *
+          100
+      )
+    ).toBe(Math.round(t.taxableSales * 100));
   });
 });

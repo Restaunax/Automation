@@ -15,7 +15,7 @@
  *
  * Tenants: `t` (Stripe + a $20-per-guest rule, the main stage), `m` (Stripe, rule
  * matching and "Require deposit"), `ns` (add-on, deposits off, no Stripe), `bare`
- * (no add-on). TC-1180 → TC-1211. Gated on probeReservationsPhase4.
+ * (no add-on). TC-1266 → TC-1297. Gated on probeReservationsPhase4.
  */
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../fixtures/base";
@@ -382,7 +382,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     requireRelease("reservationsPhase4", onStack);
   });
 
-  test("TC-1180: off by default — no money anywhere: settings, slots, rows, create answers, quotes", async () => {
+  test("TC-1266: off by default — no money anywhere: settings, slots, rows, create answers, quotes", async () => {
     const s = unwrap(
       await getReservationSettingsOwnerRaw(ns.token, ns.restaurantId)
     );
@@ -443,7 +443,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     });
   });
 
-  test("TC-1181: settings are validated; switching on needs a Stripe account that can take charges", async () => {
+  test("TC-1267: settings are validated; switching on needs a Stripe account that can take charges", async () => {
     const notReady = await putReservationSettingsOwnerRaw(
       ns.token,
       ns.restaurantId,
@@ -498,7 +498,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     expect(unwrap(cleared).depositPolicyNote).toBeNull();
   });
 
-  test("TC-1182: without the add-on — rule reads answer readOnly, every write and staff route refuses", async () => {
+  test("TC-1268: without the add-on — rule reads answer readOnly, every write and staff route refuses", async () => {
     const read = await listDepositRulesRaw(bare.token, bare.restaurantId);
     expect(read.status).toBe(200);
     expect((read.data as any).readOnly).toBe(true);
@@ -562,7 +562,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     expect((search.data as any).readOnly).toBe(true);
   });
 
-  test("TC-1183: rules CRUD — create, list oldest first, partial update, delete, 404", async () => {
+  test("TC-1269: rules CRUD — create, list oldest first, partial update, delete, 404", async () => {
     const rid = m.restaurantId;
     const a = await createDepositRuleRaw(m.token, rid, {
       name: "Weekend",
@@ -632,7 +632,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     expect(unwrap(await listDepositRulesRaw(m.token, rid))).toEqual([]);
   });
 
-  test("TC-1184: bad rules name the field that's wrong", async () => {
+  test("TC-1270: bad rules name the field that's wrong", async () => {
     const cases: [Record<string, unknown>, string][] = [
       [{ amountCents: 99 }, "amountCents"],
       [{ amountCents: 100001 }, "amountCents"],
@@ -657,7 +657,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     }
   });
 
-  test("TC-1185: matching — every set condition must hold, highest amount wins, per guest multiplies, inactive never counts", async () => {
+  test("TC-1271: matching — every set condition must hold, highest amount wins, per guest multiplies, inactive never counts", async () => {
     const rid = m.restaurantId;
     const created: string[] = [];
     const add = async (body: Record<string, unknown>) => {
@@ -756,7 +756,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     }
   });
 
-  test("TC-1186: the staff quote — owner and POS agree; bad input refused; depositsEnabled is true with no rule", async () => {
+  test("TC-1272: the staff quote — owner and POS agree; bad input refused; depositsEnabled is true with no rule", async () => {
     const at = (await nextSlot(t, 4)).scheduledAt;
     const owner = unwrap(
       await depositQuoteOwnerRaw(t.token, t.restaurantId, at, 3)
@@ -800,7 +800,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     expect(errorCode(badTime.data)).toBe("SYSTEM_VALIDATION_ERROR");
   });
 
-  test("TC-1187: availability shows each slot's amount and the policy text — no amount in it, in the guest's language, same text stored at booking", async () => {
+  test("TC-1273: availability shows each slot's amount and the policy text — no amount in it, in the guest's language, same text stored at booking", async () => {
     await putReservationSettingsOwnerRaw(t.token, t.restaurantId, {
       depositPolicyNote: "Parties over 8 please call.",
     });
@@ -833,7 +833,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     });
   });
 
-  test("TC-1188: a booking that owes a deposit is refused without policyAccepted, before anything is booked", async () => {
+  test("TC-1274: a booking that owes a deposit is refused without policyAccepted, before anything is booked", async () => {
     const guestName = name("No policy");
     const at = (await nextSlot(t, 3)).scheduledAt;
     for (const policyAccepted of [undefined, false, "true"]) {
@@ -853,7 +853,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     expect(Array.isArray(search) ? search : search.reservations).toEqual([]);
   });
 
-  test("TC-1189: the 201 carries the deposit block, the intent is a real destination charge, and no confirmation goes out before payment", async () => {
+  test("TC-1275: the 201 carries the deposit block, the intent is a real destination charge, and no confirmation goes out before payment", async () => {
     const b = await bookPublic("Intent shape");
     expect(b.deposit).toMatchObject({
       amountCents: TWO_GUESTS,
@@ -895,7 +895,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     await cancelManagedReservationRaw(b.token);
   });
 
-  test("TC-1190: a real 4242 charge + its real webhook → PAID, then and only then the confirmation; redelivery changes nothing; a bad signature is refused", async () => {
+  test("TC-1276: a real 4242 charge + its real webhook → PAID, then and only then the confirmation; redelivery changes nothing; a bad signature is refused", async () => {
     const guestPhone = phone();
     const slot = (await nextSlot(t, 3)).scheduledAt;
     const clientRequestId = `dep-${runId}-paid`;
@@ -983,7 +983,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     expect(charge.destination).toBe(t.stripeAccountId);
   });
 
-  test("TC-1191: a declined card leaves it PENDING with the reason on the manage view; the same intent then pays", async () => {
+  test("TC-1277: a declined card leaves it PENDING with the reason on the manage view; the same intent then pays", async () => {
     const b = await bookPublic("Declined");
     const declined = await confirmIntent(b.intentId, "pm_card_chargeDeclined");
     expect(declined.status).toBe(402);
@@ -1001,7 +1001,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     expect(paid.depositDue).toBeNull();
   });
 
-  test("TC-1192: a phone booking — deposit due, request text instead of confirmation, the guest accepts then pays on the manage page", async () => {
+  test("TC-1278: a phone booking — deposit due, request text instead of confirmation, the guest accepts then pays on the manage page", async () => {
     const row = await bookOwner("Phone deposit");
     expect(row.deposit).toMatchObject({
       amountCents: TWO_GUESTS,
@@ -1049,7 +1049,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     expect(errorCode(notDue.data)).toBe("DEPOSIT_NOT_DUE");
   });
 
-  test("TC-1193: guest cancels before the window → automatic full refund, on Stripe too, with the transfer reversed", async () => {
+  test("TC-1279: guest cancels before the window → automatic full refund, on Stripe too, with the transfer reversed", async () => {
     const b = await bookAndPay("Guest cancel early");
     const view = await manage(b.token);
     expect(new Date(view.depositPolicy.refundableUntil).getTime()).toBe(
@@ -1075,7 +1075,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     expect(charge.application_fee_amount).toBe(146);
   });
 
-  test("TC-1194: guest cancels inside the window → cancelled, deposit FORFEITED, no money moves, policy + phone shown", async () => {
+  test("TC-1280: guest cancels inside the window → cancelled, deposit FORFEITED, no money moves, policy + phone shown", async () => {
     const b = await bookAndPay("Guest cancel late", {
       scheduledAt: await slotInHours(t, 3),
     });
@@ -1095,7 +1095,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     expect(view).toHaveProperty("restaurantPhone");
   });
 
-  test("TC-1195: guest cancels with the deposit unpaid → intent cancelled, deposit CANCELLED", async () => {
+  test("TC-1281: guest cancels with the deposit unpaid → intent cancelled, deposit CANCELLED", async () => {
     const b = await bookPublic("Guest cancel unpaid");
     const res = await cancelManagedReservationRaw(b.token);
     expect(res.status, msg(res.data)).toBe(200);
@@ -1105,7 +1105,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     expect((await manage(b.token)).deposit.status).toBe("CANCELLED");
   });
 
-  test("TC-1196: restaurant cancels — owner and POS always refund in full, even inside the window; a part-refunded deposit refunds what's left", async () => {
+  test("TC-1282: restaurant cancels — owner and POS always refund in full, even inside the window; a part-refunded deposit refunds what's left", async () => {
     const owner = await bookAndPay("Restaurant cancel", {
       scheduledAt: await slotInHours(t, 2),
     });
@@ -1175,7 +1175,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     expect((await retrieveIntent(unpaid.intentId)).status).toBe("canceled");
   });
 
-  test("TC-1197: no-show → FORFEITED, no money moves; reinstating leaves it FORFEITED; a manager can still refund it", async () => {
+  test("TC-1283: no-show → FORFEITED, no money moves; reinstating leaves it FORFEITED; a manager can still refund it", async () => {
     const b = await bookAndPay("No-show");
     const noShow = await reservationStatusTabletRaw(
       t.tabletToken,
@@ -1217,7 +1217,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     expect(unwrap(patched).deposit.status).toBe("FORFEITED");
   });
 
-  test("TC-1198: manual refund (owner) — reason required, amount checked, part then rest, nothing left, no deposit", async () => {
+  test("TC-1284: manual refund (owner) — reason required, amount checked, part then rest, nothing left, no deposit", async () => {
     const b = await bookAndPay("Manual refund");
     const noReason = await refundDepositOwnerRaw(
       t.token,
@@ -1309,7 +1309,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     await cancelManagedReservationRaw(unpaid.token);
   });
 
-  test("TC-1199: manual refund (POS) — a server without APPROVE_REFUND is refused, a manager PIN approves, a manager's own session works", async () => {
+  test("TC-1285: manual refund (POS) — a server without APPROVE_REFUND is refused, a manager PIN approves, a manager's own session works", async () => {
     const session = serverSession;
     const b = await bookAndPay("POS refund");
     const refused = await refundDepositTabletRaw(t.tabletToken, session, b.id, {
@@ -1374,7 +1374,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     expect(await refundedOnStripe(b.intentId)).toBe(TWO_GUESTS);
   });
 
-  test("TC-1200: opening the check applies the deposit as a tender — remaining falls by it, the deposit reads APPLIED, a manual refund says refund through the check", async () => {
+  test("TC-1286: opening the check applies the deposit as a tender — remaining falls by it, the deposit reads APPLIED, a manual refund says refund through the check", async () => {
     const b = await bookAndPay("Apply to check");
     const { orderId } = await seatAndOpenCheck(b, 60);
     const order = await orderDetail(orderId);
@@ -1414,7 +1414,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     expect((await ownerRow(b)).deposit.status).toBe("APPLIED");
   });
 
-  test("TC-1201: close-covered — refused while money is due or with no deposit; the excess goes back to the card; a replay answers 0", async () => {
+  test("TC-1287: close-covered — refused while money is due or with no deposit; the excess goes back to the card; a replay answers 0", async () => {
     const due = await bookAndPay("Not covered");
     const notCovered = await seatAndOpenCheck(due, 60);
     const refused = await closeCoveredRaw(
@@ -1477,7 +1477,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     expect(await refundedOnStripe(b.intentId)).toBe(3000);
   });
 
-  test("TC-1202: cancelling an open check puts the deposit back to PAID with no refund; the next check re-applies it", async () => {
+  test("TC-1288: cancelling an open check puts the deposit back to PAID with no refund; the next check re-applies it", async () => {
     const b = await bookAndPay("Check cancel");
     const first = await seatAndOpenCheck(b, 60);
     expect((await ownerRow(b)).deposit.status).toBe("APPLIED");
@@ -1520,7 +1520,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     expect(depositLeg(second).status).toBe("SUCCEEDED");
   });
 
-  test("TC-1203: Remove this payment on the deposit leg — back to the card, the check shows it due again", async () => {
+  test("TC-1289: Remove this payment on the deposit leg — back to the card, the check shows it due again", async () => {
     const b = await bookAndPay("Void leg");
     const { orderId } = await seatAndOpenCheck(b, 60);
     const legId = depositLeg(await orderDetail(orderId)).id as string;
@@ -1554,7 +1554,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     expect(row.deposit.refundedCents).toBe(TWO_GUESTS);
   });
 
-  test("TC-1204: cancelling a CLOSED check is a real refund back to the card", async () => {
+  test("TC-1290: cancelling a CLOSED check is a real refund back to the card", async () => {
     const b = await bookAndPay("Closed check");
     const { orderId } = await seatAndOpenCheck(b, TWO_GUESTS / 100);
     const closed = await closeCoveredRaw(
@@ -1585,7 +1585,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     expect(await refundedOnStripe(b.intentId)).toBe(TWO_GUESTS);
   });
 
-  test("TC-1205: seating a party whose deposit is still PENDING cancels the intent and the guest is asked for nothing more", async () => {
+  test("TC-1291: seating a party whose deposit is still PENDING cancels the intent and the guest is asked for nothing more", async () => {
     const b = await bookPublic("Seated unpaid");
     const tableId = await newTable();
     const seat = await seatReservationTabletRaw(
@@ -1601,7 +1601,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     expect(view.depositDue).toBeNull();
   });
 
-  test("TC-1206: a guest's time or party change keeps the deposit amount", async () => {
+  test("TC-1292: a guest's time or party change keeps the deposit amount", async () => {
     const b = await bookAndPay("Guest change");
     const newAt = (await nextSlot(t, 4)).scheduledAt;
     const res = await apiRequestRaw<any>(
@@ -1616,7 +1616,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     expect(view.deposit.status).toBe("PAID");
   });
 
-  test("TC-1207: search across dates — name, phone digits, confirmation code; both surfaces; short query refused; deposit on the rows", async () => {
+  test("TC-1293: search across dates — name, phone digits, confirmation code; both surfaces; short query refused; deposit on the rows", async () => {
     const near = await bookAndPay("Searchable near", { daysAhead: 2 });
     const far = await bookPublic("Searchable far", { daysAhead: 20 });
     const code = String(near.raw.confirmationCode);
@@ -1693,7 +1693,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     await cancelManagedReservationRaw(far.token);
   });
 
-  test("TC-1208: resend the pay link — 2-minute cooldown, 3 texts at most, PENDING only, both surfaces", async () => {
+  test("TC-1294: resend the pay link — 2-minute cooldown, 3 texts at most, PENDING only, both surfaces", async () => {
     const row = await bookOwner("Send link");
     // The booking's own request text counts as the first.
     const cooldown = await sendDepositLinkOwnerRaw(
@@ -1755,7 +1755,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     expect(errorCode(noDeposit.data)).toBe("DEPOSIT_NOT_FOUND");
   });
 
-  test("TC-1209: Require deposit with no matching rule charges the largest amount any active rule would charge this party; no rules → none", async () => {
+  test("TC-1295: Require deposit with no matching rule charges the largest amount any active rule would charge this party; no rules → none", async () => {
     // m has no rules: the tick asks for nothing.
     const noRules = await bookOwner("Tick no rules", {
       tenant: m,
@@ -1829,7 +1829,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
       await deleteDepositRuleRaw(m.token, m.restaurantId, r.id);
   });
 
-  test("TC-1210: earnings by day report deposits at gross, fee, refunded and net", async () => {
+  test("TC-1296: earnings by day report deposits at gross, fee, refunded and net", async () => {
     const b = await bookAndPay("Earnings");
     await refundDepositOwnerRaw(t.token, t.restaurantId, b.id, {
       amountCents: 1000,
@@ -1861,7 +1861,7 @@ test.describe("POS — Reservation deposits (phase 4) @reservations-phase4", () 
     expect(totals.refunded).toBeGreaterThanOrEqual(10);
   });
 
-  test("TC-1211: the unpaid sweep — an online hold past its time and a phone booking past its pay-by are released; never-expire is left alone @slow", async () => {
+  test("TC-1297: the unpaid sweep — an online hold past its time and a phone booking past its pay-by are released; never-expire is left alone @slow", async () => {
     test.setTimeout(7 * 60_000);
     const online = await bookPublic("Sweep online");
     await putReservationSettingsOwnerRaw(t.token, t.restaurantId, {

@@ -6,7 +6,7 @@
  *
  * Own tenants (Stripe test account + one without); needs
  * scripts/with-stripe-test-env.sh and E2E_LOCAL_DATABASE_URL, see RUNNING_TESTS.md.
- * Set E2E_SHOT_DIR to keep screenshots. TC-1214 → TC-1224. Gated on
+ * Set E2E_SHOT_DIR to keep screenshots. TC-1215 → TC-1224, TC-1239. Gated on
  * probeReservationsPhase4.
  */
 import * as allure from "allure-js-commons";
@@ -170,7 +170,7 @@ test.describe("Owner — Reservations phase 4 UI @reservations-phase4", () => {
     }
   });
 
-  test("TC-1214: the three new cards, everything off, nothing extra showing", async () => {
+  test("TC-1239: the three new cards, everything off, nothing extra showing", async () => {
     await rp.gotoSettingsSubTab(t.restaurantId);
     const page = session.page;
     await expect(page.getByTestId("online-waitlist-card")).toBeVisible();

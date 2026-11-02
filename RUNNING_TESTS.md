@@ -140,7 +140,7 @@ Each Stripe tenant gets its own real Custom test account (`createChargeableTestA
 dummy onboarding can't reach "charges enabled", because Stripe won't let the platform
 accept an Express account's ToS. `E2E_LOCAL_DATABASE_URL` (localhost only, never a
 DELETE) points the throwaway tenant at that account, reads `SmsLog` and ages rows instead
-of sleeping. `--grep-invert @slow` skips TC-1211, which waits up to 5 minutes for the real
+of sleeping. `--grep-invert @slow` skips TC-1297, which waits up to 5 minutes for the real
 sweep. Without these variables the tests skip, so on QA they stay skipped until QA has a
 route for linking a test account.
 

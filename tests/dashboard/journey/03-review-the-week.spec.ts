@@ -12,20 +12,27 @@
  *                                 Tue 11:00–19:00, no break (missed break)
  *                                 Wed 11:00 – Thu 03:00 (forgot to clock out:
  *                                 long shift + missed break)
- *   Ben (Busser, $11.00)          Fri 18:00–22:00
+ *   Ben (Busser, $12.00)          Fri 18:00–22:00
+ *
+ * W3:C2/C3: the restaurant is in Miami ($15.00 full minimum wage, $11.98
+ * tipped cash wage, a CONFIRMED rule). Both are tipped jobs paid below
+ * $15.00, so a tip credit is taken; nobody received tips that week, so the
+ * weekly make-up tops them up to $15.00 an hour, and overtime is figured
+ * on the $15.00 regular rate (cash + tip credit). Their pay is therefore
+ * exactly $15.00 an hour + half of it on overtime hours.
  *
  *   TC-1001 Today: "2 timecards need fixing"; Fix timecards opens last week
  *           with only what needs review, and Approve waits.
- *   TC-1002 Dee is 40:00 + 14:00 overtime = $793.00 before the fixes;
+ *   TC-1002 Dee is 40:00 + 14:00 overtime = $915.00 before the fixes;
  *           Tuesday says Missed break, Wednesday Missed break and Long shift.
  *   TC-1002b Typed-in shifts don't say "Edited"; Wednesday's clock-out reads
  *           "3:00 AM (Thu)"; Correct as is offers a fitting example.
  *   TC-1003 Wednesday's clock-out: no reason is refused in the dialog; with
- *           one (left at 3:30) she is 40:00 + 2:30 = $568.75.
+ *           one (left at 3:30) she is 40:00 + 2:30 = $656.25.
  *   TC-1004 Tuesday is confirmed as is with a reason; nothing is left to
  *           review and the period is ready to approve.
  *   TC-1005 Approve: "Pay period approved" is seen; the period is locked,
- *           still after a reload; 44:00 + 2:30, $612.75 in all.
+ *           still after a reload; 44:00 + 2:30, $716.25 in all.
  *   TC-1006 Reopen with no reason is refused in the dialog; it stays
  *           approved.
  *   TC-1007 The Labor report for the week agrees with the timecards, by
@@ -257,7 +264,8 @@ test.describe("Journey 3 — the owner reviews and approves last week", () => {
       return String(r.data.data?.id);
     };
     const server = await job("Server", 1200);
-    const busser = await job("Busser", 1100);
+    // At least the $11.98 tipped cash wage (W3:C3: $11.00 is refused).
+    const busser = await job("Busser", 1200);
 
     // People are added on the register, as the POS does it.
     const device = await createTabletDevice(
@@ -376,9 +384,9 @@ test.describe("Journey 3 — the owner reviews and approves last week", () => {
     await expect(approve()).toBeDisabled();
   });
 
-  test("TC-1002: before the fixes Dee is 40:00 + 14:00 overtime, $793.00; Tuesday and Wednesday say why", async () => {
+  test("TC-1002: before the fixes Dee is 40:00 + 14:00 overtime, $915.00; Tuesday and Wednesday say why", async () => {
     await expect(personRow("Dee Server")).toHaveAccessibleName(
-      /Dee Server 40:00 14:00 0:00 \$793\.00 2 to review$/
+      /Dee Server 40:00 14:00 0:00 \$915\.00 2 to review$/
     );
     const tue = shiftRow(day(2));
     await expect(tue).toHaveAccessibleName(
@@ -415,7 +423,7 @@ test.describe("Journey 3 — the owner reviews and approves last week", () => {
     await expect(dialog).toBeHidden();
   });
 
-  test("TC-1003: Wednesday's clock-out is corrected with a reason; Dee is 40:00 + 2:30, $568.75", async () => {
+  test("TC-1003: Wednesday's clock-out is corrected with a reason; Dee is 40:00 + 2:30, $656.25", async () => {
     const dialog = await shiftAction(day(3), "Edit times or job");
     await expect(dialog).toHaveAccessibleName(
       `Correct Dee Server's shift — ${dayLabel(day(3))}`
@@ -446,7 +454,7 @@ test.describe("Journey 3 — the owner reviews and approves last week", () => {
       '"Timecard updated."'
     );
     await expect(personRow("Dee Server")).toHaveAccessibleName(
-      /Dee Server 40:00 2:30 0:00 \$568\.75 1 to review$/
+      /Dee Server 40:00 2:30 0:00 \$656\.25 1 to review$/
     );
     // Fixed, so it leaves the review list.
     await expect(shiftRow(day(3))).toHaveCount(0);
@@ -483,10 +491,10 @@ test.describe("Journey 3 — the owner reviews and approves last week", () => {
     await expect(approve()).toBeEnabled();
   });
 
-  test("TC-1005: Approve locks the period, still after a reload; 44:00 + 2:30, $612.75 in all", async () => {
+  test("TC-1005: Approve locks the period, still after a reload; 44:00 + 2:30, $716.25 in all", async () => {
     await page().getByRole("switch", { name: "Needs review only" }).click();
     await expect(
-      page().getByRole("row", { name: /^Total 44:00 2:30 0:00 \$612\.75/ })
+      page().getByRole("row", { name: /^Total 44:00 2:30 0:00 \$716\.25/ })
     ).toBeVisible();
     await expect(personRow("Ben Busser")).toHaveAccessibleName(
       /Ben Busser 4:00 0:00 0:00 \$44\.00/
@@ -559,13 +567,13 @@ test.describe("Journey 3 — the owner reviews and approves last week", () => {
       .getByRole("table")
       .filter({ has: page().getByRole("columnheader", { name: "Person" }) });
     await expect(
-      table.getByRole("row", { name: "Dee Server 40.00 2.50 0.00 $568.75" })
+      table.getByRole("row", { name: "Dee Server 40.00 2.50 0.00 $656.25" })
     ).toBeVisible({ timeout: 15_000 });
     await expect(
       table.getByRole("row", { name: "Ben Busser 4.00 0.00 0.00 $44.00" })
     ).toBeVisible();
     await expect(
-      table.getByRole("row", { name: "Total 44.00 2.50 0.00 $612.75" })
+      table.getByRole("row", { name: "Total 44.00 2.50 0.00 $716.25" })
     ).toBeVisible();
 
     await page().getByRole("button", { name: "By job" }).click();
@@ -573,7 +581,7 @@ test.describe("Journey 3 — the owner reviews and approves last week", () => {
       .getByRole("table")
       .filter({ has: page().getByRole("columnheader", { name: "Job" }) });
     await expect(
-      byJob.getByRole("row", { name: "Server 40.00 2.50 0.00 $568.75" })
+      byJob.getByRole("row", { name: "Server 40.00 2.50 0.00 $656.25" })
     ).toBeVisible({ timeout: 15_000 });
     await expect(
       byJob.getByRole("row", { name: "Busser 4.00 0.00 0.00 $44.00" })

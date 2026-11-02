@@ -14,12 +14,17 @@
  * The drawer is counted ($100 + $47.80) and the owner closes the day. Then
  * every place that reports the day is read and compared:
  *
- *   TC-1034 The day close: 3 orders, $56.00 net, $3.92 tax, $8.00 tips,
- *           1 refund $4.28, cash $47.80 and card $20.12, the drawer even.
+ *   TC-1034 The day close (sales definitions 2, W2:E2): 3 orders, $56.00
+ *           gross (item sales, no tax or tips), $52.00 net (gross − the
+ *           refund's $4.00 of sales), $67.92 collected, $3.92 tax, $8.00
+ *           tips, 1 refund $4.28, cash $47.80 and card $20.12, drawer even.
+ *           A refund's tax is worked out per refunded item and never on the
+ *           tip (W4:M7): the $4.00 fries carried $0.28 tax.
  *   TC-1035 The owner's Daily Report shows those figures on the closed day.
- *   TC-1036 The sales tax report: $3.92 collected, $0.24 given back with
- *           the refund, $3.68 net — per rate the same.
- *   TC-1037 The sales-by-day CSV: 3 orders, $56.00.
+ *   TC-1036 The sales tax report: $3.92 collected, $0.28 given back with
+ *           the refund, $3.64 net — per rate the same.
+ *   TC-1037 The sales-by-day CSV: 3 orders, net sales $52.00 after refunds
+ *           like the close (W2:A8), refunds $4.00, and $56.00 before refunds.
  *   TC-1038 The books entry: balanced; sales = the report's net sales, tax =
  *           its net tax, tips = the close's, the refund split into its tax
  *           and the rest, each tender = the money taken less the refund.
@@ -293,19 +298,31 @@ test.describe("Journey 7 — one closed day reads the same everywhere", () => {
     await page().setViewportSize(DESKTOP);
   });
 
-  test("TC-1034: the day close — 3 orders, $56.00 net, $3.92 tax, $8.00 tips, a $4.28 refund, the drawer even", async () => {
+  test("TC-1034: the day close — 3 orders, $56.00 gross, $52.00 net, $67.92 collected, $3.92 tax, $8.00 tips, a $4.28 refund, the drawer even", async () => {
     expect(close).toMatchObject({
       orderCount: 3,
-      netSales: 56,
+      // Sales definitions 2 (W2:E2): gross = item sales before discounts,
+      // no tax or tips; net = gross − discounts − comps − the refund's
+      // sales part: the $4.00 fries (their $0.28 tax is the rest, W4:M7).
+      grossSales: 56,
+      netSales: 52,
+      salesDefinitionVersion: 2,
+      // Food + tax + tips: what gross meant before.
+      totalCollected: 67.92,
       tax: 3.92,
       tip: 8,
-      // Food + tax + tips.
-      grossSales: 67.92,
       depositAmount: 47.8,
       overShortTotal: 0,
     });
     const summary = close.summary as Rec;
-    expect(summary).toMatchObject({ refundCount: 1, refundTotal: 4.28 });
+    expect(summary).toMatchObject({
+      definitionVersion: 2,
+      refundCount: 1,
+      refundTotal: 4.28,
+      refundSalesTotal: 4,
+      discountTotal: 0,
+      totalCollected: 67.92,
+    });
     const by = new Map(list(summary.byMethod).map((m) => [m.method, m]));
     expect(by.get("CASH")).toMatchObject({ count: 2, amount: 47.8 });
     expect(by.get("CARD")).toMatchObject({ count: 1, amount: 20.12 });
@@ -332,10 +349,13 @@ test.describe("Journey 7 — one closed day reads the same everywhere", () => {
         .locator(".MuiCard-root")
         .filter({ has: page().getByText(label, { exact: true }) })
         .first();
-    await expect(stat("Net sales")).toContainText("$56.00");
+    await expect(stat("Gross sales (before discounts)")).toContainText(
+      "$56.00"
+    );
+    await expect(stat("Net sales")).toContainText("$52.00");
+    await expect(stat("Total collected")).toContainText("$67.92");
     await expect(stat("Tax")).toContainText("$3.92");
     await expect(stat("Tips")).toContainText("$8.00");
-    await expect(stat("Gross sales")).toContainText("$67.92");
     await expect(stat("Refunds (1)")).toContainText("$4.28");
     const methods = page()
       .getByRole("table")
@@ -349,7 +369,7 @@ test.describe("Journey 7 — one closed day reads the same everywhere", () => {
     await expectHumanText(page().getByRole("main"), "the daily report");
   });
 
-  test("TC-1036: the sales tax report — $3.92 collected, $0.24 given back, $3.68 net", async () => {
+  test("TC-1036: the sales tax report — $3.92 collected, $0.28 given back, $3.64 net", async () => {
     const r = await taxRaw(
       ownerToken,
       restaurantId,
@@ -358,24 +378,24 @@ test.describe("Journey 7 — one closed day reads the same everywhere", () => {
     );
     expect(r.status, JSON.stringify(r.data)).toBe(200);
     const report = r.data.data as Rec;
-    // The refund gives back tax in the order's proportion of tax to total:
-    // $4.28 × $1.12 / $20.12 = $0.24 (SALES_TAX.md → "Refunds").
+    // The refund gives back the refunded item's own tax, never tax on the
+    // tip (W4:M7): the $4.00 fries at 7% = $0.28 (SALES_TAX.md → "Refunds").
     expect(report.totals).toMatchObject({
       orders: 3,
       netSales: 56,
       taxableSales: 56,
       taxCollected: 3.92,
       refunds: 4.28,
-      refundedTax: 0.24,
-      netTaxCollected: 3.68,
+      refundedTax: 0.28,
+      netTaxCollected: 3.64,
     });
     expect(list(report.byRate)).toEqual([
       expect.objectContaining({
         percent: 7,
         taxableBase: 56,
         tax: 3.92,
-        refundedTax: 0.24,
-        netTax: 3.68,
+        refundedTax: 0.28,
+        netTax: 3.64,
       }),
     ]);
     // The day close's tax is what was collected.
@@ -394,25 +414,54 @@ test.describe("Journey 7 — one closed day reads the same everywhere", () => {
       .replace(/^\uFEFF/, "")
       .split("\n")
       .filter(Boolean);
-    expect(header).toMatch(/^Business date,Day,Orders,Net sales,/);
+    // W2:A8: net sales is after refunds, like the day close; the refunds'
+    // sales part and the old before-refunds figure sit beside it.
+    expect(header).toMatch(
+      /^Business date,Day,Orders,Net sales,Refunds,Net sales before refunds,/
+    );
     const cells = String(row).split(",");
     expect(cells[0]).toBe(day);
     expect(Number(cells[2])).toBe(Number(close.orderCount));
+    const summary = close.summary as Rec;
     expect(cents(cells[3])).toBe(cents(close.netSales));
+    expect(cents(cells[4])).toBe(cents(summary.refundSalesTotal));
+    expect(cents(cells[5])).toBe(
+      cents(close.netSales) + cents(summary.refundSalesTotal)
+    );
   });
 
-  test("TC-1038: the books entry — balanced, the report's sales and net tax, the refund split into tax and the rest", async () => {
+  test("TC-1038: the books entry — balanced, the report's sales and net tax, the refund split into sales, tax, tip and fees, the drawer", async () => {
     expect(journal).toMatchObject({ balanced: true, orderCount: 3 });
     expect(journal.debitCents).toBe(journal.creditCents);
-    expect(journalSum("sales:")).toBe(cents(close.netSales));
+    // The books credit sales at menu price (no comps or discounts on this
+    // day) and debit the refund's sales part on its own line: sales −
+    // refunds = the close's net sales.
+    expect(journalSum("sales:")).toBe(cents(close.grossSales));
+    expect(journalSum("sales:") - (428 - 28)).toBe(cents(close.netSales));
     // Net tax: collected less what the refund gave back (RestauNax #1104).
-    expect(journalSum("tax:")).toBe(368);
+    expect(journalSum("tax:")).toBe(364);
     expect(journalSum("tips")).toBe(cents(close.tip));
-    // The refund's other $4.04, then the money: cash as taken, card less
+    // The refund's other $4.00, then the money: cash as taken, card less
     // the refund.
-    expect(-journalSum("refunds")).toBe(428 - 24);
+    expect(-journalSum("refunds")).toBe(428 - 28);
     expect(-journalSum("tender:cash")).toBe(4780);
     expect(-journalSum("tender:card")).toBe(2012 - 428);
+    // W2:A13: an item refund is sales and tax only — the tip stays the
+    // staff's and no fee comes back.
+    expect(journal.refundSplit).toEqual({
+      salesCents: 428 - 28,
+      taxCents: 28,
+      tipCents: 0,
+      feeCents: 0,
+    });
+    // W2:A1: no paid-outs, paid-ins or tip-outs this day: the drawer adds
+    // nothing, and cash is exactly what was taken.
+    expect(journal.drawer).toEqual({
+      paidInCents: 0,
+      paidOutCents: 0,
+      tipsPaidCashCents: 0,
+      giftCardCashRefundCents: 0,
+    });
   });
 
   test("TC-1039: the partner API's day is closed and says the same, line for line", async () => {
@@ -438,10 +487,13 @@ test.describe("Journey 7 — one closed day reads the same everywhere", () => {
       currency: "USD",
       orderCount: 3,
       tips: 800,
-      refunds: 404,
+      refunds: 400,
       cashOverShort: 0,
     });
-    expect((doc.sales as Rec).netSales).toBe(cents(close.netSales));
+    // The partner document keeps refunds as their own figure: its net sales
+    // are before refunds (gross − discounts), so close net + refund sales.
+    expect((doc.sales as Rec).grossSales).toBe(cents(close.grossSales));
+    expect((doc.sales as Rec).netSales).toBe(cents(close.netSales) + 400);
     expect((doc.tax as Rec).total).toBe(journalSum("tax:"));
     expect(new Map(list(doc.tenders).map((t) => [t.type, t.amount]))).toEqual(
       new Map([

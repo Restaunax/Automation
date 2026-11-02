@@ -156,6 +156,15 @@ Helpers live in `utils/apiHelper.ts`: `createSeededOrder`,
   TC-712: a ticket whose deal pick isn't one of the deal's items
   (or leaves a slot empty) is refused by the pricing floor with the web checkout's sentence.
 
+- **`19-shift-checkout.spec.ts` (TC-1500..1506)** — shift checkout at clock-out (restaunax
+  W0:MF-1) on a per-run tenant with TIP_MANAGEMENT: clock-out still answers what an older POS
+  reads plus a 15-minute `checkoutToken`; `GET /api/tablet/staff/shift-checkout` with
+  `X-Shift-Checkout` returns sales, tips, tip-outs, net tips and cash owed to the house with
+  labels in the request language and the estimate note; no/forged/other-device tokens are 401;
+  a signed-in `X-Staff-Session` reads the latest shift; Restaunax Staff's
+  `/restaurants/:id/shift-checkout` returns the same figures. Fails (never skips) without admin
+  credentials.
+
 ## Gotchas worth knowing before adding more coverage here
 
 - **Device-pairing budget: a full run is already at 7 of the 10 `tabletLogin`

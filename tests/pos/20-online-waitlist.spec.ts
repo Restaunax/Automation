@@ -3,7 +3,7 @@
  * phase 4, Contract A), real HTTP. Spec: restaunax/docs/features/
  * TABLE_RESERVATIONS.md → online waitlist.
  *
- * What it pins (TC-1151 → TC-1167): off by default, the add-on gate, the table
+ * What it pins (TC-1155 → TC-1167, TC-1235 → TC-1238): off by default, the add-on gate, the table
  * guard, settings validation, the public status order (disabled → paused →
  * closed → party_too_large → wait_too_long → open), join + replay + refusals,
  * the join text, duplicate phone (no link in the body), place in line and quote
@@ -115,11 +115,11 @@ test.describe("POS — Online waitlist (phase 4) @reservations-phase4", () => {
     requireRelease("reservationsPhase4", onStack);
     // A failed test restarts the worker and beforeAll mints a fresh tenant, so
     // everything past the switch's own tests turns it on again.
-    if (!/TC-115[123]\b/.test(test.info().title))
+    if (!/TC-123[567]\b/.test(test.info().title))
       await settings({ onlineWaitlistEnabled: true });
   });
 
-  test("TC-1151: off by default — settings read off, the public status is disabled and a join is refused", async () => {
+  test("TC-1235: off by default — settings read off, the public status is disabled and a join is refused", async () => {
     const read = await getReservationSettingsOwnerRaw(t.token, t.restaurantId);
     const s = unwrap(read);
     expect(s.onlineWaitlistEnabled).toBe(false);
@@ -142,7 +142,7 @@ test.describe("POS — Online waitlist (phase 4) @reservations-phase4", () => {
     expect((host.data as any).onlineWaitlist.enabled).toBe(false);
   });
 
-  test("TC-1152: without the add-on, every public call answers 403 RESERVATIONS_NOT_ENABLED", async () => {
+  test("TC-1236: without the add-on, every public call answers 403 RESERVATIONS_NOT_ENABLED", async () => {
     const status = await getPublicWaitlistRaw(bare.restaurantId, 2);
     expect(status.status).toBe(403);
     expect(errorCode(status.data)).toBe("RESERVATIONS_NOT_ENABLED");
@@ -166,7 +166,7 @@ test.describe("POS — Online waitlist (phase 4) @reservations-phase4", () => {
     expect(ownerPause.status).toBe(403);
   });
 
-  test("TC-1153: switching on needs a table with a capacity; ranges are validated; the pause fields are read-only", async () => {
+  test("TC-1237: switching on needs a table with a capacity; ranges are validated; the pause fields are read-only", async () => {
     const noTables = await mintPhase4Tenant(runId, {
       label: "wlnotable",
       tableCapacity: null,
@@ -215,7 +215,7 @@ test.describe("POS — Online waitlist (phase 4) @reservations-phase4", () => {
     expect(unwrap(on).onlineWaitlistEnabled).toBe(true);
   });
 
-  test("TC-1154: an open line — status, quote, parties ahead, phone, time zone, cache header; a bad party size is 400", async () => {
+  test("TC-1238: an open line — status, quote, parties ahead, phone, time zone, cache header; a bad party size is 400", async () => {
     const status = await getPublicWaitlistRaw(t.restaurantId, 2);
     expect(status.status, msg(status.data)).toBe(200);
     const d = unwrap(status);

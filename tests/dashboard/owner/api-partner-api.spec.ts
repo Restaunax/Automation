@@ -1,5 +1,6 @@
 /**
- * api-partner-api.spec.ts — the partner data API, B3 (TC-754..762).
+ * api-partner-api.spec.ts — the partner data API, B3 (TC-754..762), and the
+ * labor scope as a paid one (TC-1185, RestauNax W5:M1).
  *
  * restaunax docs/features/back-office/PARTNER_API.md (#943). No browser. Two
  * throwaway restaurants (A and B, each with its own owner); no add-on — the
@@ -20,6 +21,8 @@
  */
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
+import { requireEnv } from "../../../utils/envGate";
+import { probePaywallStage1, requireRelease } from "../../../utils/releaseGate";
 import { generateRunId, generateSeedPhone } from "../../../utils/testData";
 import {
   apiLogin,
@@ -32,6 +35,8 @@ import {
   createSeededOrder,
   currentBusinessDay,
   getRestaurantFeaturesRaw,
+  setFeatureOverrideAdminRaw,
+  deleteFeatureOverrideAdminRaw,
   partnerApiRaw,
   partnerAccessRaw,
   closeDayWebRaw,
@@ -50,6 +55,8 @@ const RECEIVER = `${(process.env.BACKEND_URL ?? "https://api.qa.restaunax.com").
 const SCOPES = [
   "sales.daily:read",
   "tax.daily:read",
+  // W4:H3 (Stage 7 tax depth): the daily sales-tax filing feed, built for DAVO.
+  "salesTax:read",
   "orders:read",
   "payments:read",
   "payouts:read",
@@ -61,9 +68,9 @@ const SCOPES = [
 test.describe.configure({ mode: "serial" });
 
 test.describe("Partner data API — keys, location scope, webhooks (B3, API)", () => {
-  test.skip(
-    !ADMIN_EMAIL || !ADMIN_PASSWORD,
-    "ADMIN_EMAIL / ADMIN_PASSWORD not set (the file mints its own tenants)"
+  requireEnv(
+    ["ADMIN_EMAIL", "ADMIN_PASSWORD"],
+    "the file mints its own tenants"
   );
 
   const runId = generateRunId();
@@ -160,7 +167,12 @@ test.describe("Partner data API — keys, location scope, webhooks (B3, API)", (
     const data = access.data.data as Rec;
     expect(data.partners).toEqual([]);
     expect(data.apiKeys).toEqual([]);
-    expect(list(data.scopes).map((s) => s.scope)).toEqual(SCOPES);
+    // Labor is the Timecards package (RestauNax W5:M1): a location without
+    // it isn't offered labor:read. Before that change every scope was.
+    const paidScopesGated = await probePaywallStage1(a.owner, a.id);
+    expect(list(data.scopes).map((s) => s.scope)).toEqual(
+      paidScopesGated ? SCOPES.filter((x) => x !== "labor:read") : SCOPES
+    );
     for (const s of list(data.scopes)) {
       // An API answers text, never an i18n key.
       expect(String(s.label)).not.toMatch(/^[a-z]+(\.[a-zA-Z]+)+$/);
@@ -188,6 +200,19 @@ test.describe("Partner data API — keys, location scope, webhooks (B3, API)", (
     );
     expect(badScope.status).toBe(400);
     expect(badScope.data).toMatchObject({ error: "INVALID_SCOPE" });
+
+    // From here on both locations keep timecards (Scheduling & Timecards,
+    // granted by HQ), so their keys can carry every scope including labor.
+    for (const id of [a.id, b.id]) {
+      const g = await setFeatureOverrideAdminRaw(
+        adminToken,
+        id,
+        "SCHEDULING",
+        true,
+        `automation partner labor ${runId}`
+      );
+      expect(g.status, JSON.stringify(g.data)).toBeLessThan(300);
+    }
   });
 
   test("TC-755: the owner creates an API key — the key is shown once, never listed again", async () => {
@@ -397,6 +422,49 @@ test.describe("Partner data API — keys, location scope, webhooks (B3, API)", (
     expect(hooks.status).toBe(403);
     // A missing scope is not an authentication failure: the key still works.
     expect((await partnerApiRaw(narrowKey, "GET", "/me")).status).toBe(200);
+  });
+
+  test("TC-1185: labor needs Timecards — not offered, not on a new key, and 403 FEATURE_NOT_ENTITLED once the location loses it", async () => {
+    requireRelease("paywallStage1", await probePaywallStage1(a.owner, a.id));
+    const labor = () =>
+      partnerApiRaw(
+        a.key,
+        "GET",
+        `/locations/${a.id}/labor?from=${a.today}&to=${a.today}`
+      );
+    expect((await labor()).status).toBe(200);
+    const removed = await deleteFeatureOverrideAdminRaw(
+      adminToken,
+      a.id,
+      "SCHEDULING"
+    );
+    expect(removed.status).toBeLessThan(300);
+    try {
+      const off = await labor();
+      expect(off.status, JSON.stringify(off.data)).toBe(403);
+      expect(off.data).toMatchObject({ error: "FEATURE_NOT_ENTITLED" });
+      expect(String((off.data as Rec)?.message)).not.toMatch(/partnerApi\./);
+
+      const access = await partnerAccessRaw(a.owner, a.id, "GET", "");
+      expect(
+        list((access.data.data as Rec).scopes).map((s) => s.scope)
+      ).not.toContain("labor:read");
+      const key = await partnerAccessRaw(a.owner, a.id, "POST", "/api-keys", {
+        name: `Labor ${runId}`,
+        scopes: ["labor:read"],
+      });
+      expect(key.status).toBe(403);
+      expect(key.data).toMatchObject({ error: "FEATURE_NOT_ENTITLED" });
+    } finally {
+      await setFeatureOverrideAdminRaw(
+        adminToken,
+        a.id,
+        "SCHEDULING",
+        true,
+        `automation partner labor ${runId}`
+      );
+    }
+    expect((await labor()).status).toBe(200);
   });
 
   test("TC-759: register a webhook — https and public only, events need their scope, secret shown once", async () => {
