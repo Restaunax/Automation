@@ -83,22 +83,26 @@ export function defineGuestFlows(app: "wind" | "lima", firstTc: number): void {
     if (await country.count()) await country.selectOption("US");
     const zip = frame.locator('input[name="postalCode"]');
     if (await zip.count()) await zip.fill(STRIPE_DEFAULTS.ZIP);
-    // Stripe resizes its iframe as the last field validates, which moves the Pay
-    // button under the pointer: a click in that moment lands on nothing (seen on
-    // lima, 3 in 10 runs, no confirm request sent). Wait for the layout to settle.
+  };
+
+  /**
+   * Scroll the Pay button in, let the browser paint, then click. Playwright's own
+   * scroll-then-click sends the mouse events in the same frame as the scroll, and
+   * Chromium routes them with the hit-test data from BEFORE the scroll: they land
+   * in the cross-origin Stripe iframe that was under that point, so the click
+   * vanishes (traced in the frame's own listeners: 4 in 10 runs). It is not a
+   * layout shift, and a person can't click in the frame they scrolled in.
+   */
+  const clickPay = async (page: Page) => {
     const button = payButton(page);
-    let last = "";
-    await expect
-      .poll(
-        async () => {
-          const box = JSON.stringify(await button.boundingBox());
-          const settled = box === last;
-          last = box;
-          return settled;
-        },
-        { timeout: 10_000, intervals: [400] }
-      )
-      .toBe(true);
+    await button.scrollIntoViewIfNeeded();
+    await page.evaluate(
+      () =>
+        new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(resolve))
+        )
+    );
+    await button.click();
   };
 
   const tokenFromUrl = (page: Page) =>
@@ -187,7 +191,7 @@ export function defineGuestFlows(app: "wind" | "lima", firstTc: number): void {
   const payAndConfirm = async (page: Page, token: string) => {
     const intentId = await intentOf(token);
     await fillCard(page, STRIPE_CARDS.VISA_SUCCESS);
-    await payButton(page).click();
+    await clickPay(page);
     await fireStripeEvent("payment_intent.succeeded", intentId);
     await expect
       .poll(async () => (await managed(token)).deposit.status, {
@@ -318,7 +322,7 @@ export function defineGuestFlows(app: "wind" | "lima", firstTc: number): void {
       const intentId = await intentOf(token);
       await expect(payButton(page)).toBeVisible({ timeout: 30_000 });
       await fillCard(page, STRIPE_CARDS.DECLINED);
-      await payButton(page).click();
+      await clickPay(page);
       await expect(page.getByText(/declined/i).first()).toBeVisible({
         timeout: 30_000,
       });
@@ -329,7 +333,7 @@ export function defineGuestFlows(app: "wind" | "lima", firstTc: number): void {
       expect(view.status).toBe("BOOKED");
 
       await fillCard(page, STRIPE_CARDS.VISA_SUCCESS);
-      await payButton(page).click();
+      await clickPay(page);
       await fireStripeEvent("payment_intent.succeeded", intentId);
       await expect
         .poll(async () => (await managed(token)).deposit.status, {
