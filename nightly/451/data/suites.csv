@@ -1,0 +1,7 @@
+"DESCRIPTION","DURATION IN MS","NAME","PARENT SUITE","START TIME","STATUS","STOP TIME","SUB SUITE","SUITE","TEST CLASS","TEST METHOD"
+"","4019","owner dashboard: the order sheet shows the backend's money lines and the free marker","dashboard","2026-10-20","passed","2026-10-20","Order money breakdown — one order, every surface","","",""
+"","19210","TC-898: a wind order with a free item, points, a gift card and a tip reads the same money lines at checkout and on the confirmation page","dashboard","2026-10-20","passed","2026-10-20","Order money breakdown — one order, every surface","","",""
+"","744","email: the confirmation email's totals match the backend @email","dashboard","2026-10-20","passed","2026-10-20","Order money breakdown — one order, every surface","","",""
+"","637","TC-901: BUG: a member with no account email gets the confirmation at the address typed at checkout @email","dashboard","2026-10-20","skipped","2026-10-20","Order money breakdown — one order, every surface","","",""
+"","697","POS: the live order feed carries the same breakdown totals","dashboard","2026-10-20","passed","2026-10-20","Order money breakdown — one order, every surface","","",""
+"","338","backend: the owner's order read carries the breakdown the customer saw, and it adds up","dashboard","2026-10-20","passed","2026-10-20","Order money breakdown — one order, every surface","","",""
