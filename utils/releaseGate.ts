@@ -42,10 +42,8 @@ export const RELEASED_ON_QA = {
    *  docs/features/back-office/audit-2026-10/W5_PAYWALL_TASKS.md): Menu TVs,
    *  Social Media and Voice AI gated; 404 before the add-on check (L2);
    *  company staff read-only on payroll (L4); Partner API labor needs
-   *  Timecards (M1). Flip once it is on QA. On QA since 2026-11-01, but
-   *  kept false: TC-1183 (Voice AI gating) fails against QA and is with the
-   *  backend investigation. Flip once it passes. */
-  paywallStage1: false,
+   *  Timecards (M1). On QA since 2026-11-01. */
+  paywallStage1: true,
   /** RestauNax back-office audit, Stage 6 request flow (branch
    *  bo1031/reqflow, W5:P1–P4): a request made before the subscription is
    *  active waits (WAITING) and opens on activation; HQ lists waiting ones
@@ -64,10 +62,8 @@ export const RELEASED_ON_QA = {
    *  bo1031/engines, W3:M1 / H2 / M5): "Use my state's rules" overtime
    *  (default STATE), break packs + break decisions, premium pay, the
    *  owner's labor-rule confirmation (`/api/compliance/:rid/labor-rules`) and
-   *  predictive scheduling. Flip once it is on QA. On QA since 2026-11-01,
-   *  but kept false: TC-580 (blended overtime) and TC-1151 fail against QA
-   *  and are with the backend investigation. Flip once they pass. */
-  laborEngines: false,
+   *  predictive scheduling. On QA since 2026-11-01. */
+  laborEngines: true,
   /** RestauNax back-office audit, Stage 7 tax depth (branch
    *  bo1031/taxdepth, W4:H2 / M3 / H3 / M5 / M4 / M9 / L5): scheduled rate
    *  changes, the rate check + HQ rate review, filing classes, calendar
@@ -99,11 +95,10 @@ export const RELEASED_ON_QA = {
   /** RestauNax back-office audit, Stage 7 growth A (branch bo1031/growtha,
    *  W0:MF-5 / MF-7 / MF-9): prime cost (`/api/staff/prime-cost/:rid`),
    *  staff/jobs/wages import (`/api/staff/import/:rid`) and the nightly cash
-   *  tip-out sheet (`/api/staff/tip-sheet/:rid`). Flip once it is on QA. On
-   *  QA since 2026-11-01, but kept false: TC-1769 fails on a dashboard bug
-   *  (People → Import posts the CSV as JSON, so the server answers "Choose
-   *  a CSV file to import."). Flip once that is fixed. */
-  growthAStage7: false,
+   *  tip-out sheet (`/api/staff/tip-sheet/:rid`). On QA since
+   *  2026-11-01; the prime cost card before the first sale needs RestauNax
+   *  #1130. */
+  growthAStage7: true,
   /** RestauNax back-office audit, Stage 6 daily views (branch bo1031/uxdaily,
    *  W0:J5 / J6 / J2 / MF-4 / J8): the approve preview, "Send to my
    *  accountant" (accountant-bundle + ZIP), the schedule forecast override and
