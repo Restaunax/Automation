@@ -233,7 +233,12 @@ export function defineGuestFlows(app: "wind" | "lima", firstTc: number): void {
       await shot(page, "wl-4-status");
       const view = await managed(token);
       expect(view.kind).toBe("WAITLIST");
-      expect(view.placeInLine).toBe(1);
+      // Not always #1: the wind and lima flows can share one tenant and run in
+      // parallel. What matters is that the page shows the server's place.
+      expect(view.placeInLine).toBeGreaterThanOrEqual(1);
+      await expect(
+        page.getByText(new RegExp(`#${view.placeInLine}\\b`)).first()
+      ).toBeVisible();
 
       await page
         .getByRole("button", { name: /Leave the line/i })
