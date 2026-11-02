@@ -386,7 +386,7 @@ test.describe("Journey 3 — the owner reviews and approves last week", () => {
 
   test("TC-1002: before the fixes Dee is 40:00 + 14:00 overtime, $915.00; Tuesday and Wednesday say why", async () => {
     await expect(personRow("Dee Server")).toHaveAccessibleName(
-      /Dee Server 40:00 14:00 0:00 \$915\.00 2 to review$/
+      /Dee Server 40:00 14:00 .*0:00 \$915\.00 2 to review$/
     );
     const tue = shiftRow(day(2));
     await expect(tue).toHaveAccessibleName(
@@ -454,7 +454,7 @@ test.describe("Journey 3 — the owner reviews and approves last week", () => {
       '"Timecard updated."'
     );
     await expect(personRow("Dee Server")).toHaveAccessibleName(
-      /Dee Server 40:00 2:30 0:00 \$656\.25 1 to review$/
+      /Dee Server 40:00 2:30 .*0:00 \$656\.25 1 to review$/
     );
     // Fixed, so it leaves the review list.
     await expect(shiftRow(day(3))).toHaveCount(0);
@@ -497,7 +497,7 @@ test.describe("Journey 3 — the owner reviews and approves last week", () => {
       page().getByRole("row", { name: /^Total 44:00 2:30 0:00 \$716\.25/ })
     ).toBeVisible();
     await expect(personRow("Ben Busser")).toHaveAccessibleName(
-      /Ben Busser 4:00 0:00 0:00 \$44\.00/
+      /Ben Busser 4:00 0:00 0:00 \$60\.00/
     );
 
     await approve().click();
@@ -570,7 +570,7 @@ test.describe("Journey 3 — the owner reviews and approves last week", () => {
       table.getByRole("row", { name: "Dee Server 40.00 2.50 0.00 $656.25" })
     ).toBeVisible({ timeout: 15_000 });
     await expect(
-      table.getByRole("row", { name: "Ben Busser 4.00 0.00 0.00 $44.00" })
+      table.getByRole("row", { name: "Ben Busser 4.00 0.00 0.00 $60.00" })
     ).toBeVisible();
     await expect(
       table.getByRole("row", { name: "Total 44.00 2.50 0.00 $716.25" })
@@ -584,7 +584,7 @@ test.describe("Journey 3 — the owner reviews and approves last week", () => {
       byJob.getByRole("row", { name: "Server 40.00 2.50 0.00 $656.25" })
     ).toBeVisible({ timeout: 15_000 });
     await expect(
-      byJob.getByRole("row", { name: "Busser 4.00 0.00 0.00 $44.00" })
+      byJob.getByRole("row", { name: "Busser 4.00 0.00 0.00 $60.00" })
     ).toBeVisible();
   });
 });

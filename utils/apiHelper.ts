@@ -7649,20 +7649,6 @@ export function accountantAnyRaw<T = { data?: LooseJson; message?: string }>(
   return apiRequestRaw(method, `/api/accountant${path}`, body, token);
 }
 
-/** POST /login with an invitation token: an EXISTING account claims an
- *  invite (e.g. a second restaurant's accountant invite). */
-export function loginWithInviteRaw(
-  email: string,
-  password: string,
-  userInvitationToken: string
-): Promise<RawResponse<{ accessToken?: string; message?: string }>> {
-  return apiRequestRaw("POST", "/login", {
-    email,
-    password,
-    userInvitationToken,
-  });
-}
-
 /** HQ add-on catalog and billing: `/api/admin/addons{path}` (ADMIN). */
 export function adminAddonsRaw<T = { data?: LooseJson; message?: string }>(
   token: string,
