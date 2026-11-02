@@ -4,7 +4,7 @@
  * Store Operations → Reservations. Real-browser clicks; the owner API seeds
  * bookings and confirms outcomes.
  *
- * Covers (TC-1143 → TC-1150):
+ * Covers (TC-1143 → TC-1149, TC-1119):
  *   - the online-booking switch refused for having no table with a seat
  *     count shows the server's message with a "Go to Tables" link;
  *   - Settings: Basics up front, a collapsed "Advanced" section with the
@@ -418,7 +418,7 @@ test.describe("Owner — Reservations day view + settings (audit fixes)", () => 
     await expect(dialog).toBeHidden();
   });
 
-  test("TC-1150: phone booking — 'Allergies or special requests' is saved as the guest's note and flags the row @reservations-audit", async () => {
+  test("TC-1119: phone booking — 'Allergies or special requests' is saved as the guest's note and flags the row @reservations-audit", async () => {
     await allure.description(
       "The notes field is now the caller's own request, sent as guestNotes " +
         "(it used to be a staff-only internal note). Book 'Shellfish " +

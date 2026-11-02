@@ -1,6 +1,8 @@
 /**
  * api-accountant-access.spec.ts — the owner's accountant, Books & taxes B5
- * (TC-774..780).
+ * (TC-774..780). The client's books (journal, deposits, accounts, sales
+ * summary, import files) and several clients per accountant: W2:A10,
+ * api-accountant-multi-client.spec.ts (TC-1338..1343).
  *
  * restaunax docs/features/back-office/BOOKS_B5_ACCOUNTANT_AND_YEAR_END.md
  * (#943). Two throwaway restaurants with the Books & Taxes add-on
@@ -32,6 +34,7 @@ import {
   getOwnerRestaurants,
   booksRaw,
   accountantRaw,
+  accountantAnyRaw,
   accountingRaw,
   partnerAccessRaw,
   taxRaw,
@@ -336,6 +339,25 @@ test.describe("Accountant access — invite, read-only, other clients invisible,
         }),
       ],
       ["daily close", closeDayWebRaw(t, a.id)],
+      // W2:A10: the accountant's books are read-only too.
+      [
+        "accounting: simple preset",
+        accountingRaw(t, a.id, "POST", "/mapping/preset", { preset: "SIMPLE" }),
+      ],
+      [
+        "accountant: post a day",
+        accountantAnyRaw(
+          t,
+          "POST",
+          `/clients/${a.id}/books/days/${today()}/post`
+        ),
+      ],
+      [
+        "accountant: save mapping",
+        accountantAnyRaw(t, "PUT", `/clients/${a.id}/books/mapping`, {
+          mapping: {},
+        }),
+      ],
     ];
     for (const [what, call] of attempts) {
       const r = await call;
@@ -377,8 +399,10 @@ test.describe("Accountant access — invite, read-only, other clients invisible,
       ]);
       const closed = await accountantRaw(t, `/clients/${a.id}`);
       expect(closed.status).toBe(403);
+      // Products are named "RestauNax <Product>" (decision 2026-10-29); the
+      // products API carries no display name, so the EN text is spelled out.
       expect(closed.data.message).toBe(
-        "This restaurant's Books & Taxes add-on is off, so its numbers can't be opened right now."
+        "This restaurant's RestauNax Books & Taxes add-on is off, so its numbers can't be opened right now."
       );
     } finally {
       await setFeatureOverrideAdminRaw(

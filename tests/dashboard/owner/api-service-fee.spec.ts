@@ -1,6 +1,7 @@
 /**
  * api-service-fee.spec.ts — the service fee (S1) on QA, every option for its
- * effect (TC-611..617).
+ * effect (TC-611..617), and its sales tax from the state's rule and the
+ * owner's confirmation (RestauNax audit W4:C1b, TC-1251..1253).
  *
  * No browser. A per-run throwaway restaurant (core feature: no add-on), table
  * service on, one $10.00 item, published (so the public quote answers), a
@@ -13,7 +14,12 @@
  *   - HOUSE vs STAFF frozen on the order; never a tip; STAFF needs Tip
  *     Management or Payroll (refused without; a saved STAFF freezes as
  *     HOUSE once the add-on lapses — RestauNax #1078);
- *   - a device can't change the rule.
+ *   - a device can't change the rule;
+ *   - sales tax on the fee: a new fee starts taxable; the state's rule is
+ *     shown with its status and source; a suggested (DRAFT) rule never
+ *     changes the charge; once the owner confirms, the server sets
+ *     "taxable" from who keeps the fee (W4:C1b). These run LAST: a confirmed
+ *     rule overrides the taxable flag the earlier cases set.
  * Serial.
  */
 import * as allure from "allure-js-commons";
@@ -40,6 +46,7 @@ import {
   setFeatureOverrideAdminRaw,
   deleteFeatureOverrideAdminRaw,
   tabletRaw,
+  taxRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
 
@@ -185,11 +192,25 @@ test.describe("Service fee — every option for its effect (API)", () => {
     await allure.label("severity", "critical");
   });
 
-  test("TC-611: off by default; at 3% a $20.00 check carries $0.60 inside its total", async () => {
+  test("TC-611: off by default (a new fee starts taxable); at 3% untaxed a $20.00 check carries $0.60 inside its total", async () => {
     const before = await check(2);
     expect(fee(before)).toBe(0);
     expect(Number(before.total)).toBe(20);
+    // Never saved: off, and a NEW fee starts taxable (RestauNax audit
+    // W4:C1b — was untaxed). An owner who sets it untaxed keeps that below.
+    const fresh = await taxRaw<{ data?: Rec }>(
+      ownerToken,
+      restaurantId,
+      "GET",
+      "/service-charge"
+    );
+    expect(fresh.status, JSON.stringify(fresh.data)).toBe(200);
+    expect(fresh.data.data?.serviceFee).toMatchObject({
+      enabled: false,
+      taxable: true,
+    });
 
+    // RULE saves taxable: false explicitly.
     await rule({});
     const o = await check(2);
     expect(o).toMatchObject({
@@ -342,5 +363,100 @@ test.describe("Service fee — every option for its effect (API)", () => {
     await rule({ percent: 80 });
     expect(fee(await check(2))).toBe(5); // clamped to 25% of $20.00
     await rule({});
+  });
+
+  // ── Sales tax on the fee: the state's rule + the owner (W4:C1b) ─────────
+
+  const serviceCharge = async () => {
+    const r = await taxRaw<{ data?: Rec }>(
+      ownerToken,
+      restaurantId,
+      "GET",
+      "/service-charge"
+    );
+    expect(r.status, JSON.stringify(r.data)).toBe(200);
+    return r.data.data as Rec;
+  };
+
+  test("TC-1251: the state's rule is shown with its status and source; a suggested rule changes nothing", async () => {
+    await updateRestaurantSettingsApi(ownerToken, restaurantId, { tax: 8 });
+    await rule({ taxable: false });
+    const s = await serviceCharge();
+    // Every sales-tax rule on QA is a suggestion until the CPA confirms it.
+    expect(s.confirmed).toBe(false);
+    expect(s.needsOwnerAnswer).toBe(true);
+    const stateRule = s.stateRule as Rec | null;
+    expect(stateRule).not.toBeNull();
+    expect(["DRAFT", "MISSING"]).toContain(String(stateRule?.status));
+    expect(String(stateRule?.statusLabel)).not.toMatch(/^api:/);
+    if (stateRule?.status === "DRAFT") {
+      const sources = stateRule.sources as Rec[];
+      expect(String(sources[0]?.sourceUrl)).toMatch(/^https:\/\//);
+    }
+    // What checkout charges today: exactly what the owner saved.
+    expect(s.serviceFee).toMatchObject({ enabled: true, taxable: false });
+    const o = await check(2, 1.6);
+    expect(Number(o.serviceFeeTax ?? 0)).toBe(0);
+  });
+
+  test("TC-1252: a bad answer is refused; the owner confirms and the HOUSE fee is taxed from the next order", async () => {
+    const bad = await taxRaw(
+      ownerToken,
+      restaurantId,
+      "POST",
+      "/rules/confirm",
+      {
+        ruleKey: "serviceChargeTaxable",
+        value: { rule: "SOMETIMES" },
+      }
+    );
+    expect(bad.status, JSON.stringify(bad.data)).toBe(400);
+    const notTax = await taxRaw(
+      ownerToken,
+      restaurantId,
+      "POST",
+      "/rules/confirm",
+      { ruleKey: "minimumWage", value: {} }
+    );
+    expect(notTax.status).toBe(400);
+
+    const s = await serviceCharge();
+    const stateRule = s.stateRule as Rec | null;
+    // The suggested rule when there is one; else the owner's own answer.
+    const value =
+      stateRule?.status === "DRAFT" && stateRule.value
+        ? stateRule.value
+        : { rule: "TAXABLE" };
+    const ok = await taxRaw<{ data?: { serviceCharge?: Rec } }>(
+      ownerToken,
+      restaurantId,
+      "POST",
+      "/rules/confirm",
+      { ruleKey: "serviceChargeTaxable", value }
+    );
+    expect(ok.status, JSON.stringify(ok.data)).toBe(200);
+    const after = ok.data.data?.serviceCharge as Rec;
+    expect(after.confirmed).toBe(true);
+    expect((after.stateRule as Rec).decidedBy).toBe("OWNER");
+    // HOUSE keeps it: taxable under every rule value but NEVER.
+    expect(after.serviceFee).toMatchObject({ taxable: true });
+
+    const o = await check(2, 1.6);
+    expect(fee(o)).toBe(0.6);
+    expect(Number(o.serviceFeeTax)).toBe(round2(0.6 * 0.08));
+  });
+
+  test("TC-1253: under a confirmed rule the server sets taxable from who keeps the fee, whatever a save sends", async () => {
+    // An old screen (or the Owner app) echoing taxable: false.
+    await rule({ taxable: false });
+    const s = await serviceCharge();
+    expect(s.serviceFee).toMatchObject({ taxable: true });
+    const o = await check(2, 1.6);
+    expect(Number(o.serviceFeeTax)).toBe(round2(0.6 * 0.08));
+    // The POS reads the same flag from its settings.
+    const settings = await tabletRaw<Rec>(tabletToken, "GET", "/settings");
+    expect(JSON.stringify(settings.data)).toMatch(
+      /"serviceFee":\{[^}]*"taxable":true/
+    );
   });
 });

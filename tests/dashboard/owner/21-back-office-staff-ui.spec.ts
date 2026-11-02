@@ -3,22 +3,28 @@
  * restaurant's add-ons, and its core screens render (TC-628..634).
  *
  * Browser. A per-run throwaway owner logs in through the UI (loginViaUi) and
- * opens Restaurant Management → Staff (?tab=staff). Since RestauNax #1074 the
- * page shows four groups first (Team · Schedule · Time & pay · Tips,
- * data-testid="staff-groups"), then only the open group's own tabs. Each
- * check walks every group and reads its tabs. Add-ons are switched by admin
- * override between steps and the page reloaded:
- *   none       → Team: People, Jobs (names only), Roles, Discount & void
- *                rules; Time & pay: Shifts, Breaks;
- *   SCHEDULING → + Schedule group (Schedule, Requests, Schedule settings);
- *                Time & pay becomes Timecards, Payday, Labor, Payroll
- *                settings (Timecards replaces Shifts); Jobs & wages; no tips;
- *   + PAYROLL  → + Tips group (Tips, Tip policy); Payroll settings asks "Do
- *                you already use Gusto?" (own Gusto / RestauNax Payroll / a
- *                payroll file);
+ * opens Restaurant Management → Staff (?tab=staff). Since the back-office
+ * audit Stage 6 (W0:OB-1) the page shows at most five groups first (People ·
+ * Schedule · Payday · Tips · Settings, data-testid="staff-groups"), then
+ * only the open group's own tabs (a one-screen group has no bar of its own).
+ * Each check walks every group and reads its tabs. Add-ons are switched by
+ * admin override between steps and the page reloaded:
+ *   none       → People: People, Shifts; Settings: Breaks, Jobs (names
+ *                only), Permissions (roles + discount & void rules, W0:J1-b);
+ *   SCHEDULING → + Schedule (Schedule, Requests) and Payday (Timecards,
+ *                Payday, Labor; Timecards replaces Shifts); People: People,
+ *                Announcements; Settings: Pay &
+ *                overtime, Jobs & wages, Permissions, Schedule settings,
+ *                Sick time & PTO, Employer group; no tips;
+ *   + PAYROLL  → + Tips (Tips, Tip policy); Pay & overtime asks "Do you
+ *                already use Gusto?" (own Gusto / RestauNax Payroll / a
+ *                payroll file) until a mode is chosen;
  *   removed    → back to the core groups.
- * Plus: Roles lists the four presets, Jobs & wages shows a job and its rate,
- * People shows an invited person.
+ * An add-on the restaurant lacks may show as a RestauNax product preview tab
+ * (marked with the plus icon); the layout checks leave previews out.
+ * Plus: Permissions lists the four preset roles, Jobs & wages shows a job and
+ * its rate, People shows an invited person. Gated by
+ * `RELEASED_ON_QA.staffSetupStage6` until the layout is on QA.
  */
 import * as allure from "allure-js-commons";
 import type { Locator, Page } from "@playwright/test";
@@ -34,6 +40,10 @@ import {
   inviteStaffRaw,
   createStaffJobRaw,
 } from "../../../utils/apiHelper";
+import {
+  probeStaffSetupStage6,
+  requireRelease,
+} from "../../../utils/releaseGate";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
@@ -42,15 +52,32 @@ const DOMAIN = process.env.TEST_EMAIL_DOMAIN ?? "demomailtrap.co";
 // Free (no add-on): basic breaks have their own tab (packaging v2), and job
 // names are free for every restaurant — a names-only "Jobs" tab without
 // TIMECARDS (RestauNax #1002 roles-vs-jobs, 2026-10-19). Group → its tabs,
-// in the order shown (staffJobsModel.ts staffGroupsFor).
+// in the order shown (staffJobsModel.ts staffGroupsFor); [] = a one-screen
+// group (no bar of its own).
 type StaffLayout = Record<string, string[]>;
-const TEAM_CORE = ["People", "Jobs", "Roles", "Discount & void rules"];
-const TEAM_PAID = ["People", "Jobs & wages", "Roles", "Discount & void rules"];
 const CORE: StaffLayout = {
-  Team: TEAM_CORE,
-  "Time & pay": ["Shifts", "Breaks"],
+  People: ["People", "Shifts"],
+  Settings: ["Breaks", "Jobs", "Permissions"],
 };
-const TIME_PAY = ["Timecards", "Payday", "Labor", "Payroll settings"];
+// With Timecards, Shifts is Timecards (Payday) and People gains
+// Announcements (W0:MF-10).
+const PEOPLE_PAID = ["People", "Announcements"];
+const PAYDAY = ["Timecards", "Payday", "Labor"];
+const SETTINGS_PAID = [
+  "Pay & overtime",
+  "Jobs & wages",
+  "Permissions",
+  "Sick time & PTO",
+  "Employer group",
+];
+const SETTINGS_SCHEDULING = [
+  "Pay & overtime",
+  "Jobs & wages",
+  "Permissions",
+  "Schedule settings",
+  "Sick time & PTO",
+  "Employer group",
+];
 
 test.describe.configure({ mode: "serial" });
 
@@ -86,11 +113,29 @@ test.describe("Owner — Staff area follows the add-ons (UI)", () => {
       timeout: 20_000,
     });
   };
-  /** Labels as shown (a badge count is stripped). */
+  // RestauNax Products: an add-on the restaurant lacks but may ask for shows
+  // as a preview tab (a whole group, or a tab like "RestauNax Team") carrying
+  // the plus icon. Previews are not the restaurant's own screens, so the
+  // layout below leaves them out; previews() lists them.
+  const isPreview = async (tab: Locator) =>
+    (await tab.locator('[data-testid^="add-on-mark-"]').count()) > 0;
+  const tabsOf = async (tabs: Locator, preview: boolean) => {
+    const out: string[] = [];
+    for (const tab of await tabs.all()) {
+      if ((await isPreview(tab)) === preview) {
+        out.push((await tab.textContent()) ?? "");
+      }
+    }
+    return out;
+  };
+  /** Labels as shown (a badge count is stripped), previews left out. */
   const labels = async (tabs: Locator) =>
-    (await tabs.allTextContents())
+    (await tabsOf(tabs, false))
       .map((t) => t.replace(/\d+$/, "").trim())
       .filter(Boolean);
+  /** Every product preview tab in the group bar. */
+  const previews = async (): Promise<string[]> =>
+    (await tabsOf(groupBar().getByRole("tab"), true)).map((t) => t.trim());
   /** Every group with its own tabs: open each group, read its tab bar. */
   const layout = async (): Promise<StaffLayout> => {
     const groups = await labels(groupBar().getByRole("tab"));
@@ -99,7 +144,11 @@ test.describe("Owner — Staff area follows the add-ons (UI)", () => {
       const tab = groupBar().getByRole("tab", { name, exact: true });
       await tab.click();
       await expect(tab).toHaveAttribute("aria-selected", "true");
-      await expect(groupTabs().first()).toBeVisible({ timeout: 10_000 });
+      // A one-screen group has no bar: give the screen a moment, then read.
+      await groupTabs()
+        .first()
+        .waitFor({ timeout: 3_000 })
+        .catch(() => {});
       out[name] = await labels(groupTabs());
     }
     return out;
@@ -143,6 +192,10 @@ test.describe("Owner — Staff area follows the add-ons (UI)", () => {
   test.beforeEach(async () => {
     await allure.label("feature", "Staff (dashboard)");
     await allure.label("severity", "critical");
+    requireRelease(
+      "staffSetupStage6",
+      await probeStaffSetupStage6(ownerToken, restaurantId)
+    );
   });
 
   test("TC-628: without add-ons the Staff area shows only the core groups and tabs; People lists an invite", async () => {
@@ -152,6 +205,9 @@ test.describe("Owner — Staff area follows the add-ons (UI)", () => {
       page().getByText("Quinn", { exact: false }).first()
     ).toBeVisible();
     expect(await layout()).toEqual(CORE);
+    // Any other group is a RestauNax product preview, never a real screen.
+    for (const name of await previews())
+      expect(["Schedule", "Payday", "Tips"]).toContain(name);
     // The free Breaks tab lists the break types.
     await openStaff("breaks");
     // Names are editable fields: read their values.
@@ -172,21 +228,22 @@ test.describe("Owner — Staff area follows the add-ons (UI)", () => {
     await grant("SCHEDULING");
     await openStaff();
     expect(await layout()).toEqual({
-      Team: TEAM_PAID,
-      Schedule: ["Schedule", "Requests", "Schedule settings"],
-      "Time & pay": TIME_PAY,
+      People: PEOPLE_PAID,
+      Schedule: ["Schedule", "Requests"],
+      Payday: PAYDAY,
+      Settings: SETTINGS_SCHEDULING,
     });
   });
 
   test("TC-630: PAYROLL adds the Tips group (tips, tip policy); Payroll settings asks one question with three ways to run payroll", async () => {
     await grant("PAYROLL");
     await openStaff("payrollSettings");
-    // The deep link opens Time & pay with Payroll settings selected.
+    // The deep link opens Settings with Pay & overtime selected.
     await expect(
-      groupBar().getByRole("tab", { name: "Time & pay", exact: true })
+      groupBar().getByRole("tab", { name: "Settings", exact: true })
     ).toHaveAttribute("aria-selected", "true");
     await expect(
-      groupTabs().filter({ hasText: "Payroll settings" })
+      groupTabs().filter({ hasText: "Pay & overtime" })
     ).toHaveAttribute("aria-selected", "true");
     await expect(page().getByText("How you run payroll")).toBeVisible({
       timeout: 15_000,
@@ -209,6 +266,12 @@ test.describe("Owner — Staff area follows the add-ons (UI)", () => {
       ).toBeVisible();
     await page().getByRole("button", { name: "Yes, I use Gusto" }).click();
     await expect(page().getByText("Connect your Gusto").first()).toBeVisible();
+    // Once chosen, only that mode shows (W0:OB-4) until "Change payroll
+    // method" asks the question again.
+    await expect(page().getByTestId("payroll-mode-chosen")).toContainText(
+      "Your own Gusto"
+    );
+    await page().getByTestId("payroll-mode-change").click();
     // With the PAYROLL add-on, "No" offers RestauNax Payroll.
     await page().getByRole("button", { name: "No", exact: true }).click();
     await expect(
@@ -217,8 +280,11 @@ test.describe("Owner — Staff area follows the add-ons (UI)", () => {
     expect((await layout()).Tips).toEqual(["Tips", "Tip policy"]);
   });
 
-  test("TC-631: Roles lists the four preset roles", async () => {
+  test("TC-631: Permissions (the old Roles link) lists the four preset roles", async () => {
     await openStaff("roles");
+    await expect(page().getByTestId("permissions-roles")).toBeVisible({
+      timeout: 15_000,
+    });
     for (const role of ["Owner", "Manager", "Shift lead", "Staff"])
       await expect(page().getByText(role, { exact: true }).first()).toBeVisible(
         {
@@ -248,22 +314,35 @@ test.describe("Owner — Staff area follows the add-ons (UI)", () => {
 
   test("TC-634: a direct link to a gated tab without the add-on shows no gated screen", async () => {
     await openStaff("timecards");
-    // Falls back to Team → People rather than a blank screen.
+    // Opens the product's preview when RestauNax offers it, else falls back
+    // to People — never a blank or a gated screen.
+    const selected = groupBar().getByRole("tab", { selected: true });
+    await expect(selected).toHaveCount(1);
+    if (await isPreview(selected)) {
+      await expect(page().getByRole("main")).toContainText(
+        /Ask us|Request pending/
+      );
+    } else {
+      await expect(
+        groupBar().getByRole("tab", { name: "People", exact: true })
+      ).toHaveAttribute("aria-selected", "true");
+    }
     await expect(
-      groupBar().getByRole("tab", { name: "Team", exact: true })
-    ).toHaveAttribute("aria-selected", "true");
+      page().getByRole("button", { name: "Approve period" })
+    ).toHaveCount(0);
     expect(await layout()).toEqual(CORE);
     await expect(page().getByText("How you run payroll")).toHaveCount(0);
   });
 
-  test("TC-650: Tip Management alone — Time & pay (timecards, payday, labor, payroll settings), jobs and the Tips group; no schedule", async () => {
+  test("TC-650: Tip Management alone — Payday (timecards, payday, labor), Settings and the Tips group; no schedule", async () => {
     await grant("TIP_MANAGEMENT");
     try {
       await openStaff();
       expect(await layout()).toEqual({
-        Team: TEAM_PAID,
-        "Time & pay": TIME_PAY,
+        People: PEOPLE_PAID,
+        Payday: PAYDAY,
         Tips: ["Tips", "Tip policy"],
+        Settings: SETTINGS_PAID,
       });
     } finally {
       await deleteFeatureOverrideAdminRaw(

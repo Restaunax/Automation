@@ -1182,6 +1182,39 @@ export async function setBusinessHoursApi(
 }
 
 /**
+ * Open every day 00:00–23:59 — NOT 24 hours. A day close pauses online
+ * ordering until the next opening; for a 24-hour venue that is "now", so the
+ * pause lifts at once (by design, restaunax nextOpeningAt.test.ts). With
+ * these hours the next opening is tomorrow at midnight, so "closed for the
+ * night" holds while a test checks it. Replaces the restaurant's rows.
+ */
+export async function setOpenAllDayHours(
+  accessToken: string,
+  restaurantId: string
+): Promise<void> {
+  const days = [
+    "MONDAY",
+    "TUESDAY",
+    "WEDNESDAY",
+    "THURSDAY",
+    "FRIDAY",
+    "SATURDAY",
+    "SUNDAY",
+  ];
+  await setBusinessHoursApi(
+    accessToken,
+    restaurantId,
+    days.map((day) => ({
+      day,
+      openingTime: "00:00:00",
+      closingTime: "23:59:00",
+      isClosed: false,
+      is24Hours: false,
+    }))
+  );
+}
+
+/**
  * Give a restaurant a tax rate if it has none — PUT /api/restaurantId/:id/settings
  * {tax}. Chain-location provisioning leaves tax null and the public /quote
  * endpoint refuses to price ("hasn't set its tax rate yet"), so fixture
@@ -3231,11 +3264,20 @@ export function cancelOrderRaw(
   );
 }
 
-/** POST /api/order/statistics/refund/:orderId — standalone (partial) refund. */
+/**
+ * POST /api/order/statistics/refund/:orderId — standalone (partial) refund.
+ * `items` names the refunded lines: the tax given back is then those lines'
+ * own rates (RestauNax audit W4:M7); without it the refund is prorated over
+ * the sale without its tip.
+ */
 export function refundOrderRaw(
   accessToken: string,
   orderId: string,
-  body: { amount?: number | string; reason?: string } = {}
+  body: {
+    amount?: number | string;
+    reason?: string;
+    items?: { orderItemId: string; quantity: number }[];
+  } = {}
 ): Promise<RawResponse<Record<string, unknown>>> {
   return apiRequestRaw<Record<string, unknown>>(
     "POST",
@@ -7013,7 +7055,13 @@ export function publishScheduleRaw(
   notifyMode: "CHANGED" | "ALL" | "NONE" = "NONE"
 ): Promise<
   RawResponse<{
-    data?: { published: number; notified: number; publicationId: string };
+    data?: {
+      published: number;
+      notified: number;
+      publicationId: string;
+      /** W3:M5 (Stage 5): predictability pay this publish owes. */
+      premiums?: LooseJson[];
+    };
   }>
 > {
   return apiRequestRaw(
@@ -7590,6 +7638,31 @@ export function accountantRaw<T = { data?: LooseJson; message?: string }>(
   return apiRequestRaw("GET", `/api/accountant${path}`, undefined, token);
 }
 
+/** Any method under `/api/accountant{path}` — the workspace is read-only, so
+ *  every non-GET answers 403 (restaunax W2:A10). */
+export function accountantAnyRaw<T = { data?: LooseJson; message?: string }>(
+  token: string,
+  method: Method,
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(method, `/api/accountant${path}`, body, token);
+}
+
+/** POST /login with an invitation token: an EXISTING account claims an
+ *  invite (e.g. a second restaurant's accountant invite). */
+export function loginWithInviteRaw(
+  email: string,
+  password: string,
+  userInvitationToken: string
+): Promise<RawResponse<{ accessToken?: string; message?: string }>> {
+  return apiRequestRaw("POST", "/login", {
+    email,
+    password,
+    userInvitationToken,
+  });
+}
+
 /** HQ add-on catalog and billing: `/api/admin/addons{path}` (ADMIN). */
 export function adminAddonsRaw<T = { data?: LooseJson; message?: string }>(
   token: string,
@@ -7647,11 +7720,18 @@ export function ownerAddonRequestCancelRaw(
 }
 
 /** POST `/restaurant/:rid/daily-close` — close the current business day from
- *  the dashboard (fires the partner API's `day.closed`). */
+ *  the dashboard (fires the partner API's `day.closed`). `pauseOrdering`
+ *  (W0:J4-b): absent or true pauses online ordering until the next opening;
+ *  only `false` keeps it open (`data.orderingPaused` says which). */
 export function closeDayWebRaw(
   token: string,
   restaurantId: string,
-  body: { depositAmount: number; note?: string; reclose?: boolean } = {
+  body: {
+    depositAmount: number;
+    note?: string;
+    reclose?: boolean;
+    pauseOrdering?: boolean;
+  } = {
     depositAmount: 0,
   }
 ): Promise<RawResponse<{ data?: LooseJson; message?: string }>> {

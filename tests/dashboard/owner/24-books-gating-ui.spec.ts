@@ -11,11 +11,17 @@
  * the "Books & Taxes" add-on (ACCOUNTING_SYNC) is switched by admin override
  * between steps. Every /api/ response is watched: a screen the owner can see
  * must never answer 401/403 while it loads (feedback: screen loads never 403).
+ * W0:J6 / OB-2 (once `dailyViewsStage6` is deployed, probed per run): the
+ * accountant tab is "Send to my accountant" (the month's figures + one ZIP,
+ * the invite below), and Card deposits, Tax calendar and Year end show only
+ * once turned on in Overview → "Show more in Books & taxes" — TC-790 turns
+ * on any that are off, then opens every section.
  * Serial.
  */
 import * as allure from "allure-js-commons";
 import type { Page, Response as PwResponse } from "@playwright/test";
 import { test, expect } from "../../../fixtures/base";
+import { requireEnv } from "../../../utils/envGate";
 import { generateRunId, readSharedState } from "../../../utils/testData";
 import { loginViaUi, type UiLoginSession } from "../../../utils/auth";
 import {
@@ -29,6 +35,7 @@ import {
   ownerAddonRequestCancelRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
+import { probeDailyViewsStage6 } from "../../../utils/releaseGate";
 import {
   addonRequestsLive,
   requireAddonRequests,
@@ -45,18 +52,29 @@ const SECTIONS = [
   "Year end",
   "Your accountant",
 ];
+/** W0:J6 / OB-2: the accountant tab's new name; the optional tabs. */
+const DAILY_SECTIONS = [
+  "Overview",
+  "Books",
+  "Card deposits",
+  "Tax calendar",
+  "Year end",
+  "Send to my accountant",
+];
+const OPTIONAL_TOGGLES = ["deposits", "calendar", "yearEnd"];
 
 test.describe.configure({ mode: "serial" });
 
 test.describe("Owner — Books & taxes is hidden without its add-on; Connected apps is free (UI)", () => {
-  test.skip(
-    !ADMIN_EMAIL || !ADMIN_PASSWORD,
-    "ADMIN_EMAIL / ADMIN_PASSWORD not set (the file mints its own tenant)"
+  requireEnv(
+    ["ADMIN_EMAIL", "ADMIN_PASSWORD"],
+    "the file mints its own tenant"
   );
 
   const runId = generateRunId();
   let adminToken = "";
   let restaurantId = "";
+  let ownerToken = "";
   let session: UiLoginSession | undefined;
   const refused: string[] = [];
 
@@ -90,6 +108,7 @@ test.describe("Owner — Books & taxes is hidden without its add-on; Connected a
     const tenant = await createSecondOwner(adminToken, runId);
     if (!tenant.restaurantId) throw new Error("[books-ui] no tenant");
     restaurantId = tenant.restaurantId;
+    ownerToken = tenant.accessToken;
     session = await loginViaUi(
       browser,
       tenant.email,
@@ -140,16 +159,40 @@ test.describe("Owner — Books & taxes is hidden without its add-on; Connected a
     await expect(item).toBeVisible({ timeout: 20_000 });
     await item.click();
     await expect(page()).toHaveURL(/tab=books-taxes/);
-    for (const name of SECTIONS) {
+    const daily = await probeDailyViewsStage6(ownerToken, restaurantId);
+    if (daily) {
+      // Overview → "Show more": turn on the optional tabs that are off.
+      await expect(page().getByTestId("books-more-tabs")).toBeVisible({
+        timeout: 20_000,
+      });
+      for (const key of OPTIONAL_TOGGLES) {
+        const input = page()
+          .getByTestId(`books-tab-toggle-${key}`)
+          .locator("input");
+        if (!(await input.isChecked())) {
+          // The switch is controlled: it turns on once the preference is
+          // saved, so click and wait (check() demands an instant change).
+          await input.click();
+          await expect(input).toBeChecked({ timeout: 10_000 });
+        }
+      }
+    }
+    const accountantTab = daily ? "Send to my accountant" : "Your accountant";
+    for (const name of daily ? DAILY_SECTIONS : SECTIONS) {
       const tab = page().getByRole("tab", { name, exact: true });
       await expect(tab).toBeVisible({ timeout: 20_000 });
       await tab.click();
       await expect(tab).toHaveAttribute("aria-selected", "true");
     }
     // The accountant section offers the invite; the year end offers the ZIP.
-    await page()
-      .getByRole("tab", { name: "Your accountant", exact: true })
-      .click();
+    await page().getByRole("tab", { name: accountantTab, exact: true }).click();
+    if (daily) {
+      // W0:J6: the month's figures and the one-file download sit above it.
+      await expect(page().getByTestId("accountant-bundle")).toBeVisible();
+      await expect(
+        page().getByTestId("accountant-bundle-download")
+      ).toBeVisible();
+    }
     await expect(
       page()
         .getByRole("button", { name: /invite/i })
@@ -171,9 +214,11 @@ test.describe("Owner — Books & taxes is hidden without its add-on; Connected a
     await expect(
       page().getByRole("heading", { name: "RestauNax Books & Taxes" })
     ).toBeVisible({ timeout: 20_000 });
+    // The throwaway restaurant isn't live yet, so the ask reads "Ask us —
+    // we'll set it up when your account is live" (Stage 6 request flow).
     await expect(
       page()
-        .getByRole("button", { name: "Ask us to turn it on" })
+        .getByRole("button", { name: /^Ask us/ })
         .or(
           page().getByText(
             "RestauNax Books & Taxes isn't on for this restaurant. Your RestauNax team can help you with it."
@@ -198,10 +243,7 @@ test.describe("Owner — Books & taxes is hidden without its add-on; Connected a
 // ("No Subscription Assigned" otherwise), and the seed is the one QA
 // restaurant with one. A request turns nothing on and is cancelled here.
 test.describe("Owner — requests an add-on from Billing → Add-ons (UI)", () => {
-  test.skip(
-    !ADMIN_EMAIL || !ADMIN_PASSWORD,
-    "ADMIN_EMAIL / ADMIN_PASSWORD not set (gate + cleanup use HQ)"
-  );
+  requireEnv(["ADMIN_EMAIL", "ADMIN_PASSWORD"], "gate + cleanup use HQ");
   test.skip(
     !process.env.OWNER_EMAIL || !process.env.OWNER_PASSWORD,
     "OWNER_EMAIL / OWNER_PASSWORD not set (the seed restaurant)"
@@ -295,8 +337,11 @@ test.describe("Owner — requests an add-on from Billing → Add-ons (UI)", () =
     await expect(
       ownerPage.getByText(/^Request sent\. We'll contact you/)
     ).toBeVisible({ timeout: 20_000 });
+    // The card's sent state (Stage 6 request flow): when it was asked.
     await expect(
-      card.getByText(/^Request sent .+\. We'll contact you\.$/)
+      card.getByText(
+        /^Requested on .+\. We usually reply within 1 business day\.$/
+      )
     ).toBeVisible();
     // A request turns nothing on.
     expect(

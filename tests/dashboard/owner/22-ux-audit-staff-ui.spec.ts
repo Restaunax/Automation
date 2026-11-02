@@ -1,13 +1,17 @@
 /**
  * 22-ux-audit-staff-ui.spec.ts — dashboard checks for the UX-audit fixes
- * (restaunax #913) (TC-664..666).
+ * (restaunax #913) (TC-664..666) and the Stage 6 Staff page (TC-1707).
  *
  * Browser. A per-run throwaway owner (loginViaUi) on a restaurant with
  * SCHEDULING + TIP_MANAGEMENT (the most Staff tabs), weekly pay periods and
  * manager-entered hours in the two most recent finished periods:
- *   - at 1024 px and 390 px every Staff group (Team · Schedule · Time & pay
- *     · Tips, RestauNax #1074) and every tab inside it can be reached and
- *     opened, and the page is never wider than the screen;
+ *   - at 1024 px and 390 px every Staff group (People · Schedule · Payday ·
+ *     Tips · Settings, back-office audit W0:OB-1 — at most five) and every
+ *     tab inside it can be reached and opened, and the page is never wider
+ *     than the screen;
+ *   - every old ?staffTab= link still lands on its screen in its new place
+ *     (roles → the one Permissions screen; settings → Settings), gated by
+ *     `RELEASED_ON_QA.staffSetupStage6`;
  *   - Timecards opens on the OLDEST period still waiting for approval;
  *   - the language picked in the top bar survives a reload (and is saved to
  *     the account).
@@ -31,6 +35,10 @@ import {
   loginRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
+import {
+  probeStaffSetupStage6,
+  requireRelease,
+} from "../../../utils/releaseGate";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
@@ -52,7 +60,7 @@ const shortDate = (d: string) =>
 
 test.describe.configure({ mode: "serial" });
 
-test.describe("Owner — UX-audit fixes in the Staff area (UI)", () => {
+test.describe("Owner — UX-audit fixes in the Staff area (UI) @staff-setup", () => {
   test.skip(
     !ADMIN_EMAIL || !ADMIN_PASSWORD,
     "ADMIN_EMAIL / ADMIN_PASSWORD not set (the file mints its own tenant)"
@@ -161,6 +169,11 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI)", () => {
     [390, 844],
   ] as const) {
     test(`TC-664: at ${width}px every Staff group and every tab in it can be reached, and the page fits the screen`, async () => {
+      // The People · Schedule · Payday · Tips · Settings layout (W0:OB-1).
+      requireRelease(
+        "staffSetupStage6",
+        await probeStaffSetupStage6(ownerToken, restaurantId)
+      );
       await page().setViewportSize({ width, height });
       await openStaff();
       const groupBar = page().getByTestId("staff-groups");
@@ -169,13 +182,15 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI)", () => {
       const groupTabs = page().locator(
         '[data-testid="staff-groups"] + .MuiTabs-root [role="tab"]'
       );
-      // SCHEDULING + TIP_MANAGEMENT: all four groups.
+      // SCHEDULING + TIP_MANAGEMENT: every group, never more than five.
       await expect(groups).toHaveText([
-        "Team",
+        "People",
         "Schedule",
-        "Time & pay",
+        "Payday",
         "Tips",
+        "Settings",
       ]);
+      expect(await groups.count()).toBeLessThanOrEqual(5);
       // Walk a bar from the keyboard: each tab must scroll into view and
       // open. (The ‹ › arrows sit under the fixed top bar once the page has
       // scrolled, which makes them unclickable for automation — not users.)
@@ -207,16 +222,21 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI)", () => {
       };
       let reached = 0;
       await walk(groups, async () => {
-        await expect(groupTabs.first()).toBeVisible({ timeout: 10_000 });
-        // Focus moves into the group's own bar, then back to the groups.
         const focused = await groups.evaluateAll((els) =>
           els.findIndex((el) => el.getAttribute("aria-selected") === "true")
         );
+        // Every group has a bar of its own here: People with Timecards is
+        // People + Announcements (W0:MF-10).
+        await expect(groupTabs.first()).toBeVisible({ timeout: 10_000 });
+        // Focus moves into the group's own bar, then back to the groups.
         reached += await walk(groupTabs);
         await groups.nth(focused).focus();
       });
-      // Team 4 · Schedule 3 · Time & pay 4 · Tips 2.
-      expect(reached).toBe(13);
+      // People 2 (People, Announcements) · Schedule 2 (Schedule, Requests) ·
+      // Payday 3 (Timecards, Payday, Labor) · Tips 2 · Settings 6 (Pay &
+      // overtime, Jobs & wages, Permissions, Schedule settings, Sick time &
+      // PTO, Employer group). Mobile clock-in is a card in Pay & overtime.
+      expect(reached).toBe(15);
       const overflow = await page().evaluate(
         () =>
           document.documentElement.scrollWidth -
@@ -225,6 +245,67 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI)", () => {
       expect(overflow, "no horizontal page scroll").toBeLessThanOrEqual(1);
     });
   }
+
+  // Every Staff tab id a link, email or bookmark ever used → where it lands
+  // now (group, then the open tab; null = a one-screen group). With
+  // Timecards, the plain Shifts list is Timecards and break types live in
+  // Pay & overtime.
+  const DEEP_LINKS: [string, string, string | null][] = [
+    ["people", "People", "People"],
+    ["announcements", "People", "Announcements"],
+    ["shifts", "Payday", "Timecards"],
+    ["timecards", "Payday", "Timecards"],
+    ["payday", "Payday", "Payday"],
+    ["labor", "Payday", "Labor"],
+    ["schedule", "Schedule", "Schedule"],
+    ["requests", "Schedule", "Requests"],
+    ["tips", "Tips", "Tips"],
+    ["tipPolicy", "Tips", "Tip policy"],
+    ["payrollSettings", "Settings", "Pay & overtime"],
+    ["breaks", "Settings", "Pay & overtime"],
+    ["jobs", "Settings", "Jobs & wages"],
+    ["roles", "Settings", "Permissions"],
+    ["permissions", "Settings", "Permissions"],
+    ["scheduleSettings", "Settings", "Schedule settings"],
+    ["sickTime", "Settings", "Sick time & PTO"],
+    ["employer", "Settings", "Employer group"],
+    ["settings", "Settings", "Pay & overtime"],
+    // The mobile clock-in card (W0:MF-6) sits in Pay & overtime.
+    ["mobileClockIn", "Settings", "Pay & overtime"],
+  ];
+
+  test("TC-1707: every old ?staffTab= link still lands on its screen in the new layout", async () => {
+    requireRelease(
+      "staffSetupStage6",
+      await probeStaffSetupStage6(ownerToken, restaurantId)
+    );
+    test.setTimeout(180_000);
+    await page().setViewportSize({ width: 1280, height: 900 });
+    const selectedSub = page().locator(
+      '[data-testid="staff-groups"] + .MuiTabs-root [role="tab"][aria-selected="true"]'
+    );
+    for (const [staffTab, group, tab] of DEEP_LINKS) {
+      await openStaff(staffTab);
+      await expect(
+        page()
+          .getByTestId("staff-groups")
+          .getByRole("tab", { name: group, exact: true }),
+        `?staffTab=${staffTab} opens ${group}`
+      ).toHaveAttribute("aria-selected", "true");
+      if (tab)
+        await expect(
+          selectedSub,
+          `?staffTab=${staffTab} opens ${tab}`
+        ).toContainText(tab);
+    }
+    // roles and permissions both open the ONE Permissions screen (W0:J1-b):
+    // roles and the discount & void rules together.
+    await openStaff("roles");
+    const screen = page().getByTestId("staff-permissions");
+    await expect(screen).toBeVisible({ timeout: 15_000 });
+    await expect(screen.getByTestId("permissions-roles")).toBeVisible();
+    await expect(screen.getByTestId("permissions-rules")).toBeVisible();
+  });
 
   test("TC-665: Timecards opens on the oldest period still waiting for approval", async () => {
     await page().setViewportSize({ width: 1280, height: 900 });
@@ -253,11 +334,15 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI)", () => {
       .first()
       .click();
     expect((await saved).status()).toBe(200);
-    await expect(page().getByRole("tab", { name: "Personas" })).toBeVisible({
+    await expect(
+      page().getByTestId("staff-groups").getByRole("tab", { name: "Personas" })
+    ).toBeVisible({
       timeout: 15_000,
     });
     await page().reload({ waitUntil: "domcontentloaded" });
-    await expect(page().getByRole("tab", { name: "Personas" })).toBeVisible({
+    await expect(
+      page().getByTestId("staff-groups").getByRole("tab", { name: "Personas" })
+    ).toBeVisible({
       timeout: 20_000,
     });
     // Saved to the account, not just the browser: a fresh sign-in says es.
