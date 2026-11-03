@@ -128,7 +128,9 @@ test.describe("Growth A — import, prime cost, cash tip-out sheet (UI) @growth-
   test("TC-1770: Analytics → Prime cost — Enter costs for this week saves and shows it as entered", async () => {
     await open("tab=Analytics");
     const card = page().getByTestId("prime-cost-card");
-    await expect(card.getByText("Prime cost")).toBeVisible({ timeout: 30_000 });
+    await expect(card.getByRole("heading", { name: "Prime cost" })).toBeVisible(
+      { timeout: 30_000 }
+    );
     await card.getByRole("button", { name: "Enter costs" }).first().click();
     const dialog = activeDialog(page());
     await dialog.getByLabel("Food").fill("1500");
@@ -144,7 +146,7 @@ test.describe("Growth A — import, prime cost, cash tip-out sheet (UI) @growth-
     await expect(card.getByText("Nightly cash tip-out sheet")).toBeVisible({
       timeout: 30_000,
     });
-    const toggle = card.getByRole("checkbox", {
+    const toggle = card.getByRole("switch", {
       name: "Use the nightly sheet",
     });
     await expect(toggle).not.toBeChecked();
