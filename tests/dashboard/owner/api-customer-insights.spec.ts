@@ -35,7 +35,7 @@
  */
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
-import { generateRunId } from "../../../utils/testData";
+import { generateRunId, generateSeedPhone } from "../../../utils/testData";
 import {
   apiLogin,
   apiRequestRaw,
@@ -100,6 +100,10 @@ test.describe("Customer insights numbers (API)", () => {
   let burgerId = "";
   const anaEmail = `auto-ana-${runId}@restaunax-test.com`;
   const benEmail = `auto-ben-${runId}@restaunax-test.com`;
+  // New on every run: a phone seen on an earlier run would match that run's
+  // customer, and these orders would land on the old email.
+  const anaPhone = generateSeedPhone();
+  const benPhone = generateSeedPhone();
 
   const burger = () => [
     { menuItemId: burgerId, menuItemName: "Burger", quantity: 1, price: 12 },
@@ -164,9 +168,9 @@ test.describe("Customer insights numbers (API)", () => {
     burgerId = (await createMenuItemFull(ownerToken, food.id, "Burger", 12)).id;
 
     // Identified customers: Ana twice, Ben once.
-    await orderOnline(anaEmail, "Ana", "5555550131");
-    await orderOnline(anaEmail, "Ana", "5555550131");
-    await orderOnline(benEmail, "Ben", "5555550132");
+    await orderOnline(anaEmail, "Ana", anaPhone);
+    await orderOnline(anaEmail, "Ana", anaPhone);
+    await orderOnline(benEmail, "Ben", benPhone);
 
     // Two anonymous cash walk-ins on a register (no contact details).
     const device = await createTabletDevice(

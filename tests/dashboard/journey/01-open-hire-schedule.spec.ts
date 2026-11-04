@@ -11,7 +11,7 @@
  *   TC-978  The checklist starts empty and points at jobs; Go there opens
  *           Jobs & wages.
  *   TC-979  Add a job: an empty or broken form says what's wrong INSIDE the
- *           dialog; Server $12 and Busser $11 (both tipped) are listed.
+ *           dialog; Server $12 and Busser $12 (both tipped) are listed.
  *   TC-980  The checklist ticks while the owner is still on the tab, no
  *           reload (RestauNax #1094).
  *   TC-981  Pay schedule: every week, from a Sunday. Saved, and still so
@@ -247,13 +247,13 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
     };
     await add("Server", "12");
     await addJob.click();
-    await add("Busser", "11");
+    await add("Busser", "12");
 
     await expect(
       page().getByRole("row", { name: /^Server \$12\.00\/hr Tipped/ })
     ).toBeVisible();
     await expect(
-      page().getByRole("row", { name: /^Busser \$11\.00\/hr Tipped/ })
+      page().getByRole("row", { name: /^Busser \$12\.00\/hr Tipped/ })
     ).toBeVisible();
   });
 
@@ -275,7 +275,10 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
       .getByRole("textbox", { name: "First day of any pay period" })
       .fill(firstDay);
     await expect(page().getByText("You have unsaved changes.")).toBeVisible();
-    await page().getByRole("button", { name: "Save changes" }).click();
+    // The phone clock-in card below has its own, disabled until it's edited.
+    await page()
+      .getByRole("button", { name: "Save changes", disabled: false })
+      .click();
     await expectSeenByUser(
       snackbar("Payroll settings saved."),
       '"Payroll settings saved."'

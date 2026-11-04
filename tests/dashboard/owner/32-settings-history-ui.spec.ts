@@ -128,10 +128,6 @@ test.describe(
     });
 
     test("TC-971: the first holiday shows in Recent changes on the same page without a reload (known bug)", async () => {
-      test.fail(
-        true,
-        "Product bug: on a restaurant with no history yet, Recent changes keeps saying 'No changes recorded yet' after the owner saves a holiday on the same page; only a reload shows the line (reproduced 2/2 on QA 2026-10-28)"
-      );
       await openHoliday();
       const panel = page().getByTestId("recent-changes");
       await expect(panel).toBeVisible({ timeout: 20_000 });

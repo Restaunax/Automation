@@ -1,6 +1,6 @@
 /**
  * api-timecards.spec.ts — timecards, overtime, breaks, pay periods (P1) on QA
- * (TC-580..587).
+ * (TC-580..587, TC-1943).
  *
  * No browser. A per-run throwaway restaurant with PAYROLL (→ TIMECARDS), weekly
  * pay periods from the default Sunday anchor, and one staff member with a real
@@ -41,6 +41,7 @@
  *     period is its frozen snapshot; reopened, the preview rebuilds the
  *     snapshot approval would store — the same per-person figures and
  *     totals — and wages + premiums = the timecards' total.
+ *   - TC-1943: correcting the clock-in of a shift still open.
  * Restaurant is in Miami (America/New_York). Serial.
  */
 import * as allure from "allure-js-commons";
@@ -59,6 +60,7 @@ import { generateRunId, recordUserForCleanup } from "../../../utils/testData";
 import { waitForEmail, extractInviteToken } from "../../../utils/emailHelper";
 import {
   apiLogin,
+  apiRequestRaw,
   createSecondOwner,
   deleteTestRestaurant,
   setFeatureOverrideAdminRaw,
@@ -1314,5 +1316,51 @@ test.describe("Timecards — overtime, breaks, approval (API)", () => {
       needsConfirmation: false,
     });
     expect((await gusCard(p2)).totalCents).toBe(13 * 1800);
+  });
+
+  // Last on purpose: serial, and it fails until RestauNax #1138 reaches QA.
+  test("TC-1943: an owner corrects the clock-in of a shift still open", async () => {
+    const inn = await tabletRaw<Rec>(tabletToken, "POST", "/staff/clock-in", {
+      staffMemberId: gus.staffMemberId,
+      pin: GUS_PIN,
+      jobId: lead,
+    });
+    expect(inn.status, JSON.stringify(inn.data)).toBe(200);
+    const open = inn.data.data.shift as Rec;
+
+    // Between this person's last clock-out and now, so it overlaps nothing.
+    const shifts = await apiRequestRaw<{ data?: Rec[] }>(
+      "GET",
+      `/restaurant/${restaurantId}/staff/${gus.staffMemberId}/shifts`,
+      undefined,
+      ownerToken
+    );
+    expect(shifts.status, JSON.stringify(shifts.data)).toBe(200);
+    const lastOut = Math.max(
+      ...list(shifts.data.data)
+        .filter((s) => s.clockOutAt)
+        .map((s) => new Date(String(s.clockOutAt)).getTime())
+    );
+    const openedAt = new Date(String(open.clockInAt)).getTime();
+    const corrected = new Date(Math.floor((lastOut + openedAt) / 2));
+
+    const res = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "PATCH",
+      `/shifts/${String(open.id)}`,
+      { clockInAt: corrected.toISOString(), reason: REASON }
+    );
+    expect(res.status, JSON.stringify(res.data)).toBe(200);
+    expect(res.data.data.clockOutAt).toBeNull();
+    expect(new Date(String(res.data.data.clockInAt)).getTime()).toBe(
+      corrected.getTime()
+    );
+
+    const out = await tabletRaw(tabletToken, "POST", "/staff/clock-out", {
+      staffMemberId: gus.staffMemberId,
+      pin: GUS_PIN,
+    });
+    expect(out.status, JSON.stringify(out.data)).toBe(200);
   });
 });

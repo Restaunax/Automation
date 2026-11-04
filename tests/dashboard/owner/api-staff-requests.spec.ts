@@ -229,7 +229,9 @@ test.describe("Restaunax Staff — requests and shift changes (API)", () => {
 
   test("TC-545: a staff token can't open the owner's inbox", async () => {
     const res = await getRequestsRaw(ana.token, restaurantId);
-    expect([401, 403]).toContain(res.status);
+    // Not this person's to control, so the restaurant isn't even confirmed
+    // (requireRestaurantControl, W5:L2).
+    expect(res.status).toBe(404);
   });
 
   test("TC-546: time off — the past is refused; a request lists the shift it lands on", async () => {

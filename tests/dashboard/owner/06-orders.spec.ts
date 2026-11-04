@@ -1392,8 +1392,9 @@ test.describe("Owner — Orders Tab", () => {
     await ordersPage.openDateRange();
     await ordersPage.typeDate("start", "01012020");
     await ordersPage.typeDate("end", "01022020");
-    const { json, query } = await ordersPage.waitForStatsResponse(() =>
-      ordersPage.applyDateRange()
+    const { json, query } = await ordersPage.waitForStatsResponse(
+      () => ordersPage.applyDateRange(),
+      "2020-01-01"
     );
     await allure.parameter(
       "range",

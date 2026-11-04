@@ -175,7 +175,7 @@ test.describe("POS — Server rotation (phase 4) @reservations-phase4", () => {
     );
     const server = await createStaffJobRaw(t.token, t.restaurantId, {
       name: `Server ${runId}`,
-      defaultHourlyRateCents: 900,
+      defaultHourlyRateCents: 1200,
       isTipped: true,
     });
     if (!server.ok) throw new Error(`job: ${JSON.stringify(server.data)}`);

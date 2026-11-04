@@ -1,11 +1,11 @@
 import { type Page, type Locator, expect } from "@playwright/test";
 
 /**
- * Dashboard — the 4-step menu item wizard (`AddCategoryItem.tsx`):
+ * Dashboard — the 5-step menu item wizard (`AddCategoryItem.tsx`):
  *   create  …/restaurant/restaurantId/:rid/groupId/:gid   (+ ?cloneFrom=:iid, ?ownerOnly=1)
  *   edit    …/restaurant/restaurantId/:rid/groupId/:gid/itemId/:iid/edit
  *   chain   /chain/:groupId/groupId/:gid[/itemId/:iid/edit]
- * Steps: Basic Information → Modifiers → Image Upload → Review. The current
+ * Steps: Basic Information → Modifiers → Allergens → Image Upload → Review. The current
  * build AUTO-SUBMITS on entering Review (Save Item stays disabled) and lands
  * back on the builder; `finish()` handles both that and a future explicit save.
  *
@@ -65,12 +65,13 @@ export const createMenuItemWizardPage = (page: Page) => {
   const fieldErrors = () => page.locator(".MuiFormHelperText-root");
   const errorBadge = () => page.getByText(/\d+ error\(s\) found/);
 
-  const assertOnStep = (step: 0 | 1 | 2 | 3) =>
+  const assertOnStep = (step: 0 | 1 | 2 | 3 | 4) =>
     expect(
       stepHeading(
         [
           "Basic Information",
           "Modifiers Configuration",
+          "Allergens & food safety",
           "Menu Item Image",
           "Review and Save",
         ][step]!
@@ -232,8 +233,8 @@ export const createMenuItemWizardPage = (page: Page) => {
           /\/menu\/menu-items\/[^/]+\/changes/.test(r.url())),
       { timeout: 30_000 }
     );
-    // Walk forward until Review (max 3 clicks).
-    for (let i = 0; i < 3; i++) {
+    // Walk forward until Review (max 4 clicks).
+    for (let i = 0; i < 4; i++) {
       const onReview = await stepHeading("Review and Save")
         .isVisible()
         .catch(() => false);

@@ -3948,4 +3948,10 @@ Browser as the owner, on the dashboard's Reviews tab (`?tab=reviews`). The API c
 | **TC-1906** | Reply settings dialog saves tone, sign-off, contact line and guidance (read back through the API and on re-open), then restores the baseline (Warm, empty fields).                              |
 | **TC-1907** | Chain "Reviews" page lists one row per location with its connection state (skips with a reason when the test owner has no chain).                                                               |
 
+### `dashboard/owner/api-timecards.spec.ts`
+
+| TC          | What it checks                                                                                                                                                                                                                                                                                  |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **TC-1943** | The POS clocks Gus in, then the owner corrects that open shift's clock-in with a reason: `PATCH /shifts/:id` answers 200, the new time is stored and the shift still has no clock-out. Answered 500 before RestauNax #1138 (the overlap check compared against a date the database can't take). |
+
 ---
