@@ -387,8 +387,12 @@ export const createCustomerCheckoutPage = (page: Page) => {
     await expect(page.getByText(/below the \$0\.50 minimum/i)).toBeVisible({
       timeout: 15_000,
     });
+    // The quote's own refusal; the button then names no amount (PAY_BLOCKED_LABEL).
+    await expect(
+      page.getByText("Card payments must be at least $0.50.")
+    ).toBeVisible();
     const blockedButton = page.getByRole("button", {
-      name: "Minimum $0.50 Required",
+      name: "Review your order",
     });
     await expect(blockedButton).toBeVisible({ timeout: 10_000 });
     await expect(blockedButton).toBeDisabled();

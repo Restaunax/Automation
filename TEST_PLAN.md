@@ -166,7 +166,7 @@ Automation/
 │   │   │   ├── 02-restaurant-management.spec.ts  # ✅ real (incl. real Store Settings field edit/save, self-reverting)
 │   │   │   ├── 04-menu-management.spec.ts    # ✅ real (POM: OwnerMenuPage; TC-20→21→43 run serial; incl. blank-field validation)
 │   │   │   ├── 04b-menu-availability.spec.ts # ✅ real — the ?tab=Menu page: 86 switch + ConsequenceDialog, Restore All, featured n/5, Refresh, empty state (TC-288..293)
-│   │   │   ├── 04c-menu-item-editor.spec.ts  # ✅ real — builder cards, 4-step wizard (modifiers, image, templates), item detail (image/delete/reorder), presence smokes (TC-294..307)
+│   │   │   ├── 04c-menu-item-editor.spec.ts  # ✅ real — builder cards, 5-step wizard (modifiers, image, templates), item detail (image/delete/reorder), presence smokes (TC-294..307)
 │   │   │   ├── 17-chain-menu.spec.ts         # ✅ real — chain menu: shared vs location, $ dialog, per-location 86/carry, fan-out, scope dialogs (TC-308..319; TC-317 pin)
 │   │   │   ├── api-menu.spec.ts              # ✅ real — menu API contract: normalisation, delete rules, chain overrides, authz pins (TC-263..287)
 │   │   │   ├── 05-publish.spec.ts            # ⏭️ skipped — /publish is EMPLOYEE/ADMIN-only, OWNER denied

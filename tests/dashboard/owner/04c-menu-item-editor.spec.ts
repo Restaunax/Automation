@@ -260,7 +260,7 @@ test.describe("Owner — Menu builder, item wizard & item detail", () => {
     ownerPage,
   }) => {
     await allure.description(
-      "Add-item wizard: Basic Information → skip modifiers → Image Upload via the hidden file input " +
+      "Add-item wizard: Basic Information → skip modifiers and allergens → Image Upload via the hidden file input " +
         "(fixtures/assets/menu-item.png) → 'View image' / 'Remove image' controls appear → Review saves " +
         "the item and POSTs /upload/menu/item/picture/:id. The detail page shows the image and " +
         "GET /menu/itemId/:id has imageUrls."
@@ -274,6 +274,8 @@ test.describe("Owner — Menu builder, item wizard & item detail", () => {
     await wizard.assertOnStep(1);
     await wizard.next();
     await wizard.assertOnStep(2);
+    await wizard.next();
+    await wizard.assertOnStep(3);
     await wizard.uploadImage(PNG_FIXTURE);
 
     const upload = ownerPage.waitForResponse(

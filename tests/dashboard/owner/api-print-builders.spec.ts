@@ -165,7 +165,7 @@ test.describe("Owner — Print Shop builders API @print-builders", () => {
     for (const body of [
       { ...ONE_SAME_CARD, ...CARD },
       { ...ONE_SAME_CARD, ...CARD, proof: false },
-      { ...ONE_SAME_CARD, layout: "SELF_PRINT" },
+      { ...ONE_SAME_CARD, layout: "SHEET" },
       { ...ONE_SAME_CARD, layout: "PRINT_READY" },
     ]) {
       const refused = await postTableCardsPdfRaw(owner, restaurantId, body);

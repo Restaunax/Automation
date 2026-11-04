@@ -466,11 +466,14 @@ test.describe("Journey 2 — a service day, closed by the owner", () => {
       )
     ).toBeVisible();
     // Net = food before tax (74 = 16 + 36 + 12 + 10, T2 included);
-    // gross adds tax and tips.
+    // gross is sales before discounts (W2:E2); collected adds tax and tips.
     await expect(stat("Net sales")).toContainText("$74.00");
     await expect(stat("Tax")).toContainText("$5.18");
     await expect(stat("Tips")).toContainText("$9.00");
-    await expect(stat("Gross sales")).toContainText("$88.18");
+    await expect(stat("Gross sales (before discounts)")).toContainText(
+      "$74.00"
+    );
+    await expect(stat("Total collected")).toContainText("$88.18");
     await expect(stat("Orders")).toContainText("4");
     await expect(stat("Uncollected (1)")).toContainText("$10.70");
 
@@ -572,8 +575,9 @@ test.describe("Journey 2 — a service day, closed by the owner", () => {
     ).toBeVisible();
     const expected: [string, string][] = [
       ["Orders", "4"],
-      ["Gross sales", "$88.18"],
+      ["Gross sales (before discounts)", "$74.00"],
       ["Net sales", "$74.00"],
+      ["Total collected", "$88.18"],
       ["Tax", "$5.18"],
       ["Tips", "$9.00"],
       ["Comps / voids / refunds", "0 / 0 / 0"],
