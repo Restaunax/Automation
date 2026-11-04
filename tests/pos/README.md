@@ -207,6 +207,11 @@ closed: false}` before it even generates candidate slots from the period —
   covered by the 03 + 08 harnesses; tablet-initiated cancel is covered by
   TC-383 — https://github.com/Restaunax/Automation/issues/15 can close.)
 
+- **`20-courier-contact.spec.ts` (TC-1804..1806)** — no courier PIN, contact number
+  or Uber help block on any customer view of an order, and `replace-courier` refused
+  across tenants and on a kiosk. The customer check is only real against a LOCAL
+  backend with `COURIER_SEED_DATABASE_URL` set; see the file header.
+
 ## 09-dual-pricing.spec.ts
 
 Dual pricing v2 (per-item cash tier) at the API level, on its OWN throwaway

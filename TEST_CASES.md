@@ -3929,6 +3929,16 @@ RestauNax back-office audit, growth track B (bo1031/growthb, W0:MF-6 mobile cloc
 | **TC-1802** | `dashboard/owner/api-team-comms` | Pin puts it first; archive drops it from the list and the inbox; `includeArchived=true` still shows it with `archivedAt`.                                                               |
 | **TC-1803** | `dashboard/owner/api-team-comms` | A restaurant without TIMECARDS: announcements (send + list) and the mobile clock-in settings are 403.                                                                                   |
 
+## TC-1804 → TC-1806 — Courier contact and replace-courier (`pos/20-courier-contact.spec.ts`, tag `@courier-contact`)
+
+restaunax `docs/features/UBER_DIRECT.md` → _Reaching a courier_. Two per-run throwaway restaurants. TC-1804 is only a real check with `COURIER_SEED_DATABASE_URL` set, which is local-only: it writes a Delivery row holding a PIN. On QA no courier exists, so it runs shape-only and says so in an annotation; Robo Courier covers the live path. The replace-courier refusals all happen before any call to Uber.
+
+| TC          | What it checks                                                                                                                                                                                                                                                                     |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **TC-1804** | The owner's order payload holds `driverContactPin`, `driverContactPhone` and `support` (seeded mode). `GET /api/order/:id` bare, with the receipt token and as the signed-in customer, and `/api/mobile/customer/orders`, hold none of them, nor the PIN, number or support email. |
+| **TC-1805** | `POST /api/delivery/restaurants/:rid/orders/:oid/replace-courier` from a REGISTER tablet of restaurant A is 403, naming restaurant B and its order, and naming A with B's order.                                                                                                   |
+| **TC-1806** | The same route from A's own REGISTER tablet on A's order with no late courier is 409 `NOT_ELIGIBLE`, so the 403s above are the tenant check. The same device switched to KIOSK is 403.                                                                                             |
+
 ## TC-1900 → TC-1907 — Google review replies (UI)
 
 **Status:** ⏳ Written 2026-10-31; 7 of 8 passing against a local stack with the fake Google client (TC-1907 skipped: the test owner has no chain); passes on QA once the RestauNax branch `feat/google-review-replies` is deployed there (until then the file skips on the release gate).
