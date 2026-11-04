@@ -3950,8 +3950,8 @@ Browser as the owner, on the dashboard's Reviews tab (`?tab=reviews`). The API c
 
 ### `dashboard/owner/api-timecards.spec.ts`
 
-| TC          | What it checks |
-| ----------- | -------------- |
+| TC          | What it checks                                                                                                                                                                                                                                                                                  |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **TC-1943** | The POS clocks Gus in, then the owner corrects that open shift's clock-in with a reason: `PATCH /shifts/:id` answers 200, the new time is stored and the shift still has no clock-out. Answered 500 before RestauNax #1138 (the overlap check compared against a date the database can't take). |
 
 ---
