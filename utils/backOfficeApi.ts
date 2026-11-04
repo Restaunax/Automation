@@ -11,6 +11,9 @@
  *   GET  /api/restaurantId/:rid/ordering-status
  *   GET  /api/restaurantId/:rid/settings/changes?area=&limit=
  *   GET|PUT /api/owner-settings/reports/:rid          — morningSummaryEnabled
+ *   GET  /api/compliance/:rid/rules?date=             — labor + tax rules (Stage 2)
+ *   GET  /api/compliance/:rid/labor-rules             — the labor rules pay uses (Stage 5)
+ *   POST /api/compliance/:rid/labor-rules/:key/confirm — the owner confirms one (Stage 5)
  *
  * Every text field these return is resolved on the server (never an i18n
  * key), so specs assert the English sentence.
@@ -56,6 +59,56 @@ export const needsYouRaw = (token: string, rid: string) =>
     "GET",
     `/api/needs-you/restaurant/${rid}`,
     undefined,
+    token
+  );
+
+/**
+ * The labor and tax rules in force at the restaurant's location on `date`
+ * (default: today there): resolved text, value, status and source per rule
+ * (back-office audit 2026-10, Stage 2).
+ */
+export const complianceRulesRaw = (
+  token: string,
+  rid: string,
+  opts: { date?: string; lang?: string } = {}
+) =>
+  apiRequestRaw<{ success?: boolean; data?: Rec; message?: string }>(
+    "GET",
+    `/api/compliance/${rid}/rules${opts.date ? `?date=${encodeURIComponent(opts.date)}` : ""}`,
+    undefined,
+    token,
+    opts.lang ? { "Accept-Language": opts.lang } : undefined
+  );
+
+/**
+ * GET /api/compliance/:rid/labor-rules — the overtime, break, premium-pay
+ * and predictive-scheduling rules pay is computed under today (back-office
+ * audit Stage 5, W3:M1 / H2 / M5): `overtime` (preset, applied, status),
+ * `rules[]` (resolved `label` / `summary` / `statusLabel`, `sources`,
+ * `needsConfirmation`), `minUnpaidBreakMinutes`, `predictive`.
+ */
+export const laborRulesRaw = (token: string, rid: string) =>
+  apiRequestRaw<{ success?: boolean; data?: Rec; message?: string }>(
+    "GET",
+    `/api/compliance/${rid}/labor-rules`,
+    undefined,
+    token
+  );
+
+/**
+ * POST /api/compliance/:rid/labor-rules/:ruleKey/confirm — `{}` confirms the
+ * suggested (DRAFT) rule, `{ value }` the owner's own answer.
+ */
+export const confirmLaborRuleRaw = (
+  token: string,
+  rid: string,
+  ruleKey: string,
+  body: Rec = {}
+) =>
+  apiRequestRaw<{ success?: boolean; data?: Rec; message?: string }>(
+    "POST",
+    `/api/compliance/${rid}/labor-rules/${encodeURIComponent(ruleKey)}/confirm`,
+    body,
     token
   );
 
@@ -234,3 +287,47 @@ export const AUTO_GRATUITY_HOUSE: Record<string, LooseJson> = {
   taxable: false,
   distribution: "HOUSE",
 };
+
+// ── Setup interview (back-office audit Stage 6, W0:J1-a) ────────────────────
+
+/** The five answers (POST body). */
+export interface SetupInterviewAnswers {
+  state?: string | null;
+  tipPreset?: "POOL_BY_HOURS" | "SERVER_TIP_OUT" | "KEEP_OWN" | string | null;
+  payFrequency?: string;
+  payrollMode?: "FILE" | "OWN_GUSTO" | "RESTAUNAX_PAYROLL" | string;
+  usesSchedule?: boolean | null;
+}
+
+/**
+ * GET|POST /restaurant/:rid/back-office/setup-interview — the questions with
+ * the current answers (GET), or the answers written in one go (POST →
+ * `{ skipped[], warnings[], createdJobs[], changes, checklist }`).
+ */
+export const setupInterviewRaw = (
+  token: string,
+  rid: string,
+  answers?: SetupInterviewAnswers,
+  headers?: Record<string, string>
+) =>
+  apiRequestRaw<{
+    success?: boolean;
+    data?: Rec;
+    error?: string;
+    message?: string;
+  }>(
+    answers ? "POST" : "GET",
+    `/restaurant/${rid}/back-office/setup-interview`,
+    answers,
+    token,
+    headers
+  );
+
+/** GET /restaurant/:rid/staff/capabilities — the catalogue and the roles. */
+export const staffCapabilitiesRaw = (token: string, rid: string) =>
+  apiRequestRaw<{ success?: boolean; data?: Rec }>(
+    "GET",
+    `/restaurant/${rid}/staff/capabilities`,
+    undefined,
+    token
+  );

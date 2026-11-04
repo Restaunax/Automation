@@ -16,9 +16,15 @@
  *
  * The owner's own POS membership (my-pin) doubles as the staff-app account,
  * so no invite email is needed. Serial.
+ *
+ * The second block (TC-1180..1184, RestauNax W5 Stage 1) covers the paid
+ * add-ons outside the back office — Menu TVs, Social Media, Voice AI — both
+ * ways through an HQ grant, and another owner probing (404, never "you lack
+ * the add-on"). Gated by RELEASED_ON_QA.paywallStage1 until it is on QA.
  */
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
+import { requireEnv } from "../../../utils/envGate";
 import { generateRunId } from "../../../utils/testData";
 import {
   apiLogin,
@@ -47,9 +53,11 @@ import {
   createRestaurantRaw,
   ownerAddonsRaw,
   ownerAddonRequestRaw,
+  apiRequestRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
 import { addonRequestsLive } from "../../../utils/addonRequestGate";
+import { probePaywallStage1, requireRelease } from "../../../utils/releaseGate";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
@@ -63,9 +71,9 @@ const BACK_OFFICE = ["PAYROLL", "SCHEDULING", "TIMECARDS", "TIP_MANAGEMENT"];
 test.describe.configure({ mode: "serial" });
 
 test.describe("Back-office add-ons gate every surface (API)", () => {
-  test.skip(
-    !ADMIN_EMAIL || !ADMIN_PASSWORD,
-    "ADMIN_EMAIL / ADMIN_PASSWORD not set (the file mints its own tenant)"
+  requireEnv(
+    ["ADMIN_EMAIL", "ADMIN_PASSWORD"],
+    "the file mints its own tenant"
   );
 
   const runId = generateRunId();
@@ -608,5 +616,281 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
     } finally {
       await deleteTestRestaurant(adminToken, homeId).catch(() => {});
     }
+  });
+});
+
+// ── Menu TVs, Social Media, Voice AI (RestauNax W5:C1/H1/T3/L2) ──────────────
+
+test.describe("Paid add-ons outside the back office gate their routes (API)", () => {
+  requireEnv(
+    ["ADMIN_EMAIL", "ADMIN_PASSWORD"],
+    "the file mints its own tenants"
+  );
+
+  const runId = generateRunId();
+  let adminToken = "";
+  let ownerToken = "";
+  let restaurantId = "";
+  let strangerToken = "";
+  let strangerRestaurantId = "";
+  let tvToken = "";
+  let tvId = "";
+
+  type Envelope = {
+    success?: boolean;
+    error?: string;
+    feature?: string;
+    message?: string;
+    data?: Rec;
+  };
+  const owner = (method: string, path: string, body?: unknown) =>
+    apiRequestRaw<Envelope>(method, path, body, ownerToken);
+  const tv = (path: string) =>
+    apiRequestRaw<Envelope>("GET", path, undefined, tvToken);
+  const grant = async (feature: string, enabled: boolean) => {
+    const r = enabled
+      ? await setFeatureOverrideAdminRaw(
+          adminToken,
+          restaurantId,
+          feature,
+          true,
+          `automation paid add-ons ${runId}`
+        )
+      : await deleteFeatureOverrideAdminRaw(adminToken, restaurantId, feature);
+    // Removing an override that isn't there answers 404: already off.
+    const ok = r.status < 300 || (!enabled && r.status === 404);
+    expect(ok, `${feature} → ${r.status} ${JSON.stringify(r.data)}`).toBe(true);
+  };
+  const expectNotEntitled = (
+    label: string,
+    res: { status: number; data: Envelope },
+    feature: string
+  ) => {
+    expect(
+      { label, status: res.status, error: res.data?.error },
+      JSON.stringify(res.data)
+    ).toEqual({ label, status: 403, error: "FEATURE_NOT_ENTITLED" });
+    expect(res.data?.feature).toBe(feature);
+    // Resolved text, never an i18n key.
+    expect(String(res.data?.message ?? "")).not.toMatch(/^(error|api):/);
+  };
+
+  test.beforeAll(async () => {
+    test.setTimeout(120_000);
+    if (!process.env.ADMIN_EMAIL || !process.env.ADMIN_PASSWORD) return;
+    adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
+    const tenant = await createSecondOwner(adminToken, `${runId}p`);
+    const other = await createSecondOwner(adminToken, `${runId}q`);
+    if (!tenant.restaurantId || !other.restaurantId)
+      throw new Error("[api-addon-gating] no tenant");
+    restaurantId = tenant.restaurantId;
+    ownerToken = tenant.accessToken;
+    strangerRestaurantId = other.restaurantId;
+    strangerToken = other.accessToken;
+  });
+
+  test.afterAll(async () => {
+    for (const id of [restaurantId, strangerRestaurantId]) {
+      if (adminToken && id)
+        await deleteTestRestaurant(adminToken, id).catch(() => {});
+    }
+  });
+
+  test.beforeEach(async () => {
+    await allure.label("feature", "Add-on gating");
+    await allure.label("severity", "critical");
+    requireRelease(
+      "paywallStage1",
+      await probePaywallStage1(ownerToken, restaurantId)
+    );
+  });
+
+  test("TC-1180: Menu TVs without the add-on — claim, the TV list and layouts are refused; pairing a TV stays free", async () => {
+    const initiate = await owner("POST", "/api/menu-tv/pair/initiate", {
+      restaurantId,
+      name: `Auto TV ${runId}`,
+    });
+    expect(initiate.status, JSON.stringify(initiate.data)).toBe(201);
+    tvToken = String(initiate.data.data?.token ?? "");
+    tvId = String(initiate.data.data?.deviceId ?? "");
+    const code = String(initiate.data.data?.pairingCode ?? "");
+
+    expectNotEntitled(
+      "claim",
+      await owner("POST", "/api/menu-tv/pair/claim", { code, name: "Bar TV" }),
+      "MENU_TVS"
+    );
+    expectNotEntitled(
+      "list",
+      await owner("GET", `/api/menu-tv/restaurants/${restaurantId}/devices`),
+      "MENU_TVS"
+    );
+    expectNotEntitled(
+      "layouts",
+      await owner("GET", `/api/menu-tv/layouts?restaurantId=${restaurantId}`),
+      "MENU_TVS"
+    );
+    // The pending TV is still waiting for its code.
+    const me = await tv("/api/menu-tv/me");
+    expect(me.status).toBe(200);
+    expect(me.data.data?.pending).toBe(true);
+  });
+
+  test("TC-1181: Menu TVs with an HQ grant — the TV is claimed and shows the menu; taking the grant away pauses it without unpairing", async () => {
+    await grant("MENU_TVS", true);
+    const pending = await tv("/api/menu-tv/me");
+    const code = String(pending.data.data?.pairingCode ?? "");
+    const claim = await owner("POST", "/api/menu-tv/pair/claim", {
+      code,
+      name: "Bar TV",
+    });
+    expect(claim.status, JSON.stringify(claim.data)).toBe(200);
+    const list = await owner(
+      "GET",
+      `/api/menu-tv/restaurants/${restaurantId}/devices`
+    );
+    expect(list.status).toBe(200);
+
+    const live = await tv("/api/menu-tv/me");
+    expect(live.status).toBe(200);
+    expect(live.data.data?.pending).toBe(false);
+    expect(live.data.data?.paused ?? null).toBeNull();
+
+    await grant("MENU_TVS", false);
+    const paused = await apiRequestRaw<Envelope>(
+      "GET",
+      "/api/menu-tv/me",
+      undefined,
+      tvToken,
+      { "Accept-Language": "es" }
+    );
+    // D1: never 401/403 for the TV — 200, empty menu, a resolved message.
+    expect(paused.status).toBe(200);
+    const data = paused.data.data as Rec;
+    expect((data.device as Rec).id).toBe(tvId);
+    expect((data.menu as Rec).menus).toEqual([]);
+    expect((data.paused as Rec).reason).toBe("ADDON_OFF");
+    expect(String((data.paused as Rec).message)).toMatch(/RestauNax/);
+    const beat = await apiRequestRaw(
+      "POST",
+      "/api/menu-tv/me/heartbeat",
+      undefined,
+      tvToken
+    );
+    expect(beat.status).toBe(200);
+
+    // Unpairing stays possible without the add-on.
+    const unpair = await owner("DELETE", `/api/menu-tv/devices/${tvId}`);
+    expect(unpair.status).toBe(200);
+  });
+
+  test("TC-1182: Social Media — the suite and AI media refuse without the add-on and answer with an HQ grant", async () => {
+    const reads = [
+      `/api/social-media/accounts/${restaurantId}`,
+      `/api/social-media/posts/${restaurantId}`,
+      `/api/social-media/restaurants/${restaurantId}/featured-reels`,
+    ];
+    const media = () =>
+      apiRequestRaw<Envelope>(
+        "GET",
+        "/api/media/quota",
+        undefined,
+        ownerToken,
+        {
+          "X-Restaurant-Id": restaurantId,
+        }
+      );
+    for (const path of reads)
+      expectNotEntitled(path, await owner("GET", path), "SOCIAL_MEDIA");
+    expectNotEntitled(
+      "create post",
+      await owner("POST", "/api/social-media/posts", {
+        restaurantId,
+        content: "Taco Tuesday",
+      }),
+      "SOCIAL_MEDIA"
+    );
+    expectNotEntitled("media quota", await media(), "SOCIAL_MEDIA");
+
+    await grant("SOCIAL_MEDIA", true);
+    try {
+      for (const path of reads) {
+        const res = await owner("GET", path);
+        expect({ path, status: res.status }).toEqual({ path, status: 200 });
+      }
+      expect((await media()).status).toBe(200);
+    } finally {
+      await grant("SOCIAL_MEDIA", false);
+    }
+  });
+
+  test("TC-1183: Voice AI — the owner summary needs the add-on, and the AI line can't be switched back on without it", async () => {
+    expectNotEntitled(
+      "owner summary",
+      await owner(
+        "GET",
+        `/api/voice/owner-summary/${restaurantId}?window=week`
+      ),
+      "VOICE_AI"
+    );
+    expectNotEntitled(
+      "enable the line",
+      await owner("PATCH", `/api/voice/config/${restaurantId}`, {
+        enabled: true,
+      }),
+      "VOICE_AI"
+    );
+    await grant("VOICE_AI", true);
+    try {
+      const summary = await owner(
+        "GET",
+        `/api/voice/owner-summary/${restaurantId}?window=week`
+      );
+      expect(summary.status, JSON.stringify(summary.data)).toBe(200);
+    } finally {
+      await grant("VOICE_AI", false);
+    }
+  });
+
+  test("TC-1184: another owner learns nothing — 404 on every add-on route, add-on on or off", async () => {
+    const probes = [
+      `/api/staff/payroll/${restaurantId}/jobs`,
+      `/api/staff/tips/${restaurantId}/policy`,
+      `/api/staff/scheduling/${restaurantId}`,
+      `/api/staff/payroll-provider/${restaurantId}`,
+      `/api/accounting/${restaurantId}`,
+      `/api/menu-tv/restaurants/${restaurantId}/devices`,
+      `/api/social-media/posts/${restaurantId}`,
+    ];
+    for (const on of [false, true]) {
+      for (const f of [
+        "SCHEDULING",
+        "TIP_MANAGEMENT",
+        "MENU_TVS",
+        "SOCIAL_MEDIA",
+      ])
+        await grant(f, on);
+      for (const path of probes) {
+        const res = await apiRequestRaw<Envelope>(
+          "GET",
+          path,
+          undefined,
+          strangerToken
+        );
+        expect({ path, on, status: res.status }).toEqual({
+          path,
+          on,
+          status: 404,
+        });
+        expect(res.data?.error).not.toBe("FEATURE_NOT_ENTITLED");
+      }
+    }
+    for (const f of [
+      "SCHEDULING",
+      "TIP_MANAGEMENT",
+      "MENU_TVS",
+      "SOCIAL_MEDIA",
+    ])
+      await grant(f, false);
   });
 });

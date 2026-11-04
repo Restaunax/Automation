@@ -93,6 +93,26 @@ Combine with a visible browser while iterating:
 npx playwright test tests/customer/02-checkout.spec.ts --headed
 ```
 
+### Against a local stack (a change not on QA yet)
+
+Point the run at your own backend + dashboard and keep the throwaway data:
+
+```bash
+BACKEND_URL=http://localhost:9000 FRONTEND_URL=http://localhost:5173 \
+ADMIN_EMAIL=… ADMIN_PASSWORD=… OWNER_EMAIL=… OWNER_PASSWORD=… \
+OWNER2_EMAIL= KEEP_TEST_DATA=true \
+npx playwright test tests/pos/19-reservations-audit.spec.ts
+```
+
+`KEEP_TEST_DATA=true` turns the after-run deletes (`deleteTestRestaurant`,
+`deleteTestMenuGroup`, `permanentlyDeleteMenuItemApi`) into no-ops — a
+developer's local database must never lose rows. The admin/owner accounts
+must exist in that database. Deploy-gated specs (`utils/releaseGate.ts`) run
+for real here because their probe finds the change. `globalTeardown` still
+hard-deletes its sweeps, so run only self-contained files (ones that mint
+their own tenant) with a config that leaves `globalSetup`/`globalTeardown`
+out.
+
 ## 4. See the report
 
 Two human-readable reports are generated on **every** run:

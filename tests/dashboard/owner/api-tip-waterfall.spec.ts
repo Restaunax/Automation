@@ -225,7 +225,9 @@ test.describe("Tip-out waterfall (API)", () => {
     ) => {
       const r = await createStaffJobRaw(ownerToken, restaurantId, {
         name,
-        defaultHourlyRateCents: 1000,
+        // Miami's $15.00 full minimum wage (W3:C3): no tip credit is taken,
+        // so the untipped Host may receive tip-outs (TC-671).
+        defaultHourlyRateCents: 1500,
         ...extra,
       });
       if (r.status !== 201)
@@ -533,12 +535,6 @@ test.describe("Tip-out waterfall (API)", () => {
         /Los gerentes y supervisores no pueden recibir propinas/,
       ],
       [
-        "tip credit",
-        policy([rule(jobs.server, jobs.host)], { usesTipCredit: true }),
-        /only tipped jobs can receive tip-outs/,
-        /solo los puestos con propinas pueden recibir/,
-      ],
-      [
         "over 100%",
         policy([
           rule(jobs.server, jobs.bar, 60, "a"),
@@ -564,6 +560,72 @@ test.describe("Tip-out waterfall (API)", () => {
       );
       expect(String(rEs.data.message), label).toMatch(es);
     }
+    // W3:C3: the tip credit is DERIVED from the rates — the client's
+    // usesTipCredit is ignored. Paying Servers $12.00 (below the $15.00 full
+    // wage) is a tip credit, and then the untipped Host can't receive.
+    const ignored = await tipsRaw(
+      ownerToken,
+      restaurantId,
+      "PUT",
+      "/policy",
+      policy([...WATERFALL(), rule(jobs.bar, jobs.host, 5, "h")], {
+        usesTipCredit: true,
+      })
+    );
+    expect(ignored.status, "no tip credit at $15.00").toBe(200);
+    // Lowering the Server rate now is refused: Host is in a tip-out.
+    const lower = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "PATCH",
+      `/jobs/${jobs.server}`,
+      { defaultHourlyRateCents: 1200 }
+    );
+    expect(lower.status).toBe(400);
+    expect(String(lower.data.message)).toMatch(/means you take a tip credit/);
+    await save(policy(WATERFALL()));
+    const lowered = await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "PATCH",
+      `/jobs/${jobs.server}`,
+      { defaultHourlyRateCents: 1200 }
+    );
+    expect(lowered.status, JSON.stringify(lowered.data)).toBe(200);
+    const credit = policy([rule(jobs.server, jobs.host)]);
+    const en = await tipsRaw(
+      ownerToken,
+      restaurantId,
+      "PUT",
+      "/policy",
+      credit
+    );
+    expect(en.status).toBe(400);
+    expect(String(en.data.message)).toMatch(
+      /below the full minimum wage.*only tipped jobs can receive tip-outs/
+    );
+    const es = await tipsRaw(
+      ownerToken,
+      restaurantId,
+      "PUT",
+      "/policy",
+      credit,
+      {
+        "Accept-Language": "es",
+      }
+    );
+    expect(String(es.data.message)).toMatch(
+      /solo los puestos con propinas pueden recibir/
+    );
+    await payrollRaw(
+      ownerToken,
+      restaurantId,
+      "PATCH",
+      `/jobs/${jobs.server}`,
+      {
+        defaultHourlyRateCents: 1500,
+      }
+    );
     const preview = await tipsRaw(
       ownerToken,
       restaurantId,

@@ -18,6 +18,7 @@
     "test:google-reviews": "playwright test --grep @google-reviews",
     "test:settings-safety": "playwright test --grep @settings-safety",
     "test:print-builders": "playwright test --grep @print-builders",
+    "test:reservations-audit": "playwright test --grep @reservations-audit",
     "test:unit": "playwright test -c playwright.unit.config.ts",
     "report": "allure generate allure-results -o allure-report --clean && allure open allure-report",
     "report:html": "playwright show-report",

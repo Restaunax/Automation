@@ -36,6 +36,10 @@ import * as allure from "allure-js-commons";
 import { test, expect } from "../../fixtures/base";
 import { generateRunId } from "../../utils/testData";
 import {
+  probeReservationsAudit,
+  releasePresent,
+} from "../../utils/releaseGate";
+import {
   apiLogin,
   createSecondOwner,
   deleteTestRestaurant,
@@ -57,6 +61,7 @@ import {
   getBusinessHoursRaw,
   setBusinessHoursApi,
   type BusinessHoursRow,
+  createTableOwnerRaw,
 } from "../../utils/apiHelper";
 
 const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
@@ -299,14 +304,17 @@ test.describe("POS — Reservation Configuration (settings, periods, turn times,
     }
   });
 
-  test("TC-400: pacing guard — onlineBookingEnabled refuses with zero paced periods, succeeds once one exists", async () => {
+  test("TC-400: pacing + tables guard — onlineBookingEnabled refuses with zero paced periods, then with no table that has a capacity, succeeds once both exist", async () => {
     await allure.description(
       "With no ReservationServicePeriod configured yet, PUT " +
         "{onlineBookingEnabled:true} → 400 RESERVATION_PACING_REQUIRED. " +
         "Creating an active, paced (maxPartiesPerSlot set) period for every " +
         "day of the week — full 00:00-23:45 coverage, which also gives " +
         "TC-405's booking somewhere to land regardless of which day it falls " +
-        "on — then lets the same PUT through."
+        "on — clears that refusal, but the tenant has no tables yet: 400 " +
+        "RESERVATION_TABLES_REQUIRED (2026-10-31). A table WITHOUT a seat " +
+        "count still doesn't count; once a table has a capacity the same PUT " +
+        "goes through."
     );
     const zeroPacing = await putReservationSettingsOwnerRaw(
       token,
@@ -332,6 +340,41 @@ test.describe("POS — Reservation Configuration (settings, periods, turn times,
       );
       expect(period.status, msg(period.data)).toBe(201);
     }
+
+    // The tables guard ships with the reservations audit fixes; on a stack
+    // without them the switch would go on right here, so only probe it there.
+    if (
+      releasePresent(
+        "reservationsAudit",
+        await probeReservationsAudit(token, restaurantId)
+      )
+    ) {
+      const noTables = await putReservationSettingsOwnerRaw(
+        token,
+        restaurantId,
+        { onlineBookingEnabled: true }
+      );
+      expect(noTables.status, msg(noTables.data)).toBe(400);
+      expect(errorCode(noTables.data)).toBe("RESERVATION_TABLES_REQUIRED");
+
+      const noCapacity = await createTableOwnerRaw(token, restaurantId, {
+        name: `No Seats ${runId}`,
+      });
+      expect(noCapacity.status, msg(noCapacity.data)).toBe(201);
+      const stillRefused = await putReservationSettingsOwnerRaw(
+        token,
+        restaurantId,
+        { onlineBookingEnabled: true }
+      );
+      expect(stillRefused.status, msg(stillRefused.data)).toBe(400);
+      expect(errorCode(stillRefused.data)).toBe("RESERVATION_TABLES_REQUIRED");
+    }
+
+    const seated = await createTableOwnerRaw(token, restaurantId, {
+      name: `Four Top ${runId}`,
+      capacity: 4,
+    });
+    expect(seated.status, msg(seated.data)).toBe(201);
 
     const retry = await putReservationSettingsOwnerRaw(token, restaurantId, {
       onlineBookingEnabled: true,

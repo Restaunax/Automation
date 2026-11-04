@@ -5,8 +5,15 @@
  *
  * One throwaway restaurant on the payroll-file setup, weekly pay periods
  * from a Sunday. Last week, approved: Dee (Server, her own $13.00) Mon–Fri
- * 8 h = 40 h, $520.00; Ben (Busser, $11.00) Fri 2 h, $22.00. With Mailpit,
- * Dee accepted her invite and has a Restaunax account.
+ * 8 h = 40 h, $520.00 in cash wages; Ben (Busser, $12.00) Fri 2 h, $24.00.
+ * With Mailpit, Dee accepted her invite and has a Restaunax account.
+ *
+ * W3:C3: the restaurant is in Miami ($15.00 full minimum wage, $11.98
+ * tipped cash wage, CONFIRMED). Both are tipped jobs below $15.00 (a tip
+ * credit) and nobody had tips that week, so the weekly make-up pays the
+ * difference: Dee $80.00 (40 × $2.00), Ben $6.00 (2 × $3.00). The file
+ * carries it as its own "Minimum wage top-up" column, inside Gross paid;
+ * the Gusto file on its own "minimum_wage_top_up" earning.
  *
  *   TC-1022 Payday walks the approved week: nothing flagged, approved, and
  *           Run payroll asks for the file.
@@ -20,7 +27,7 @@
  *           payroll ran (RestauNax #1103).
  *   TC-1026 The Gusto file carries the same hours; downloading the RestauNax
  *           file again gives the same file.
- *   TC-1027 Dee sees the approved week and her $520.00 in Restaunax Staff
+ *   TC-1027 Dee sees the approved week and her $600.00 in Restaunax Staff
  *           (Mailpit only).
  */
 import { readFileSync } from "fs";
@@ -195,7 +202,8 @@ test.describe("Journey 5 — the owner takes the week to payroll", () => {
       return String(r.data.data?.id);
     };
     const server = await job("Server", 1200);
-    const busser = await job("Busser", 1100);
+    // At least the $11.98 tipped cash wage (W3:C3: $11.00 is refused).
+    const busser = await job("Busser", 1200);
 
     const device = await createTabletDevice(
       adminToken,
@@ -394,15 +402,17 @@ test.describe("Journey 5 — the owner takes the week to payroll", () => {
       "Regular hours": "40.00",
       "Overtime hours": "0.00",
       Wages: "520.00",
-      "Gross paid": "520.00",
+      "Minimum wage top-up": "80.00",
+      "Gross paid": "600.00",
     });
     expect(by.get("Ben")).toMatchObject({
       "Payroll ID": "",
       Job: "Busser",
-      "Hourly rate": "11.00",
+      "Hourly rate": "12.00",
       "Regular hours": "2.00",
-      Wages: "22.00",
-      "Gross paid": "22.00",
+      Wages: "24.00",
+      "Minimum wage top-up": "6.00",
+      "Gross paid": "30.00",
     });
     await expectSeenByUser(
       snackbar("Payroll file downloaded. The period is marked exported."),
@@ -435,6 +445,8 @@ test.describe("Journey 5 — the owner takes the week to payroll", () => {
       Title: "Server",
       Regular_hours: "40.00",
       Overtime_hours: "0.00",
+      minimum_wage_top_up: "80.00",
+      overtime_premium_adjustment: "0.00",
     });
     expect(by.get("Ben")).toMatchObject({
       Title: "Busser",
@@ -447,11 +459,12 @@ test.describe("Journey 5 — the owner takes the week to payroll", () => {
     expect(again.text).toBe(firstFile);
   });
 
-  test("TC-1027: Dee sees the approved week and her $520.00 in Restaunax Staff", async () => {
-    test.skip(
-      !MAILPIT,
-      "Dee has an account only when Mailpit carried her invite"
-    );
+  test("TC-1027: Dee sees the approved week and her $600.00 (with the top-up) in Restaunax Staff", async () => {
+    // Fail, never skip, without the environment (W5:T7).
+    expect(
+      MAILPIT,
+      "MAILPIT_BASE_URL not set: Dee has an account only when Mailpit carried her invite"
+    ).toBe(true);
     const r = await staffAppRaw<{ data: Rec }>(
       deeToken,
       "GET",
@@ -463,7 +476,7 @@ test.describe("Journey 5 — the owner takes the week to payroll", () => {
       status: "EXPORTED",
       regularMinutes: 2400,
       overtimeMinutes: 0,
-      wagesCents: 52000,
+      wagesCents: 60000,
     });
   });
 });

@@ -377,12 +377,16 @@ test.describe("POS auto-gratuity (API)", () => {
     );
     expect(look.status, JSON.stringify(look.data)).toBe(200);
     const summary = ((look.data.data as Rec).summary ?? {}) as Rec;
-    // T1 paid $12.96 of gratuity; T2's was removed.
+    // T1 paid $12.96 of gratuity; T2's was removed. Sales definitions 2
+    // (W2:E2): gross is the food alone ($72 + $48); the gratuity and the tax
+    // are in total collected, never in gross sales.
     expect(summary).toMatchObject({
       autoGratuity: 12.96,
       tip: 0,
       orderCount: 2,
-      grossSales: 141.36,
+      grossSales: 120,
+      netSales: 120,
+      totalCollected: 141.36,
     });
   });
 

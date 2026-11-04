@@ -19,6 +19,13 @@
  * FREE_DELIVERY code and reads DELIVERY_FEE / FREE_DELIVERY off
  * `quote.breakdown`.
  *
+ * TC-1240/TC-1241 (a fourth describe, its own throwaway tenant and POS; no
+ * wind or seed restaurant): a size that REPLACES the item price (audit
+ * W2:E3). The POS folds the size into the item price and stores the size
+ * row at $0; the owner's breakdown shows the charged amount, the size row
+ * at $0, the add-on at its price, and every sold modifier carries its
+ * group's pricing mode. The day close counts the line as item sales.
+ *
  * The free item is an AUTOMATIC FREE_ITEM triggered by buying this run's own
  * item (never a spend offer: only customer/10-promotions may run one on the
  * seed restaurant), on a cart under $55. Everything is AUTO/"Automation Menu"
@@ -47,17 +54,29 @@ import { createOwnerOrdersPage } from "../../../pages/dashboard/owner/OwnerOrder
 import {
   apiLogin,
   apiRequestRaw,
+  closeRegisterSessionPosRaw,
   createMenuGroupNamed,
   createMenuItemFull,
+  createSecondOwner,
   createTabletDevice,
+  createTabletOrderRaw,
   DEAL_SLOT_TEST_TIMEOUT_MS,
+  deactivateTabletDevice,
   deactivateTabletDeviceRaw,
+  deleteTestRestaurant,
   getCurrentOrders,
+  getMenuItemApi,
   getOrderByIdRaw,
+  getOrderFullRaw,
   getRestaurantDetailsPublicRaw,
+  openRegisterSessionPosRaw,
   quoteOrderRaw,
   seedFundedGiftCard,
+  setOwnerPosPin,
   tabletLogin,
+  tabletRaw,
+  tabletStaffSignIn,
+  updateRestaurantSettingsApi,
   type TabletDevice,
 } from "../../../utils/apiHelper";
 import { waitForEmail } from "../../../utils/emailHelper";
@@ -902,5 +921,237 @@ test.describe("Order money breakdown — delivery quote", () => {
         );
       }
     }
+  });
+});
+
+test.describe("Order money breakdown — a size that replaces the price (POS)", () => {
+  test.skip(
+    !OWNER_EMAIL || !OWNER_PASSWORD || !ADMIN_EMAIL || !ADMIN_PASSWORD,
+    "OWNER_* and ADMIN_* must be set in .env (the describe mints its own tenant)"
+  );
+  test.describe.configure({ mode: "serial" });
+
+  // Wings $14.99; "24 Wings" REPLACES the price at $27.99; Extra Sauce adds
+  // $1.50. The POS stores the line as $27.99 + 24 Wings $0 + sauce $1.50.
+  const BASE = 14.99;
+  const SIZE = 27.99;
+  const SAUCE = 1.5;
+  const SUBTOTAL = 29.49;
+  const TAX = 2.06; // 7%
+  const TOTAL = 31.55;
+
+  const runId = generateRunId();
+  let adminToken = "";
+  let ownerToken = "";
+  let restaurantId = "";
+  let device: TabletDevice | undefined;
+  let tabletToken = "";
+  let staffSession = "";
+  let registerOpen = false;
+  let itemId = "";
+  let itemName = "";
+  let sizeId = "";
+  let sauceId = "";
+  let orderId = "";
+
+  test.beforeAll(async () => {
+    if (!OWNER_EMAIL || !OWNER_PASSWORD || !ADMIN_EMAIL || !ADMIN_PASSWORD)
+      return;
+    adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
+    const tenant = await createSecondOwner(adminToken, runId, {
+      alwaysFresh: true,
+    });
+    if (!tenant.restaurantId)
+      throw new Error("[size-replaces] could not mint the throwaway tenant");
+    ownerToken = tenant.accessToken;
+    restaurantId = tenant.restaurantId;
+    await updateRestaurantSettingsApi(ownerToken, restaurantId, {
+      acceptingOrders: true,
+      tax: 7,
+    });
+    const groupId = (
+      await createMenuGroupNamed(ownerToken, `Automation Sizes ${runId}`, {
+        restaurantId,
+      })
+    ).id;
+    itemName = `Chicken Wings ${runId}`;
+    const item = await createMenuItemFull(ownerToken, groupId, itemName, BASE, {
+      modifierGroups: [
+        {
+          name: "Size",
+          minSelections: 1,
+          maxSelections: 1,
+          pricingMode: "REPLACES_PRICE",
+          modifiers: [
+            {
+              name: "24 Wings",
+              price: SIZE,
+              selected: false,
+              allowsDuplicates: false,
+              outOfStock: false,
+              isDefault: false,
+            },
+          ],
+        },
+        {
+          name: "Add-ons",
+          minSelections: 0,
+          maxSelections: 1,
+          pricingMode: "ADJUSTS_PRICE",
+          modifiers: [
+            {
+              name: "Extra Sauce",
+              price: SAUCE,
+              selected: false,
+              allowsDuplicates: false,
+              outOfStock: false,
+              isDefault: false,
+            },
+          ],
+        },
+      ] as never,
+    });
+    itemId = item.id;
+    const detail = (await getMenuItemApi(ownerToken, itemId)) as unknown as {
+      modifierGroups?: {
+        name: string;
+        modifiers: { id: string; name: string }[];
+      }[];
+    };
+    const groups = detail.modifierGroups ?? [];
+    sizeId = groups.find((g) => g.name === "Size")?.modifiers[0]?.id ?? "";
+    sauceId = groups.find((g) => g.name === "Add-ons")?.modifiers[0]?.id ?? "";
+    if (!sizeId || !sauceId)
+      throw new Error("[size-replaces] seeded modifiers not found");
+
+    device = await createTabletDevice(
+      adminToken,
+      restaurantId,
+      `Automation Sizes POS ${runId}`
+    );
+    tabletToken = await tabletLogin(device.name, device.code);
+    const pin = "7351";
+    const manager = await setOwnerPosPin(ownerToken, restaurantId, pin);
+    staffSession = await tabletStaffSignIn(tabletToken, manager, pin);
+    const opened = await openRegisterSessionPosRaw(tabletToken, staffSession, {
+      openingFloat: 100,
+    });
+    registerOpen = opened.ok;
+  });
+
+  test.afterAll(async () => {
+    if (!adminToken || !restaurantId) return;
+    if (registerOpen) {
+      await closeRegisterSessionPosRaw(tabletToken, staffSession, {
+        countedCash: 100 + TOTAL,
+      }).catch(() => undefined);
+    }
+    if (device) {
+      await deactivateTabletDevice(adminToken, restaurantId, device.id).catch(
+        () => undefined
+      );
+    }
+    await deleteTestRestaurant(adminToken, restaurantId).catch(() => undefined);
+  });
+
+  test.beforeEach(async () => {
+    await allure.label("feature", "Order money breakdown");
+    await allure.label("severity", "critical");
+  });
+
+  test("TC-1240: a POS size order shows the charged amount, the size at $0 and the add-on at its price — every modifier carries its pricing mode", async () => {
+    expect(registerOpen, "the POS drawer must be open for a cash sale").toBe(
+      true
+    );
+    const res = await createTabletOrderRaw(tabletToken, staffSession, {
+      restaurantId,
+      orderType: "PICKUP",
+      paymentMethod: "CASH",
+      subtotal: SUBTOTAL,
+      tax: TAX,
+      tip: 0,
+      total: TOTAL,
+      customerPhone: "",
+      orderItems: [
+        {
+          menuItemId: itemId,
+          menuItemName: itemName,
+          quantity: 1,
+          // The POS's own shape: the size folded into the price, its row $0.
+          price: SIZE,
+          selectedModifiers: [
+            {
+              modifierId: sizeId,
+              modifierName: "24 Wings",
+              modifierPrice: 0,
+              quantity: 1,
+            },
+            {
+              modifierId: sauceId,
+              modifierName: "Extra Sauce",
+              modifierPrice: SAUCE,
+              quantity: 1,
+            },
+          ],
+        },
+      ],
+    });
+    expect(res.status, JSON.stringify(res.data)).toBe(201);
+    orderId = String(res.data.id);
+
+    const read = await getOrderFullRaw(ownerToken, orderId);
+    expect(read.status, JSON.stringify(read.data)).toBe(200);
+    const order = read.data as {
+      subtotal?: number;
+      orderItems?: {
+        selectedModifiers?: { modifierName: string; pricingMode?: string }[];
+      }[];
+      breakdown?: ApiBreakdown & {
+        items?: {
+          amount: number;
+          modifiers?: { name: string; amount: number }[];
+        }[];
+      };
+    };
+    expect(order.subtotal).toBe(SUBTOTAL);
+    // The server snapshots each sold modifier's group mode.
+    expect(
+      Object.fromEntries(
+        (order.orderItems?.[0]?.selectedModifiers ?? []).map((m) => [
+          m.modifierName,
+          m.pricingMode,
+        ])
+      )
+    ).toEqual({ "24 Wings": "REPLACES_PRICE", "Extra Sauce": "ADJUSTS_PRICE" });
+    const line = order.breakdown?.items?.[0];
+    expect(line?.amount).toBe(SUBTOTAL);
+    expect(
+      Object.fromEntries((line?.modifiers ?? []).map((m) => [m.name, m.amount]))
+    ).toEqual({ "24 Wings": 0, "Extra Sauce": SAUCE });
+    const lines = apiBreakdownLines(order);
+    assertSums(lines, "POS size order", { items: order.breakdown?.items });
+    expect(lines.find((l) => l.kind === "SUBTOTAL")?.amount).toBe(SUBTOTAL);
+  });
+
+  test("TC-1241: the day close counts the size line as item sales — gross $29.49, not base + size", async () => {
+    expect(orderId, "TC-1240 placed the order").not.toBe("");
+    const look = await tabletRaw(
+      tabletToken,
+      "GET",
+      "/day-close/preview",
+      undefined,
+      staffSession
+    );
+    expect(look.status, JSON.stringify(look.data)).toBe(200);
+    const summary = ((
+      look.data as { data?: { summary?: Record<string, unknown> } }
+    ).data?.summary ?? {}) as Record<string, unknown>;
+    expect(summary).toMatchObject({
+      definitionVersion: 2,
+      orderCount: 1,
+      grossSales: SUBTOTAL,
+      netSales: SUBTOTAL,
+      totalCollected: TOTAL,
+    });
   });
 });

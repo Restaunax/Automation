@@ -1,6 +1,7 @@
 /**
  * 23-tip-waterfall-ui.spec.ts — the tip-out waterfall on the dashboard
- * (P6, restaunax #924) (TC-677..679).
+ * (P6, restaunax #924) (TC-677..679), and the Stage 6 tip policy layout
+ * (W0:OB-4: presets first, the power features under Advanced) (TC-1708).
  *
  * Browser. A per-run throwaway owner (loginViaUi) with TIP_MANAGEMENT, the
  * restaurant moved to a zone where it is about 16:00, jobs Server /
@@ -9,7 +10,10 @@
  *   - Tip policy: the "Waterfall" preset fills both rules, the flow shows
  *     the order, the live example shows dollars, Save stores it;
  *   - Tips: the Gave / Received columns and "Where the tip-outs went";
- *   - at 390 px the Tips tab shows people as cards and fits the screen.
+ *   - at 390 px the Tips tab shows people as cards and fits the screen;
+ *   - presets sit at the top; category tip-outs, "include received" and the
+ *     approval guard wait under Advanced (gated by
+ *     `RELEASED_ON_QA.staffSetupStage6`).
  */
 import type { Page } from "@playwright/test";
 import * as allure from "allure-js-commons";
@@ -41,6 +45,10 @@ import {
   zoneAtMidday,
   type LooseJson,
 } from "../../../utils/apiHelper";
+import {
+  probeStaffSetupStage6,
+  requireRelease,
+} from "../../../utils/releaseGate";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
@@ -119,7 +127,8 @@ test.describe("Owner — tip-out waterfall (UI)", () => {
         (
           await createStaffJobRaw(ownerToken, restaurantId, {
             name: `${name} ${runId}`,
-            defaultHourlyRateCents: 1000,
+            // At least Miami's $11.98 tipped cash wage (W3:C3).
+            defaultHourlyRateCents: 1200,
             isTipped: true,
           })
         ).data.data?.id
@@ -221,7 +230,14 @@ test.describe("Owner — tip-out waterfall (UI)", () => {
     await openStaff("tipPolicy");
     const card = page().getByTestId("tip-outs-card");
     await expect(card).toBeVisible({ timeout: 20_000 });
-    await card.getByText("Waterfall", { exact: true }).click();
+    // The presets: their own card at the top since Stage 6 (W0:OB-4),
+    // inside the tip-outs card before it.
+    await page()
+      .getByTestId("tip-presets")
+      .or(card)
+      .getByText("Waterfall", { exact: true })
+      .first()
+      .click();
     await expect(card.getByTestId("tip-out-rule")).toHaveCount(2);
     const flow = card.getByTestId("tip-outs-flow");
     await expect(flow).toContainText("Server");
@@ -266,5 +282,43 @@ test.describe("Owner — tip-out waterfall (UI)", () => {
         document.documentElement.clientWidth
     );
     expect(overflow).toBeLessThanOrEqual(1);
+  });
+
+  test("TC-1708: tip policy shows the presets first; categories, include-received and the approval guard sit under Advanced", async () => {
+    requireRelease(
+      "staffSetupStage6",
+      await probeStaffSetupStage6(ownerToken, restaurantId)
+    );
+    await page().setViewportSize({ width: 1280, height: 900 });
+    await openStaff("tipPolicy");
+    const presets = page().getByTestId("tip-presets");
+    await expect(presets).toBeVisible({ timeout: 20_000 });
+    // Presets come before every other setting on the page.
+    const card = page().getByTestId("tip-outs-card");
+    const top = async (l: typeof presets) =>
+      (await l.boundingBox())?.y ?? Number.POSITIVE_INFINITY;
+    expect(await top(presets)).toBeLessThan(await top(card));
+    for (const name of ["Waterfall", "Everyone pools"])
+      await expect(presets.getByText(name, { exact: true })).toBeVisible();
+
+    // A % of sales rule (Bar sales) — its category choice is an Advanced
+    // option, hidden until Advanced is open.
+    await presets.getByText("Bar sales", { exact: true }).click();
+    await expect(card.getByTestId("tip-out-rule")).toHaveCount(1);
+    const advanced = page().getByTestId("tip-advanced");
+    await expect(advanced).toBeVisible();
+    const guard = page().getByRole("switch", {
+      name: "Block approval while tips are unassigned",
+    });
+    await expect(guard).toBeHidden();
+    const categories = card.getByRole("combobox", { name: "Menu categories" });
+    await expect(categories).toHaveCount(0);
+
+    await advanced.getByRole("button").first().click();
+    await expect(guard).toBeVisible();
+    await expect(categories.first()).toBeVisible();
+    // Leave the saved Waterfall policy as it was (unsaved preset dropped).
+    const discard = page().getByRole("button", { name: "Discard" }).first();
+    if (await discard.isVisible()) await discard.click();
   });
 });
