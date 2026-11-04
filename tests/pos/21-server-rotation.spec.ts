@@ -12,6 +12,7 @@
  */
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../fixtures/base";
+import { localDateKey } from "../../utils/dealSchedule";
 import { generateGuestPhone, generateRunId } from "../../utils/testData";
 import {
   createPinStaffTabletRaw,
@@ -146,8 +147,19 @@ test.describe("POS — Server rotation (phase 4) @reservations-phase4", () => {
       guestPhone: generateGuestPhone(runId, ++seq),
     });
     expect(res.status, msg(res.data)).toBe(201);
-    return unwrap(res) as { id: string };
+    return unwrap(res) as { id: string; scheduledAt: string };
   };
+
+  /** The host list of the booking's own day: two hours ahead of 11 PM is
+   * tomorrow, which a plain "today" list rightly doesn't show. */
+  const hostRowsFor = async (row: { scheduledAt: string }) =>
+    unwrap(
+      await getHostRaw(
+        t.tabletToken,
+        t.managerSession,
+        localDateKey(t.timeZone, 0, new Date(row.scheduledAt))
+      )
+    ) as any[];
 
   test.beforeAll(async () => {
     if (!CREDS_OK) return;
@@ -498,9 +510,7 @@ test.describe("POS — Server rotation (phase 4) @reservations-phase4", () => {
       { tableIds: [tableId], serverStaffMemberId: people.ben.id }
     );
     expect(seat.status, msg(seat.data)).toBe(201);
-    const hostRow = (
-      unwrap(await getHostRaw(t.tabletToken, t.managerSession)) as any[]
-    ).find((r) => r.id === row.id);
+    const hostRow = (await hostRowsFor(row)).find((r) => r.id === row.id);
     expect(hostRow.serverStaffMemberId).toBe(people.ben.id);
     expect((await floorRow(tableId)).server.staffMemberId).toBe(people.ben.id);
 
@@ -540,9 +550,7 @@ test.describe("POS — Server rotation (phase 4) @reservations-phase4", () => {
       { "X-Staff-Session": t.managerSession }
     );
     expect(unseat.status, msg(unseat.data)).toBe(200);
-    const after = (
-      unwrap(await getHostRaw(t.tabletToken, t.managerSession)) as any[]
-    ).find((r) => r.id === row2.id);
+    const after = (await hostRowsFor(row2)).find((r) => r.id === row2.id);
     expect(after.serverStaffMemberId).toBeNull();
   });
 

@@ -19,7 +19,7 @@
  *   scripts/with-stripe-test-env.sh ./node_modules/.bin/playwright test
  *   --config $PWD/playwright.local.config.ts tests/pos/23-...
  *
- * TC-1900 → TC-1950. Gated on probeReservationsPhase4.
+ * TC-1900 → TC-1942. Gated on probeReservationsPhase4.
  */
 import { execFileSync } from "child_process";
 import { existsSync, readFileSync } from "fs";
@@ -29,6 +29,7 @@ import { generateGuestPhone, generateRunId } from "../../utils/testData";
 import { localDateKey } from "../../utils/dealSchedule";
 import {
   apiRequestRaw,
+  createPinStaffTabletRaw,
   createReservationDateOverrideOwnerRaw,
   createReservationOwnerRaw,
   createReservationServicePeriodOwnerRaw,
@@ -52,8 +53,10 @@ import {
   requireRelease,
 } from "../../utils/releaseGate";
 import {
+  clockInRaw,
   createDepositRuleRaw,
   errorCode,
+  getRotationRaw,
   joinPublicWaitlistRaw,
   localDbReady,
   localSql,
@@ -752,6 +755,63 @@ test.describe("POS — Reservations audit, round 2 @reservations-phase4", () => 
     await rule({ name: "Next date", amountCents: 9000, specificDates: [next] });
     const dated = await slotsOf(t, day);
     expect(dated.find((s) => s.time === "00:00")!.depositCents).toBe(14000);
+  });
+
+  test("TC-1908: server rotation doesn't reset at midnight: last seated and covers today hold until the business day ends", async () => {
+    const t = await fresh("rotmidnight");
+    const payroll = await setFeatureOverrideAdminRaw(
+      t.adminToken,
+      t.restaurantId,
+      "PAYROLL",
+      true
+    );
+    expect(payroll.ok, msg(payroll.data)).toBe(true);
+    const on = await putReservationSettingsOwnerRaw(t.token, t.restaurantId, {
+      serverRotationEnabled: true,
+    });
+    expect(on.status, msg(on.data)).toBe(200);
+    const pin = "5233";
+    const added = await createPinStaffTabletRaw(
+      t.tabletToken,
+      t.managerSession,
+      { firstName: "Nia", lastName: "Late", pin, staffRole: "STAFF" }
+    );
+    expect(added.status, msg(added.data)).toBe(201);
+    const nia = String((added.data as any).data.id);
+    const clocked = await clockInRaw(t.tabletToken, {
+      staffMemberId: nia,
+      pin,
+    });
+    expect(clocked.status, msg(clocked.data)).toBe(200);
+
+    const check = await createTabletOrderRaw(
+      t.tabletToken,
+      t.managerSession,
+      openCheckBody(t, t.tableId, {
+        serverStaffMemberId: nia,
+        guestCount: 3,
+      })
+    );
+    expect(check.status, msg(check.data)).toBe(201);
+    // Seated 2.5 hours ago. At 1 AM that is before midnight, yesterday's date.
+    localSql(
+      `update "Order" set "tabOpenedAt" = now() - interval '150 minutes', "seatedAt" = now() - interval '150 minutes' where id = '${check.data.id}'`
+    );
+    const row = async () =>
+      (
+        unwrap(await getRotationRaw(t.tabletToken, t.managerSession)) as any[]
+      ).find((r) => r.staffMemberId === nia);
+
+    setZone(t, zoneAtLocalHour(1));
+    const lateShift = await row();
+    expect(lateShift.coversToday).toBe(3);
+    expect(lateShift.lastSeatedAt).toBeTruthy();
+
+    // At 5 AM it was seated before the 4 AM line: a new day.
+    setZone(t, zoneAtLocalHour(5));
+    const nextDay = await row();
+    expect(nextDay.coversToday).toBe(0);
+    expect(nextDay.lastSeatedAt).toBeNull();
   });
 
   // ── 2. The guest's language ─────────────────────────────────────────────
