@@ -12,9 +12,10 @@
  *
  * Select a part's tests with its tag: `--grep @training`, `--grep @closeout`,
  * `--grep @bugfix-1036`, `--grep @settings-safety`, `--grep @switch-click`,
- * `--grep @labor-engines`, `--grep @tax-depth`, `--grep @print-builders`,
- * `--grep @team-comms`, `--grep @staff-setup`, `--grep @daily-views`,
- * `--grep @growth-a`, `--grep @reservations-audit`.
+ \* `--grep @labor-engines`, `--grep @tax-depth`, `--grep @print-builders`,
+ \* `--grep @team-comms`, `--grep @staff-setup`, `--grep @daily-views`,
+ \* `--grep @growth-a`, `--grep @reservations-audit`,
+ \* `--grep @reservations-phase4`.
  */
 import { test, expect } from "../fixtures/base";
 import { apiRequestRaw } from "./apiHelper";
@@ -85,6 +86,9 @@ export const RELEASED_ON_QA = {
    *  RESERVATION_TABLES_REQUIRED, public input caps, pacing suggestion, and
    *  the dashboard's reworked Bookings/Settings screens. */
   reservationsAudit: false,
+  /** RestauNax branch feat/reservations-phase4: online waitlist, server
+   *  rotation and reservation deposits (all add-on only, off by default). */
+  reservationsPhase4: false,
   /** RestauNax back-office audit, growth track B (branch bo1031/growthb,
    *  W0:MF-6 / MF-10): mobile clock-in from the staff app (owner settings,
    *  geofenced punches) and one-way staff announcements with read receipts.
@@ -133,6 +137,8 @@ const REASON: Record<ReleasePart, string> = {
     "Switches toggle only from the switch (RestauNax fix/switch-click-target) is not on this environment yet",
   reservationsAudit:
     "The reservations audit fixes (RestauNax fix/reservations-audit) are not on this environment yet — the booking-hours suggestion carries no suggestedMaxPartiesPerSlot",
+  reservationsPhase4:
+    "Reservations phase 4 (online waitlist, server rotation, deposits — RestauNax feat/reservations-phase4) is not on this environment yet — reservation settings carry no onlineWaitlistEnabled",
   paywallStage1:
     "The Stage 1 paywall fixes (RestauNax bo1031/paywall) are not on this environment yet",
   simScenariosStage6:
@@ -203,6 +209,29 @@ export async function probeReservationsAudit(
   return (
     res.status === 200 &&
     typeof res.data?.data?.suggestedMaxPartiesPerSlot === "number"
+  );
+}
+
+/**
+ * Is reservations phase 4 deployed? `GET /restaurant/:id/reservation-settings`
+ * (an owner read on any restaurant) carries `onlineWaitlistEnabled` only with
+ * the change. Read-only.
+ */
+export async function probeReservationsPhase4(
+  ownerToken: string,
+  restaurantId: string
+): Promise<boolean> {
+  const res = await apiRequestRaw<{
+    data?: { onlineWaitlistEnabled?: unknown };
+  }>(
+    "GET",
+    `/restaurant/${restaurantId}/reservation-settings`,
+    undefined,
+    ownerToken
+  );
+  return (
+    res.status === 200 &&
+    typeof res.data?.data?.onlineWaitlistEnabled === "boolean"
   );
 }
 
