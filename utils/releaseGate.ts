@@ -12,9 +12,10 @@
  *
  * Select a part's tests with its tag: `--grep @training`, `--grep @closeout`,
  * `--grep @bugfix-1036`, `--grep @settings-safety`, `--grep @switch-click`,
- * `--grep @labor-engines`, `--grep @tax-depth`, `--grep @print-builders`,
- * `--grep @team-comms`, `--grep @staff-setup`, `--grep @daily-views`,
- * `--grep @growth-a`, `--grep @reservations-audit`.
+ \* `--grep @labor-engines`, `--grep @tax-depth`, `--grep @print-builders`,
+ \* `--grep @team-comms`, `--grep @staff-setup`, `--grep @daily-views`,
+ \* `--grep @growth-a`, `--grep @reservations-audit`,
+ \* `--grep @reservations-phase4`.
  */
 import { test, expect } from "../fixtures/base";
 import { apiRequestRaw } from "./apiHelper";
@@ -85,6 +86,9 @@ export const RELEASED_ON_QA = {
    *  RESERVATION_TABLES_REQUIRED, public input caps, pacing suggestion, and
    *  the dashboard's reworked Bookings/Settings screens. */
   reservationsAudit: false,
+  /** RestauNax branch feat/reservations-phase4: online waitlist, server
+   *  rotation and reservation deposits (all add-on only, off by default). */
+  reservationsPhase4: false,
   /** RestauNax back-office audit, growth track B (branch bo1031/growthb,
    *  W0:MF-6 / MF-10): mobile clock-in from the staff app (owner settings,
    *  geofenced punches) and one-way staff announcements with read receipts.
@@ -111,6 +115,10 @@ export const RELEASED_ON_QA = {
    *  target labor %, GET /api/today/:id, and every discount type in the
    *  exceptions summary. Flip once it is on QA. */
   dailyViewsStage6: true,
+  /** RestauNax branch feat/google-review-replies — /api/google-business/*
+   *  (connect a Google Business Profile, list reviews, post/edit/delete
+   *  replies, AI drafts, reply settings). */
+  googleReviews: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -129,6 +137,8 @@ const REASON: Record<ReleasePart, string> = {
     "Switches toggle only from the switch (RestauNax fix/switch-click-target) is not on this environment yet",
   reservationsAudit:
     "The reservations audit fixes (RestauNax fix/reservations-audit) are not on this environment yet — the booking-hours suggestion carries no suggestedMaxPartiesPerSlot",
+  reservationsPhase4:
+    "Reservations phase 4 (online waitlist, server rotation, deposits — RestauNax feat/reservations-phase4) is not on this environment yet — reservation settings carry no onlineWaitlistEnabled",
   paywallStage1:
     "The Stage 1 paywall fixes (RestauNax bo1031/paywall) are not on this environment yet",
   simScenariosStage6:
@@ -149,6 +159,8 @@ const REASON: Record<ReleasePart, string> = {
     "The Stage 7 growth A track (RestauNax bo1031/growtha: prime cost, staff import, cash tip-out sheet) is not on this environment yet — /api/staff/tip-sheet/:id/settings answers 404",
   dailyViewsStage6:
     "The Stage 6 daily views (RestauNax bo1031/uxdaily) are not on this environment yet — /api/today/:id answers 404",
+  googleReviews:
+    "Google review replies (RestauNax feat/google-review-replies) is not on this environment yet — /api/google-business/:id answers 404",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
@@ -197,6 +209,29 @@ export async function probeReservationsAudit(
   return (
     res.status === 200 &&
     typeof res.data?.data?.suggestedMaxPartiesPerSlot === "number"
+  );
+}
+
+/**
+ * Is reservations phase 4 deployed? `GET /restaurant/:id/reservation-settings`
+ * (an owner read on any restaurant) carries `onlineWaitlistEnabled` only with
+ * the change. Read-only.
+ */
+export async function probeReservationsPhase4(
+  ownerToken: string,
+  restaurantId: string
+): Promise<boolean> {
+  const res = await apiRequestRaw<{
+    data?: { onlineWaitlistEnabled?: unknown };
+  }>(
+    "GET",
+    `/restaurant/${restaurantId}/reservation-settings`,
+    undefined,
+    ownerToken
+  );
+  return (
+    res.status === 200 &&
+    typeof res.data?.data?.onlineWaitlistEnabled === "boolean"
   );
 }
 
@@ -403,6 +438,24 @@ export async function probeDailyViewsStage6(
     `/api/today/${restaurantId}`,
     undefined,
     ownerToken
+  );
+  return res.status !== 404;
+}
+
+/**
+ * Are Google review replies deployed? `GET /api/google-business/:id` answers
+ * every signed-in user who controls the restaurant (never 404 once the route
+ * exists), so a 404 means the change is not on this environment.
+ */
+export async function probeGoogleReviews(
+  accessToken: string,
+  restaurantId: string
+): Promise<boolean> {
+  const res = await apiRequestRaw(
+    "GET",
+    `/api/google-business/${restaurantId}`,
+    undefined,
+    accessToken
   );
   return res.status !== 404;
 }
