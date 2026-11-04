@@ -111,6 +111,10 @@ export const RELEASED_ON_QA = {
    *  target labor %, GET /api/today/:id, and every discount type in the
    *  exceptions summary. Flip once it is on QA. */
   dailyViewsStage6: true,
+  /** RestauNax branch feat/google-review-replies — /api/google-business/*
+   *  (connect a Google Business Profile, list reviews, post/edit/delete
+   *  replies, AI drafts, reply settings). */
+  googleReviews: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -149,6 +153,8 @@ const REASON: Record<ReleasePart, string> = {
     "The Stage 7 growth A track (RestauNax bo1031/growtha: prime cost, staff import, cash tip-out sheet) is not on this environment yet — /api/staff/tip-sheet/:id/settings answers 404",
   dailyViewsStage6:
     "The Stage 6 daily views (RestauNax bo1031/uxdaily) are not on this environment yet — /api/today/:id answers 404",
+  googleReviews:
+    "Google review replies (RestauNax feat/google-review-replies) is not on this environment yet — /api/google-business/:id answers 404",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
@@ -403,6 +409,24 @@ export async function probeDailyViewsStage6(
     `/api/today/${restaurantId}`,
     undefined,
     ownerToken
+  );
+  return res.status !== 404;
+}
+
+/**
+ * Are Google review replies deployed? `GET /api/google-business/:id` answers
+ * every signed-in user who controls the restaurant (never 404 once the route
+ * exists), so a 404 means the change is not on this environment.
+ */
+export async function probeGoogleReviews(
+  accessToken: string,
+  restaurantId: string
+): Promise<boolean> {
+  const res = await apiRequestRaw(
+    "GET",
+    `/api/google-business/${restaurantId}`,
+    undefined,
+    accessToken
   );
   return res.status !== 404;
 }
