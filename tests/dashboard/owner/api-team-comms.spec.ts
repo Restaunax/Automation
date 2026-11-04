@@ -401,7 +401,9 @@ test.describe("Team comms — mobile clock-in + staff announcements (API) @team-
     expect(res.data.details.distanceMeters).toBeGreaterThan(5000);
     expect(res.data.details.distanceMeters).toBeLessThan(6000);
     isText(res.data.message);
-    expect(String(res.data.message)).toMatch(/\d+ m from the restaurant/);
+    expect(String(res.data.message)).toMatch(
+      /about [\d.,]+ (feet|miles?) from the restaurant/
+    );
 
     const es = await call(dee.token, "POST", clockUrl("/in"), FAR, "es");
     expect(es.status).toBe(403);
