@@ -85,10 +85,10 @@ export const RELEASED_ON_QA = {
    *  checked waitlist/ARRIVED edits, partial seating, CONFIRMED linkable,
    *  RESERVATION_TABLES_REQUIRED, public input caps, pacing suggestion, and
    *  the dashboard's reworked Bookings/Settings screens. */
-  reservationsAudit: false,
+  reservationsAudit: true,
   /** RestauNax branch feat/reservations-phase4: online waitlist, server
    *  rotation and reservation deposits (all add-on only, off by default). */
-  reservationsPhase4: false,
+  reservationsPhase4: true,
   /** RestauNax back-office audit, growth track B (branch bo1031/growthb,
    *  W0:MF-6 / MF-10): mobile clock-in from the staff app (owner settings,
    *  geofenced punches) and one-way staff announcements with read receipts.
