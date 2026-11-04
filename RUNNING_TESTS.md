@@ -136,6 +136,8 @@ export BACKEND_DIR=/path/to/restaunax-backend
 scripts/with-stripe-test-env.sh npx playwright test tests/pos/22-reservation-deposits.spec.ts
 ```
 
+`tests/pos/23-reservations-audit-round2.spec.ts` runs the same way, local stack only. Also set `E2E_BACKEND_LOG=<the running backend's log file>`: SMS is off locally and the backend logs the text it would have sent; the language tests read it. Mail is read from the local Mailpit (`MAILPIT_LOCAL_URL`, default `http://localhost:8025`), and the summary and reminder come from `scripts/e2e/reservationProbe.ts` in `BACKEND_DIR`, which refuses a non-local database or inbox.
+
 Each Stripe tenant gets its own real Custom test account (`createChargeableTestAccount`):
 dummy onboarding can't reach "charges enabled", because Stripe won't let the platform
 accept an Express account's ToS. `E2E_LOCAL_DATABASE_URL` (localhost only, never a

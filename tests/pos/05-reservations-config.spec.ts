@@ -34,6 +34,7 @@
 
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../fixtures/base";
+import { probeReservationsPhase4 } from "../../utils/releaseGate";
 import { generateRunId } from "../../utils/testData";
 import {
   probeReservationsAudit,
@@ -664,7 +665,7 @@ test.describe("POS — Reservation Configuration (settings, periods, turn times,
       "GET .../reservation-service-periods/suggested with no business " +
         "hours → hasBusinessHours:false and no windows. With the test week " +
         "(and defaultDurationMinutes 90): Monday 11:00–22:00 and Friday " +
-        "17:00–23:59 (an overnight close is capped at 23:59); skipped: " +
+        "17:00–01:00 (an overnight close carries over); skipped: " +
         "Sun/Wed/Sat CLOSED, Tue TOO_SHORT (1 h < 90 min), Thu OPEN_24_HOURS."
     );
     const put = await putReservationSettingsOwnerRaw(token, restaurantId, {
@@ -694,7 +695,15 @@ test.describe("POS — Reservation Configuration (settings, periods, turn times,
       expect(suggestion.hasBusinessHours).toBe(true);
       expect(suggestion.windows).toEqual([
         { dayOfWeek: 1, startTime: "11:00", endTime: "22:00" },
-        { dayOfWeek: 5, startTime: "17:00", endTime: "23:59" },
+        // An overnight close carries into the morning since phase 4 (booking
+        // hours past midnight); before it, capped at 23:59.
+        {
+          dayOfWeek: 5,
+          startTime: "17:00",
+          endTime: (await probeReservationsPhase4(token, restaurantId))
+            ? "01:00"
+            : "23:59",
+        },
       ]);
       expect(suggestion.skipped).toEqual([
         { dayOfWeek: 0, reason: "CLOSED" },
