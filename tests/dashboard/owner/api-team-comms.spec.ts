@@ -407,7 +407,9 @@ test.describe("Team comms — mobile clock-in + staff announcements (API) @team-
 
     const es = await call(dee.token, "POST", clockUrl("/in"), FAR, "es");
     expect(es.status).toBe(403);
-    expect(String(es.data.message)).toMatch(/Estás a \d+ m del restaurante/);
+    expect(String(es.data.message)).toMatch(
+      /Estás a aproximadamente [\d.,]+ (pies|millas?) del restaurante/
+    );
 
     const clock = await call(dee.token, "GET", clockUrl());
     expect(clock.data.data.shift).toBeNull();
