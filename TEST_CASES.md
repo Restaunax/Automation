@@ -3964,4 +3964,16 @@ Browser as the owner, on the dashboard's Reviews tab (`?tab=reviews`). The API c
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **TC-1943** | The POS clocks Gus in, then the owner corrects that open shift's clock-in with a reason: `PATCH /shifts/:id` answers 200, the new time is stored and the shift still has no clock-out. Answered 500 before RestauNax #1138 (the overlap check compared against a date the database can't take). |
 
+### `dashboard/owner/39-portal-navigation-ui.spec.ts`
+
+| TC          | What it checks                                                                                                                |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| **TC-1944** | Owner portal: Back walks back through sidebar tabs one at a time and ends on Today; clicking the open tab adds no extra step. |
+| **TC-1945** | Customers, Store Settings and Owner Settings put the subtab in the URL, and Back shows the previous one.                      |
+| **TC-1946** | Turning auto-gratuity on writes the note printed on the check; it follows the party size until the owner rewords it.          |
+| **TC-1947** | Unsaved edits ask on Back and on a sidebar click: Keep editing keeps them, Leave goes once with no second question.           |
+| **TC-1948** | With nothing unsaved, moving around the portal never asks.                                                                    |
+| **TC-1949** | Post History's Create Post opens the composer inside the portal, not a Not Found page.                                        |
+| **TC-1950** | Staff: unsaved payroll settings ask on Back and on a subtab click; Back shows the previous subtab.                            |
+
 ---
