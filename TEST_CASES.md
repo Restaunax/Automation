@@ -3970,7 +3970,7 @@ Browser as the owner, on the dashboard's Reviews tab (`?tab=reviews`). The API c
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | **TC-1944** | Owner portal: Back walks back through sidebar tabs one at a time and ends on Today; clicking the open tab adds no extra step. |
 | **TC-1945** | Customers, Store Settings and Owner Settings put the subtab in the URL, and Back shows the previous one.                      |
-| **TC-1946** | Turning auto-gratuity on writes the note printed on the check; it follows the party size until the owner rewords it.          |
+| **TC-1946** | The note printed on the check is plain text; it follows the party size, percent and name as the owner edits them.             |
 | **TC-1947** | Unsaved edits ask on Back and on a sidebar click: Keep editing keeps them, Leave goes once with no second question.           |
 | **TC-1948** | With nothing unsaved, moving around the portal never asks.                                                                    |
 | **TC-1949** | Post History's Create Post opens the composer inside the portal, not a Not Found page.                                        |
