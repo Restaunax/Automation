@@ -6,8 +6,8 @@
  *            on Today. Clicking the tab already open adds no extra step.
  *   TC-1945  Subtabs: Customers, Store Settings and Owner Settings put the
  *            subtab in the URL, and Back shows the one before it.
- *   TC-1946  Turning auto-gratuity on writes the note printed on the check. It
- *            follows the party size and percent until the owner rewords it.
+ *   TC-1946  The note printed on the check is plain text. It follows the party
+ *            size, percent and name as the owner edits them.
  *   TC-1947  Unsaved edits: Back and a sidebar click both ask. Keep editing
  *            stays put with the edit intact; Leave goes where they asked.
  *   TC-1948  With nothing unsaved, moving around never asks.
@@ -181,21 +181,30 @@ test.describe("Owner — portal navigation: Back and unsaved changes (UI)", () =
     );
   });
 
-  test("TC-1946: turning auto-gratuity on writes the note, which follows the rule until reworded", async () => {
+  test("TC-1946: the note printed on the check is plain text that follows the party size, percent and name", async () => {
     await openGratuity();
     await expect(gratuityToggle()).not.toBeChecked();
     await gratuityToggle().click();
     const note = page().locator("#auto-gratuity-notice");
-    await expect(note).toHaveValue(
+    await expect(note).toHaveText(
       "Parties of 6 or more: 18% gratuity is added."
     );
+    await expect(page().locator("textarea#auto-gratuity-notice")).toHaveCount(
+      0
+    );
     await page().locator("#auto-gratuity-min-guests").fill("8");
-    await expect(note).toHaveValue(
+    await expect(note).toHaveText(
       "Parties of 8 or more: 18% gratuity is added."
     );
-    await note.fill("Thank you for dining with us.");
-    await page().locator("#auto-gratuity-min-guests").fill("9");
-    await expect(note).toHaveValue("Thank you for dining with us.");
+    await page().getByRole("button", { name: "Other" }).click();
+    await page().locator("#auto-gratuity-percent").fill("17.5");
+    await expect(note).toHaveText(
+      "Parties of 8 or more: 17.5% gratuity is added."
+    );
+    await page().locator("#auto-gratuity-label").fill("Service charge");
+    await expect(note).toHaveText(
+      "Parties of 8 or more: 17.5% service charge is added."
+    );
   });
 
   test("TC-1947: unsaved edits ask on Back and on a sidebar click; Keep editing keeps them, Leave leaves", async () => {
@@ -207,7 +216,7 @@ test.describe("Owner — portal navigation: Back and unsaved changes (UI)", () =
     await expect(gratuityToggle()).toBeVisible({ timeout: 25_000 });
     await gratuityToggle().click();
     const note = page().locator("#auto-gratuity-notice");
-    await expect(note).not.toHaveValue("");
+    await expect(note).toContainText("gratuity is added");
 
     // Back asks, and staying keeps the screen and the edit.
     await page().goBack();
@@ -216,7 +225,7 @@ test.describe("Owner — portal navigation: Back and unsaved changes (UI)", () =
     await ask.getByRole("button", { name: "Keep editing" }).click();
     await expect(page().getByRole("dialog")).toHaveCount(0);
     await expectParam("settingsTab", "fees");
-    await expect(note).not.toHaveValue("");
+    await expect(note).toContainText("gratuity is added");
 
     // A sidebar click asks too.
     await sidebar("Customers").click();
@@ -224,7 +233,7 @@ test.describe("Owner — portal navigation: Back and unsaved changes (UI)", () =
     await expect(ask).toContainText("Leave without saving?");
     await ask.getByRole("button", { name: "Keep editing" }).click();
     await expectParam("tab", "Store Settings");
-    await expect(note).not.toHaveValue("");
+    await expect(note).toContainText("gratuity is added");
 
     // Leave goes where they asked, once, with no second question.
     await sidebar("Customers").click();
