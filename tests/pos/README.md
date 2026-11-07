@@ -212,6 +212,11 @@ closed: false}` before it even generates candidate slots from the period —
   across tenants and on a kiosk. The customer check is only real against a LOCAL
   backend with `COURIER_SEED_DATABASE_URL` set; see the file header.
 
+- **`24-app-version-force-update.spec.ts` (TC-1951..1953)** — the public app-version
+  lookup: the owner, staff and customer apps never get `forceUpdate` true (it would
+  block people already up to date); an enabled POS row always does (the POS enforces
+  its minimum only then). Read-only.
+
 ## 09-dual-pricing.spec.ts
 
 Dual pricing v2 (per-item cash tier) at the API level, on its OWN throwaway
