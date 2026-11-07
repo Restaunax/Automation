@@ -1,0 +1,324 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: table-qr/tableQrOrdering.spec.ts >> Table QR ordering @table-qr >> a guest scanning the card orders dine-in and the order is TABLE_QR @table-qr
+- Location: tests/table-qr/tableQrOrdering.spec.ts:131:7
+
+# Error details
+
+```
+Error: expect(locator).toBeVisible() failed
+
+Locator: getByText('Ordering for table E2E-096cd1f5', { exact: true })
+Expected: visible
+Timeout: 20000ms
+Error: element(s) not found
+
+Call log:
+  - Expect "toBeVisible" with timeout 20000ms
+  - waiting for getByText('Ordering for table E2E-096cd1f5', { exact: true })
+
+```
+
+```yaml
+- banner:
+  - img "Boithok Khana Kitchen -"
+  - link "Home":
+    - /url: /boithok-khana-kitchen
+  - link "Menu":
+    - /url: /boithok-khana-kitchen/menu
+  - link "Careers":
+    - /url: /boithok-khana-kitchen/careers
+  - button "Login"
+  - button "shopping cart with 0 items": "0"
+- alert:
+  - text: Ordering for Table E2E-096cd1f5
+  - button "Not at the restaurant? Order pickup instead"
+- main:
+  - img
+  - img
+  - img
+  - img
+  - text: Open Now Welcome To
+  - heading "Boithok Khana Kitchen -" [level=1]
+  - paragraph: Wood-Fired. Waterfront. Unforgettable.
+  - img "5 Stars"
+  - heading "5.0" [level=6]
+  - paragraph: (1 reviews)
+  - button "Order Now"
+  - link "Call Us":
+    - /url: tel:(212) 777-9090
+  - text: 20-30 min pickup Brooklyn
+  - img
+  - text: Limited Time Offers
+  - heading "Today's Best Deals" [level=3]
+  - paragraph: Delicious combos at unbeatable prices. Grab yours before they're gone!
+  - text: Save 22%
+  - heading "Game Day Platter" [level=5]
+  - paragraph: Snack and share while you watch the game!
+  - text: 1x Chicken Wings 1x Loaded Mac & Cheese 1x Loaded Fries
+  - paragraph: Available from 11:00 AM
+  - paragraph: $32.97
+  - heading "$25.86" [level=4]
+  - text: Lunch Save 15%
+  - heading "Date Night Indulgence" [level=5]
+  - paragraph: Share a romantic meal for two!
+  - text: 1x Triple Decker Club 1x Triple Decker Club 1x Build Your Sundae +1 more
+  - paragraph: Mon · 10:00 PM–5:00 AM
+  - paragraph: $43.96
+  - heading "$37.25" [level=4]
+  - text: Late Night Save 0%
+  - img "Solo Delight Combo"
+  - heading "Solo Delight Combo" [level=5]
+  - paragraph: A perfect meal just for you!
+  - text: 1x One of 2 items 1x Loaded Fries
+  - paragraph: $14.46
+  - heading "$17.58" [level=4]
+  - text: Lunch
+  - button "View All Deals"
+  - img
+  - text: Our Culinary Creations
+  - heading "Food Gallery" [level=2]
+  - heading "A visual feast of our most delicious dishes" [level=6]
+  - img "Loaded Mac & Cheese"
+  - text: $11.37 Entrees
+  - heading "Loaded Mac & Cheese" [level=6]
+  - img "Fish & Chips"
+  - text: $16.55 Entrees
+  - heading "Fish & Chips" [level=6]
+  - img "Build Your Burger"
+  - text: $14.48 Burgers & Sandwiches
+  - heading "Build Your Burger" [level=6]
+  - img "Philly Cheesesteak"
+  - text: $13.44 Burgers & Sandwiches
+  - heading "Philly Cheesesteak" [level=6]
+  - img "Triple Decker Club"
+  - text: $14.48 Burgers & Sandwiches
+  - heading "Triple Decker Club" [level=6]
+  - img "Loaded Fries"
+  - text: $7.23 Sides
+  - heading "Loaded Fries" [level=6]
+  - img "Build Your Sundae"
+  - text: $8.27 Desserts
+  - heading "Build Your Sundae" [level=6]
+  - img "ZZ Probe Img Item"
+  - text: $3.00 ZZ Probe Img
+  - heading "ZZ Probe Img Item" [level=6]
+  - img "ZZ Probe Img Item"
+  - text: $3.00 ZZ Probe Img
+  - heading "ZZ Probe Img Item" [level=6]
+  - button "Entrees (2)"
+  - button "Burgers & Sandwiches (3)"
+  - button "Sides (1)"
+  - button "Desserts (1)"
+  - button "ZZ Probe Img (1)"
+  - button "ZZ Probe Img (1)"
+  - button "Explore Full Menu"
+  - img
+  - img
+  - text: Skip The Wait
+  - heading "Order Online for Pickup or Delivery" [level=3]
+  - paragraph: Craving something delicious? Order ahead and enjoy hot, fresh food ready when you are. Fast, easy, and always satisfying.
+  - button "Start Your Order"
+  - img
+  - img
+  - text: Don't Wait
+  - heading "Ready to Order?" [level=2]
+  - heading "Join thousands of satisfied customers who choose us for fresh, delicious meals delivered right to your door." [level=6]
+  - button "Start Ordering"
+  - button "Learn About Rewards"
+- contentinfo:
+  - paragraph: Boithok Khana Kitchen -
+  - paragraph: Powered by
+  - link "RestauNax RestauNax":
+    - /url: https://www.restaunax.com
+    - img "RestauNax"
+    - paragraph: RestauNax
+  - paragraph: "|"
+  - link "Terms":
+    - /url: https://www.restaunax.com/website-terms
+  - paragraph: "|"
+  - link "Privacy":
+    - /url: https://www.restaunax.com/privacy-policy
+```
+
+# Test source
+
+```ts
+  47  | test.describe("Table QR ordering @table-qr", () => {
+  48  |   const restaurantSlug = readRestaurantSlug();
+  49  |   test.skip(
+  50  |     !restaurantSlug || !OWNER_EMAIL || !OWNER_PASSWORD,
+  51  |     "Ordering slug or owner credentials not available"
+  52  |   );
+  53  | 
+  54  |   // ≤12 chars: "E2E-" + 8-char run id.
+  55  |   const label = `E2E-${generateRunId()}`;
+  56  |   let token = "";
+  57  |   let restaurantId = "";
+  58  |   let card: CardView | undefined;
+  59  |   let retired = false;
+  60  | 
+  61  |   const retireCard = async (): Promise<void> => {
+  62  |     if (!card || retired) return;
+  63  |     const res = await apiRequestRaw(
+  64  |       "POST",
+  65  |       `/restaurant/${restaurantId}/table-qr-cards/${card.id}/retire`,
+  66  |       undefined,
+  67  |       token
+  68  |     );
+  69  |     if (!res.ok) throw new Error(`retire card → ${res.status}`);
+  70  |     retired = true;
+  71  |   };
+  72  | 
+  73  |   test.beforeAll(async () => {
+  74  |     token = (await apiLogin(OWNER_EMAIL, OWNER_PASSWORD)).accessToken;
+  75  |     restaurantId = readRestaurantId();
+  76  |     const res = await apiRequestRaw<{ success: boolean; data: CardView[] }>(
+  77  |       "POST",
+  78  |       `/restaurant/${restaurantId}/table-qr-cards`,
+  79  |       { numbered: [{ label }] },
+  80  |       token
+  81  |     );
+  82  |     if (!res.ok || !res.data.data?.[0]) {
+  83  |       throw new Error(
+  84  |         `create card → ${res.status}: ${JSON.stringify(res.data)}`
+  85  |       );
+  86  |     }
+  87  |     card = res.data.data[0];
+  88  |   });
+  89  | 
+  90  |   test.afterAll(async () => {
+  91  |     // Free the label even when a case failed part-way.
+  92  |     await retireCard().catch((e) =>
+  93  |       console.warn(`[table-qr] teardown retire failed: ${String(e)}`)
+  94  |     );
+  95  |   });
+  96  | 
+  97  |   test.beforeEach(async () => {
+  98  |     await allure.label("feature", "Table QR Ordering");
+  99  |   });
+  100 | 
+  101 |   /** Card link → menu → one item → cart → checkout, customer form filled. */
+  102 |   const reachCheckout = async (
+  103 |     page: Parameters<typeof createLimaStorefrontPage>[0],
+  104 |     url: string
+  105 |   ) => {
+  106 |     const lima = createLimaStorefrontPage(page);
+  107 |     const checkout = createLimaCheckoutPage(page);
+  108 |     await page.goto(url, { waitUntil: "domcontentloaded" });
+  109 |     return { lima, checkout };
+  110 |   };
+  111 | 
+  112 |   const addItemAndOpenCheckout = async (
+  113 |     page: Parameters<typeof createLimaStorefrontPage>[0],
+  114 |     lima: ReturnType<typeof createLimaStorefrontPage>,
+  115 |     checkout: ReturnType<typeof createLimaCheckoutPage>
+  116 |   ) => {
+  117 |     const state = readSharedState();
+  118 |     await lima.gotoMenu(restaurantSlug);
+  119 |     await lima.assertOnMenu();
+  120 |     await lima.openItemModal(state.menuItemName);
+  121 |     await lima.clickAddToCart();
+  122 |     await page.goto(`${lima.tenantRoot(restaurantSlug)}/cart`, {
+  123 |       waitUntil: "domcontentloaded",
+  124 |     });
+  125 |     await expect(checkout.proceedToCheckoutButton()).toBeVisible({
+  126 |       timeout: 20_000,
+  127 |     });
+  128 |     await checkout.goToCheckout();
+  129 |   };
+  130 | 
+  131 |   test("a guest scanning the card orders dine-in and the order is TABLE_QR @table-qr", async ({
+  132 |     page,
+  133 |   }) => {
+  134 |     expect(card, "card created in beforeAll").toBeTruthy();
+  135 |     const url = card!.url;
+  136 |     expect(url, "card has an ordering link").toContain("?table=");
+  137 |     test.skip(
+  138 |       !url.startsWith(LIMA_ORDERING_URL),
+  139 |       `card link ${url} is not on the lima ordering host ${LIMA_ORDERING_URL}`
+  140 |     );
+  141 |     await allure.parameter("label", label);
+  142 | 
+  143 |     const { lima, checkout } = await reachCheckout(page, url);
+  144 | 
+  145 |     await expect(
+  146 |       page.getByText(`Ordering for table ${label}`, { exact: true })
+> 147 |     ).toBeVisible({ timeout: 20_000 });
+      |       ^ Error: expect(locator).toBeVisible() failed
+  148 | 
+  149 |     await addItemAndOpenCheckout(page, lima, checkout);
+  150 | 
+  151 |     // Banner survives navigation; no pickup/delivery choice, static Dine-in.
+  152 |     await expect(
+  153 |       page.getByText(`Ordering for table ${label}`, { exact: true })
+  154 |     ).toBeVisible();
+  155 |     await expect(
+  156 |       page.getByText("Dine-in", { exact: true }).first()
+  157 |     ).toBeVisible({
+  158 |       timeout: 20_000,
+  159 |     });
+  160 |     await expect(
+  161 |       page.getByRole("heading", { name: "Pickup Information" })
+  162 |     ).toHaveCount(0);
+  163 |     await expect(
+  164 |       page.getByRole("heading", { name: "Delivery", exact: true })
+  165 |     ).toHaveCount(0);
+  166 | 
+  167 |     await checkout.fillCustomerInfo({
+  168 |       firstName: "Auto",
+  169 |       lastName: "TableQr",
+  170 |       email: generateUserEmail("tableqr"),
+  171 |       phone: generateSeedPhone(),
+  172 |     });
+  173 |     await checkout.proceedToPayment();
+  174 |     await fillStripePaymentElement(page, STRIPE_CARDS.VISA_SUCCESS);
+  175 |     await checkout.placeOrderAndConfirm();
+  176 | 
+  177 |     const orderId =
+  178 |       page.url().match(/order-confirmation\/([0-9a-f-]{36})/)?.[1] ?? "";
+  179 |     expect(orderId, `order id from ${page.url()}`).toBeTruthy();
+  180 |     await allure.parameter("orderId", orderId);
+  181 | 
+  182 |     // Owner API: the order we just placed (by id — robust to parallel runs).
+  183 |     const res = await getOrderByIdRaw(token, orderId);
+  184 |     expect(res.status).toBe(200);
+  185 |     const order = res.data as unknown as {
+  186 |       orderType?: string;
+  187 |       orderSource?: string;
+  188 |       tableNumber?: string | null;
+  189 |       tabOpenedAt?: string | null;
+  190 |     };
+  191 |     expect(order.orderType).toBe("DINE_IN");
+  192 |     expect(order.orderSource).toBe("TABLE_QR");
+  193 |     expect(order.tableNumber).toBe(label);
+  194 |     expect(order.tabOpenedAt ?? null).toBeNull();
+  195 |   });
+  196 | 
+  197 |   test("a retired card opens the normal ordering page @table-qr", async ({
+  198 |     page,
+  199 |   }) => {
+  200 |     expect(card).toBeTruthy();
+  201 |     await retireCard();
+  202 | 
+  203 |     const { lima, checkout } = await reachCheckout(page, card!.url);
+  204 | 
+  205 |     await expect(page.getByTestId("table-card-banner")).toHaveCount(0);
+  206 |     await expect(
+  207 |       page.getByText(`Ordering for table ${label}`, { exact: true })
+  208 |     ).toHaveCount(0);
+  209 | 
+  210 |     await addItemAndOpenCheckout(page, lima, checkout);
+  211 |     // The ordinary pickup/delivery choice is back; no dine-in line.
+  212 |     await checkout.assertPickupSelected();
+  213 |     await expect(page.getByText("Dine-in", { exact: true })).toHaveCount(0);
+  214 |   });
+  215 | });
+  216 | 
+```
