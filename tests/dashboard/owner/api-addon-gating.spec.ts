@@ -341,9 +341,12 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
         true
       );
       expect(alone.status, `${part}: ${JSON.stringify(alone.data)}`).toBe(400);
-      expect(
-        String((alone.data as Rec).message ?? (alone.data as Rec).error)
-      ).toMatch(/part of a package/);
+      const said = String(
+        (alone.data as Rec).message ?? (alone.data as Rec).error
+      );
+      expect(said).toMatch(/part of a package/);
+      // It names the packages that are sold, not the retired parts.
+      expect(said).toMatch(/RestauNax Team or RestauNax Payroll/);
     }
     expect(await features()).toEqual([]);
     // …and HQ can't put either in the add-on catalogue.
@@ -359,6 +362,28 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
         `${part} catalogue row: ${JSON.stringify(created.data)}`
       ).toBe(400);
       expect(JSON.stringify(created.data)).toMatch(/part of a package/);
+    }
+    // …and an owner can't ask for an old Scheduling catalogue row by its id
+    // (404, as for any add-on not offered to them).
+    const catalog = await apiRequestRaw<
+      { id: string; feature: string; isActive: boolean }[]
+    >("GET", "/api/admin/addons/catalog", undefined, adminToken);
+    expect(catalog.ok, `catalog read failed (${catalog.status})`).toBe(true);
+    const oldRow = (catalog.data ?? []).find(
+      (a) => a.feature === "SCHEDULING" && a.isActive
+    );
+    if (oldRow) {
+      const asked = await ownerAddonRequestRaw(ownerToken, restaurantId, {
+        addonId: oldRow.id,
+        kind: "ADD",
+      });
+      expect(asked.status, JSON.stringify(asked.data)).toBe(404);
+    } else {
+      test.info().annotations.push({
+        type: "skipped-assertion",
+        description:
+          "QA has no active SCHEDULING catalogue row: the owner request-by-id refusal was not checked",
+      });
     }
 
     await grant("TEAM_BUNDLE");

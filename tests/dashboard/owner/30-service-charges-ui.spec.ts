@@ -140,7 +140,7 @@ test.describe("Owner — Fees at checkout: service charges paid to staff (UI)", 
     await expectSeenByUser(
       page()
         .getByText(
-          "To pay it to your staff instead, you need RestauNax Tips or RestauNax Payroll."
+          "To pay it to your staff instead, you need RestauNax Team or RestauNax Payroll."
         )
         .first(),
       "how to pay it to staff"
