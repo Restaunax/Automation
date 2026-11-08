@@ -19,7 +19,7 @@
  *            "Show details".
  *
  * Browser. A per-run throwaway owner (loginViaUi) on an Arizona restaurant
- * with SCHEDULING + TIP_MANAGEMENT (Timecards comes with them; no Payroll).
+ * with RestauNax Team (TEAM_BUNDLE: schedule, timecards, tips; no Payroll).
  * Gated by `RELEASED_ON_QA.staffSetupStage6`. Serial. Tag: @staff-setup.
  */
 import type { Page } from "@playwright/test";
@@ -108,7 +108,7 @@ test.describe("Owner — setup interview and the simpler Staff page (UI) @staff-
     if (!tenant.restaurantId) throw new Error("[setup-ui] no tenant");
     restaurantId = tenant.restaurantId;
     ownerToken = tenant.accessToken;
-    for (const f of ["SCHEDULING", "TIP_MANAGEMENT"]) {
+    for (const f of ["TEAM_BUNDLE"]) {
       const r = await setFeatureOverrideAdminRaw(
         adminToken,
         restaurantId,

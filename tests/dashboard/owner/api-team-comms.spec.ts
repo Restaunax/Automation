@@ -11,7 +11,8 @@
  * every refusal; restaunax `teamComms.int.test.ts` proves the accepted path.
  *
  * No browser. A per-run throwaway restaurant in Miami created WITH
- * coordinates (so the fence has an origin), SCHEDULING + TIMECARDS, one job
+ * coordinates (so the fence has an origin), RestauNax Team (SCHEDULING +
+ * TIMECARDS), one job
  * ("Driver"), and two people with real accounts (invite → Mailpit →
  * register): Dee holds the Driver job (the staff-app user) and Mia is made a
  * manager. A second throwaway restaurant has TIMECARDS turned off (the
@@ -168,9 +169,10 @@ test.describe("Team comms — mobile clock-in + staff announcements (API) @team-
     if (!tenant.restaurantId) throw new Error("[api-team-comms] no tenant");
     restaurantId = tenant.restaurantId;
     ownerToken = tenant.accessToken;
-    // SCHEDULING brings TIMECARDS (a component the server refuses to grant
-    // on its own; revoking it stays possible, see the bare tenant below).
-    for (const feature of ["SCHEDULING"]) {
+    // TEAM_BUNDLE brings SCHEDULING and TIMECARDS (components the server
+    // refuses to grant on their own; revoking them stays possible, see the
+    // bare tenant below).
+    for (const feature of ["TEAM_BUNDLE"]) {
       const g = await setFeatureOverrideAdminRaw(
         adminToken,
         restaurantId,

@@ -2,9 +2,9 @@
  * 19-shift-checkout.spec.ts — shift checkout at clock-out (W0:MF-1) on QA
  * (TC-1500..1506).
  *
- * No browser. A per-run throwaway restaurant with TIP_MANAGEMENT and a POS
- * device. The owner (their own staff row, "Clocks in" on) clocks in and out on
- * the time clock, declaring $5 in cash tips. The clock-out answer carries a
+ * No browser. A per-run throwaway restaurant with RestauNax Team (TEAM_BUNDLE,
+ * which brings TIP_MANAGEMENT) and a POS device. The owner (their own staff
+ * row, "Clocks in" on) clocks in and out on the time clock, declaring $5 in cash tips. The clock-out answer carries a
  * 15-minute checkout token for that shift on that device; the checkout reads
  * back sales, tips, tip-outs, net tips and cash owed to the house, labelled in
  * the request language, with the "estimate until approved" note. The same
@@ -74,7 +74,7 @@ test.describe("Shift checkout at clock-out (POS API)", () => {
     const g = await setFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,
-      "TIP_MANAGEMENT",
+      "TEAM_BUNDLE",
       true
     );
     if (!g.ok)

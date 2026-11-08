@@ -2,8 +2,8 @@
  * payroll-read-only.spec.ts — RestauNax company staff (role EMPLOYEE) can
  * look at a restaurant's payroll, wages and tip rules but not change them
  * (TC-1186, RestauNax W5:L4). A RestauNax ADMIN still can (the logged
- * override). Throwaway tenant with Scheduling & Timecards + Tip Management
- * granted by HQ. API only.
+ * override). Throwaway tenant with RestauNax Team (schedule, timecards and
+ * tips) granted by HQ. API only.
  */
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
@@ -48,7 +48,7 @@ test.describe("Employee — read-only on payroll, wages and tip rules (API)", ()
     if (!tenant.restaurantId) throw new Error("[payroll-read-only] no tenant");
     restaurantId = tenant.restaurantId;
     ownerToken = tenant.accessToken;
-    for (const feature of ["SCHEDULING", "TIP_MANAGEMENT"]) {
+    for (const feature of ["TEAM_BUNDLE"]) {
       const g = await setFeatureOverrideAdminRaw(
         adminToken,
         restaurantId,

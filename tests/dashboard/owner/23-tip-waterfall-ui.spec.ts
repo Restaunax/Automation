@@ -3,9 +3,9 @@
  * (P6, restaunax #924) (TC-677..679), and the Stage 6 tip policy layout
  * (W0:OB-4: presets first, the power features under Advanced) (TC-1708).
  *
- * Browser. A per-run throwaway owner (loginViaUi) with TIP_MANAGEMENT, the
- * restaurant moved to a zone where it is about 16:00, jobs Server /
- * Bartender / Busser, and one finished day: Ana (Server, $300.00 cash tip),
+ * Browser. A per-run throwaway owner (loginViaUi) with RestauNax Team
+ * (TEAM_BUNDLE, which brings tips), the restaurant moved to a zone where it
+ * is about 16:00, jobs Server / Bartender / Busser, and one finished day: Ana (Server, $300.00 cash tip),
  * Cal (Bartender), Dee (Busser) on shift.
  *   - Tip policy: the "Waterfall" preset fills both rules, the flow shows
  *     the order, the live example shows dollars, Save stores it;
@@ -106,7 +106,7 @@ test.describe("Owner — tip-out waterfall (UI)", () => {
     await setFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,
-      "TIP_MANAGEMENT",
+      "TEAM_BUNDLE",
       true
     );
     await updateRestaurantSettingsApi(ownerToken, restaurantId, {

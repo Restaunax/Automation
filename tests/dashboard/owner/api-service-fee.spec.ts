@@ -311,7 +311,7 @@ test.describe("Service fee — every option for its effect (API)", () => {
     const granted = await setFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,
-      "TIP_MANAGEMENT",
+      "TEAM_BUNDLE",
       true
     );
     expect(granted.ok, JSON.stringify(granted.data)).toBe(true);
@@ -331,7 +331,7 @@ test.describe("Service fee — every option for its effect (API)", () => {
       await deleteFeatureOverrideAdminRaw(
         adminToken,
         restaurantId,
-        "TIP_MANAGEMENT"
+        "TEAM_BUNDLE"
       );
       const lapsed = await check(2);
       expect(fee(lapsed)).toBe(1);
@@ -347,7 +347,7 @@ test.describe("Service fee — every option for its effect (API)", () => {
       await deleteFeatureOverrideAdminRaw(
         adminToken,
         restaurantId,
-        "TIP_MANAGEMENT"
+        "TEAM_BUNDLE"
       ).catch(() => {});
       await rule({});
     }

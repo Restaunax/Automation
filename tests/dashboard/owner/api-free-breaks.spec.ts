@@ -14,7 +14,7 @@
  *     exact); an "unpaid" break under 20 minutes is paid, and a break type
  *     can't be unpaid and under 20 minutes (29 CFR 785.18);
  *   - break RULES: ignored without TIMECARDS (no skipped-break question at
- *     clock-out), enforced with it (SCHEDULING brings TIMECARDS).
+ *     clock-out), enforced with it (RestauNax Team, TEAM_BUNDLE, brings TIMECARDS).
  *   - W3:H2 (TC-1435, Stage 5 labor-law engines, gated by
  *     `RELEASED_ON_QA.laborEngines`): the 20 minutes is the federal floor; a
  *     CONFIRMED state meal-break rule can raise it. The tenant is in Miami
@@ -388,7 +388,7 @@ test.describe("Basic breaks without an add-on (API)", () => {
     await setFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,
-      "SCHEDULING",
+      "TEAM_BUNDLE",
       true
     );
     const rule = await putPayrollSettingsRaw(ownerToken, restaurantId, {
@@ -414,7 +414,11 @@ test.describe("Basic breaks without an add-on (API)", () => {
       },
     });
     expect(rule.status, JSON.stringify(rule.data)).toBe(200);
-    await deleteFeatureOverrideAdminRaw(adminToken, restaurantId, "SCHEDULING");
+    await deleteFeatureOverrideAdminRaw(
+      adminToken,
+      restaurantId,
+      "TEAM_BUNDLE"
+    );
 
     // 45 minutes on the clock, no break, past the 30-minute rule.
     const inn = await replay(
@@ -435,7 +439,7 @@ test.describe("Basic breaks without an add-on (API)", () => {
     await setFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,
-      "SCHEDULING",
+      "TEAM_BUNDLE",
       true
     );
     try {
@@ -470,7 +474,7 @@ test.describe("Basic breaks without an add-on (API)", () => {
       await deleteFeatureOverrideAdminRaw(
         adminToken,
         restaurantId,
-        "SCHEDULING"
+        "TEAM_BUNDLE"
       );
     }
   });

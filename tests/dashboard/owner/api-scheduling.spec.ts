@@ -1,7 +1,8 @@
 /**
  * api-scheduling.spec.ts — scheduling (L1) end to end on QA (TC-570..579).
  *
- * No browser. A per-run throwaway restaurant with SCHEDULING, two staff with
+ * No browser. A per-run throwaway restaurant with RestauNax Team (TEAM_BUNDLE,
+ * which brings SCHEDULING), two staff with
  * real accounts (invite → Mailpit → register), a job, a REGISTER device.
  *   - build a week: personal vs default rate, unpaid break, open shift → the
  *     costed week (exact cents); projected overtime (FEDERAL, 48h → 8h at 1.5×);
@@ -221,7 +222,7 @@ test.describe("Scheduling — build, cost, warn, publish, clock-in rule (API)", 
     const g = await setFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,
-      "SCHEDULING",
+      "TEAM_BUNDLE",
       true
     );
     if (!g.ok)

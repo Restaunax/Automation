@@ -16,8 +16,8 @@
  * restaunax `growthA.int.test.ts`; the POS step by device-in-store's
  * CloseDayWizardCashTips test and Maestro back-office/06-cash-tip-sheet.
  *
- * No browser. One throwaway restaurant (NY) with Timecards + Tip Management
- * granted by admin override. Gated by `RELEASED_ON_QA.growthAStage7` until
+ * No browser. One throwaway restaurant (NY) with RestauNax Team (timecards +
+ * tips) granted by admin override. Gated by `RELEASED_ON_QA.growthAStage7` until
  * the change is on QA. Serial. Tag: @growth-a.
  */
 import * as allure from "allure-js-commons";
@@ -76,7 +76,7 @@ test.describe.configure({ mode: "serial" });
 test.describe("Growth A — prime cost, staff import, cash tip-out sheet (API) @growth-a", () => {
   requireEnv(
     ["ADMIN_EMAIL", "ADMIN_PASSWORD"],
-    "the file mints its own tenant and grants Timecards + Tip Management"
+    "the file mints its own tenant and grants RestauNax Team (timecards + tips)"
   );
 
   const runId = generateRunId();
@@ -120,8 +120,9 @@ test.describe("Growth A — prime cost, staff import, cash tip-out sheet (API) @
   test("TC-1760: prime cost is gated like the labor report — no Timecards, no prime cost; with it, 8 workweeks", async () => {
     const before = await apiRequestRaw("GET", pc(), undefined, ownerToken);
     expect(before.status).toBe(403);
-    // TIP_MANAGEMENT brings TIMECARDS (a component, never granted alone).
-    for (const feature of ["TIP_MANAGEMENT"]) {
+    // RestauNax Team brings TIP_MANAGEMENT and TIMECARDS (components, never
+    // granted alone — packaging v3).
+    for (const feature of ["TEAM_BUNDLE"]) {
       const g = await setFeatureOverrideAdminRaw(
         adminToken,
         restaurantId,
@@ -394,6 +395,7 @@ test.describe("Growth A — prime cost, staff import, cash tip-out sheet (API) @
   });
 
   test("TC-1768: without Tip Management the sheet's routes answer 403 (gated like the tips report)", async () => {
+    // HQ switches tips off inside Team (a revoke is still allowed).
     const g = await setFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,

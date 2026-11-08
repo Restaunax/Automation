@@ -2,7 +2,8 @@
  * api-daily-views.spec.ts — the back-office audit's Stage 6 daily views on
  * QA (TC-1731..1735), through the API. No browser, no email.
  *
- * A per-run throwaway restaurant (createSecondOwner) with SCHEDULING and
+ * A per-run throwaway restaurant (createSecondOwner) with RestauNax Team
+ * (TEAM_BUNDLE, which brings SCHEDULING) and
  * ACCOUNTING_SYNC ("Books & Taxes"):
  *   - W0:MF-4 GET /api/today/:id: today's sales vs the same weekday last
  *     year, live labor and the day's discounts, comps and voids — the
@@ -78,7 +79,7 @@ test.describe("Stage 6 daily views — today, accountant bundle, forecast, prefe
     if (!tenant.restaurantId) throw new Error("[api-daily-views] no tenant");
     restaurantId = tenant.restaurantId;
     ownerToken = tenant.accessToken;
-    for (const feature of ["SCHEDULING", "ACCOUNTING_SYNC"]) {
+    for (const feature of ["TEAM_BUNDLE", "ACCOUNTING_SYNC"]) {
       const g = await setFeatureOverrideAdminRaw(
         adminToken,
         restaurantId,

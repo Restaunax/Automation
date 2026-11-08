@@ -19,7 +19,7 @@
  *           and on.
  *
  * Browser. A per-run throwaway owner (createSecondOwner alwaysFresh) with the
- * SCHEDULING add-on, weekly pay periods and one manager-entered shift in the
+ * RestauNax Team add-on (TEAM_BUNDLE: schedule, timecards, tips), weekly pay periods and one manager-entered shift in the
  * last finished period, signed in through the UI (loginViaUi). The
  * restaurant is deleted afterwards.
  */
@@ -94,12 +94,12 @@ test.describe("Owner — back office next level (UI)", () => {
     const granted = await setFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,
-      "SCHEDULING",
+      "TEAM_BUNDLE",
       true
     );
     if (!granted.ok)
       throw new Error(
-        `[back-office-ui] SCHEDULING: ${JSON.stringify(granted.data)}`
+        `[back-office-ui] TEAM_BUNDLE: ${JSON.stringify(granted.data)}`
       );
     period = await seedPeriodAwaitingApproval(ownerToken, restaurantId, runId);
     // One owner change for Recent changes, one date for Holiday hours.

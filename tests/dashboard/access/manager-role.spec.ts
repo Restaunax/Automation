@@ -2,8 +2,8 @@
  * manager-role.spec.ts — the manager dashboard role (W0:MF-2) on QA
  * (TC-1550..1557).
  *
- * No browser. A per-run throwaway restaurant with SCHEDULING (implies
- * TIMECARDS) and TIP_MANAGEMENT. One staff member with a real account
+ * No browser. A per-run throwaway restaurant with RestauNax Team (TEAM_BUNDLE:
+ * SCHEDULING, TIP_MANAGEMENT and TIMECARDS). One staff member with a real account
  * (invite → Mailpit → register); the owner makes them a manager. Then, signed
  * in as the manager:
  *   - their restaurant is listed with accessRole MANAGER and the server's
@@ -91,9 +91,9 @@ test.describe("Manager dashboard role (API)", () => {
     if (!tenant.restaurantId) throw new Error("[manager-role] no tenant");
     restaurantId = tenant.restaurantId;
     ownerToken = tenant.accessToken;
-    // SCHEDULING and TIP_MANAGEMENT each bring TIMECARDS, a component the
-    // server refuses to grant on its own.
-    for (const feature of ["SCHEDULING", "TIP_MANAGEMENT"]) {
+    // RestauNax Team brings SCHEDULING, TIP_MANAGEMENT and TIMECARDS,
+    // components the server refuses to grant on their own (packaging v3).
+    for (const feature of ["TEAM_BUNDLE"]) {
       const g = await setFeatureOverrideAdminRaw(
         adminToken,
         restaurantId,
