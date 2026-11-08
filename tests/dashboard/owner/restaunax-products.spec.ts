@@ -59,16 +59,16 @@ const SENT =
 
 // The products the server can offer, with their EN names (dashboard
 // products.json `name.*`). VOICE_AI is left out: its offer comes from the
-// voice setup, not only from a catalog row.
+// voice setup, not only from a catalog row. Packaging v3: the team products
+// are RestauNax Team and RestauNax Payroll; Scheduling and Tips are parts of
+// Team and never offered on their own.
 const PRODUCT_NAMES: Record<string, string> = {
   TABLE_RESERVATIONS: "RestauNax Reservations",
-  SCHEDULING: "RestauNax Scheduling",
+  TEAM_BUNDLE: "RestauNax Team",
   PAYROLL: "RestauNax Payroll",
   ACCOUNTING_SYNC: "RestauNax Books & Taxes",
   MENU_TVS: "RestauNax Menu TVs",
   SOCIAL_MEDIA: "RestauNax Social",
-  TIP_MANAGEMENT: "RestauNax Tips",
-  TEAM_BUNDLE: "RestauNax Team",
 };
 
 test.describe.configure({ mode: "serial" });
@@ -364,7 +364,7 @@ test.describe("Owner — RestauNax Products: add-on previews, no prices", () => 
   });
 });
 
-test.describe("Owner — a home-food restaurant is never offered Reservations, Scheduling or Payroll", () => {
+test.describe("Owner — a home-food restaurant is never offered Reservations, Team or Payroll", () => {
   requireEnv(["ADMIN_EMAIL", "ADMIN_PASSWORD"], "mints a HOME_FOOD tenant");
 
   let adminToken = "";
@@ -429,7 +429,7 @@ test.describe("Owner — a home-food restaurant is never offered Reservations, S
         .filter({ has: availableHeading });
       await expect(available).toBeVisible();
       await expect(available).not.toContainText(
-        /RestauNax (Reservations|Scheduling|Payroll)/
+        /RestauNax (Reservations|Scheduling|Team|Tips|Payroll)/
       );
     } finally {
       await session.context.close().catch(() => {});

@@ -201,13 +201,13 @@ test.describe("Partner data API — keys, location scope, webhooks (B3, API)", (
     expect(badScope.status).toBe(400);
     expect(badScope.data).toMatchObject({ error: "INVALID_SCOPE" });
 
-    // From here on both locations keep timecards (Scheduling & Timecards,
-    // granted by HQ), so their keys can carry every scope including labor.
+    // From here on both locations keep timecards (RestauNax Team, granted by
+    // HQ), so their keys can carry every scope including labor.
     for (const id of [a.id, b.id]) {
       const g = await setFeatureOverrideAdminRaw(
         adminToken,
         id,
-        "SCHEDULING",
+        "TEAM_BUNDLE",
         true,
         `automation partner labor ${runId}`
       );
@@ -436,7 +436,7 @@ test.describe("Partner data API — keys, location scope, webhooks (B3, API)", (
     const removed = await deleteFeatureOverrideAdminRaw(
       adminToken,
       a.id,
-      "SCHEDULING"
+      "TEAM_BUNDLE"
     );
     expect(removed.status).toBeLessThan(300);
     try {
@@ -459,7 +459,7 @@ test.describe("Partner data API — keys, location scope, webhooks (B3, API)", (
       await setFeatureOverrideAdminRaw(
         adminToken,
         a.id,
-        "SCHEDULING",
+        "TEAM_BUNDLE",
         true,
         `automation partner labor ${runId}`
       );

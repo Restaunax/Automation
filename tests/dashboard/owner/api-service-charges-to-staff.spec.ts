@@ -4,12 +4,12 @@
  * docs/features/back-office/SERVICE_CHARGES_TO_STAFF.md), asked directly so
  * no screen can hide a gap (TC-958..960).
  *
- *   TC-958  Without Tip Management or Payroll, a NEW "paid to staff" is
+ *   TC-958  Without tips (RestauNax Team or Payroll), a NEW "paid to staff" is
  *           refused (400 STAFF_SHARE_NOT_ENTITLED, a readable message) for
  *           the service fee and the auto-gratuity; nothing is saved.
  *   TC-959  A NEW auto-gratuity above 25% is refused (400
  *           GRATUITY_PERCENT_TOO_HIGH, readable); 25% is accepted.
- *   TC-960  With Tip Management: STAFF + "the server on the check" saves and
+ *   TC-960  With RestauNax Team (tips): STAFF + "the server on the check" saves and
  *           reads back for both charges; HOUSE clears the allocation.
  *
  * No browser. A per-run throwaway owner + restaurant (deleted afterwards).
@@ -100,7 +100,7 @@ test.describe("Service charges paid to staff — server guards (API)", () => {
     await allure.label("severity", "critical");
   });
 
-  test("TC-958: without Tip Management, a new 'paid to staff' is refused for both charges and nothing is saved", async () => {
+  test("TC-958: without tips (RestauNax Team or Payroll), a new 'paid to staff' is refused for both charges and nothing is saved", async () => {
     expectRefused(
       await put({ serviceFee: { ...SERVICE_FEE, distribution: "STAFF" } }),
       "STAFF_SHARE_NOT_ENTITLED"
@@ -129,11 +129,11 @@ test.describe("Service charges paid to staff — server guards (API)", () => {
     expect(((await settings()).autoGratuity as Rec).percent).toBe(25);
   });
 
-  test("TC-960: with Tip Management, 'the server on the check' saves and reads back; HOUSE clears it", async () => {
+  test("TC-960: with RestauNax Team (tips), 'the server on the check' saves and reads back; HOUSE clears it", async () => {
     const granted = await setFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,
-      "TIP_MANAGEMENT",
+      "TEAM_BUNDLE",
       true
     );
     expect(granted.ok, JSON.stringify(granted.data)).toBe(true);

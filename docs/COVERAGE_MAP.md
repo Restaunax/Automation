@@ -531,8 +531,8 @@ Add `utils/visibleFeedback.ts` with:
 `tests/dashboard/journey/01-open-hire-schedule.spec.ts`, TC-978..989.
 
 - **Roles:** HQ admin (API), Owner (UI).
-- **Steps:** `createSecondOwner`; grant PAYROLL + SCHEDULING + TIP_MANAGEMENT
-  (packages only, per `BACK_OFFICE_COVERAGE.md`) by override; dummy Stripe
+- **Steps:** `createSecondOwner`; grant PAYROLL (which includes RestauNax
+  Team; packages only, per `BACK_OFFICE_COVERAGE.md`) by override; dummy Stripe
   Connect onboarding; ordering slug; tax rate 7%; a small menu (burger, fries,
   beer in an alcohol category); table service on, two tables; weekly pay
   frequency with the anchor set so **last week is a finished period**; REGISTER

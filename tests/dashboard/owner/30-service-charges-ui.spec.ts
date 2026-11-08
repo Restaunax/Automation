@@ -4,10 +4,10 @@
  * (TC-961..964). The server's guards are pinned in
  * api-service-charges-to-staff.spec.ts (TC-958..960).
  *
- *   TC-961  Without Tip Management "Paid to staff" is truly absent (no
- *           radio, not just disabled); the card says the restaurant keeps it
- *           and how to change that. Phone width: still readable, no overflow.
- *   TC-962  With Tip Management: pick "Paid to staff" → "Who gets it" opens
+ *   TC-961  Without tips (RestauNax Team or Payroll) "Paid to staff" is
+ *           truly absent (no radio, not just disabled); the card says the
+ *           restaurant keeps it and how to change that. Phone width: still readable, no overflow.
+ *   TC-962  With RestauNax Team (tips): pick "Paid to staff" → "Who gets it" opens
  *           on "Share it like tips"; pick "The server on the check"; Save
  *           sends ONE request even on a double click; the owner sees "Service
  *           fee saved" on screen; after a reload both choices are still
@@ -152,11 +152,11 @@ test.describe("Owner — Fees at checkout: service charges paid to staff (UI)", 
     await expectNoHorizontalOverflow(page(), "Fees at checkout (phone)");
   });
 
-  test("TC-962: with Tip Management, 'The server on the check' is picked, saved once, seen and kept after a reload", async () => {
+  test("TC-962: with RestauNax Team (tips), 'The server on the check' is picked, saved once, seen and kept after a reload", async () => {
     const granted = await setFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,
-      "TIP_MANAGEMENT",
+      "TEAM_BUNDLE",
       true
     );
     expect(granted.ok, JSON.stringify(granted.data)).toBe(true);

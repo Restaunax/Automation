@@ -4,7 +4,11 @@
  * No browser (the dashboard's navigation is covered by the UI spec). One
  * throwaway restaurant walks the packaging ladder from E0
  * (restaunax docs/features/back-office/E0_ENTITLEMENTS_AND_PACKAGING.md):
- *   nothing → SCHEDULING only → SCHEDULING + PAYROLL → PAYROLL only → nothing
+ *   nothing → Scheduling / Tip Management alone refused → RestauNax Team
+ *   (TEAM_BUNDLE) → Team with Scheduling revoked → PAYROLL only (Team +
+ *   payroll runs) → nothing
+ * (packaging v3, RestauNax #1149: Team and Payroll are the team products;
+ * SCHEDULING, TIP_MANAGEMENT and TIMECARDS are components)
  * and at each rung asks every surface what it sees:
  *   - the owner API (payroll, scheduling, tips, payroll provider routes);
  *   - the entitlement sets the dashboard (/restaurant/.../features) and the
@@ -53,6 +57,7 @@ import {
   createRestaurantRaw,
   ownerAddonsRaw,
   ownerAddonRequestRaw,
+  adminAddonsRaw,
   apiRequestRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
@@ -66,7 +71,13 @@ type Rec = Record<string, LooseJson>;
 const list = (v: unknown) => (Array.isArray(v) ? (v as Rec[]) : []);
 const day = (n: number) =>
   new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
-const BACK_OFFICE = ["PAYROLL", "SCHEDULING", "TIMECARDS", "TIP_MANAGEMENT"];
+const BACK_OFFICE = [
+  "PAYROLL",
+  "TEAM_BUNDLE",
+  "SCHEDULING",
+  "TIMECARDS",
+  "TIP_MANAGEMENT",
+];
 
 test.describe.configure({ mode: "serial" });
 
@@ -319,14 +330,46 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
     expect(off.status).toBe(403);
   });
 
-  test("TC-566: SCHEDULING only — schedule, jobs and the clock-in rule appear; tips and payroll runs don't", async () => {
-    await grant("SCHEDULING");
-    expect(await features()).toEqual(["SCHEDULING", "TIMECARDS"]);
+  test("TC-566: Scheduling and Tip Management alone are refused; RestauNax Team brings the schedule, timecards and tips; payroll runs don't come with it", async () => {
+    // Packaging v3: Scheduling and Tip Management are parts of Team, never
+    // granted on their own (400, like TIMECARDS).
+    for (const part of ["SCHEDULING", "TIP_MANAGEMENT"]) {
+      const alone = await setFeatureOverrideAdminRaw(
+        adminToken,
+        restaurantId,
+        part,
+        true
+      );
+      expect(alone.status, `${part}: ${JSON.stringify(alone.data)}`).toBe(400);
+      expect(
+        String((alone.data as Rec).message ?? (alone.data as Rec).error)
+      ).toMatch(/part of a package/);
+    }
+    expect(await features()).toEqual([]);
+    // …and HQ can't put either in the add-on catalogue.
+    for (const part of ["SCHEDULING", "TIP_MANAGEMENT"]) {
+      const created = await adminAddonsRaw(adminToken, "POST", "/catalog", {
+        name: `Automation retired part ${runId}`,
+        description: "Must be refused: a part of RestauNax Team",
+        feature: part,
+        monthlyPriceUsd: 1,
+      });
+      expect(
+        created.status,
+        `${part} catalogue row: ${JSON.stringify(created.data)}`
+      ).toBe(400);
+      expect(JSON.stringify(created.data)).toMatch(/part of a package/);
+    }
+
+    await grant("TEAM_BUNDLE");
+    expect(await features()).toEqual(
+      ["SCHEDULING", "TEAM_BUNDLE", "TIMECARDS", "TIP_MANAGEMENT"].sort()
+    );
     expect(await ownerStatuses()).toEqual({
       jobs: 200,
       settings: 200,
       schedule: 200,
-      tips: 403,
+      tips: 200,
       // P4 (connect your own Gusto) sends approved hours: TIMECARDS.
       provider: 200,
     });
@@ -337,7 +380,9 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
       "GET",
       ""
     );
-    expect(provider.data.data.payrollEntitled).toBe(false);
+    expect(provider.data.data.payrollEntitled, "Team isn't payroll").toBe(
+      false
+    );
     const embedded = await payrollProviderRaw(
       ownerToken,
       restaurantId,
@@ -373,11 +418,11 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
       requests: true,
       schedule: true,
       hours: true,
-      tips: false,
+      tips: true,
       payStubs: false,
     });
 
-    // Data made under SCHEDULING, to prove it survives the add-on going.
+    // Data made under Team, to prove it survives the add-on going.
     const job = await createStaffJobRaw(ownerToken, restaurantId, {
       name: `Line cook ${runId}`,
       defaultHourlyRateCents: 1700,
@@ -407,25 +452,12 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
     expect(list(me?.jobs).length).toBe(1);
   });
 
-  test("TC-567: SCHEDULING + TIP_MANAGEMENT, then Tip Management alone — tips without the schedule", async () => {
-    await grant("TIP_MANAGEMENT");
+  test("TC-567: revoking a part inside RestauNax Team still switches it off — Scheduling off leaves tips without the schedule", async () => {
+    // An HQ revoke (enabled: false) of a component is still allowed.
+    await grant("SCHEDULING", false);
     expect(await features()).toEqual(
-      ["SCHEDULING", "TIMECARDS", "TIP_MANAGEMENT"].sort()
+      ["TEAM_BUNDLE", "TIMECARDS", "TIP_MANAGEMENT"].sort()
     );
-    expect((await ownerStatuses()).tips).toBe(200);
-    const provider = await payrollProviderRaw(
-      ownerToken,
-      restaurantId,
-      "GET",
-      ""
-    );
-    expect(provider.data.data.payrollEntitled, "tips aren't payroll").toBe(
-      false
-    );
-
-    // Tip Management on its own: it brings TIMECARDS (tips split by hours).
-    await remove("SCHEDULING");
-    expect(await features()).toEqual(["TIMECARDS", "TIP_MANAGEMENT"].sort());
     expect(await ownerStatuses()).toEqual({
       jobs: 200,
       settings: 200,
@@ -441,18 +473,40 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
       hours: true,
       tips: true,
     });
+    const provider = await payrollProviderRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      ""
+    );
+    expect(provider.data.data.payrollEntitled, "tips aren't payroll").toBe(
+      false
+    );
+
+    // Lifting the revoke gives the schedule back.
+    await remove("SCHEDULING");
+    expect(await features()).toEqual(
+      ["SCHEDULING", "TEAM_BUNDLE", "TIMECARDS", "TIP_MANAGEMENT"].sort()
+    );
+    expect((await ownerStatuses()).schedule).toBe(200);
   });
 
-  test("TC-568: PAYROLL alone brings tips and timecards; Tip Management can't be bought on top; TIMECARDS is never granted alone", async () => {
-    await remove("TIP_MANAGEMENT");
+  test("TC-568: PAYROLL alone brings all of Team plus payroll runs; Team can't be bought on top; TIMECARDS is never granted alone", async () => {
+    await remove("TEAM_BUNDLE");
     await grant("PAYROLL");
     expect(await features()).toEqual(
-      ["PAYROLL", "TIMECARDS", "TIP_MANAGEMENT"].sort()
+      [
+        "PAYROLL",
+        "SCHEDULING",
+        "TEAM_BUNDLE",
+        "TIMECARDS",
+        "TIP_MANAGEMENT",
+      ].sort()
     );
     expect(await ownerStatuses()).toEqual({
       jobs: 200,
       settings: 200,
-      schedule: 403,
+      schedule: 200,
       tips: 200,
       provider: 200,
     });
@@ -464,26 +518,31 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
     );
     expect(provider.data.data.payrollEntitled).toBe(true);
 
-    // The owner catalogue shows Tip Management as included, never addable.
+    // The owner catalogue shows Team as included, never addable.
     const offered = list(
       (await ownerAddonsRaw(ownerToken, restaurantId, "GET")).data.data?.addons
     );
-    const tips = offered.find((x) => x.feature === "TIP_MANAGEMENT");
+    const team = offered.find((x) => x.feature === "TEAM_BUNDLE");
     test.info().annotations.push({
       type: "catalogue",
       description: `back-office add-ons offered on QA: ${
         offered
           .map((x) => `${x.feature}:${x.status}`)
-          .filter((x) => /SCHEDULING|TIP_MANAGEMENT|PAYROLL/.test(x))
+          .filter((x) =>
+            /SCHEDULING|TIP_MANAGEMENT|TEAM_BUNDLE|PAYROLL/.test(x)
+          )
           .join(", ") || "none"
       }`,
     });
-    if (tips) {
+    // Team's parts are not in the owner catalogue (packaging v3).
+    expect(offered.map((x) => x.feature)).not.toContain("SCHEDULING");
+    expect(offered.map((x) => x.feature)).not.toContain("TIP_MANAGEMENT");
+    if (team) {
       // Since restaunax #998 owners only request add-ons: the row has no
       // request button while it's included, and the old purchase route is
       // gone (404). Before #998: canAdd false and the purchase refused (400).
       const live = await addonRequestsLive(adminToken);
-      expect(tips).toMatchObject(
+      expect(team).toMatchObject(
         live
           ? {
               status: "INCLUDED",
@@ -493,7 +552,7 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
           : { status: "INCLUDED", canAdd: false }
       );
       const bought = await ownerAddonsRaw(ownerToken, restaurantId, "POST", {
-        addonId: tips.id,
+        addonId: team.id,
       });
       expect(bought.status, JSON.stringify(bought.data)).toBe(live ? 404 : 400);
     }
@@ -532,14 +591,14 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
     expect(list(me?.jobs), "no job picker without TIMECARDS").toHaveLength(0);
     expect((await staffAppRequests())?.staffAppEnabled).toBe(false);
 
-    await grant("SCHEDULING");
+    await grant("TEAM_BUNDLE");
     const jobs = await payrollRaw(ownerToken, restaurantId, "GET", "/jobs");
     expect(list(jobs.data.data).some((j) => j.id === jobId)).toBe(true);
     const week = await getScheduleWeekRaw(ownerToken, restaurantId, SHIFT_DATE);
     expect(list(week.data.data?.shifts).some((s) => s.id === shiftId)).toBe(
       true
     );
-    await remove("SCHEDULING");
+    await remove("TEAM_BUNDLE");
   });
 
   test("TC-635: a home-food seller is never offered or sold back-office add-ons; only an explicit admin override grants them", async () => {
@@ -582,10 +641,15 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
       // add-on is refused (404 "isn't available"). Before #998 the purchase
       // route refused it (400).
       const live = await addonRequestsLive(adminToken);
-      if (live)
+      if (live) {
+        // Packaging v3: the team products are Team and Payroll; their parts
+        // are not offered on their own.
         expect(forStore.map((x) => x.feature)).toEqual(
-          expect.arrayContaining(["SCHEDULING", "TIP_MANAGEMENT"])
+          expect.arrayContaining(["TEAM_BUNDLE", "PAYROLL"])
         );
+        for (const part of ["SCHEDULING", "TIP_MANAGEMENT"])
+          expect(forStore.map((x) => x.feature)).not.toContain(part);
+      }
       for (const addon of forStore) {
         const bought = live
           ? await ownerAddonRequestRaw(adminToken, homeId, {
@@ -608,10 +672,10 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
       });
 
       // Escape hatch by design (restaurantFeatureService step 3): an admin
-      // override still grants, with the components.
-      await setFeatureOverrideAdminRaw(adminToken, homeId, "SCHEDULING", true);
+      // override still grants a package, with its components.
+      await setFeatureOverrideAdminRaw(adminToken, homeId, "TEAM_BUNDLE", true);
       expect(await backOfficeOf(homeId)).toEqual(
-        ["SCHEDULING", "TIMECARDS"].sort()
+        ["SCHEDULING", "TEAM_BUNDLE", "TIMECARDS", "TIP_MANAGEMENT"].sort()
       );
     } finally {
       await deleteTestRestaurant(adminToken, homeId).catch(() => {});
@@ -863,12 +927,7 @@ test.describe("Paid add-ons outside the back office gate their routes (API)", ()
       `/api/social-media/posts/${restaurantId}`,
     ];
     for (const on of [false, true]) {
-      for (const f of [
-        "SCHEDULING",
-        "TIP_MANAGEMENT",
-        "MENU_TVS",
-        "SOCIAL_MEDIA",
-      ])
+      for (const f of ["TEAM_BUNDLE", "MENU_TVS", "SOCIAL_MEDIA"])
         await grant(f, on);
       for (const path of probes) {
         const res = await apiRequestRaw<Envelope>(
@@ -885,12 +944,7 @@ test.describe("Paid add-ons outside the back office gate their routes (API)", ()
         expect(res.data?.error).not.toBe("FEATURE_NOT_ENTITLED");
       }
     }
-    for (const f of [
-      "SCHEDULING",
-      "TIP_MANAGEMENT",
-      "MENU_TVS",
-      "SOCIAL_MEDIA",
-    ])
+    for (const f of ["TEAM_BUNDLE", "MENU_TVS", "SOCIAL_MEDIA"])
       await grant(f, false);
   });
 });

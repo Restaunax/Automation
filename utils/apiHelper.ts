@@ -6939,8 +6939,9 @@ export function updateRestaurantSettingsRaw(
 //
 // Helpers for tests/dashboard/owner/api-staff-*.spec.ts. All raw (status +
 // body) so specs can assert refusals as well as successes. Owner routes are
-// gated by TIMECARDS (jobs) and SCHEDULING (shifts, requests) — grant them
-// with setFeatureOverrideAdminRaw first. Staff-app routes use the STAFF
+// gated by TIMECARDS (jobs) and SCHEDULING (shifts, requests) — grant the
+// package that brings them (TEAM_BUNDLE or PAYROLL; packaging v3) with
+// setFeatureOverrideAdminRaw first. Staff-app routes use the STAFF
 // member's own token (their RestauNax account, claimed from the invite).
 
 /** Owner invites a staff member by email (creates the staff row + sends the

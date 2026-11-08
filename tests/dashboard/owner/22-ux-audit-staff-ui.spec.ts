@@ -3,7 +3,8 @@
  * (restaunax #913) (TC-664..666) and the Stage 6 Staff page (TC-1707).
  *
  * Browser. A per-run throwaway owner (loginViaUi) on a restaurant with
- * SCHEDULING + TIP_MANAGEMENT (the most Staff tabs), weekly pay periods and
+ * RestauNax Team (TEAM_BUNDLE: schedule, timecards and tips — the most Staff
+ * tabs), weekly pay periods and
  * manager-entered hours in the two most recent finished periods:
  *   - at 1024 px and 390 px every Staff group (People · Schedule · Payday ·
  *     Tips · Settings, back-office audit W0:OB-1 — at most five) and every
@@ -99,7 +100,7 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI) @staff-setup", ()
     if (!tenant.restaurantId) throw new Error("[ux-ui] no tenant");
     restaurantId = tenant.restaurantId;
     ownerToken = tenant.accessToken;
-    for (const f of ["SCHEDULING", "TIP_MANAGEMENT"])
+    for (const f of ["TEAM_BUNDLE"])
       await setFeatureOverrideAdminRaw(adminToken, restaurantId, f, true);
     await putPayrollSettingsRaw(ownerToken, restaurantId, {
       payFrequency: "WEEKLY",
@@ -182,7 +183,7 @@ test.describe("Owner — UX-audit fixes in the Staff area (UI) @staff-setup", ()
       const groupTabs = page().locator(
         '[data-testid="staff-groups"] + .MuiTabs-root [role="tab"]'
       );
-      // SCHEDULING + TIP_MANAGEMENT: every group, never more than five.
+      // RestauNax Team: every group, never more than five.
       await expect(groups).toHaveText([
         "People",
         "Schedule",

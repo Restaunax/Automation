@@ -245,7 +245,9 @@ test.describe("HQ — add-on requests (UI)", () => {
     adminPage: page,
   }) => {
     requireRelease("requestFlowStage6", stage6);
-    await ask("SCHEDULING");
+    // Packaging v3: RestauNax Team (Scheduling is part of it, not asked for
+    // on its own).
+    await ask("TEAM_BUNDLE");
     await openAddons(page);
     const toggle = page
       .getByRole("group", { name: "Which requests" })
@@ -257,15 +259,16 @@ test.describe("HQ — add-on requests (UI)", () => {
         "Asked before the restaurant's account was live. Each one opens here on its own as soon as the subscription activates, so there is nothing to do yet."
       )
     ).toBeVisible();
-    // The card names the catalog add-on: "Scheduling & Timecards · Scheduling".
-    const req = card(page, "Scheduling & Timecards");
+    // The card names the product, then the catalog add-on:
+    // "RestauNax Team · <catalog name>".
+    const req = card(page, "RestauNax Team");
     await expect(req).toBeVisible({ timeout: 20_000 });
     await expect(req).toContainText("Waiting for the account");
     for (const name of ["Attach", "Mark done", "Decline"])
       await expect(req.getByRole("button", { name })).toHaveCount(0);
     // It is not in the Open list.
     await show(page, "Open");
-    await expect(card(page, "Scheduling & Timecards")).toHaveCount(0);
+    await expect(card(page, "RestauNax Team")).toHaveCount(0);
   });
 
   test("TC-1537: Decline on an open request (the seed's, made by this test): the dialog, Cancel, then Decline; Closed shows it Declined", async ({
@@ -285,13 +288,11 @@ test.describe("HQ — add-on requests (UI)", () => {
       seedToken
     );
     const products = (features.data.data?.availableProducts ?? []) as Rec[];
-    // Not one api-addon-billing attaches (Menu TVs, Scheduling, Tips, Team).
+    // Not one api-addon-billing attaches (Menu TVs, Team, Payroll).
     const product = products.find(
       (p) =>
         !p.pendingRequestStatus &&
-        !["MENU_TVS", "SCHEDULING", "TIP_MANAGEMENT", "TEAM_BUNDLE"].includes(
-          String(p.feature)
-        )
+        !["MENU_TVS", "TEAM_BUNDLE", "PAYROLL"].includes(String(p.feature))
     );
     test.skip(!product, "the seed restaurant has no product left to ask for");
     const note = `automation ${runId}: decline me`;

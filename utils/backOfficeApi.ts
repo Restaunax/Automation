@@ -208,7 +208,7 @@ export const addDays = (date: string, n: number): string =>
  * A finished pay period with hours waiting for approval: weekly periods
  * (anchor Sunday 2026-01-04), the owner's own POS membership on a job, and
  * one 4-hour manager-entered shift in the most recent FINISHED period. The
- * restaurant needs TIMECARDS (e.g. the SCHEDULING override). Returns the
+ * restaurant needs TIMECARDS (e.g. the TEAM_BUNDLE override). Returns the
  * period's startDate and the owner's staffMemberId.
  */
 export async function seedPeriodAwaitingApproval(

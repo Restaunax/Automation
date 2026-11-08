@@ -12,7 +12,7 @@
  *            "Tipped occupation code" field (IRS TTOC, W3:H6).
  *
  * Browser. A per-run throwaway owner (createSecondOwner alwaysFresh) with the
- * SCHEDULING + PAYROLL add-ons, signed in through the UI (loginViaUi). The
+ * PAYROLL add-on (which brings Team: schedule, timecards, tips), signed in through the UI (loginViaUi). The
  * restaurant is deleted afterwards. Fails (never skips) without ADMIN creds.
  */
 import type { Page } from "@playwright/test";
@@ -77,7 +77,7 @@ test.describe("Owner — staff operations settings (UI)", () => {
       throw new Error("[staff-ops-ui] could not mint the throwaway tenant");
     restaurantId = tenant.restaurantId;
     ownerToken = tenant.accessToken;
-    for (const feature of ["SCHEDULING", "PAYROLL"]) {
+    for (const feature of ["PAYROLL"]) {
       const granted = await setFeatureOverrideAdminRaw(
         adminToken,
         restaurantId,

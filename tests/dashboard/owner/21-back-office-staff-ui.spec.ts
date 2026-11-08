@@ -11,15 +11,19 @@
  * admin override between steps and the page reloaded:
  *   none       → People: People, Shifts; Settings: Breaks, Jobs (names
  *                only), Permissions (roles + discount & void rules, W0:J1-b);
- *   SCHEDULING → + Schedule (Schedule, Requests) and Payday (Timecards,
- *                Payday, Labor; Timecards replaces Shifts); People: People,
- *                Announcements; Settings: Pay &
- *                overtime, Jobs & wages, Permissions, Schedule settings,
- *                Sick time & PTO, Employer group; no tips;
- *   + PAYROLL  → + Tips (Tips, Tip policy); Pay & overtime asks "Do you
- *                already use Gusto?" (own Gusto / RestauNax Payroll / a
- *                payroll file) until a mode is chosen;
- *   removed    → back to the core groups.
+ *   TEAM_BUNDLE (RestauNax Team, packaging v3) → + Schedule (Schedule,
+ *                Requests), Payday (Timecards, Payday, Labor; Timecards
+ *                replaces Shifts) and Tips (Tips, Tip policy); People:
+ *                People, Announcements; Settings: Pay & overtime, Jobs &
+ *                wages, Permissions, Schedule settings, Sick time & PTO,
+ *                Employer group;
+ *   + PAYROLL  → Pay & overtime asks "Do you already use Gusto?" (own
+ *                Gusto / RestauNax Payroll / a payroll file) until a mode is
+ *                chosen;
+ *   removed    → back to the core groups;
+ *   Team with Scheduling switched off by HQ (what a restaurant still on the
+ *                old Tip Management add-on has) → Payday and Tips, no
+ *                schedule.
  * An add-on the restaurant lacks may show as a RestauNax product preview tab
  * (marked with the plus icon); the layout checks leave previews out.
  * Plus: Permissions lists the four preset roles, Jobs & wages shows a job and
@@ -224,18 +228,19 @@ test.describe("Owner — Staff area follows the add-ons (UI)", () => {
       .toEqual(expect.arrayContaining(["Meal break", "Rest break"]));
   });
 
-  test("TC-629: SCHEDULING adds the Schedule group and Timecards, Payday, Labor, Jobs & wages, Payroll settings — not tips", async () => {
-    await grant("SCHEDULING");
+  test("TC-629: RestauNax Team adds the Schedule and Tips groups and Timecards, Payday, Labor, Jobs & wages, Payroll settings", async () => {
+    await grant("TEAM_BUNDLE");
     await openStaff();
     expect(await layout()).toEqual({
       People: PEOPLE_PAID,
       Schedule: ["Schedule", "Requests"],
       Payday: PAYDAY,
+      Tips: ["Tips", "Tip policy"],
       Settings: SETTINGS_SCHEDULING,
     });
   });
 
-  test("TC-630: PAYROLL adds the Tips group (tips, tip policy); Payroll settings asks one question with three ways to run payroll", async () => {
+  test("TC-630: PAYROLL keeps the Tips group (tips, tip policy); Payroll settings asks one question with three ways to run payroll", async () => {
     await grant("PAYROLL");
     await openStaff("payrollSettings");
     // The deep link opens Settings with Pay & overtime selected.
@@ -306,7 +311,7 @@ test.describe("Owner — Staff area follows the add-ons (UI)", () => {
   });
 
   test("TC-633: removing the add-ons takes the groups and tabs away again", async () => {
-    for (const f of ["PAYROLL", "SCHEDULING"])
+    for (const f of ["PAYROLL", "TEAM_BUNDLE"])
       await deleteFeatureOverrideAdminRaw(adminToken, restaurantId, f);
     await openStaff();
     expect(await layout()).toEqual(CORE);
@@ -334,8 +339,17 @@ test.describe("Owner — Staff area follows the add-ons (UI)", () => {
     await expect(page().getByText("How you run payroll")).toHaveCount(0);
   });
 
-  test("TC-650: Tip Management alone — Payday (timecards, payday, labor), Settings and the Tips group; no schedule", async () => {
-    await grant("TIP_MANAGEMENT");
+  test("TC-650: tips without the schedule (Team with Scheduling switched off, as on an old Tip Management add-on) — Payday, Settings and the Tips group", async () => {
+    // Scheduling and Tip Management are no longer granted on their own
+    // (packaging v3); an HQ revoke inside Team still switches one off.
+    await grant("TEAM_BUNDLE");
+    const off = await setFeatureOverrideAdminRaw(
+      adminToken,
+      restaurantId,
+      "SCHEDULING",
+      false
+    );
+    expect(off.ok, JSON.stringify(off.data)).toBe(true);
     try {
       await openStaff();
       expect(await layout()).toEqual({
@@ -345,11 +359,8 @@ test.describe("Owner — Staff area follows the add-ons (UI)", () => {
         Settings: SETTINGS_PAID,
       });
     } finally {
-      await deleteFeatureOverrideAdminRaw(
-        adminToken,
-        restaurantId,
-        "TIP_MANAGEMENT"
-      );
+      for (const f of ["SCHEDULING", "TEAM_BUNDLE"])
+        await deleteFeatureOverrideAdminRaw(adminToken, restaurantId, f);
     }
   });
 });

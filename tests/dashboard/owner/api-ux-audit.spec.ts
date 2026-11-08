@@ -2,7 +2,8 @@
  * api-ux-audit.spec.ts — the UX-audit fixes (restaunax #913) on QA
  * (TC-651..666).
  *
- * No browser. A per-run throwaway restaurant with SCHEDULING (Miami), a
+ * No browser. A per-run throwaway restaurant with RestauNax Team (TEAM_BUNDLE,
+ * which brings SCHEDULING) (Miami), a
  * REGISTER device, the owner signed in on it, and:
  *   Pat — Staff role, created on the POS (PIN, no account);
  *   Kim — Staff role, created on the POS (the cashier for the drawer test);
@@ -137,7 +138,7 @@ test.describe("UX-audit fixes (API)", () => {
     const g = await setFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,
-      "SCHEDULING",
+      "TEAM_BUNDLE",
       true
     );
     if (!g.ok) throw new Error(`[ux-audit] grant: ${JSON.stringify(g.data)}`);
@@ -590,25 +591,40 @@ test.describe("UX-audit fixes (API)", () => {
       return new Map(list(r.data.data?.features).map((f) => [f.feature, f]));
     };
     let by = await rows();
-    expect(by.get("SCHEDULING")).toMatchObject({ source: "RESTAUNAX" });
-    expect(by.get("PAYROLL")?.source ?? null).toBeNull();
-    const tips = by.get("TIP_MANAGEMENT");
-    expect(tips?.source ?? null).toBeNull();
+    expect(by.get("TEAM_BUNDLE")).toMatchObject({ source: "RESTAUNAX" });
+    // Packaging v3: Scheduling and Tip Management are parts of Team, not
+    // rows of their own (unless a restaurant still pays for an old add-on).
+    expect(by.has("SCHEDULING")).toBe(false);
+    expect(by.has("TIP_MANAGEMENT")).toBe(false);
+    const payroll = by.get("PAYROLL");
+    expect(payroll?.source ?? null).toBeNull();
     // Either it can be requested (restaunax #998; added, before it), or the
     // owner is told to talk to us — never neither.
     const live = await addonRequestsLive(adminToken);
     const ADD = live ? "canRequestAdd" : "canAdd";
-    expect(Boolean(tips?.[ADD]) || Boolean(tips?.contactUs)).toBe(true);
+    expect(Boolean(payroll?.[ADD]) || Boolean(payroll?.contactUs)).toBe(true);
 
+    // Payroll includes Team: with Payroll alone, Team reads "included with".
+    await deleteFeatureOverrideAdminRaw(
+      adminToken,
+      restaurantId,
+      "TEAM_BUNDLE"
+    );
     await setFeatureOverrideAdminRaw(adminToken, restaurantId, "PAYROLL", true);
     try {
       by = await rows();
-      expect(by.get("TIP_MANAGEMENT")).toMatchObject({
+      expect(by.get("TEAM_BUNDLE")).toMatchObject({
         source: "INCLUDED_WITH",
         includedWith: "PAYROLL",
         [ADD]: false,
       });
     } finally {
+      await setFeatureOverrideAdminRaw(
+        adminToken,
+        restaurantId,
+        "TEAM_BUNDLE",
+        true
+      );
       await deleteFeatureOverrideAdminRaw(adminToken, restaurantId, "PAYROLL");
     }
   });
