@@ -357,7 +357,7 @@ test.describe("Customer — Checkout Stripe minimum", () => {
   }) => {
     await allure.description(
       "With a $0.25 item (server-quoted total lands between $0.01 and $0.49), checkout disables " +
-        "the proceed button — label 'Minimum $0.50 Required' — and shows the explainer banner. " +
+        "the proceed button — label 'Review your order' — and shows the explainer banner. " +
         "No order is created."
     );
 

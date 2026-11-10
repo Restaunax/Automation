@@ -3,7 +3,9 @@ import { type Locator, type Page, expect } from "@playwright/test";
 /**
  * Owner — Print Shop, the parts the cart added (RestauNax #1072/#1075/#1100):
  * a not-yet-launched product's one-click "Request a quote" on its catalog
- * card, the Table QR cards builder, and the cart.
+ * card, the Table QR cards builder (with its optional photo and follow-us
+ * code, and no free print file since the print-builders release), and the
+ * cart.
  *
  * Every name the cart shows arrives translated from the server; the builder
  * and catalog read the frontend's EN bundle. MUI cards carry no test ids, so
@@ -98,6 +100,40 @@ export const createOwnerSupplyCartPage = (page: Page) => {
     ).toBeVisible();
   };
 
+  // ── Builder: proof only, ordered to print ──────────────────────────────────
+  const actionsTitle = () =>
+    page.getByText("Check and order your cards", { exact: true });
+  const previewPdfButton = () =>
+    page.getByRole("button", { name: "Preview PDF", exact: true });
+  /** Gone since the print-builders release: owners order their cards. */
+  const selfPrintButton = () =>
+    page.getByRole("button", { name: "Download and print myself" });
+  const orderToPrintNote = () =>
+    page.getByText(
+      "Table QR cards are printed by RestauNax: order them below and we'll ship them to you.",
+      { exact: true }
+    );
+
+  // ── Builder: photo and follow code (optional) ──────────────────────────────
+  const extrasTitle = () =>
+    page.getByText("Photo and follow code (optional)", { exact: true });
+  const addPhotoButton = () =>
+    page.getByRole("button", { name: "Add a photo", exact: true });
+  /** The photo picker side sheet's two sources. */
+  const photoSourceTab = (name: "Your photos" | "Menu items") =>
+    page.getByRole("tab", { name, exact: true });
+  const menuSearch = () => page.getByLabel("Search your menu");
+  const closePhotoPicker = () =>
+    page.getByRole("button", { name: "Cancel", exact: true }).click();
+  const followSwitch = () =>
+    page.getByRole("switch", { name: "Add a follow-us code" });
+  /** A platform toggle; its name carries the handle or "Not added yet". */
+  const platformToggle = (platform: "Instagram" | "Facebook" | "TikTok") =>
+    page.getByRole("button", { name: new RegExp(`^${platform}\\b`) });
+  const followLinkInput = () => page.locator("#follow-link");
+  const saveFollowLinkButton = () =>
+    page.getByRole("button", { name: "Save", exact: true });
+
   // ── Cart ───────────────────────────────────────────────────────────────────
   /** One cart line's card, by the start of its name. */
   const cartLine = (namePrefix: string): Locator =>
@@ -122,6 +158,19 @@ export const createOwnerSupplyCartPage = (page: Page) => {
     addToCartButton,
     chooseSameCards,
     addToCartAndOpenCart,
+    actionsTitle,
+    previewPdfButton,
+    selfPrintButton,
+    orderToPrintNote,
+    extrasTitle,
+    addPhotoButton,
+    photoSourceTab,
+    menuSearch,
+    closePhotoPicker,
+    followSwitch,
+    platformToggle,
+    followLinkInput,
+    saveFollowLinkButton,
     cartLine,
   };
 };

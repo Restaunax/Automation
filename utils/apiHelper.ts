@@ -193,10 +193,19 @@ export async function setPassProcessingFee(
  * ARCHIVED (soft delete, still in the database). Returns which one happened,
  * so a test that must leave nothing behind can assert "purged".
  */
+/**
+ * KEEP_TEST_DATA=true turns the post-run cleanup deletes below into no-ops —
+ * for runs against a developer's LOCAL stack, whose database must never lose
+ * rows (throwaway tenants stay behind there). QA/CI never set it.
+ */
+export const keepTestData = (): boolean =>
+  process.env.KEEP_TEST_DATA === "true";
+
 export async function deleteTestRestaurant(
   adminAccessToken: string,
   restaurantId: string
 ): Promise<"purged" | "archived" | undefined> {
+  if (keepTestData()) return undefined;
   const data = await apiRequest<{ action?: "purged" | "archived" }>(
     "DELETE",
     `/api/admin/restaurants/${restaurantId}`,
@@ -234,6 +243,7 @@ export async function permanentlyDeleteMenuItemApi(
   adminToken: string,
   menuItemId: string
 ): Promise<void> {
+  if (keepTestData()) return;
   await apiRequest<unknown>(
     "DELETE",
     `/menu/menuItemId/${menuItemId}/permanent`,
@@ -249,6 +259,7 @@ export async function deleteTestMenuGroup(
   accessToken: string,
   menuGroupId: string
 ): Promise<void> {
+  if (keepTestData()) return;
   await apiRequest<unknown>(
     "DELETE",
     `/menu/group/${menuGroupId}`,
@@ -1175,6 +1186,39 @@ export async function setBusinessHoursApi(
       })),
     },
     accessToken
+  );
+}
+
+/**
+ * Open every day 00:00–23:59 — NOT 24 hours. A day close pauses online
+ * ordering until the next opening; for a 24-hour venue that is "now", so the
+ * pause lifts at once (by design, restaunax nextOpeningAt.test.ts). With
+ * these hours the next opening is tomorrow at midnight, so "closed for the
+ * night" holds while a test checks it. Replaces the restaurant's rows.
+ */
+export async function setOpenAllDayHours(
+  accessToken: string,
+  restaurantId: string
+): Promise<void> {
+  const days = [
+    "MONDAY",
+    "TUESDAY",
+    "WEDNESDAY",
+    "THURSDAY",
+    "FRIDAY",
+    "SATURDAY",
+    "SUNDAY",
+  ];
+  await setBusinessHoursApi(
+    accessToken,
+    restaurantId,
+    days.map((day) => ({
+      day,
+      openingTime: "00:00:00",
+      closingTime: "23:59:00",
+      isClosed: false,
+      is24Hours: false,
+    }))
   );
 }
 
@@ -3228,11 +3272,20 @@ export function cancelOrderRaw(
   );
 }
 
-/** POST /api/order/statistics/refund/:orderId — standalone (partial) refund. */
+/**
+ * POST /api/order/statistics/refund/:orderId — standalone (partial) refund.
+ * `items` names the refunded lines: the tax given back is then those lines'
+ * own rates (RestauNax audit W4:M7); without it the refund is prorated over
+ * the sale without its tip.
+ */
 export function refundOrderRaw(
   accessToken: string,
   orderId: string,
-  body: { amount?: number | string; reason?: string } = {}
+  body: {
+    amount?: number | string;
+    reason?: string;
+    items?: { orderItemId: string; quantity: number }[];
+  } = {}
 ): Promise<RawResponse<Record<string, unknown>>> {
   return apiRequestRaw<Record<string, unknown>>(
     "POST",
@@ -3756,7 +3809,9 @@ export function listReservationServicePeriodsOwnerRaw(
 /** GET /restaurant/:rid/reservation-service-periods/suggested — booking
  *  windows suggested from the restaurant's business hours (2026-10-08).
  *  Data: {hasBusinessHours, windows: [{dayOfWeek, startTime, endTime}],
- *  skipped: [{dayOfWeek, reason: "CLOSED"|"OPEN_24_HOURS"|"TOO_SHORT"}]}. */
+ *  skipped: [{dayOfWeek, reason: "CLOSED"|"OPEN_24_HOURS"|"TOO_SHORT"}],
+ *  suggestedMaxPartiesPerSlot, suggestedSlotIntervalMinutes} (the last two
+ *  2026-10-31: max(1, round(sellable tables × 15 / default duration))). */
 export function suggestReservationServicePeriodsOwnerRaw(
   ownerToken: string,
   restaurantId: string
@@ -4530,7 +4585,11 @@ export function notifyReservationTabletRaw(
 }
 
 /** POST /api/tablet/reservations/:id/status {action: "confirm"|"arrive"|
- *  "partially_seat"|"no_show"|"cancel"|"complete"} — lifecycle transition. */
+ *  "partially_seat"|"seat"|"no_show"|"cancel"|"complete"|"reinstate"} —
+ *  lifecycle transition. `seat` (2026-10-31) is only "the rest of the party
+ *  arrived": PARTIALLY_SEATED → SEATED on the tables they already have (any
+ *  other status → 400 RESERVATION_INVALID_TRANSITION; a first seating goes
+ *  through /seat). */
 export function reservationStatusTabletRaw(
   tabletToken: string,
   staffSession: string,
@@ -4539,9 +4598,11 @@ export function reservationStatusTabletRaw(
     | "confirm"
     | "arrive"
     | "partially_seat"
+    | "seat"
     | "no_show"
     | "cancel"
     | "complete"
+    | "reinstate"
 ): Promise<RawResponse<Record<string, unknown>>> {
   return apiRequestRaw(
     "POST",
@@ -4554,7 +4615,9 @@ export function reservationStatusTabletRaw(
 
 /** POST /api/tablet/reservations/:id/seat {tableIds, guestCount?,
  *  clientRequestId?} — seat a reservation; response carries
- *  {reservation, prefill} (prefill feeds the create-order screen). */
+ *  {reservation, prefill} (prefill feeds the create-order screen).
+ *  `guestCount` below the party size → PARTIALLY_SEATED (2026-10-31);
+ *  omitted or the full count → SEATED. */
 export function seatReservationTabletRaw(
   tabletToken: string,
   staffSession: string,
@@ -4597,11 +4660,15 @@ export function holdReservationTablesTabletRaw(
 }
 
 /** PATCH /api/tablet/reservations/:id {guestName?, guestPhone?, partySize?,
- *  scheduledAt?, guestNotes?, internalNotes?} — the host stand edits a
- *  booking that hasn't arrived (BOOKED/CONFIRMED RESERVATION only, else 409
- *  RESERVATION_NOT_EDITABLE). A move into the past → 400
- *  RESERVATION_IN_PAST; moving the time releases a held table (2026-10-12).
- *  Data: the serialized reservation. */
+ *  scheduledAt?, guestNotes?, internalNotes?, quotedWaitMinutes?} — the host
+ *  stand edits a row. What it accepts (2026-10-31, editableFieldsFor): a
+ *  BOOKED/CONFIRMED booking everything; an ARRIVED booking partySize + notes;
+ *  a WAITLIST entry in BOOKED/NOTIFIED name, phone, party, notes and
+ *  quotedWaitMinutes (createdAt kept); anything else 409
+ *  RESERVATION_NOT_EDITABLE. A move into the past → 400 RESERVATION_IN_PAST;
+ *  a bad quote → 400 RESERVATION_QUOTED_WAIT_INVALID; moving the time
+ *  releases a held table. Data: the serialized reservation (+ advisory
+ *  `pacingExceeded` / `tablesExceeded`, present only when true). */
 export function updateReservationTabletRaw(
   tabletToken: string,
   staffSession: string,
@@ -4790,7 +4857,9 @@ export function keepReservationHoldTabletRaw(
 // ── Public reservations (no auth) ────────────────────────────────────────────
 
 /** GET /api/public/restaurants/:rid/reservation-availability?date=&partySize=
- *  — the storefront/booking-widget availability check. */
+ *  — the storefront/booking-widget availability check. Data also carries
+ *  (2026-10-31) `timeZone` (IANA) and `minPartySize` / `maxPartySize` (over
+ *  the active PACED periods; null when none); slots are unique + sorted. */
 export function getPublicAvailabilityRaw(
   restaurantId: string,
   date: string,
@@ -4824,7 +4893,8 @@ export function getPublicAvailabilityDaysRaw(
 
 /** POST /api/public/restaurants/:rid/reservations {guestName, guestPhone,
  *  partySize, scheduledAt, guestEmail?, guestNotes?, clientRequestId?} —
- *  guest self-service booking. */
+ *  guest self-service booking. Caps (2026-10-31): guestName 100, guestNotes
+ *  500, guestEmail 254 + email-shaped — else 400 SYSTEM_VALIDATION_ERROR. */
 export function createPublicReservationRaw(
   restaurantId: string,
   body: Record<string, unknown>
@@ -4837,7 +4907,8 @@ export function createPublicReservationRaw(
 }
 
 /** GET /api/public/reservations/manage/:manageToken — guest self-manage view
- *  (the link sent by the confirmation SMS/email). */
+ *  (the link sent by the confirmation SMS/email). Carries `timeZone` since
+ *  2026-10-31. */
 export function getManagedReservationRaw(
   manageToken: string
 ): Promise<RawResponse<Record<string, unknown>>> {
@@ -6876,8 +6947,9 @@ export function updateRestaurantSettingsRaw(
 //
 // Helpers for tests/dashboard/owner/api-staff-*.spec.ts. All raw (status +
 // body) so specs can assert refusals as well as successes. Owner routes are
-// gated by TIMECARDS (jobs) and SCHEDULING (shifts, requests) — grant them
-// with setFeatureOverrideAdminRaw first. Staff-app routes use the STAFF
+// gated by TIMECARDS (jobs) and SCHEDULING (shifts, requests) — grant the
+// package that brings them (TEAM_BUNDLE or PAYROLL; packaging v3) with
+// setFeatureOverrideAdminRaw first. Staff-app routes use the STAFF
 // member's own token (their RestauNax account, claimed from the invite).
 
 /** Owner invites a staff member by email (creates the staff row + sends the
@@ -6992,7 +7064,13 @@ export function publishScheduleRaw(
   notifyMode: "CHANGED" | "ALL" | "NONE" = "NONE"
 ): Promise<
   RawResponse<{
-    data?: { published: number; notified: number; publicationId: string };
+    data?: {
+      published: number;
+      notified: number;
+      publicationId: string;
+      /** W3:M5 (Stage 5): predictability pay this publish owes. */
+      premiums?: LooseJson[];
+    };
   }>
 > {
   return apiRequestRaw(
@@ -7569,6 +7647,17 @@ export function accountantRaw<T = { data?: LooseJson; message?: string }>(
   return apiRequestRaw("GET", `/api/accountant${path}`, undefined, token);
 }
 
+/** Any method under `/api/accountant{path}` — the workspace is read-only, so
+ *  every non-GET answers 403 (restaunax W2:A10). */
+export function accountantAnyRaw<T = { data?: LooseJson; message?: string }>(
+  token: string,
+  method: Method,
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(method, `/api/accountant${path}`, body, token);
+}
+
 /** HQ add-on catalog and billing: `/api/admin/addons{path}` (ADMIN). */
 export function adminAddonsRaw<T = { data?: LooseJson; message?: string }>(
   token: string,
@@ -7626,11 +7715,18 @@ export function ownerAddonRequestCancelRaw(
 }
 
 /** POST `/restaurant/:rid/daily-close` — close the current business day from
- *  the dashboard (fires the partner API's `day.closed`). */
+ *  the dashboard (fires the partner API's `day.closed`). `pauseOrdering`
+ *  (W0:J4-b): absent or true pauses online ordering until the next opening;
+ *  only `false` keeps it open (`data.orderingPaused` says which). */
 export function closeDayWebRaw(
   token: string,
   restaurantId: string,
-  body: { depositAmount: number; note?: string; reclose?: boolean } = {
+  body: {
+    depositAmount: number;
+    note?: string;
+    reclose?: boolean;
+    pauseOrdering?: boolean;
+  } = {
     depositAmount: 0,
   }
 ): Promise<RawResponse<{ data?: LooseJson; message?: string }>> {

@@ -1,7 +1,7 @@
 import { type Page, expect } from "@playwright/test";
 
 /**
- * OwnerOrderSettingsPage — Store Settings → "Order Settings" sub-tab of the
+ * OwnerOrderSettingsPage — Store Settings → "Fees & tips" group of the
  * restaurant portal (RestaurantSettingsPage → OrderSettingsTab.tsx), scoped to
  * the dual-pricing block. The block renders ONLY for restaurants a company
  * admin has enrolled (settings.dualPricingEligible); the toggle is disabled
@@ -18,12 +18,12 @@ export const createOwnerOrderSettingsPage = (page: Page) => {
     await drawer()
       .getByRole("button", { name: "Store Settings", exact: true })
       .click();
-    const tab = page.getByRole("tab", { name: "Order Settings" });
+    const tab = page.getByRole("tab", { name: "Fees & tips" });
     await tab.waitFor({ state: "visible", timeout: 15_000 });
     await tab.click();
-    // OrderSettingsTab.tsx title: restaurant.json → orderSettings.title
+    // OrderSettingsTab.tsx, fees section: restaurant.json → feesCard.cardFeesTitle
     await page
-      .getByRole("heading", { name: "Order Processing Settings" })
+      .getByRole("heading", { name: "Card fees", exact: true })
       .first()
       .waitFor({ state: "visible", timeout: 15_000 });
   };
@@ -36,7 +36,7 @@ export const createOwnerOrderSettingsPage = (page: Page) => {
     dualPricingLabel().locator('input[type="checkbox"]');
 
   const markupMissingWarning = () =>
-    page.getByText("Contact RestauNax to set your card markup first");
+    page.getByText("RestauNax sets your card markup.");
 
   const convertButton = () =>
     page.getByRole("button", { name: /Confirm menu prices/ });

@@ -384,11 +384,14 @@ export const createCustomerCheckoutPage = (page: Page) => {
   // button (label swaps to "Minimum $0.50 Required") and shows an amber
   // explainer banner. No order is ever created in this state.
   const assertBelowStripeMinimum = async () => {
-    await expect(page.getByText(/below the \$0\.50 minimum/i)).toBeVisible({
-      timeout: 15_000,
-    });
+    // The quote's own refusal; the button then names no amount (PAY_BLOCKED_LABEL).
+    await expect(
+      page.getByText(/Card payments must be at least \$0\.50\./)
+    ).toBeVisible({ timeout: 15_000 });
+    // Said once: wind's own banner stays out of the way.
+    await expect(page.getByText(/below the \$0\.50 minimum/i)).toHaveCount(0);
     const blockedButton = page.getByRole("button", {
-      name: "Minimum $0.50 Required",
+      name: "Review your order",
     });
     await expect(blockedButton).toBeVisible({ timeout: 10_000 });
     await expect(blockedButton).toBeDisabled();

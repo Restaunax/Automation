@@ -156,6 +156,15 @@ Helpers live in `utils/apiHelper.ts`: `createSeededOrder`,
   TC-712: a ticket whose deal pick isn't one of the deal's items
   (or leaves a slot empty) is refused by the pricing floor with the web checkout's sentence.
 
+- **`19-shift-checkout.spec.ts` (TC-1500..1506)** — shift checkout at clock-out (restaunax
+  W0:MF-1) on a per-run tenant with TIP_MANAGEMENT: clock-out still answers what an older POS
+  reads plus a 15-minute `checkoutToken`; `GET /api/tablet/staff/shift-checkout` with
+  `X-Shift-Checkout` returns sales, tips, tip-outs, net tips and cash owed to the house with
+  labels in the request language and the estimate note; no/forged/other-device tokens are 401;
+  a signed-in `X-Staff-Session` reads the latest shift; Restaunax Staff's
+  `/restaurants/:id/shift-checkout` returns the same figures. Fails (never skips) without admin
+  credentials.
+
 ## Gotchas worth knowing before adding more coverage here
 
 - **Device-pairing budget: a full run is already at 7 of the 10 `tabletLogin`
@@ -197,6 +206,16 @@ closed: false}` before it even generates candidate slots from the period —
   OPEN **and CLOSE**, staff sessions, and the drawer-exclusivity lock are now
   covered by the 03 + 08 harnesses; tablet-initiated cancel is covered by
   TC-383 — https://github.com/Restaunax/Automation/issues/15 can close.)
+
+- **`20-courier-contact.spec.ts` (TC-1804..1806)** — no courier PIN, contact number
+  or Uber help block on any customer view of an order, and `replace-courier` refused
+  across tenants and on a kiosk. The customer check is only real against a LOCAL
+  backend with `COURIER_SEED_DATABASE_URL` set; see the file header.
+
+- **`24-app-version-force-update.spec.ts` (TC-1951..1953)** — the public app-version
+  lookup: the owner, staff and customer apps never get `forceUpdate` true (it would
+  block people already up to date); an enabled POS row always does (the POS enforces
+  its minimum only then). Read-only.
 
 ## 09-dual-pricing.spec.ts
 

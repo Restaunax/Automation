@@ -90,6 +90,28 @@ export const createOwnerReservationsPage = (page: Page) => {
       | "doubleSeatWarnMinutes"
   ) => page.locator(`#reservation-settings-${key}`);
   const saveSettingsButton = () => page.getByTestId("unsaved-changes-save");
+  // The audit fixes (RestauNax fix/reservations-audit) split the settings
+  // into "Basics" and a COLLAPSED "Advanced" accordion holding the waitlist
+  // window, arrival alert, per-phone cap, double-seat warning, no-show
+  // lateness and "After guests pay" (policy radio, auto-clear + dirty
+  // timeout). Inputs inside it are mounted but hidden until it opens.
+  const advancedSection = () =>
+    page.getByTestId("reservation-settings-advanced");
+  const advancedSummary = () =>
+    advancedSection().getByRole("button", { name: /Advanced/ });
+  /** Opens "Advanced" when this build has it (an older build shows every
+   *  field inline — then this is a no-op). */
+  const ensureAdvancedOpen = async () => {
+    if ((await advancedSection().count()) === 0) return;
+    const summary = advancedSummary();
+    if ((await summary.getAttribute("aria-expanded")) !== "true") {
+      await summary.click();
+    }
+    await expect(summary).toHaveAttribute("aria-expanded", "true");
+  };
+  const tablesRequiredLink = () =>
+    page.getByRole("button", { name: "Go to Tables" });
+  const bookingSetupError = () => page.getByTestId("booking-setup-error");
 
   const saveReservationSettings = async () => {
     const [res] = await Promise.all([
@@ -149,8 +171,10 @@ export const createOwnerReservationsPage = (page: Page) => {
       .filter({ has: page.getByText(name, { exact: true }) });
 
   // ── Turn-time bands panel ──────────────────────────────────────────────────
+  // Renamed "How long tables stay, by party size" / "Add party size" by the
+  // audit fixes — both labels accepted until that build is everywhere.
   const addBandButton = () =>
-    main().getByRole("button", { name: "Add Band", exact: true });
+    main().getByRole("button", { name: /^(Add Band|Add party size)$/ });
   const turnTimeMinInput = () =>
     page.getByTestId("turn-time-form-min").locator("input");
   const turnTimeMaxInput = () => page.locator("#turn-time-max-party");
@@ -203,8 +227,11 @@ export const createOwnerReservationsPage = (page: Page) => {
     });
 
   // ── Date overrides panel ───────────────────────────────────────────────────
+  // Renamed "Holidays and special dates" / "Add date" by the audit fixes.
   const addOverrideButton = () =>
-    main().getByRole("button", { name: "Add Override", exact: true });
+    main().getByRole("button", { name: /^(Add Override|Add date)$/ });
+  const dateOverrideSavedText = /^(Date override saved\.|Date saved\.)$/;
+  const deleteDateOverrideTitle = /^Delete this date( override)?\?$/;
   // MUI X DatePicker's visible widget is a sectioned input, not a plain text
   // box — click the section-list container inside the FormControl carrying
   // the label, then type through the keyboard (same pattern established in
@@ -255,9 +282,9 @@ export const createOwnerReservationsPage = (page: Page) => {
     row.getByRole("button", { name: ariaLabel, exact: true });
 
   // ── Shared ConfirmProvider dialog ─────────────────────────────────────────
-  const confirmDialog = (title: string) =>
+  const confirmDialog = (title: string | RegExp) =>
     page.getByRole("dialog", { name: title });
-  const confirmDialogButton = (title: string, buttonName: string) =>
+  const confirmDialogButton = (title: string | RegExp, buttonName: string) =>
     confirmDialog(title).getByRole("button", { name: buttonName, exact: true });
 
   // ── Bookings panel (day view) ──────────────────────────────────────────────
@@ -278,6 +305,71 @@ export const createOwnerReservationsPage = (page: Page) => {
   };
   const cancelBookingMenuItem = () =>
     page.getByRole("menuitem", { name: "Cancel booking", exact: true });
+  const confirmedMenuItem = () =>
+    page.getByRole("menuitem", { name: "Guest confirmed", exact: true });
+  const arrivedMenuItem = () =>
+    page.getByRole("menuitem", { name: "Mark arrived", exact: true });
+
+  /** Runs one of the row menu's one-tap status actions ("Guest confirmed",
+   *  "Mark arrived") and returns the PATCH response. */
+  const rowStatusAction = async (
+    guestName: string,
+    item: "Guest confirmed" | "Mark arrived"
+  ) => {
+    await openBookingRowMenu(guestName);
+    const [res] = await Promise.all([
+      page.waitForResponse(
+        (r) =>
+          /\/reservations\/[^/]+$/.test(r.url()) &&
+          r.request().method() === "PATCH",
+        { timeout: 15_000 }
+      ),
+      page.getByRole("menuitem", { name: item, exact: true }).click(),
+    ]);
+    return res;
+  };
+
+  // ── Day view extras (audit fixes) ──────────────────────────────────────────
+  /** A row's red "Allergy" chip. */
+  const bookingRowAllergyChip = (guestName: string) =>
+    bookingRow(guestName).getByTestId("booking-row-allergy");
+  const bookingRowGuestNotes = (guestName: string) =>
+    bookingRow(guestName).getByTestId("booking-row-guest-notes");
+  const bookingRowStaffNotes = (guestName: string) =>
+    bookingRow(guestName).getByTestId("booking-row-staff-notes");
+  const daySummary = () => page.getByTestId("booking-day-summary");
+  const summaryValue = (
+    item: "reservations" | "waitlist" | "allergies" | "busiest"
+  ) => page.getByTestId(`booking-summary-${item}`);
+  const searchInput = () => page.locator("#bookings-search");
+  const emptySearchMessage = () =>
+    page.getByText("No bookings on this day match your search.");
+  const printDaySheetButton = () => page.getByTestId("booking-day-print");
+  /** The day navigator's date field (MUI X DatePicker, "ddd, MMM D, YYYY"). */
+  const dayPickerField = () =>
+    page.getByRole("group", { name: "Choose a day" });
+  const dayPickerOpenButton = () =>
+    page.getByRole("button", { name: /Choose date/ });
+  /** Picks `date`'s day from the open calendar (same month as shown —
+   *  callers step months first if needed). */
+  const pickDayInCalendar = async (date: Date) => {
+    await dayPickerOpenButton().click();
+    const dialog = page.getByRole("dialog");
+    await dialog.waitFor({ state: "visible", timeout: 5_000 });
+    const monthLabel = date.toLocaleString("en-US", {
+      month: "long",
+      year: "numeric",
+    });
+    for (let i = 0; i < 12; i++) {
+      if (await dialog.getByText(monthLabel, { exact: true }).isVisible())
+        break;
+      await dialog.getByRole("button", { name: "Next month" }).click();
+    }
+    await dialog
+      .getByRole("gridcell", { name: String(date.getDate()), exact: true })
+      .click();
+    await dialog.waitFor({ state: "hidden", timeout: 5_000 });
+  };
 
   const cancelBookingViaMenu = async (guestName: string) => {
     await openBookingRowMenu(guestName);
@@ -404,6 +496,27 @@ export const createOwnerReservationsPage = (page: Page) => {
     gotoBookingsSubTab,
     selectMuiOption,
     onlineBookingToggle,
+    advancedSection,
+    advancedSummary,
+    ensureAdvancedOpen,
+    tablesRequiredLink,
+    bookingSetupError,
+    dateOverrideSavedText,
+    deleteDateOverrideTitle,
+    confirmedMenuItem,
+    arrivedMenuItem,
+    rowStatusAction,
+    bookingRowAllergyChip,
+    bookingRowGuestNotes,
+    bookingRowStaffNotes,
+    daySummary,
+    summaryValue,
+    searchInput,
+    emptySearchMessage,
+    printDaySheetButton,
+    dayPickerField,
+    dayPickerOpenButton,
+    pickDayInCalendar,
     pacingErrorAlert,
     pacingRequiredLink,
     numericSettingInput,

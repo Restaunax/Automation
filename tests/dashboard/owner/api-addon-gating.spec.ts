@@ -4,7 +4,11 @@
  * No browser (the dashboard's navigation is covered by the UI spec). One
  * throwaway restaurant walks the packaging ladder from E0
  * (restaunax docs/features/back-office/E0_ENTITLEMENTS_AND_PACKAGING.md):
- *   nothing → SCHEDULING only → SCHEDULING + PAYROLL → PAYROLL only → nothing
+ *   nothing → Scheduling / Tip Management alone refused → RestauNax Team
+ *   (TEAM_BUNDLE) → Team with Scheduling revoked → PAYROLL only (Team +
+ *   payroll runs) → nothing
+ * (packaging v3, RestauNax #1149: Team and Payroll are the team products;
+ * SCHEDULING, TIP_MANAGEMENT and TIMECARDS are components)
  * and at each rung asks every surface what it sees:
  *   - the owner API (payroll, scheduling, tips, payroll provider routes);
  *   - the entitlement sets the dashboard (/restaurant/.../features) and the
@@ -16,9 +20,15 @@
  *
  * The owner's own POS membership (my-pin) doubles as the staff-app account,
  * so no invite email is needed. Serial.
+ *
+ * The second block (TC-1180..1184, RestauNax W5 Stage 1) covers the paid
+ * add-ons outside the back office — Menu TVs, Social Media, Voice AI — both
+ * ways through an HQ grant, and another owner probing (404, never "you lack
+ * the add-on"). Gated by RELEASED_ON_QA.paywallStage1 until it is on QA.
  */
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
+import { requireEnv } from "../../../utils/envGate";
 import { generateRunId } from "../../../utils/testData";
 import {
   apiLogin,
@@ -47,9 +57,12 @@ import {
   createRestaurantRaw,
   ownerAddonsRaw,
   ownerAddonRequestRaw,
+  adminAddonsRaw,
+  apiRequestRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
 import { addonRequestsLive } from "../../../utils/addonRequestGate";
+import { probePaywallStage1, requireRelease } from "../../../utils/releaseGate";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
@@ -58,14 +71,20 @@ type Rec = Record<string, LooseJson>;
 const list = (v: unknown) => (Array.isArray(v) ? (v as Rec[]) : []);
 const day = (n: number) =>
   new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
-const BACK_OFFICE = ["PAYROLL", "SCHEDULING", "TIMECARDS", "TIP_MANAGEMENT"];
+const BACK_OFFICE = [
+  "PAYROLL",
+  "TEAM_BUNDLE",
+  "SCHEDULING",
+  "TIMECARDS",
+  "TIP_MANAGEMENT",
+];
 
 test.describe.configure({ mode: "serial" });
 
 test.describe("Back-office add-ons gate every surface (API)", () => {
-  test.skip(
-    !ADMIN_EMAIL || !ADMIN_PASSWORD,
-    "ADMIN_EMAIL / ADMIN_PASSWORD not set (the file mints its own tenant)"
+  requireEnv(
+    ["ADMIN_EMAIL", "ADMIN_PASSWORD"],
+    "the file mints its own tenant"
   );
 
   const runId = generateRunId();
@@ -311,14 +330,71 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
     expect(off.status).toBe(403);
   });
 
-  test("TC-566: SCHEDULING only — schedule, jobs and the clock-in rule appear; tips and payroll runs don't", async () => {
-    await grant("SCHEDULING");
-    expect(await features()).toEqual(["SCHEDULING", "TIMECARDS"]);
+  test("TC-566: Scheduling and Tip Management alone are refused; RestauNax Team brings the schedule, timecards and tips; payroll runs don't come with it", async () => {
+    // Packaging v3: Scheduling and Tip Management are parts of Team, never
+    // granted on their own (400, like TIMECARDS).
+    for (const part of ["SCHEDULING", "TIP_MANAGEMENT"]) {
+      const alone = await setFeatureOverrideAdminRaw(
+        adminToken,
+        restaurantId,
+        part,
+        true
+      );
+      expect(alone.status, `${part}: ${JSON.stringify(alone.data)}`).toBe(400);
+      const said = String(
+        (alone.data as Rec).message ?? (alone.data as Rec).error
+      );
+      expect(said).toMatch(/part of a package/);
+      // It names the packages that are sold, not the retired parts.
+      expect(said).toMatch(/RestauNax Team or RestauNax Payroll/);
+    }
+    expect(await features()).toEqual([]);
+    // …and HQ can't put either in the add-on catalogue.
+    for (const part of ["SCHEDULING", "TIP_MANAGEMENT"]) {
+      const created = await adminAddonsRaw(adminToken, "POST", "/catalog", {
+        name: `Automation retired part ${runId}`,
+        description: "Must be refused: a part of RestauNax Team",
+        feature: part,
+        monthlyPriceUsd: 1,
+      });
+      expect(
+        created.status,
+        `${part} catalogue row: ${JSON.stringify(created.data)}`
+      ).toBe(400);
+      expect(JSON.stringify(created.data)).toMatch(/part of a package/);
+    }
+    // …and an owner can't ask for an old Scheduling catalogue row by its id
+    // (404, as for any add-on not offered to them).
+    const catalog = await apiRequestRaw<
+      { id: string; feature: string; isActive: boolean }[]
+    >("GET", "/api/admin/addons/catalog", undefined, adminToken);
+    expect(catalog.ok, `catalog read failed (${catalog.status})`).toBe(true);
+    const oldRow = (catalog.data ?? []).find(
+      (a) => a.feature === "SCHEDULING" && a.isActive
+    );
+    if (oldRow) {
+      const asked = await ownerAddonRequestRaw(ownerToken, restaurantId, {
+        addonId: oldRow.id,
+        kind: "ADD",
+      });
+      expect(asked.status, JSON.stringify(asked.data)).toBe(404);
+    } else {
+      test.info().annotations.push({
+        type: "skipped-assertion",
+        description:
+          "QA has no active SCHEDULING catalogue row: the owner request-by-id refusal was not checked",
+      });
+    }
+
+    await grant("TEAM_BUNDLE");
+    expect(await features()).toEqual(
+      ["SCHEDULING", "TEAM_BUNDLE", "TIMECARDS", "TIP_MANAGEMENT"].sort()
+    );
     expect(await ownerStatuses()).toEqual({
       jobs: 200,
       settings: 200,
       schedule: 200,
-      tips: 403,
+      tips: 200,
       // P4 (connect your own Gusto) sends approved hours: TIMECARDS.
       provider: 200,
     });
@@ -329,7 +405,9 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
       "GET",
       ""
     );
-    expect(provider.data.data.payrollEntitled).toBe(false);
+    expect(provider.data.data.payrollEntitled, "Team isn't payroll").toBe(
+      false
+    );
     const embedded = await payrollProviderRaw(
       ownerToken,
       restaurantId,
@@ -365,11 +443,11 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
       requests: true,
       schedule: true,
       hours: true,
-      tips: false,
+      tips: true,
       payStubs: false,
     });
 
-    // Data made under SCHEDULING, to prove it survives the add-on going.
+    // Data made under Team, to prove it survives the add-on going.
     const job = await createStaffJobRaw(ownerToken, restaurantId, {
       name: `Line cook ${runId}`,
       defaultHourlyRateCents: 1700,
@@ -399,25 +477,12 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
     expect(list(me?.jobs).length).toBe(1);
   });
 
-  test("TC-567: SCHEDULING + TIP_MANAGEMENT, then Tip Management alone — tips without the schedule", async () => {
-    await grant("TIP_MANAGEMENT");
+  test("TC-567: revoking a part inside RestauNax Team still switches it off — Scheduling off leaves tips without the schedule", async () => {
+    // An HQ revoke (enabled: false) of a component is still allowed.
+    await grant("SCHEDULING", false);
     expect(await features()).toEqual(
-      ["SCHEDULING", "TIMECARDS", "TIP_MANAGEMENT"].sort()
+      ["TEAM_BUNDLE", "TIMECARDS", "TIP_MANAGEMENT"].sort()
     );
-    expect((await ownerStatuses()).tips).toBe(200);
-    const provider = await payrollProviderRaw(
-      ownerToken,
-      restaurantId,
-      "GET",
-      ""
-    );
-    expect(provider.data.data.payrollEntitled, "tips aren't payroll").toBe(
-      false
-    );
-
-    // Tip Management on its own: it brings TIMECARDS (tips split by hours).
-    await remove("SCHEDULING");
-    expect(await features()).toEqual(["TIMECARDS", "TIP_MANAGEMENT"].sort());
     expect(await ownerStatuses()).toEqual({
       jobs: 200,
       settings: 200,
@@ -433,18 +498,40 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
       hours: true,
       tips: true,
     });
+    const provider = await payrollProviderRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      ""
+    );
+    expect(provider.data.data.payrollEntitled, "tips aren't payroll").toBe(
+      false
+    );
+
+    // Lifting the revoke gives the schedule back.
+    await remove("SCHEDULING");
+    expect(await features()).toEqual(
+      ["SCHEDULING", "TEAM_BUNDLE", "TIMECARDS", "TIP_MANAGEMENT"].sort()
+    );
+    expect((await ownerStatuses()).schedule).toBe(200);
   });
 
-  test("TC-568: PAYROLL alone brings tips and timecards; Tip Management can't be bought on top; TIMECARDS is never granted alone", async () => {
-    await remove("TIP_MANAGEMENT");
+  test("TC-568: PAYROLL alone brings all of Team plus payroll runs; Team can't be bought on top; TIMECARDS is never granted alone", async () => {
+    await remove("TEAM_BUNDLE");
     await grant("PAYROLL");
     expect(await features()).toEqual(
-      ["PAYROLL", "TIMECARDS", "TIP_MANAGEMENT"].sort()
+      [
+        "PAYROLL",
+        "SCHEDULING",
+        "TEAM_BUNDLE",
+        "TIMECARDS",
+        "TIP_MANAGEMENT",
+      ].sort()
     );
     expect(await ownerStatuses()).toEqual({
       jobs: 200,
       settings: 200,
-      schedule: 403,
+      schedule: 200,
       tips: 200,
       provider: 200,
     });
@@ -456,26 +543,31 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
     );
     expect(provider.data.data.payrollEntitled).toBe(true);
 
-    // The owner catalogue shows Tip Management as included, never addable.
+    // The owner catalogue shows Team as included, never addable.
     const offered = list(
       (await ownerAddonsRaw(ownerToken, restaurantId, "GET")).data.data?.addons
     );
-    const tips = offered.find((x) => x.feature === "TIP_MANAGEMENT");
+    const team = offered.find((x) => x.feature === "TEAM_BUNDLE");
     test.info().annotations.push({
       type: "catalogue",
       description: `back-office add-ons offered on QA: ${
         offered
           .map((x) => `${x.feature}:${x.status}`)
-          .filter((x) => /SCHEDULING|TIP_MANAGEMENT|PAYROLL/.test(x))
+          .filter((x) =>
+            /SCHEDULING|TIP_MANAGEMENT|TEAM_BUNDLE|PAYROLL/.test(x)
+          )
           .join(", ") || "none"
       }`,
     });
-    if (tips) {
+    // Team's parts are not in the owner catalogue (packaging v3).
+    expect(offered.map((x) => x.feature)).not.toContain("SCHEDULING");
+    expect(offered.map((x) => x.feature)).not.toContain("TIP_MANAGEMENT");
+    if (team) {
       // Since restaunax #998 owners only request add-ons: the row has no
       // request button while it's included, and the old purchase route is
       // gone (404). Before #998: canAdd false and the purchase refused (400).
       const live = await addonRequestsLive(adminToken);
-      expect(tips).toMatchObject(
+      expect(team).toMatchObject(
         live
           ? {
               status: "INCLUDED",
@@ -485,7 +577,7 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
           : { status: "INCLUDED", canAdd: false }
       );
       const bought = await ownerAddonsRaw(ownerToken, restaurantId, "POST", {
-        addonId: tips.id,
+        addonId: team.id,
       });
       expect(bought.status, JSON.stringify(bought.data)).toBe(live ? 404 : 400);
     }
@@ -524,14 +616,14 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
     expect(list(me?.jobs), "no job picker without TIMECARDS").toHaveLength(0);
     expect((await staffAppRequests())?.staffAppEnabled).toBe(false);
 
-    await grant("SCHEDULING");
+    await grant("TEAM_BUNDLE");
     const jobs = await payrollRaw(ownerToken, restaurantId, "GET", "/jobs");
     expect(list(jobs.data.data).some((j) => j.id === jobId)).toBe(true);
     const week = await getScheduleWeekRaw(ownerToken, restaurantId, SHIFT_DATE);
     expect(list(week.data.data?.shifts).some((s) => s.id === shiftId)).toBe(
       true
     );
-    await remove("SCHEDULING");
+    await remove("TEAM_BUNDLE");
   });
 
   test("TC-635: a home-food seller is never offered or sold back-office add-ons; only an explicit admin override grants them", async () => {
@@ -574,10 +666,15 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
       // add-on is refused (404 "isn't available"). Before #998 the purchase
       // route refused it (400).
       const live = await addonRequestsLive(adminToken);
-      if (live)
+      if (live) {
+        // Packaging v3: the team products are Team and Payroll; their parts
+        // are not offered on their own.
         expect(forStore.map((x) => x.feature)).toEqual(
-          expect.arrayContaining(["SCHEDULING", "TIP_MANAGEMENT"])
+          expect.arrayContaining(["TEAM_BUNDLE", "PAYROLL"])
         );
+        for (const part of ["SCHEDULING", "TIP_MANAGEMENT"])
+          expect(forStore.map((x) => x.feature)).not.toContain(part);
+      }
       for (const addon of forStore) {
         const bought = live
           ? await ownerAddonRequestRaw(adminToken, homeId, {
@@ -600,13 +697,279 @@ test.describe("Back-office add-ons gate every surface (API)", () => {
       });
 
       // Escape hatch by design (restaurantFeatureService step 3): an admin
-      // override still grants, with the components.
-      await setFeatureOverrideAdminRaw(adminToken, homeId, "SCHEDULING", true);
+      // override still grants a package, with its components.
+      await setFeatureOverrideAdminRaw(adminToken, homeId, "TEAM_BUNDLE", true);
       expect(await backOfficeOf(homeId)).toEqual(
-        ["SCHEDULING", "TIMECARDS"].sort()
+        ["SCHEDULING", "TEAM_BUNDLE", "TIMECARDS", "TIP_MANAGEMENT"].sort()
       );
     } finally {
       await deleteTestRestaurant(adminToken, homeId).catch(() => {});
     }
+  });
+});
+
+// ── Menu TVs, Social Media, Voice AI (RestauNax W5:C1/H1/T3/L2) ──────────────
+
+test.describe("Paid add-ons outside the back office gate their routes (API)", () => {
+  requireEnv(
+    ["ADMIN_EMAIL", "ADMIN_PASSWORD"],
+    "the file mints its own tenants"
+  );
+
+  const runId = generateRunId();
+  let adminToken = "";
+  let ownerToken = "";
+  let restaurantId = "";
+  let strangerToken = "";
+  let strangerRestaurantId = "";
+  let tvToken = "";
+  let tvId = "";
+
+  type Envelope = {
+    success?: boolean;
+    error?: string;
+    feature?: string;
+    message?: string;
+    data?: Rec;
+  };
+  const owner = (method: string, path: string, body?: unknown) =>
+    apiRequestRaw<Envelope>(method, path, body, ownerToken);
+  const tv = (path: string) =>
+    apiRequestRaw<Envelope>("GET", path, undefined, tvToken);
+  const grant = async (feature: string, enabled: boolean) => {
+    const r = enabled
+      ? await setFeatureOverrideAdminRaw(
+          adminToken,
+          restaurantId,
+          feature,
+          true,
+          `automation paid add-ons ${runId}`
+        )
+      : await deleteFeatureOverrideAdminRaw(adminToken, restaurantId, feature);
+    // Removing an override that isn't there answers 404: already off.
+    const ok = r.status < 300 || (!enabled && r.status === 404);
+    expect(ok, `${feature} → ${r.status} ${JSON.stringify(r.data)}`).toBe(true);
+  };
+  const expectNotEntitled = (
+    label: string,
+    res: { status: number; data: Envelope },
+    feature: string
+  ) => {
+    expect(
+      { label, status: res.status, error: res.data?.error },
+      JSON.stringify(res.data)
+    ).toEqual({ label, status: 403, error: "FEATURE_NOT_ENTITLED" });
+    expect(res.data?.feature).toBe(feature);
+    // Resolved text, never an i18n key.
+    expect(String(res.data?.message ?? "")).not.toMatch(/^(error|api):/);
+  };
+
+  test.beforeAll(async () => {
+    test.setTimeout(120_000);
+    if (!process.env.ADMIN_EMAIL || !process.env.ADMIN_PASSWORD) return;
+    adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
+    const tenant = await createSecondOwner(adminToken, `${runId}p`);
+    const other = await createSecondOwner(adminToken, `${runId}q`);
+    if (!tenant.restaurantId || !other.restaurantId)
+      throw new Error("[api-addon-gating] no tenant");
+    restaurantId = tenant.restaurantId;
+    ownerToken = tenant.accessToken;
+    strangerRestaurantId = other.restaurantId;
+    strangerToken = other.accessToken;
+  });
+
+  test.afterAll(async () => {
+    for (const id of [restaurantId, strangerRestaurantId]) {
+      if (adminToken && id)
+        await deleteTestRestaurant(adminToken, id).catch(() => {});
+    }
+  });
+
+  test.beforeEach(async () => {
+    await allure.label("feature", "Add-on gating");
+    await allure.label("severity", "critical");
+    requireRelease(
+      "paywallStage1",
+      await probePaywallStage1(ownerToken, restaurantId)
+    );
+  });
+
+  test("TC-1180: Menu TVs without the add-on — claim, the TV list and layouts are refused; pairing a TV stays free", async () => {
+    const initiate = await owner("POST", "/api/menu-tv/pair/initiate", {
+      restaurantId,
+      name: `Auto TV ${runId}`,
+    });
+    expect(initiate.status, JSON.stringify(initiate.data)).toBe(201);
+    tvToken = String(initiate.data.data?.token ?? "");
+    tvId = String(initiate.data.data?.deviceId ?? "");
+    const code = String(initiate.data.data?.pairingCode ?? "");
+
+    expectNotEntitled(
+      "claim",
+      await owner("POST", "/api/menu-tv/pair/claim", { code, name: "Bar TV" }),
+      "MENU_TVS"
+    );
+    expectNotEntitled(
+      "list",
+      await owner("GET", `/api/menu-tv/restaurants/${restaurantId}/devices`),
+      "MENU_TVS"
+    );
+    expectNotEntitled(
+      "layouts",
+      await owner("GET", `/api/menu-tv/layouts?restaurantId=${restaurantId}`),
+      "MENU_TVS"
+    );
+    // The pending TV is still waiting for its code.
+    const me = await tv("/api/menu-tv/me");
+    expect(me.status).toBe(200);
+    expect(me.data.data?.pending).toBe(true);
+  });
+
+  test("TC-1181: Menu TVs with an HQ grant — the TV is claimed and shows the menu; taking the grant away pauses it without unpairing", async () => {
+    await grant("MENU_TVS", true);
+    const pending = await tv("/api/menu-tv/me");
+    const code = String(pending.data.data?.pairingCode ?? "");
+    const claim = await owner("POST", "/api/menu-tv/pair/claim", {
+      code,
+      name: "Bar TV",
+    });
+    expect(claim.status, JSON.stringify(claim.data)).toBe(200);
+    const list = await owner(
+      "GET",
+      `/api/menu-tv/restaurants/${restaurantId}/devices`
+    );
+    expect(list.status).toBe(200);
+
+    const live = await tv("/api/menu-tv/me");
+    expect(live.status).toBe(200);
+    expect(live.data.data?.pending).toBe(false);
+    expect(live.data.data?.paused ?? null).toBeNull();
+
+    await grant("MENU_TVS", false);
+    const paused = await apiRequestRaw<Envelope>(
+      "GET",
+      "/api/menu-tv/me",
+      undefined,
+      tvToken,
+      { "Accept-Language": "es" }
+    );
+    // D1: never 401/403 for the TV — 200, empty menu, a resolved message.
+    expect(paused.status).toBe(200);
+    const data = paused.data.data as Rec;
+    expect((data.device as Rec).id).toBe(tvId);
+    expect((data.menu as Rec).menus).toEqual([]);
+    expect((data.paused as Rec).reason).toBe("ADDON_OFF");
+    expect(String((data.paused as Rec).message)).toMatch(/RestauNax/);
+    const beat = await apiRequestRaw(
+      "POST",
+      "/api/menu-tv/me/heartbeat",
+      undefined,
+      tvToken
+    );
+    expect(beat.status).toBe(200);
+
+    // Unpairing stays possible without the add-on.
+    const unpair = await owner("DELETE", `/api/menu-tv/devices/${tvId}`);
+    expect(unpair.status).toBe(200);
+  });
+
+  test("TC-1182: Social Media — the suite and AI media refuse without the add-on and answer with an HQ grant", async () => {
+    const reads = [
+      `/api/social-media/accounts/${restaurantId}`,
+      `/api/social-media/posts/${restaurantId}`,
+      `/api/social-media/restaurants/${restaurantId}/featured-reels`,
+    ];
+    const media = () =>
+      apiRequestRaw<Envelope>(
+        "GET",
+        "/api/media/quota",
+        undefined,
+        ownerToken,
+        {
+          "X-Restaurant-Id": restaurantId,
+        }
+      );
+    for (const path of reads)
+      expectNotEntitled(path, await owner("GET", path), "SOCIAL_MEDIA");
+    expectNotEntitled(
+      "create post",
+      await owner("POST", "/api/social-media/posts", {
+        restaurantId,
+        content: "Taco Tuesday",
+      }),
+      "SOCIAL_MEDIA"
+    );
+    expectNotEntitled("media quota", await media(), "SOCIAL_MEDIA");
+
+    await grant("SOCIAL_MEDIA", true);
+    try {
+      for (const path of reads) {
+        const res = await owner("GET", path);
+        expect({ path, status: res.status }).toEqual({ path, status: 200 });
+      }
+      expect((await media()).status).toBe(200);
+    } finally {
+      await grant("SOCIAL_MEDIA", false);
+    }
+  });
+
+  test("TC-1183: Voice AI — the owner summary needs the add-on, and the AI line can't be switched back on without it", async () => {
+    expectNotEntitled(
+      "owner summary",
+      await owner(
+        "GET",
+        `/api/voice/owner-summary/${restaurantId}?window=week`
+      ),
+      "VOICE_AI"
+    );
+    expectNotEntitled(
+      "enable the line",
+      await owner("PATCH", `/api/voice/config/${restaurantId}`, {
+        enabled: true,
+      }),
+      "VOICE_AI"
+    );
+    await grant("VOICE_AI", true);
+    try {
+      const summary = await owner(
+        "GET",
+        `/api/voice/owner-summary/${restaurantId}?window=week`
+      );
+      expect(summary.status, JSON.stringify(summary.data)).toBe(200);
+    } finally {
+      await grant("VOICE_AI", false);
+    }
+  });
+
+  test("TC-1184: another owner learns nothing — 404 on every add-on route, add-on on or off", async () => {
+    const probes = [
+      `/api/staff/payroll/${restaurantId}/jobs`,
+      `/api/staff/tips/${restaurantId}/policy`,
+      `/api/staff/scheduling/${restaurantId}`,
+      `/api/staff/payroll-provider/${restaurantId}`,
+      `/api/accounting/${restaurantId}`,
+      `/api/menu-tv/restaurants/${restaurantId}/devices`,
+      `/api/social-media/posts/${restaurantId}`,
+    ];
+    for (const on of [false, true]) {
+      for (const f of ["TEAM_BUNDLE", "MENU_TVS", "SOCIAL_MEDIA"])
+        await grant(f, on);
+      for (const path of probes) {
+        const res = await apiRequestRaw<Envelope>(
+          "GET",
+          path,
+          undefined,
+          strangerToken
+        );
+        expect({ path, on, status: res.status }).toEqual({
+          path,
+          on,
+          status: 404,
+        });
+        expect(res.data?.error).not.toBe("FEATURE_NOT_ENTITLED");
+      }
+    }
+    for (const f of ["TEAM_BUNDLE", "MENU_TVS", "SOCIAL_MEDIA"])
+      await grant(f, false);
   });
 });

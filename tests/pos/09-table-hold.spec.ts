@@ -22,8 +22,10 @@
  *     (400 RESERVATION_NOT_ASSIGNABLE otherwise).
  *   - `keep` stamps Reservation.tableHoldKeptAt (409 RESERVATION_NOT_HOLDING
  *     when nothing is held); changing the held tables clears it.
- *   - PATCH /api/tablet/reservations/:id edits a BOOKED/CONFIRMED booking;
- *     a move into the past is refused; moving the time releases the hold.
+ *   - PATCH /api/tablet/reservations/:id edits a BOOKED/CONFIRMED booking
+ *     (and, since 2026-10-31, an ARRIVED party's size/notes and a waitlist
+ *     entry in line); a move into the past is refused; moving the time
+ *     releases the hold.
  *
  * Own tenant, same shape as 06-reservations-lifecycle: an admin-minted
  * throwaway OWNER (`createSecondOwner`) + TABLE_RESERVATIONS entitlement +
@@ -41,6 +43,10 @@ import * as allure from "allure-js-commons";
 import { test, expect } from "../../fixtures/base";
 import { generateRunId, generateGuestPhone } from "../../utils/testData";
 import { localDateKey } from "../../utils/dealSchedule";
+import {
+  probeReservationsAudit,
+  requireRelease,
+} from "../../utils/releaseGate";
 import {
   apiLogin,
   createSecondOwner,
@@ -847,11 +853,18 @@ test.describe("POS — Manual Table Hold & Host-Stand Booking Edit", () => {
     expect(host.tableIds).toEqual([]);
   });
 
-  test("TC-726: only an upcoming BOOKED/CONFIRMED booking is editable — ARRIVED and a waitlist entry → 409 RESERVATION_NOT_EDITABLE", async () => {
+  test("TC-726: what an edit may change depends on the row — ARRIVED takes party size + notes only, a waitlist entry takes its name, a SEATED party nothing (409 RESERVATION_NOT_EDITABLE) @reservations-audit", async () => {
     await allure.description(
-      "PATCH /api/tablet/reservations/:id on an ARRIVED reservation (the " +
-        "party is at the door) → 409 RESERVATION_NOT_EDITABLE; the same on " +
-        "a WAITLIST entry (no time to move) → 409 as well."
+      "Widened 2026-10-31 (editableFieldsFor): PATCH " +
+        "/api/tablet/reservations/:id on an ARRIVED reservation accepts a " +
+        "party-size change but refuses a new guest name with 409 " +
+        "RESERVATION_NOT_EDITABLE; a WAITLIST entry still in line accepts a " +
+        "new name (it used to be refused); a SEATED party refuses even a " +
+        "party-size change."
+    );
+    requireRelease(
+      "reservationsAudit",
+      await probeReservationsAudit(token, restaurantId)
     );
     const booking = await book("Arrived Edit", 20);
     const arrived = await reservationStatusTabletRaw(
@@ -869,6 +882,14 @@ test.describe("POS — Manual Table Hold & Host-Stand Booking Edit", () => {
     );
     expect(refused.status, msg(refused.data)).toBe(409);
     expect(errorCode(refused.data)).toBe("RESERVATION_NOT_EDITABLE");
+    const bigger = await updateReservationTabletRaw(
+      tabletToken,
+      managerSession,
+      booking.id,
+      { partySize: 3 }
+    );
+    expect(bigger.status, msg(bigger.data)).toBe(200);
+    expect(unwrap(bigger).partySize).toBe(3);
 
     const wait = await createReservationTabletRaw(tabletToken, managerSession, {
       partySize: 2,
@@ -884,8 +905,25 @@ test.describe("POS — Manual Table Hold & Host-Stand Booking Edit", () => {
       unwrap(wait).id,
       { guestName: `Wait Edited ${runId}` }
     );
-    expect(waitEdit.status, msg(waitEdit.data)).toBe(409);
-    expect(errorCode(waitEdit.data)).toBe("RESERVATION_NOT_EDITABLE");
+    expect(waitEdit.status, msg(waitEdit.data)).toBe(200);
+    expect(unwrap(waitEdit).guestName).toBe(`Wait Edited ${runId}`);
+
+    const table = await newTable("Seated Edit");
+    const seated = await seatReservationTabletRaw(
+      tabletToken,
+      managerSession,
+      booking.id,
+      { tableIds: [table.id] }
+    );
+    expect(seated.status, msg(seated.data)).toBe(201);
+    const seatedEdit = await updateReservationTabletRaw(
+      tabletToken,
+      managerSession,
+      booking.id,
+      { partySize: 4 }
+    );
+    expect(seatedEdit.status, msg(seatedEdit.data)).toBe(409);
+    expect(errorCode(seatedEdit.data)).toBe("RESERVATION_NOT_EDITABLE");
   });
 
   // ── Host list access ────────────────────────────────────────────────────

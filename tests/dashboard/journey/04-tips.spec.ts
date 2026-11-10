@@ -141,7 +141,8 @@ test.describe("Journey 4 — the owner shares the tips", () => {
     });
     if (zone.status !== 200)
       throw new Error(`[journey-4] zone: ${JSON.stringify(zone.data)}`);
-    for (const feature of ["PAYROLL", "SCHEDULING", "TIP_MANAGEMENT"]) {
+    // PAYROLL brings Team (schedule, timecards, tips): packaging v3.
+    for (const feature of ["PAYROLL"]) {
       const granted = await setFeatureOverrideAdminRaw(
         adminToken,
         restaurantId,
@@ -196,7 +197,8 @@ test.describe("Journey 4 — the owner shares the tips", () => {
       return String(r.data.data?.id);
     };
     const server = await job("Server", 1200);
-    const busser = await job("Busser", 1100);
+    // At least Miami's $11.98 tipped cash wage (W3:C3: $11.00 is refused).
+    const busser = await job("Busser", 1200);
 
     const device = await createTabletDevice(
       adminToken,
@@ -391,6 +393,12 @@ test.describe("Journey 4 — the owner shares the tips", () => {
     await page()
       .getByRole("switch", { name: "Take the card fee out of card tips" })
       .click();
+    // A new policy offers the percentage-only card fee first (W3:H4).
+    await expect(
+      page().getByRole("radio", {
+        name: "Only the card company's percentage, no fixed fee (recommended)",
+      })
+    ).toBeChecked();
     await page()
       .getByRole("radio", {
         name: "A fixed percent (never more than the actual fee)",

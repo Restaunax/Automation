@@ -2,7 +2,7 @@
  * api-clocks-in.spec.ts — "Clocks in" off for a person (salaried / family
  * staff, packaging v2) on QA (TC-642..646).
  *
- * No browser. A per-run throwaway restaurant with SCHEDULING + TIP_MANAGEMENT,
+ * No browser. A per-run throwaway restaurant with RestauNax Team (TEAM_BUNDLE),
  * weekly pay periods, a REGISTER device and two people with one job:
  *   Wes — "Clocks in" OFF (a real account, so the staff app check is real);
  *   Xan — tracked as usual.
@@ -86,7 +86,7 @@ test.describe('"Clocks in" off for a person (API)', () => {
     if (!tenant.restaurantId) throw new Error("[api-clocks-in] no tenant");
     restaurantId = tenant.restaurantId;
     ownerToken = tenant.accessToken;
-    for (const f of ["SCHEDULING", "TIP_MANAGEMENT"]) {
+    for (const f of ["TEAM_BUNDLE"]) {
       const g = await setFeatureOverrideAdminRaw(
         adminToken,
         restaurantId,

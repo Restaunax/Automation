@@ -3,8 +3,8 @@
  * ("back office: the next level") (TC-943..948).
  *
  *   TC-943  "Set up your back office": one checklist built from the
- *           restaurant's own data — empty without add-ons; with SCHEDULING
- *           the steps come in order, blocked steps say why, each links to its
+ *           restaurant's own data — empty without add-ons; with RestauNax
+ *           Team (TEAM_BUNDLE) the steps come in order, blocked steps say why, each links to its
  *           screen; adding a job ticks its step.
  *   TC-944  Payday header for a pay period: payroll mode + the deadline as a
  *           resolved sentence; a date that isn't a pay period → 400.
@@ -120,7 +120,7 @@ test.describe("Owner — back office next level (API)", () => {
     const granted = await setFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,
-      "SCHEDULING",
+      "TEAM_BUNDLE",
       true
     );
     expect(granted.ok, JSON.stringify(granted.data)).toBe(true);
@@ -136,6 +136,8 @@ test.describe("Owner — back office next level (API)", () => {
       "assignJobs",
       "paySchedule",
       "publishSchedule",
+      // Team brings tips too (packaging v3).
+      "tipRules",
       "payrollMode",
       "approvePeriod",
       "salesTaxRate",
@@ -146,7 +148,12 @@ test.describe("Owner — back office next level (API)", () => {
       status: "next",
       link: { tab: "staff", params: { staffTab: "jobs" } },
     });
-    for (const id of ["assignJobs", "publishSchedule", "approvePeriod"]) {
+    for (const id of [
+      "assignJobs",
+      "publishSchedule",
+      "tipRules",
+      "approvePeriod",
+    ]) {
       const step = byId.get(id) as Rec;
       expect(step.status, id).toBe("blocked");
       expect(step.blockedReason, id).toBe("Needs your jobs first");
@@ -166,7 +173,8 @@ test.describe("Owner — back office next level (API)", () => {
     // Adding a job ticks its step and unblocks the ones waiting for it.
     const job = await createStaffJobRaw(ownerToken, restaurantId, {
       name: `Server ${runId}`,
-      defaultHourlyRateCents: 1200,
+      // At least Miami's $15.00 minimum wage (W3:C3).
+      defaultHourlyRateCents: 1500,
     });
     expect(job.status, JSON.stringify(job.data)).toBe(201);
     const after = await backOfficeSetupRaw(ownerToken, restaurantId);
@@ -174,7 +182,12 @@ test.describe("Owner — back office next level (API)", () => {
       list((after.data.data as Rec).steps).map((s) => [String(s.id), s])
     );
     expect(afterById.get("jobs")?.status).toBe("done");
-    for (const id of ["assignJobs", "publishSchedule", "approvePeriod"])
+    for (const id of [
+      "assignJobs",
+      "publishSchedule",
+      "tipRules",
+      "approvePeriod",
+    ])
       expect(afterById.get(id)?.status, id).not.toBe("blocked");
     expect((after.data.data as Rec).done).toBeGreaterThanOrEqual(1);
     expect((after.data.data as Rec).next).not.toBe("jobs");
@@ -458,6 +471,8 @@ test.describe("Owner — back office next level (API)", () => {
         "devices",
         "stations",
         "setup",
+        "books",
+        "staff",
         "other",
       ]);
 

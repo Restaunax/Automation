@@ -1,12 +1,15 @@
 /**
- * supply-shop.spec.ts — Admin → Cards & Codes → Supply Shop (TC-456..468).
+ * supply-shop.spec.ts — Admin → Cards & Codes → Supply Shop (TC-456..468, TC-1126).
  *
  * The admin side of "place now, charge at fulfilment": the design queue and
  * artwork preflight, the Finalise dialog (the ONE place money moves — final
  * price per line, shipping and the supplier's bill per package, one
  * SupplyCharge for the set, the owner's approval above what they agreed to;
- * RestauNax #1075), placing an order on a restaurant's behalf, and the
- * physical-gift-card outcome of a finalisation: a minted batch and its CSV.
+ * RestauNax #1075; since the print-builders release it suggests each price
+ * from a target markup on what the vendor charges), placing an order on a
+ * restaurant's behalf (the API; the UI now opens the restaurant's own shop
+ * full-screen as HQ — TC-1126), and the physical-gift-card outcome of a
+ * finalisation: a minted batch and its CSV.
  *
  * Own throwaway tenant (owner acts through the API only; the admin drives
  * the browser via the `adminPage` fixture). Two orders carry the file:
@@ -26,6 +29,7 @@ import {
   type AdminSupplyShopPage,
 } from "../../../pages/dashboard/admin/AdminSupplyShopPage";
 import { generateRunId } from "../../../utils/testData";
+import { probePrintBuilders, requireRelease } from "../../../utils/releaseGate";
 import { waitForEmail } from "../../../utils/emailHelper";
 import { csvToObjects } from "../../../utils/csvHelper";
 import { giftCardPassingPdf, letterPdf } from "../../../utils/pdfFixture";
@@ -119,6 +123,8 @@ test.describe("Admin — Supply shop", () => {
   let orderE: SupplyOrder; // comp path → minted batch
   const toCancel: string[] = [];
   let baseline = { compedCost: 0 };
+  /** The print-builders release (new Finalise dialog, HQ shop) is on this stack. */
+  let printBuilders = false;
 
   const ownerApi = async () =>
     (await apiLogin(ownerEmail, ownerPassword)).accessToken;
@@ -173,6 +179,7 @@ test.describe("Admin — Supply shop", () => {
         `[supply-shop] could not write gift card config: ${msg(cfg.data)}`
       );
     variantId = await resolveGiftCardVariantId(adminToken);
+    printBuilders = await probePrintBuilders(adminToken, restaurantId);
 
     const finance = await getAdminFinanceRaw(adminToken);
     if (finance.ok) {
@@ -315,15 +322,18 @@ test.describe("Admin — Supply shop", () => {
     }
   );
 
-  test("TC-459: the Finalise dialog drafts the basket — prefilled price, the ceiling the owner agreed to — and a total above it becomes 'Send for approval'", async () => {
+  test("TC-459: the Finalise dialog drafts the basket — a price suggested from the target markup, the quote beside it, the ceiling the owner agreed to — and a total above it becomes 'Send for approval'", async () => {
     await allure.description(
       "The proof is a look, not a gate — Finalise is offered from PROOF_READY. The dialog drafts orderC's " +
-        "whole basket: the line at the list price ($1.95) with its range, our cost, the package's shipping " +
-        "and the supplier's bill. The owner agreed to the basket's high estimate ($258.75): the ceiling line " +
-        "recomputes live, and a final total above it shows the approval warning and turns the button into " +
-        "'Send for approval' (the old warn-only out-of-estimate notice became this gate in RestauNax #1075). " +
-        "The margin line reads revenue − cost. Nothing is submitted."
+        "whole basket: what the vendor charges ($1.10 each), the target markup (the 20% default) and the price " +
+        "it suggests ($1.32), with the quote beside it ('Quoted $1.95 each · estimate …'), the package's " +
+        "shipping and the supplier's bill. The owner agreed to the basket's high estimate ($258.75): the " +
+        "ceiling line recomputes live, a final total above it shows the approval warning and turns the " +
+        "button into 'Send for approval'. Editing the price recomputes the markup, 'Use 20%' puts the target " +
+        "back, a price under it is flagged (allowed — a special price), and the summary reads 'Our margin: " +
+        "$C (P% markup)'. Nothing is submitted."
     );
+    requireRelease("printBuilders", printBuilders);
     await admin.goto();
     await admin.openTab("Fulfilment");
     await admin.openFinalise(orderC.orderNumber, checkoutC);
@@ -338,23 +348,48 @@ test.describe("Admin — Supply shop", () => {
     await expect(admin.dialog()).toContainText(
       `${orderC.orderNumber} · 100 units`
     );
-    await expect(admin.dialog()).toContainText(`${ESTIMATE} est.`);
-    await expect(admin.finalUnit(orderC.id)).toHaveValue("1.95");
+    await expect(admin.quotedLine()).toHaveText(
+      `Quoted $1.95 each · estimate ${ESTIMATE}`
+    );
+    // $1.10 at the 20% default target = $1.32 each.
     await expect(admin.unitCost(orderC.id)).toHaveValue("1.1");
+    await expect(admin.unitMarkup(orderC.id)).toHaveValue("20");
+    await expect(admin.finalUnit(orderC.id)).toHaveValue("1.32");
+    await expect(admin.targetNote()).toHaveText("Target 20% markup");
+    await expect(admin.useTargetButton()).toHaveCount(0);
     await expect(admin.shippingCharged()).toHaveValue("12");
+    await expect(admin.dialog()).toContainText(
+      "The restaurant was quoted $12.00 for shipping."
+    );
+    // $1.32 × 100 + $12 shipping.
     await expect(admin.ceilingLine()).toHaveText(
-      "The restaurant agreed to up to $258.75. Final total: $207.00."
+      "The restaurant agreed to up to $258.75. Final total: $144.00."
     );
     await expect(admin.aboveCeilingWarning()).toHaveCount(0);
     await expect(admin.confirmButton()).toHaveText("Finalise & charge");
 
     // $3 × 100 + $12 = $312.00 > $258.75: the owner is asked first.
     await admin.finalUnit(orderC.id).fill("3");
+    await expect(admin.unitMarkup(orderC.id)).toHaveValue("172.73");
     await expect(admin.ceilingLine()).toContainText("Final total: $312.00.");
     await expect(admin.aboveCeilingWarning()).toBeVisible();
     await expect(admin.confirmButton()).toHaveText("Send for approval");
-    await admin.finalUnit(orderC.id).fill("2.40");
+
+    // "Use 20%" puts the suggested price back.
+    await admin.useTargetButton().click();
+    await expect(admin.finalUnit(orderC.id)).toHaveValue("1.32");
     await expect(admin.aboveCeilingWarning()).toHaveCount(0);
+
+    // Under the target is allowed, only flagged.
+    await admin.finalUnit(orderC.id).fill("1.20");
+    await expect(admin.targetNote()).toHaveText(
+      "Below the usual 20% markup. Fine for a special price."
+    );
+    await expect(admin.underTargetSummary()).toBeVisible();
+    await expect(admin.confirmButton()).toHaveText("Finalise & charge");
+
+    await admin.finalUnit(orderC.id).fill("2.40");
+    await expect(admin.underTargetSummary()).toHaveCount(0);
     await expect(admin.ceilingLine()).toContainText("Final total: $252.00.");
     await expect(admin.confirmButton()).toHaveText("Finalise & charge");
 
@@ -362,8 +397,9 @@ test.describe("Admin — Supply shop", () => {
       vendor: "Automation Vendor",
       vendorShipping: 12,
     });
-    await expect(admin.marginLine()).toContainText(
-      "Revenue $252.00 − cost $122.00 = $130.00 margin"
+    // Revenue $240 + $12 shipping − cost $110 + $12 = $130, on $122 = 106.6%.
+    await expect(admin.marginLine()).toHaveText(
+      "Our margin: $130.00 (106.6% markup)"
     );
     await admin.cancelDialog();
     expect((await adminOrder(orderC.id)).priceFinalizedAt ?? null).toBeNull();
@@ -376,8 +412,8 @@ test.describe("Admin — Supply shop", () => {
       await allure.description(
         "One SupplyCharge for the basket at $207.00 (within the $258.75 ceiling), collected through the " +
           "charge's hosted Checkout because the tenant has no saved card. The line stays in the Fulfilment " +
-          "worklist (AWAITING_PAYMENT is still HQ's worklist since RestauNax #1075) flagged 'Awaiting owner " +
-          "payment', with no next step in its menu; History's 'Awaiting payment' filter finds it at the FINAL " +
+          "worklist (AWAITING_PAYMENT is still HQ's worklist since RestauNax #1075) with the status 'Waiting " +
+          "on owner payment', with no next step in its menu; History's 'Awaiting payment' filter finds it at the FINAL " +
           "price. The inputs are parked for the post-payment click, and a second finalise (the old per-line " +
           "/fulfil route, which now delegates to finalise) is refused AWAITING_OWNER_PAYMENT."
       );
@@ -385,6 +421,9 @@ test.describe("Admin — Supply shop", () => {
       await admin.goto();
       await admin.openTab("Fulfilment");
       await admin.openFinalise(orderC.orderNumber, checkoutC);
+      // The list price, typed: since the print-builders release the dialog
+      // suggests a price from the target markup instead ($1.32 here).
+      await admin.finalUnit(orderC.id).fill("1.95");
       await admin.fillVendorSection({
         vendor: "Automation Vendor",
         vendorShipping: 12,
@@ -410,8 +449,13 @@ test.describe("Admin — Supply shop", () => {
       ).toBeVisible();
 
       await admin.waitForList();
+      // The Fulfilment queue's status column (print-builders release) says
+      // "Waiting on owner payment"; older builds flag "Awaiting owner payment".
       await expect(
-        admin.rowChip(orderC.orderNumber, "Awaiting owner payment")
+        admin.rowChip(
+          orderC.orderNumber,
+          /^(Waiting on|Awaiting) owner payment$/
+        )
       ).toBeVisible();
       await expect(admin.row(orderC.orderNumber)).toContainText("$207.00");
       await expect(admin.row(orderC.orderNumber)).not.toContainText("est.");
@@ -474,24 +518,26 @@ test.describe("Admin — Supply shop", () => {
     }
   );
 
-  test("TC-461: 'Place order for a restaurant' (charge) creates the owner's order with an admin-named design and no leaked notes", async () => {
-    await admin.goto();
-    await admin.openPlaceDialog();
-    await admin.pickRestaurant(restaurantName);
-    await admin.pickProduct(PRODUCT_NAME);
-    await admin.pickQuantity(100);
-    await expect(admin.placeEstimate()).toContainText(ESTIMATE);
-    // 100 × the tier's $1.10 unit vendor cost. Vendor shipping is not known
-    // until fulfilment (the Fulfil dialog's margin line adds it there).
-    await expect(admin.placeVendorCost()).toContainText("$110.00");
-    await admin.placeMessage().fill(`Placed by admin ${runId}`);
-    await admin.placeAdminNotes().fill(`SECRET-${runId}`);
-    await admin.billingRadio("Charge them when it goes to print").check();
-    await admin.termRadio("Card on file").check();
-    const placed = await admin.submitPlace();
-    toCancel.push(placed.data.id);
+  test("TC-461: an order HQ places on the restaurant's behalf (charge) is the owner's order, with an admin-named design and no leaked notes", async () => {
+    await allure.description(
+      "POST /api/admin/supply-shop/orders — the on-behalf path HQ's tools use (the old 'Place order for a " +
+        "restaurant' form is gone; the button now opens the restaurant's own shop, TC-1126). The order is " +
+        "IN_DESIGN on the card on file, the design is named for the product and date with '(admin)', HQ's " +
+        "internal notes stay on HQ's side, and the owner's list carries neither the notes nor who placed it."
+    );
+    const placed = await createSupplyOrderOnBehalfRaw(adminToken, {
+      restaurantId,
+      variantId,
+      quantity: 100,
+      brief: { message: `Placed by admin ${runId}` },
+      adminNotes: `SECRET-${runId}`,
+      billing: "CHARGE",
+      paymentTerm: "IMMEDIATE",
+    });
+    expect(placed.status, JSON.stringify(placed.data)).toBe(201);
+    toCancel.push(placed.data.data.id);
 
-    const created = await adminOrder(placed.data.id);
+    const created = await adminOrder(placed.data.data.id);
     expect(created.status).toBe("IN_DESIGN");
     expect(created.paymentTerm).toBe("IMMEDIATE");
     expect(created.design?.name).toMatch(
@@ -500,10 +546,44 @@ test.describe("Admin — Supply shop", () => {
     expect(created.adminNotes).toBe(`SECRET-${runId}`);
 
     const mine = await listSupplyOrdersOwnerRaw(await ownerApi(), restaurantId);
-    const row = mine.data.data.find((o) => o.id === placed.data.id);
+    const row = mine.data.data.find((o) => o.id === placed.data.data.id);
     expect(row, "owner sees the order").toBeTruthy();
     expect(row).not.toHaveProperty("adminNotes");
     expect(row).not.toHaveProperty("placedByAdminId");
+  });
+
+  test("TC-1126: 'Place order for a restaurant' opens that restaurant's own Print Shop full-screen, as HQ", async ({
+    adminPage,
+  }) => {
+    await allure.description(
+      "HQ picks the restaurant ('Open their shop' waits for one), and the restaurant's own shop opens " +
+        "full-screen — the owner's Browse / My orders screens and its catalog — under 'Ordering for <name> " +
+        "as RestauNax HQ'. Exit closes it back to the queues. Nothing is ordered."
+    );
+    requireRelease("printBuilders", printBuilders);
+    await admin.goto();
+    await admin.openShopForRestaurant();
+    await expect(admin.openTheirShopButton()).toBeDisabled();
+    await admin.pickRestaurant(restaurantName);
+    await expect(admin.openTheirShopButton()).toBeEnabled();
+    await admin.openTheirShopButton().click();
+
+    await expect(admin.shopForBanner(restaurantName)).toBeVisible({
+      timeout: 15_000,
+    });
+    const shop = admin.dialog();
+    await expect(shop.getByRole("tab", { name: "Browse" })).toBeVisible();
+    await expect(shop.getByRole("tab", { name: "My orders" })).toBeVisible();
+    // The gift card is launched for this run (beforeAll): the owner's catalog.
+    await expect(
+      shop.getByRole("heading", { name: PRODUCT_NAME, exact: true }).first()
+    ).toBeVisible({ timeout: 15_000 });
+
+    await admin.exitShopFor();
+    await expect(admin.shopForBanner(restaurantName)).toHaveCount(0);
+    await expect(
+      adminPage.getByRole("tab", { name: "Design queue" })
+    ).toBeVisible();
   });
 
   test(

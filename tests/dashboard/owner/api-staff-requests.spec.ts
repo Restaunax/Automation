@@ -1,7 +1,8 @@
 /**
  * api-staff-requests.spec.ts — Restaunax Staff requests end to end (TC-543..552).
  *
- * No browser. A per-run throwaway restaurant with SCHEDULING + TIMECARDS, two
+ * No browser. A per-run throwaway restaurant with RestauNax Team (TEAM_BUNDLE:
+ * SCHEDULING + TIMECARDS + tips), two
  * staff members who claim their invites from Mailpit into REAL RestauNax
  * accounts (the staff app's identity), a job they both hold and published
  * shifts. Then the T1b/T1c flows across both sides of the API:
@@ -126,17 +127,17 @@ test.describe("Restaunax Staff — requests and shift changes (API)", () => {
     restaurantId = tenant.restaurantId;
     ownerToken = tenant.accessToken;
     ownerEmail = tenant.email;
-    // SCHEDULING is a sellable package that implies TIMECARDS (jobs, wages).
-    // TIMECARDS itself is a component and can't be granted on its own.
+    // RestauNax Team is the package that brings SCHEDULING and TIMECARDS
+    // (jobs, wages); both are components, never granted on their own.
     const g = await setFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,
-      "SCHEDULING",
+      "TEAM_BUNDLE",
       true
     );
     if (!g.ok) {
       throw new Error(
-        `[api-staff-requests] could not grant SCHEDULING: ${JSON.stringify(g.data)}`
+        `[api-staff-requests] could not grant TEAM_BUNDLE: ${JSON.stringify(g.data)}`
       );
     }
     await hire(ana, "Ana", "Ruiz");
@@ -229,7 +230,9 @@ test.describe("Restaunax Staff — requests and shift changes (API)", () => {
 
   test("TC-545: a staff token can't open the owner's inbox", async () => {
     const res = await getRequestsRaw(ana.token, restaurantId);
-    expect([401, 403]).toContain(res.status);
+    // Not this person's to control, so the restaurant isn't even confirmed
+    // (requireRestaurantControl, W5:L2).
+    expect(res.status).toBe(404);
   });
 
   test("TC-546: time off — the past is refused; a request lists the shift it lands on", async () => {

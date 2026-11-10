@@ -2,9 +2,17 @@
  * api-addon-billing.spec.ts — add-on billing (restaunax #943,
  * docs/features/ADDON_BILLING.md) and add-on REQUESTS (restaunax #998,
  * docs/features/back-office/E0_ENTITLEMENTS_AND_PACKAGING.md §5 "As built —
- * add-on requests"): the Add-ons page rows, the refusals, the Team bundle,
+ * add-on requests"): the Add-ons page rows, the refusals, RestauNax Team,
  * HQ's payroll headcount (TC-781..784), then the request flow (TC-894..896,
- * TC-786, TC-787) and the two flows QA still can't run (TC-785, TC-788 fixme).
+ * TC-786, TC-787), the Stage 6 request flow (TC-1530..1534: products and
+ * requests before the account is live, HQ's Waiting list, decline, the POS
+ * answer) and the two flows QA still can't run (TC-785, TC-788 fixme).
+ *
+ * Stage 6 (RestauNax bo1031/reqflow, W5:P1–P4): a throwaway restaurant has
+ * no subscription, so once Stage 6 is deployed its requests are WAITING, not
+ * OPEN — TC-894/895 follow whichever the backend does (probeRequestFlowStage6);
+ * an OPEN request HQ can mark done or decline then exists only on the seed
+ * restaurant (TC-1533).
  *
  * No browser. Since #998 owners never add or remove an add-on themselves: the
  * owner sends an AddonRequest (ADD / REMOVE, one OPEN per restaurant + add-on
@@ -20,9 +28,14 @@
  *   - the SEED restaurant, the one QA restaurant with an ACTIVE (Stripe test
  *     mode) subscription, for the real attach / scheduled removal / keep /
  *     bundle swap. Only features no other spec reads on the seed are used
- *     (Menu TVs; the Team bundle swap for a few seconds), and every add-on
+ *     (Menu TVs; the Team → Payroll swap for a few seconds), and every add-on
  *     this file attaches there is detached immediately afterwards (and before,
  *     to heal a crashed run), so the next run starts from "off".
+ *
+ * Packaging v3 (RestauNax #1149): the team products are RestauNax Team
+ * (TEAM_BUNDLE) and RestauNax Payroll (PAYROLL, which includes Team).
+ * Scheduling and Tip Management are parts of Team: no rows of their own and
+ * not requestable, unless a restaurant still pays for an old add-on.
  *
  * Deploy gate: utils/addonRequestGate.ts. Until #998 is on QA the request
  * tests skip; TC-783 checks whichever row flags the backend has.
@@ -31,6 +44,7 @@
  */
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
+import { requireEnv } from "../../../utils/envGate";
 import { generateRunId, readSharedState } from "../../../utils/testData";
 import {
   apiLogin,
@@ -39,6 +53,10 @@ import {
   setFeatureOverrideAdminRaw,
   deleteFeatureOverrideAdminRaw,
   getRestaurantFeaturesRaw,
+  apiRequestRaw,
+  createTabletDevice,
+  tabletLogin,
+  tabletRaw,
   ownerAddonsRaw,
   ownerAddonRemoveRaw,
   ownerAddonRequestRaw,
@@ -53,6 +71,10 @@ import {
   requireAddonRequests,
 } from "../../../utils/addonRequestGate";
 import { waitForEmail } from "../../../utils/emailHelper";
+import {
+  probeRequestFlowStage6,
+  requireRelease,
+} from "../../../utils/releaseGate";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
@@ -92,6 +114,7 @@ const ROW_FIELDS = [
   "pendingAdd",
   "pendingRemove",
   "contactUs",
+  "discount",
 ];
 /** The owner-buy flags #998 removed: no row may carry them any more. */
 const GONE_FIELDS = ["canAdd", "canKeep", "canRemove"];
@@ -118,23 +141,36 @@ const MSG = {
   requestNotFound: "That request doesn't exist.",
   requestClosed: "That request has already been handled or cancelled.",
   hqHandled: "Marked done. The owners have been emailed.",
+  // Stage 6 (W5:P1/P4).
+  sentWaiting:
+    "Request saved. We'll set it up as soon as your account is live.",
+  waitingForAccount:
+    "This request is waiting for the restaurant's subscription to be active. It opens on its own when it is.",
+  notOpen: "Only an open request can be declined.",
+  declined: "Declined. The owners have been told.",
+  reasonText: "Available once your account is live",
+  reasonTextEs: "Disponible cuando tu cuenta esté activa",
 };
+/** The owners' "declined" email subject, EN or ES. */
+const DECLINED_SUBJECT = /About your|Sobre tu solicitud/;
 /** The owners' "done" email subject, EN or ES (billing-notice template). */
 const DONE_SUBJECT = /request is done|está lista/;
 /** Seed add-ons this file attaches and must always take off again. */
 const SEED_FEATURES = [
   "MENU_TVS",
+  // Old add-ons, kept so a crashed run from before packaging v3 heals.
   "SCHEDULING",
   "TIP_MANAGEMENT",
   "TEAM_BUNDLE",
+  "PAYROLL",
 ];
 
 test.describe.configure({ mode: "serial" });
 
-test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle, payroll headcount (API)", () => {
-  test.skip(
-    !ADMIN_EMAIL || !ADMIN_PASSWORD,
-    "ADMIN_EMAIL / ADMIN_PASSWORD not set (the file mints its own tenants)"
+test.describe("Add-on billing — Add-ons page, requests, refusals, RestauNax Team, payroll headcount (API)", () => {
+  requireEnv(
+    ["ADMIN_EMAIL", "ADMIN_PASSWORD"],
+    "the file mints its own tenants"
   );
 
   const runId = generateRunId();
@@ -145,6 +181,10 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
   let otherOwner = "";
   let otherId = "";
   let live = false;
+  /** Stage 6 request flow deployed (waiting / declined requests). */
+  let stage6 = false;
+  /** TC-1531's request, cancelled: TC-1532 tries to decline it. */
+  let cancelledWaitingId = "";
   let seedToken = "";
   let seedId = "";
 
@@ -157,7 +197,7 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
     list(data.features).find((f) => f.feature === feature);
   const featuresOf = async (token: string, id: string) =>
     (await getRestaurantFeaturesRaw(token, id)).data.data?.features ?? [];
-  const hqList = async (status: "OPEN" | "CLOSED") => {
+  const hqList = async (status: "OPEN" | "WAITING" | "CLOSED") => {
     const r = await adminAddonsRaw(
       adminToken,
       "GET",
@@ -166,7 +206,7 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
     expect(r.status, JSON.stringify(r.data)).toBe(200);
     return list(r.data.data);
   };
-  const hqFind = async (status: "OPEN" | "CLOSED", id: string) =>
+  const hqFind = async (status: "OPEN" | "WAITING" | "CLOSED", id: string) =>
     (await hqList(status)).find((x) => x.id === id);
   const request = async (
     token: string,
@@ -240,6 +280,7 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
     otherId = other.restaurantId;
     otherOwner = other.accessToken;
     live = await addonRequestsLive(adminToken);
+    stage6 = live && (await probeRequestFlowStage6(adminToken));
     if (OWNER_EMAIL && OWNER_PASSWORD) {
       seedToken = (await apiLogin(OWNER_EMAIL, OWNER_PASSWORD)).accessToken;
       seedId = readSharedState().restaurantId;
@@ -272,14 +313,11 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
     expect(data).not.toHaveProperty("canPurchase");
     const features = list(data.features);
     expect(features.map((f) => f.feature)).toEqual(
-      expect.arrayContaining([
-        "SCHEDULING",
-        "TIP_MANAGEMENT",
-        "TEAM_BUNDLE",
-        "PAYROLL",
-        "ACCOUNTING_SYNC",
-      ])
+      expect.arrayContaining(["TEAM_BUNDLE", "PAYROLL", "ACCOUNTING_SYNC"])
     );
+    // Packaging v3: Team's parts are not products of their own.
+    for (const part of ["SCHEDULING", "TIP_MANAGEMENT", "TIMECARDS"])
+      expect(features.map((f) => f.feature)).not.toContain(part);
     const offers: string[] = [];
     for (const f of features) {
       const at = String(f.feature);
@@ -316,9 +354,7 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
     }
     // The selfServe switch is gone: every active flat add-on in the catalog
     // is offered (QA's catalog has one for each back-office service).
-    expect(offers).toEqual(
-      expect.arrayContaining(["SCHEDULING", "TIP_MANAGEMENT", "TEAM_BUNDLE"])
-    );
+    expect(offers).toEqual(expect.arrayContaining(["TEAM_BUNDLE", "PAYROLL"]));
     for (const a of list(data.addons)) {
       for (const gone of GONE_FIELDS) expect(a).not.toHaveProperty(gone);
       expect(a).toMatchObject({ pendingAdd: null, pendingRemove: null });
@@ -333,8 +369,8 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
 
   test("TC-782: the old buy/remove routes are gone (404); a request is refused in words; another owner can't look or ask", async () => {
     requireAddonRequests(live);
-    const offer = (row(await rows(), "SCHEDULING")?.offer as Rec).addonId;
-    expect(offer, "QA's catalog offers Scheduling").toBeTruthy();
+    const offer = (row(await rows(), "TEAM_BUNDLE")?.offer as Rec).addonId;
+    expect(offer, "QA's catalog offers RestauNax Team").toBeTruthy();
 
     // The old owner purchase and removal no longer exist.
     expect(
@@ -386,7 +422,7 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
     ).toBe(403);
   });
 
-  test("TC-783: the Team bundle grants Scheduling and Tip Management; the page shows them included with it, not for sale", async () => {
+  test("TC-783: RestauNax Team grants the schedule, timecards and tips; Payroll stays for sale and includes Team", async () => {
     // Pre-#998 the rows carry canAdd/canRemove; since #998 canRequestAdd/
     // canRequestRemove (utils/addonRequestGate.ts).
     const ADD = live ? "canRequestAdd" : "canAdd";
@@ -405,7 +441,7 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
       restaurantId,
       "TEAM_BUNDLE",
       true,
-      `automation team bundle ${runId}`
+      `automation team ${runId}`
     );
     expect(g.ok, JSON.stringify(g.data)).toBe(true);
     try {
@@ -427,14 +463,11 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
         [REMOVE]: false,
         contactUs: false,
       });
-      for (const f of ["SCHEDULING", "TIP_MANAGEMENT"]) {
-        expect(row(data, f), f).toMatchObject({
-          source: "INCLUDED_WITH",
-          includedWith: "TEAM_BUNDLE",
-          [ADD]: false,
-          contactUs: false,
-        });
-      }
+      // Its parts are not rows of their own (packaging v3).
+      for (const f of ["SCHEDULING", "TIP_MANAGEMENT"])
+        expect(row(data, f), f).toBeUndefined();
+      // Payroll is still for sale: it includes Team, so nothing it would
+      // replace is charged twice (an HQ grant is not a paid line).
       expect(row(data, "PAYROLL")).toMatchObject({ source: null });
 
       expect(
@@ -451,12 +484,15 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
         "TEAM_BUNDLE"
       );
     }
-    // Removing the bundle takes both away again.
+    // Removing Team takes the schedule and tips away again.
     expect(
       (await schedulingRaw(ownerToken, restaurantId, "GET", `?date=${day}`))
         .status
     ).toBe(403);
-    expect(row(await rows(), "SCHEDULING")).toMatchObject({ source: null });
+    expect(
+      (await tipsRaw(ownerToken, restaurantId, "GET", "/policy")).status
+    ).toBe(403);
+    expect(row(await rows(), "TEAM_BUNDLE")).toMatchObject({ source: null });
   });
 
   test("TC-784: HQ's payroll headcount page loads for a month (Gusto's count marked unavailable on QA); owners can't open it", async () => {
@@ -494,24 +530,27 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
   test("TC-894: the owner requests an add-on; asking again returns the same open request; HQ sees it; the owner cancels it", async () => {
     requireAddonRequests(live);
     const addonId = String(
-      (row(await rows(), "SCHEDULING")?.offer as Rec).addonId
+      (row(await rows(), "TEAM_BUNDLE")?.offer as Rec).addonId
     );
     const note = `automation ${runId}: best time is mornings`;
 
+    // Stage 6: a restaurant with no active subscription parks the request
+    // as WAITING (HQ's Waiting list), before it it was OPEN.
+    const status = stage6 ? "WAITING" : "OPEN";
     const first = await request(ownerToken, restaurantId, addonId, "ADD", note);
     expect(first.status).toBe(201);
-    expect(first.message).toBe(MSG.sent);
-    expect(first.data).toMatchObject({ addonId, kind: "ADD", status: "OPEN" });
+    expect(first.message).toBe(stage6 ? MSG.sentWaiting : MSG.sent);
+    expect(first.data).toMatchObject({ addonId, kind: "ADD", status });
     const id = String(first.data.id);
 
-    // One OPEN request per (restaurant, add-on, kind): the second is the first.
+    // One live request per (restaurant, add-on, kind): the second is the first.
     const again = await request(ownerToken, restaurantId, addonId, "ADD");
     expect(again.status).toBe(200);
-    expect(again.message).toBe(MSG.alreadySent);
+    expect(again.message).toBe(stage6 ? MSG.sentWaiting : MSG.alreadySent);
     expect(again.data.id).toBe(id);
 
     // The card shows it as sent, with nothing turned on.
-    const r1 = row(await rows(), "SCHEDULING");
+    const r1 = row(await rows(), "TEAM_BUNDLE");
     expect(r1).toMatchObject({
       source: null,
       pendingAdd: { id, createdAt: first.data.createdAt },
@@ -519,15 +558,15 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
     });
 
     // HQ → Add-ons → Add-on requests lists it with who asked and the note.
-    const hq = await hqFind("OPEN", id);
-    expect(hq, "the request is in HQ's open list").toBeTruthy();
+    const hq = await hqFind(status, id);
+    expect(hq, `the request is in HQ's ${status} list`).toBeTruthy();
     expect(hq).toMatchObject({
       kind: "ADD",
-      status: "OPEN",
+      status,
       note,
       handledAt: null,
       restaurant: { id: restaurantId, subscriptionStatus: null },
-      addon: { id: addonId, feature: "SCHEDULING" },
+      addon: { id: addonId, feature: "TEAM_BUNDLE" },
       requestedBy: { email: ownerEmail },
     });
 
@@ -548,8 +587,10 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
     );
     expect(twice.status).toBe(409);
     expect(twice.data.message).toBe(MSG.requestClosed);
-    expect(row(await rows(), "SCHEDULING")).toMatchObject({ pendingAdd: null });
-    expect(await hqFind("OPEN", id)).toBeUndefined();
+    expect(row(await rows(), "TEAM_BUNDLE")).toMatchObject({
+      pendingAdd: null,
+    });
+    expect(await hqFind(status, id)).toBeUndefined();
     expect(await hqFind("CLOSED", id)).toMatchObject({ status: "CANCELLED" });
 
     // A cancelled request can't be handled by HQ any more.
@@ -566,12 +607,33 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
   test("TC-895: an attach that can't happen leaves the request open; 'Mark done' closes it, alerts support on the way in and emails the owner on the way out", async () => {
     requireAddonRequests(live);
     const addonId = String(
-      (row(await rows(), "TIP_MANAGEMENT")?.offer as Rec).addonId
+      (row(await rows(), "PAYROLL")?.offer as Rec).addonId
     );
     const asked = new Date();
     const sent = await request(ownerToken, restaurantId, addonId, "ADD");
     expect(sent.status).toBe(201);
     const id = String(sent.data.id);
+    if (stage6) {
+      // Stage 6: no subscription = WAITING. HQ can neither attach it nor
+      // mark it done until the account is live; Mark done on an OPEN
+      // request is TC-1533 (the seed restaurant).
+      expect(sent.data.status).toBe("WAITING");
+      for (const action of ["fulfil", "done"]) {
+        const r = await adminAddonsRaw(
+          adminToken,
+          "POST",
+          `/requests/${id}/${action}`,
+          {}
+        );
+        expect(r.status, `${action} on a waiting request`).toBe(409);
+        expect(r.data.message).toBe(MSG.waitingForAccount);
+      }
+      expect(await hqFind("WAITING", id)).toMatchObject({ status: "WAITING" });
+      expect(
+        (await ownerAddonRequestCancelRaw(ownerToken, restaurantId, id)).status
+      ).toBe(200);
+      return;
+    }
     const restaurantName = String(
       ((await hqFind("OPEN", id))?.restaurant as Rec).name
     );
@@ -592,7 +654,7 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
       status: "OPEN",
       handledAt: null,
     });
-    expect(row(await rows(), "TIP_MANAGEMENT")).toMatchObject({
+    expect(row(await rows(), "PAYROLL")).toMatchObject({
       source: null,
       pendingAdd: { id },
     });
@@ -611,7 +673,7 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
     expect(closed).toMatchObject({ status: "DONE" });
     expect(closed?.handledAt).toBeTruthy();
     expect(closed?.handledBy).not.toBeNull();
-    expect(row(await rows(), "TIP_MANAGEMENT")).toMatchObject({
+    expect(row(await rows(), "PAYROLL")).toMatchObject({
       source: null,
       pendingAdd: null,
     });
@@ -790,7 +852,7 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
     expect(await featuresOf(seedToken, seedId)).not.toContain("MENU_TVS");
   });
 
-  test("TC-787: attaching a requested Team bundle replaces the separate Scheduling and Tip Management lines", async () => {
+  test("TC-787: attaching a requested RestauNax Payroll replaces the RestauNax Team line", async () => {
     requireAddonRequests(live);
     test.skip(
       !seedToken || !seedId,
@@ -798,35 +860,31 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
     );
     test.setTimeout(180_000);
     try {
-      const page = await rows(seedToken, seedId);
-      for (const f of ["SCHEDULING", "TIP_MANAGEMENT"]) {
-        const r = row(page, f);
-        expect(r, f).toMatchObject({ source: null, canRequestAdd: true });
-        const sent = await request(
-          seedToken,
-          seedId,
-          String(r!.requestAddonId),
-          "ADD"
-        );
-        expect(sent.status, f).toBe(201);
-        // No trial: keep the seed's once-per-feature trials unused.
-        const res = await fulfil(String(sent.data.id), { offerTrial: false });
-        expect(res, f).toMatchObject({ outcome: "added", trialEndsAt: null });
-      }
-      const both = await rows(seedToken, seedId);
-      for (const f of ["SCHEDULING", "TIP_MANAGEMENT"])
-        expect(row(both, f), f).toMatchObject({ source: "ADDON" });
-      const bundle = row(both, "TEAM_BUNDLE");
-      expect(bundle).toMatchObject({ source: null, canRequestAdd: true });
-      expect([...(bundle!.replaces as string[])].sort()).toEqual([
-        "SCHEDULING",
-        "TIP_MANAGEMENT",
-      ]);
+      const team = row(await rows(seedToken, seedId), "TEAM_BUNDLE");
+      expect(team).toMatchObject({ source: null, canRequestAdd: true });
+      const askTeam = await request(
+        seedToken,
+        seedId,
+        String(team!.requestAddonId),
+        "ADD"
+      );
+      expect(askTeam.status).toBe(201);
+      // No trial: keep the seed's once-per-feature trials unused.
+      expect(
+        await fulfil(String(askTeam.data.id), { offerTrial: false })
+      ).toMatchObject({ outcome: "added", trialEndsAt: null });
+
+      const withTeam = await rows(seedToken, seedId);
+      expect(row(withTeam, "TEAM_BUNDLE")).toMatchObject({ source: "ADDON" });
+      const payroll = row(withTeam, "PAYROLL");
+      expect(payroll).toMatchObject({ source: null, canRequestAdd: true });
+      // Payroll includes everything in Team: buying it replaces Team.
+      expect(payroll!.replaces).toEqual(["TEAM_BUNDLE"]);
 
       const sent = await request(
         seedToken,
         seedId,
-        String(bundle!.requestAddonId),
+        String(payroll!.requestAddonId),
         "ADD"
       );
       expect(sent.status).toBe(201);
@@ -835,31 +893,270 @@ test.describe("Add-on billing — Add-ons page, requests, refusals, Team bundle,
       expect(res).toMatchObject({ outcome: "added", trialEndsAt: null });
 
       const swapped = await rows(seedToken, seedId);
-      expect(row(swapped, "TEAM_BUNDLE")).toMatchObject({ source: "ADDON" });
-      for (const f of ["SCHEDULING", "TIP_MANAGEMENT"])
-        expect(row(swapped, f), f).toMatchObject({
-          source: "INCLUDED_WITH",
-          includedWith: "TEAM_BUNDLE",
-          activeInstanceId: null,
-        });
-      // The separate lines are gone from the subscription.
+      expect(row(swapped, "PAYROLL")).toMatchObject({ source: "ADDON" });
+      expect(row(swapped, "TEAM_BUNDLE")).toMatchObject({
+        source: "INCLUDED_WITH",
+        includedWith: "PAYROLL",
+        activeInstanceId: null,
+      });
+      // The Team line is gone from the subscription: never charged twice.
       const hq = await adminAddonsRaw<Rec[]>(
         adminToken,
         "GET",
         `/restaurants/${seedId}`
       );
       for (const a of list(hq.data)) {
-        const feature = String((a.addon as Rec).feature);
-        if (feature === "SCHEDULING" || feature === "TIP_MANAGEMENT")
-          expect(a.activeInstanceId, feature).toBeNull();
+        if (String((a.addon as Rec).feature) === "TEAM_BUNDLE")
+          expect(a.activeInstanceId, "TEAM_BUNDLE").toBeNull();
       }
       expect(await featuresOf(seedToken, seedId)).toEqual(
-        expect.arrayContaining(["TEAM_BUNDLE", "SCHEDULING", "TIP_MANAGEMENT"])
+        expect.arrayContaining([
+          "PAYROLL",
+          "TEAM_BUNDLE",
+          "SCHEDULING",
+          "TIP_MANAGEMENT",
+          "TIMECARDS",
+        ])
       );
     } finally {
       await resetSeed();
     }
-    expect(await featuresOf(seedToken, seedId)).not.toContain("TEAM_BUNDLE");
+    const after = await featuresOf(seedToken, seedId);
+    expect(after).not.toContain("PAYROLL");
+    expect(after).not.toContain("TEAM_BUNDLE");
+  });
+
+  // ── Stage 6 (RestauNax bo1031/reqflow, W5:P1–P4) ──────────────────────────
+
+  test("TC-1530: an account that isn't live sees every product, marked 'available once your account is live' (EN and ES)", async () => {
+    requireAddonRequests(live);
+    requireRelease("requestFlowStage6", stage6);
+    const en = await getRestaurantFeaturesRaw(ownerToken, restaurantId);
+    expect(en.status).toBe(200);
+    const data = en.data.data as Rec;
+    expect(data.accountLive).toBe(false);
+    const products = list(data.availableProducts);
+    expect(products.length, "the list is not empty").toBeGreaterThan(0);
+    expect((data.available as string[]).length).toBe(products.length);
+    for (const p of products) {
+      expect(p).toMatchObject({
+        accountLive: false,
+        reason: "ACCOUNT_NOT_ACTIVE",
+        reasonText: MSG.reasonText,
+      });
+      expect(p).toHaveProperty("pendingRequestStatus");
+    }
+    const es = await apiRequestRaw<{ data?: Rec }>(
+      "GET",
+      `/restaurant/restaurantId/${restaurantId}/features`,
+      undefined,
+      ownerToken,
+      { "Accept-Language": "es" }
+    );
+    expect(list(es.data.data?.availableProducts)[0]?.reasonText).toBe(
+      MSG.reasonTextEs
+    );
+    // The Products page's own answer says the same.
+    expect((await rows()).accountLive).toBe(false);
+  });
+
+  test("TC-1531: a request before the account is live waits: HQ's Waiting list (with its count), not Open; HQ can't attach it; the owner can cancel it", async () => {
+    requireAddonRequests(live);
+    requireRelease("requestFlowStage6", stage6);
+    const asked = await ownerAddonRequestRaw(ownerToken, restaurantId, {
+      feature: "PAYROLL",
+      kind: "ADD",
+      source: "products_page",
+    });
+    expect(asked.status, JSON.stringify(asked.data)).toBe(201);
+    expect(asked.data.message).toBe(MSG.sentWaiting);
+    const req = asked.data.data as Rec;
+    expect(req).toMatchObject({ feature: "PAYROLL", status: "WAITING" });
+    const id = String(req.id);
+
+    const payroll = list(
+      (
+        (await getRestaurantFeaturesRaw(ownerToken, restaurantId)).data
+          .data as Rec
+      ).availableProducts
+    ).find((p) => p.feature === "PAYROLL");
+    expect(payroll).toMatchObject({
+      pendingRequestStatus: "WAITING",
+      pendingRequestAt: req.createdAt,
+    });
+
+    const waiting = await adminAddonsRaw(
+      adminToken,
+      "GET",
+      "/requests?status=WAITING"
+    );
+    expect(waiting.status).toBe(200);
+    expect(typeof (waiting.data as Rec).waitingCount).toBe("number");
+    expect(Number((waiting.data as Rec).waitingCount)).toBeGreaterThanOrEqual(
+      1
+    );
+    expect(list(waiting.data.data).find((x) => x.id === id)).toMatchObject({
+      status: "WAITING",
+      feature: "PAYROLL",
+      restaurant: { id: restaurantId, subscriptionStatus: null },
+    });
+    expect(await hqFind("OPEN", id)).toBeUndefined();
+
+    const attach = await adminAddonsRaw(
+      adminToken,
+      "POST",
+      `/requests/${id}/fulfil`,
+      {}
+    );
+    expect(attach.status).toBe(409);
+    expect(attach.data.message).toBe(MSG.waitingForAccount);
+
+    const cancel = await ownerAddonRequestCancelRaw(
+      ownerToken,
+      restaurantId,
+      id
+    );
+    expect(cancel.status).toBe(200);
+    expect(await hqFind("CLOSED", id)).toMatchObject({ status: "CANCELLED" });
+    cancelledWaitingId = id;
+  });
+
+  test("TC-1532: decline is HQ's only: 401 without a sign-in, 403 for an owner, 404 for no such request, 409 when it isn't open", async () => {
+    requireAddonRequests(live);
+    requireRelease("requestFlowStage6", stage6);
+    expect(cancelledWaitingId, "TC-1531 ran").not.toBe("");
+    const path = (id: string) => `/api/admin/addons/requests/${id}/decline`;
+    expect(
+      (await apiRequestRaw("POST", path(cancelledWaitingId), {})).status
+    ).toBe(401);
+    expect(
+      (await apiRequestRaw("POST", path(cancelledWaitingId), {}, ownerToken))
+        .status
+    ).toBe(403);
+    expect(
+      (await adminAddonsRaw(adminToken, "POST", `/requests/${ZERO_ID}/decline`))
+        .status
+    ).toBe(404);
+    const closed = await adminAddonsRaw(
+      adminToken,
+      "POST",
+      `/requests/${cancelledWaitingId}/decline`,
+      { reason: "automation" }
+    );
+    expect(closed.status).toBe(409);
+    expect(closed.data.message).toBe(MSG.notOpen);
+  });
+
+  test("TC-1533: on a live account a request is OPEN; HQ declines it (reason emailed, Closed shows Declined); asked again, Mark done closes it", async () => {
+    requireAddonRequests(live);
+    requireRelease("requestFlowStage6", stage6);
+    test.skip(
+      !seedToken || !seedId,
+      "OWNER_EMAIL / OWNER_PASSWORD not set (the seed restaurant)"
+    );
+    const features = (await getRestaurantFeaturesRaw(seedToken, seedId)).data
+      .data as Rec;
+    expect(features.accountLive, "the seed restaurant is live").toBe(true);
+    // A product the seed can ask for and hasn't, never one TC-896/786/787 attach.
+    const product = list(features.availableProducts).find(
+      (p) =>
+        !p.pendingRequestStatus && !SEED_FEATURES.includes(String(p.feature))
+    );
+    test.skip(!product, "the seed restaurant has no product left to ask for");
+    const feature = String(product!.feature);
+    expect(product).toMatchObject({ accountLive: true, reason: null });
+
+    const askFeature = async () => {
+      const r = await ownerAddonRequestRaw(seedToken, seedId, {
+        feature,
+        kind: "ADD",
+        source: "products_page",
+        note: `automation ${runId}`,
+      });
+      expect(r.status, JSON.stringify(r.data)).toBe(201);
+      expect(r.data.data).toMatchObject({ feature, status: "OPEN" });
+      return String((r.data.data as Rec).id);
+    };
+    const pendingOf = async () =>
+      list(
+        ((await getRestaurantFeaturesRaw(seedToken, seedId)).data.data as Rec)
+          .availableProducts
+      ).find((p) => p.feature === feature);
+
+    const asked = new Date();
+    const id = await askFeature();
+    expect(await pendingOf()).toMatchObject({ pendingRequestStatus: "OPEN" });
+    expect(await hqFind("OPEN", id)).toMatchObject({ status: "OPEN" });
+
+    const declined = await adminAddonsRaw(
+      adminToken,
+      "POST",
+      `/requests/${id}/decline`,
+      { reason: `automation ${runId}: not for this restaurant yet` }
+    );
+    expect(declined.status, JSON.stringify(declined.data)).toBe(200);
+    expect(declined.data).toMatchObject({
+      data: { id, status: "DECLINED" },
+      message: MSG.declined,
+    });
+    const closed = await hqFind("CLOSED", id);
+    expect(closed).toMatchObject({ status: "DECLINED" });
+    expect(closed?.handledBy).not.toBeNull();
+    expect(await pendingOf()).toMatchObject({ pendingRequestStatus: null });
+
+    if (MAILPIT) {
+      const mail = await waitForEmail(OWNER_EMAIL, {
+        subjectPattern: DECLINED_SUBJECT,
+        notBefore: asked,
+        timeoutMs: 60_000,
+      });
+      expect(mail.html_body + mail.text_body).toContain(
+        "not for this restaurant yet"
+      );
+    }
+
+    // Declined is not forever: asked again, Mark done closes it (DONE).
+    const again = await askFeature();
+    expect(again).not.toBe(id);
+    const done = await adminAddonsRaw(
+      adminToken,
+      "POST",
+      `/requests/${again}/done`
+    );
+    expect(done.status, JSON.stringify(done.data)).toBe(200);
+    expect(done.data).toMatchObject({
+      data: { id: again, status: "DONE" },
+      message: MSG.hqHandled,
+    });
+    expect(await pendingOf()).toMatchObject({ pendingRequestStatus: null });
+  });
+
+  test("TC-1534: the POS answer carries the products with their request status, and whether the account is live", async () => {
+    requireAddonRequests(live);
+    requireRelease("requestFlowStage6", stage6);
+    const device = await createTabletDevice(
+      adminToken,
+      restaurantId,
+      `auto-reqflow-${runId}`
+    );
+    const tabletToken = await tabletLogin(device.name, device.code);
+    const pos = await tabletRaw<Rec>(tabletToken, "GET", "/features");
+    expect(pos.status, JSON.stringify(pos.data)).toBe(200);
+    expect(pos.data.accountLive).toBe(false);
+    const products = list(pos.data.availableProducts);
+    expect(products.length).toBeGreaterThan(0);
+    // The old key list stays, the same products.
+    expect((pos.data.available as string[]).sort()).toEqual(
+      products.map((p) => String(p.feature)).sort()
+    );
+    for (const p of products) {
+      expect(p).toMatchObject({
+        accountLive: false,
+        reason: "ACCOUNT_NOT_ACTIVE",
+      });
+      expect(p).toHaveProperty("pendingRequestAt");
+      expect(p).toHaveProperty("pendingRequestStatus");
+    }
   });
 
   test.fixme("TC-785: trial — HQ attaching a requested add-on with 'Start the free trial' starts its 30-day trial once per feature; a second attach after removal bills at once", async () => {

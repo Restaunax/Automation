@@ -169,7 +169,7 @@ test.describe("Owner — Reservations: booking hours, after-payment policy, insi
     await allure.description(
       "With no booking windows yet, the Booking hours panel offers 'Use my " +
         "business hours'. The dialog shows Monday 11:00–22:00 and Friday " +
-        "17:00–23:59 (overnight close capped), Tuesday 'Too short', " +
+        "17:00–01:00 (next day), Tuesday 'Too short', " +
         "Wednesday 'Closed', Thursday 'Open 24 hours'. With a name and a " +
         "pacing limit of 4, 'Create 2 windows' sends one POST .../bulk " +
         "(201); the API lists exactly those two windows, paced at 4."
@@ -184,7 +184,7 @@ test.describe("Owner — Reservations: booking hours, after-payment policy, insi
       "11:00–22:00"
     );
     await expect(reservationsPage.suggestionRow("Friday")).toContainText(
-      "17:00–23:59"
+      "17:00–01:00 (next day)"
     );
     await expect(reservationsPage.suggestionRow("Tuesday")).toContainText(
       "Too short"
@@ -219,7 +219,7 @@ test.describe("Owner — Reservations: booking hours, after-payment policy, insi
     const periods = (await listPeriods()).filter((p) => p.name === name);
     expect(
       periods.map((p) => `${p.dayOfWeek} ${p.startTime}-${p.endTime}`).sort()
-    ).toEqual(["1 11:00-22:00", "5 17:00-23:59"]);
+    ).toEqual(["1 11:00-22:00", "5 17:00-01:00"]);
     for (const p of periods) expect(p.maxPartiesPerSlot).toBe(4);
   });
 
@@ -266,6 +266,9 @@ test.describe("Owner — Reservations: booking hours, after-payment policy, insi
         "after a reload the auto-free radio is still checked."
     );
     await reservationsPage.gotoSettingsSubTab(restaurantId);
+    // "After guests pay" sits in the collapsed Advanced section since the
+    // reservations audit fixes.
+    await reservationsPage.ensureAdvancedOpen();
     await expect(
       reservationsPage.afterPaymentRadio("Show as Paid until someone taps")
     ).toBeChecked();
@@ -289,6 +292,7 @@ test.describe("Owner — Reservations: booking hours, after-payment policy, insi
     expect(settings.autoClearMinutes).toBe(7);
 
     await reservationsPage.gotoSettingsSubTab(restaurantId);
+    await reservationsPage.ensureAdvancedOpen();
     await expect(
       reservationsPage.afterPaymentRadio(
         "Show as Paid, then free it automatically"
