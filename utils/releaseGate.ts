@@ -42,10 +42,10 @@ export const RELEASED_ON_QA = {
   switchClickTarget: false,
   /** RestauNax branch feat/sales-attribution — who brought a restaurant in
    *  (HQ "Brought in by", card leaderboard, affiliate Sales tab). */
-  attribution: false,
+  attribution: true,
   /** RestauNax branch feat/sales-attribution (Plan 2) — affiliate commission
    *  plan, program defaults, termination outcome. */
-  affiliateCommission: false,
+  affiliateCommission: true,
   /** RestauNax back-office audit, Stage 1 paywall (branch bo1031/paywall,
    *  docs/features/back-office/audit-2026-10/W5_PAYWALL_TASKS.md): Menu TVs,
    *  Social Media and Voice AI gated; 404 before the add-on check (L2);

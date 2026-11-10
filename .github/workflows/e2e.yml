@@ -94,6 +94,9 @@ jobs:
       ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
       EMPLOYEE_EMAIL: ${{ secrets.EMPLOYEE_EMAIL }}
       EMPLOYEE_PASSWORD: ${{ secrets.EMPLOYEE_PASSWORD }}
+      # The persistent affiliate actor (affiliate portal + attribution suites).
+      AFFILIATE_EMAIL: ${{ secrets.AFFILIATE_EMAIL }}
+      AFFILIATE_PASSWORD: ${{ secrets.AFFILIATE_PASSWORD }}
       # QA's self-hosted Mailpit inbox. The password is a secret so Actions
       # masks it in logs; the URL is not sensitive.
       MAILPIT_BASE_URL: ${{ vars.MAILPIT_BASE_URL }}
