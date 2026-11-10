@@ -114,6 +114,7 @@ const ROW_FIELDS = [
   "pendingAdd",
   "pendingRemove",
   "contactUs",
+  "discount",
 ];
 /** The owner-buy flags #998 removed: no row may carry them any more. */
 const GONE_FIELDS = ["canAdd", "canKeep", "canRemove"];
