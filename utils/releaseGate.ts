@@ -16,7 +16,8 @@
  \* `--grep @team-comms`, `--grep @staff-setup`, `--grep @daily-views`,
  \* `--grep @growth-a`, `--grep @reservations-audit`,
  \* `--grep @reservations-phase4`,
- * `--grep @attribution`, `--grep @affiliate-commission`.
+ * `--grep @attribution`, `--grep @affiliate-commission`,
+ * `--grep @books-offboarding`.
  */
 import { test, expect } from "../fixtures/base";
 import { apiRequestRaw } from "./apiHelper";
@@ -126,6 +127,10 @@ export const RELEASED_ON_QA = {
    *  (connect a Google Business Profile, list reviews, post/edit/delete
    *  replies, AI drafts, reply settings). */
   googleReviews: false,
+  /** RestauNax branch feat/books-offboarding — books and Avalara Disconnect
+   *  is RestauNax staff only; past entries stay downloadable without the
+   *  add-on (GET /api/accounting/:id/past). Flip once it is on QA. */
+  booksOffboarding: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -172,6 +177,8 @@ const REASON: Record<ReleasePart, string> = {
     "The Stage 6 daily views (RestauNax bo1031/uxdaily) are not on this environment yet — /api/today/:id answers 404",
   googleReviews:
     "Google review replies (RestauNax feat/google-review-replies) is not on this environment yet — /api/google-business/:id answers 404",
+  booksOffboarding:
+    "Books offboarding (RestauNax feat/books-offboarding) is not on this environment yet — /api/accounting/:id/past answers 404",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
@@ -392,6 +399,23 @@ export async function probeTaxDepthStage7(
     ownerToken
   );
   return res.status !== 404;
+}
+
+/**
+ * Is books offboarding deployed? `GET /api/accounting/:id/past` answers 200
+ * once it is (404 before, for a restaurant with the add-on).
+ */
+export async function probeBooksOffboarding(
+  ownerToken: string,
+  restaurantId: string
+): Promise<boolean> {
+  const res = await apiRequestRaw(
+    "GET",
+    `/api/accounting/${restaurantId}/past`,
+    undefined,
+    ownerToken
+  );
+  return res.status === 200;
 }
 
 /**

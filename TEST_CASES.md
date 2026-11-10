@@ -4297,3 +4297,14 @@ restaunax `docs/features/MOBILE_RELEASE_GATING.md` → _Requiring an update_. Pu
 | **TC-1953** | `appType=pos`, iOS and Android: `forceUpdate` is true when a POS row is enabled (latest version not `0.0.0`), false on the safe default. |
 
 ---
+
+## TC-1954 → TC-1955 — Books offboarding: Disconnect is RestauNax's, the past stays the restaurant's (`dashboard/owner/api-books-taxes`)
+
+restaunax `docs/features/back-office/ACCOUNTING_SYNC.md` → _When the add-on ends_. An owner stops Books & Taxes by asking to remove the add-on; when it ends, the waiting days are sent and QuickBooks / Xero and Avalara are disconnected (unit + integration tested in restaunax, `booksOffboarding.test.ts`, `booksAutopilot.int.test.ts`). The throwaway tenant has no books connection, so a wrongly allowed Disconnect has nothing to cut. Gated on `booksOffboarding`; tag `@books-offboarding`.
+
+| TC          | What it checks                                                                                                                                                      |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **TC-1954** | `POST /api/accounting/:id/disconnect` and `/avalara/disconnect`: the owner gets 403; the admin gets 200.                                                            |
+| **TC-1955** | With the add-on forced off, `/overview` is 403 again, but `/past` answers 200 (days + download ranges) and `/past/export.csv` downloads a day as CSV for the owner. |
+
+---
