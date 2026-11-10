@@ -15,7 +15,8 @@
  \* `--grep @labor-engines`, `--grep @tax-depth`, `--grep @print-builders`,
  \* `--grep @team-comms`, `--grep @staff-setup`, `--grep @daily-views`,
  \* `--grep @growth-a`, `--grep @reservations-audit`,
- \* `--grep @reservations-phase4`.
+ \* `--grep @reservations-phase4`,
+ * `--grep @attribution`, `--grep @affiliate-commission`.
  */
 import { test, expect } from "../fixtures/base";
 import { apiRequestRaw } from "./apiHelper";
@@ -39,6 +40,12 @@ export const RELEASED_ON_QA = {
   /** RestauNax branch fix/switch-click-target — a click on a switch's label
    *  text or row no longer toggles it; only the switch does (theme-level). */
   switchClickTarget: false,
+  /** RestauNax branch feat/sales-attribution — who brought a restaurant in
+   *  (HQ "Brought in by", card leaderboard, affiliate Sales tab). */
+  attribution: false,
+  /** RestauNax branch feat/sales-attribution (Plan 2) — affiliate commission
+   *  plan, program defaults, termination outcome. */
+  affiliateCommission: false,
   /** RestauNax back-office audit, Stage 1 paywall (branch bo1031/paywall,
    *  docs/features/back-office/audit-2026-10/W5_PAYWALL_TASKS.md): Menu TVs,
    *  Social Media and Voice AI gated; 404 before the add-on check (L2);
@@ -135,6 +142,10 @@ const REASON: Record<ReleasePart, string> = {
     "Removing cards also removes their stands (RestauNax PR #1102) is not on this environment yet",
   switchClickTarget:
     "Switches toggle only from the switch (RestauNax fix/switch-click-target) is not on this environment yet",
+  attribution:
+    "Restaurant attribution (RestauNax feat/sales-attribution) is not on this environment yet — /api/admin/attribution answers 404",
+  affiliateCommission:
+    "Affiliate commission (RestauNax feat/sales-attribution) is not on this environment yet — /api/affiliates/admin/program-defaults answers 404",
   reservationsAudit:
     "The reservations audit fixes (RestauNax fix/reservations-audit) are not on this environment yet — the booking-hours suggestion carries no suggestedMaxPartiesPerSlot",
   reservationsPhase4:
@@ -277,6 +288,37 @@ export async function probeSettingsSafety(
     `/api/restaurantId/${restaurantId}/settings/setup`,
     undefined,
     accessToken
+  );
+  return res.status !== 404;
+}
+
+/**
+ * Is restaurant attribution deployed? `GET /api/admin/attribution/funnel` is
+ * a read-only admin list that only exists with feat/sales-attribution.
+ */
+export async function probeAttribution(adminToken: string): Promise<boolean> {
+  const res = await apiRequestRaw(
+    "GET",
+    "/api/admin/attribution/funnel?payee=card",
+    undefined,
+    adminToken
+  );
+  return res.status !== 404;
+}
+
+/**
+ * Is the affiliate commission plan deployed? `GET
+ * /api/affiliates/admin/program-defaults` is a read-only admin route that only
+ * exists with feat/sales-attribution (Plan 2).
+ */
+export async function probeAffiliateCommission(
+  adminToken: string
+): Promise<boolean> {
+  const res = await apiRequestRaw(
+    "GET",
+    "/api/affiliates/admin/program-defaults",
+    undefined,
+    adminToken
   );
   return res.status !== 404;
 }
