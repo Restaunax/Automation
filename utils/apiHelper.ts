@@ -19,6 +19,14 @@ import {
   recordUserForCleanup,
 } from "./testData";
 
+/**
+ * The affiliate agreement version a signup must accept. The backend refuses
+ * POST /api/affiliates/apply without a version it knows. Keep in sync with
+ * AFFILIATE_AGREEMENT_VERSION in restaunax-frontend/src/constants/affiliateAgreement.ts
+ * and restaunax-backend/src/constant/affiliateAgreement.ts.
+ */
+const AFFILIATE_AGREEMENT_VERSION = "2026-11";
+
 export const BACKEND_URL =
   process.env.BACKEND_URL ?? "https://api.qa.restaunax.com";
 
@@ -7742,6 +7750,8 @@ export async function ensureAttributionAffiliate(adminToken: string): Promise<{
       {
         referralTag: AUTOMATION_ATTRIBUTION_AFFILIATE_TAG,
         bio: "Automation fixture for the attribution suite",
+        agreedToTerms: true,
+        agreementVersion: AFFILIATE_AGREEMENT_VERSION,
       },
       login.accessToken
     );
