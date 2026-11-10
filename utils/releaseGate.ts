@@ -11,7 +11,8 @@
  * regression can't hide as a skip.
  *
  * Select a part's tests with its tag: `--grep @training`, `--grep @closeout`,
- * `--grep @bugfix-1036`, `--grep @settings-safety`, `--grep @switch-click`.
+ * `--grep @bugfix-1036`, `--grep @settings-safety`, `--grep @switch-click`,
+ * `--grep @attribution`.
  */
 import { test, expect } from "../fixtures/base";
 import { apiRequestRaw } from "./apiHelper";
@@ -35,6 +36,9 @@ export const RELEASED_ON_QA = {
   /** RestauNax branch fix/switch-click-target — a click on a switch's label
    *  text or row no longer toggles it; only the switch does (theme-level). */
   switchClickTarget: false,
+  /** RestauNax branch feat/sales-attribution — who brought a restaurant in
+   *  (HQ "Brought in by", card leaderboard, affiliate Sales tab). */
+  attribution: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -51,6 +55,8 @@ const REASON: Record<ReleasePart, string> = {
     "Removing cards also removes their stands (RestauNax PR #1102) is not on this environment yet",
   switchClickTarget:
     "Switches toggle only from the switch (RestauNax fix/switch-click-target) is not on this environment yet",
+  attribution:
+    "Restaurant attribution (RestauNax feat/sales-attribution) is not on this environment yet — /api/admin/attribution answers 404",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
@@ -109,6 +115,20 @@ export async function probeSettingsSafety(
     `/api/restaurantId/${restaurantId}/settings/setup`,
     undefined,
     accessToken
+  );
+  return res.status !== 404;
+}
+
+/**
+ * Is restaurant attribution deployed? `GET /api/admin/attribution/funnel` is
+ * a read-only admin list that only exists with feat/sales-attribution.
+ */
+export async function probeAttribution(adminToken: string): Promise<boolean> {
+  const res = await apiRequestRaw(
+    "GET",
+    "/api/admin/attribution/funnel?payee=card",
+    undefined,
+    adminToken
   );
   return res.status !== 404;
 }

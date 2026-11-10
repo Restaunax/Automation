@@ -7673,3 +7673,167 @@ export function adminSearchRestaurantsRaw(
     adminToken
   );
 }
+
+// ── Restaurant attribution ("Brought in by") ─────────────────────────────────
+// HQ API under /api/admin/attribution (ADMIN only). Spec in the RestauNax repo:
+// docs/features/RESTAURANT_ATTRIBUTION.md.
+
+export const AUTOMATION_ATTRIBUTION_AFFILIATE_TAG = "auto-attribution";
+export const AUTOMATION_ATTRIBUTION_CARD_CODE = "auto-attribution";
+export const AUTOMATION_ATTRIBUTION_CARD_NAME = "AUTO Attribution Card";
+
+export interface AttributionApiView {
+  data: {
+    via: "DEMO" | "QUOTE" | "CHAIN" | "MANUAL";
+    lockedAt: string | null;
+    payee: { kind: "AFFILIATE" | "EMPLOYEE"; id: string; name: string };
+  } | null;
+  activatedAt: string | null;
+}
+
+/**
+ * The ONE persistent affiliate the attribution suite links restaurants to.
+ * Persistent on purpose: a user who has an Affiliate row can never be deleted
+ * or anonymized (Affiliate.userId is a required FK), so a per-run affiliate
+ * would pile up on QA forever. Created on first use (admin creates the user,
+ * the user applies through POST /api/affiliates/apply), and set back to
+ * ACTIVE on every run through the admin status endpoint, since only an ACTIVE
+ * affiliate can be linked.
+ */
+export async function ensureAttributionAffiliate(adminToken: string): Promise<{
+  affiliateId: string;
+  displayName: string;
+}> {
+  const domain = process.env.TEST_EMAIL_DOMAIN ?? "demomailtrap.co";
+  const email = `auto-attribution-affiliate@${domain}`;
+  const password = "Automation!Attribution-1";
+  const firstName = "Auto";
+  const lastName = "Attribution Partner";
+  if (!(await findUserIdByEmail(adminToken, email))) {
+    await adminCreateUser(adminToken, {
+      firstName,
+      lastName,
+      email,
+      password,
+      role: "USER",
+    });
+  }
+  const login = await apiLogin(email, password);
+  type ProfileBody = {
+    affiliate?: { id: string };
+    data?: { id?: string; affiliate?: { id: string } };
+  };
+  const pick = (b: ProfileBody | undefined) =>
+    b?.affiliate?.id ?? b?.data?.affiliate?.id ?? b?.data?.id;
+  let affiliateId = pick(
+    (
+      await apiRequestRaw<ProfileBody>(
+        "GET",
+        "/api/affiliates/profile",
+        undefined,
+        login.accessToken
+      )
+    ).data
+  );
+  if (!affiliateId) {
+    const applied = await apiRequestRaw<ProfileBody>(
+      "POST",
+      "/api/affiliates/apply",
+      {
+        referralTag: AUTOMATION_ATTRIBUTION_AFFILIATE_TAG,
+        bio: "Automation fixture for the attribution suite",
+      },
+      login.accessToken
+    );
+    affiliateId = pick(applied.data);
+    if (!affiliateId) {
+      throw new Error(
+        `Affiliate apply failed: ${applied.status} ${JSON.stringify(applied.data)}`
+      );
+    }
+  }
+  await apiRequest<unknown>(
+    "PUT",
+    `/api/affiliates/admin/affiliates/${affiliateId}/status`,
+    { status: "ACTIVE", commissionRate: 10 },
+    adminToken
+  );
+  return { affiliateId, displayName: `${firstName} ${lastName}` };
+}
+
+/**
+ * The ONE persistent employee business card (owned by the admin user) the
+ * leaderboard case looks for. Cards cannot be deleted, only disabled, so a
+ * per-run card would accumulate; this one is created once and re-enabled when
+ * a run finds it disabled.
+ */
+export async function ensureAttributionCard(
+  adminToken: string,
+  adminUserId: string
+): Promise<{ cardId: string; fullName: string }> {
+  const list = await apiRequest<{
+    data: { cards: { id: string; code: string; disabledAt: string | null }[] };
+  }>(
+    "GET",
+    `/api/admin/business-cards?search=${encodeURIComponent(AUTOMATION_ATTRIBUTION_CARD_CODE)}&limit=50`,
+    undefined,
+    adminToken
+  );
+  const found = list.data.cards.find(
+    (c) => c.code === AUTOMATION_ATTRIBUTION_CARD_CODE
+  );
+  if (found) {
+    if (found.disabledAt) {
+      await apiRequest<unknown>(
+        "PATCH",
+        `/api/admin/business-cards/${found.id}`,
+        { disabled: false },
+        adminToken
+      );
+    }
+    return { cardId: found.id, fullName: AUTOMATION_ATTRIBUTION_CARD_NAME };
+  }
+  const created = await apiRequest<{ data: { id: string } }>(
+    "POST",
+    "/api/admin/business-cards",
+    {
+      ownerType: "EMPLOYEE",
+      userId: adminUserId,
+      fullName: AUTOMATION_ATTRIBUTION_CARD_NAME,
+      jobTitle: "Automation",
+      code: AUTOMATION_ATTRIBUTION_CARD_CODE,
+    },
+    adminToken
+  );
+  return {
+    cardId: created.data.id,
+    fullName: AUTOMATION_ATTRIBUTION_CARD_NAME,
+  };
+}
+
+/** GET /api/admin/attribution/restaurants/:id — the source and activation. */
+export function getRestaurantAttributionApi(
+  adminToken: string,
+  restaurantId: string
+): Promise<AttributionApiView> {
+  return apiRequest<AttributionApiView>(
+    "GET",
+    `/api/admin/attribution/restaurants/${restaurantId}`,
+    undefined,
+    adminToken
+  );
+}
+
+/** PUT /api/admin/attribution/restaurants/:id — link to an affiliate (raw). */
+export function setRestaurantAttributionRaw(
+  adminToken: string,
+  restaurantId: string,
+  body: { affiliateId?: string; businessCardId?: string; reason: string }
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "PUT",
+    `/api/admin/attribution/restaurants/${restaurantId}`,
+    body,
+    adminToken
+  );
+}
