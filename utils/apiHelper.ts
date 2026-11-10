@@ -7700,32 +7700,86 @@ export interface AttributionApiView {
 }
 
 /**
- * The ONE persistent affiliate the attribution suite links restaurants to.
- * Persistent on purpose: a user who has an Affiliate row can never be deleted
- * or anonymized (Affiliate.userId is a required FK), so a per-run affiliate
- * would pile up on QA forever. Created on first use (admin creates the user,
- * the user applies through POST /api/affiliates/apply), and set back to
- * ACTIVE on every run through the admin status endpoint, since only an ACTIVE
- * affiliate can be linked.
+ * Login for the affiliate actor: the ONE persistent affiliate
+ * ("auto-attribution") that the attribution suite links restaurants to and
+ * the affiliate-portal suite signs in as. AFFILIATE_EMAIL / AFFILIATE_PASSWORD
+ * when set (`fromEnv: true`); otherwise the historical fixture login, which
+ * still serves the API-only attribution suite but no browser session is saved
+ * for it (portal tests skip). On QA the env pair must name the user that
+ * already owns the `auto-attribution` tag: a different user cannot apply for
+ * it (the tag is taken) and ensureAttributionAffiliate says so.
  */
-export async function ensureAttributionAffiliate(adminToken: string): Promise<{
-  affiliateId: string;
-  displayName: string;
-}> {
+export function affiliateActorCredentials(): {
+  email: string;
+  password: string;
+  fromEnv: boolean;
+} {
+  const envEmail = process.env.AFFILIATE_EMAIL ?? "";
+  const envPassword = process.env.AFFILIATE_PASSWORD ?? "";
+  if (envEmail && envPassword) {
+    return { email: envEmail, password: envPassword, fromEnv: true };
+  }
   const domain = process.env.TEST_EMAIL_DOMAIN ?? "demomailtrap.co";
-  const email = `auto-attribution-affiliate@${domain}`;
-  const password = "Automation!Attribution-1";
-  const firstName = "Auto";
-  const lastName = "Attribution Partner";
+  return {
+    email: `auto-attribution-affiliate@${domain}`,
+    password: "Automation!Attribution-1",
+    fromEnv: false,
+  };
+}
+
+export const AFFILIATE_ACTOR_FIRST_NAME = "Auto";
+export const AFFILIATE_ACTOR_LAST_NAME = "Attribution Partner";
+
+/**
+ * Creates the affiliate actor's USER account when it does not exist yet
+ * (globalSetup calls this before saving the affiliate session). Creates the
+ * user only; the Affiliate row comes from ensureAttributionAffiliate.
+ */
+export async function ensureAffiliateActorUser(
+  adminToken: string
+): Promise<{ email: string; password: string }> {
+  const { email, password } = affiliateActorCredentials();
   if (!(await findUserIdByEmail(adminToken, email))) {
     await adminCreateUser(adminToken, {
-      firstName,
-      lastName,
+      firstName: AFFILIATE_ACTOR_FIRST_NAME,
+      lastName: AFFILIATE_ACTOR_LAST_NAME,
       email,
       password,
       role: "USER",
     });
   }
+  return { email, password };
+}
+
+/** The plan the persistent affiliate is (re)approved with on every run. */
+export const AFFILIATE_ACTOR_PLAN = {
+  sharePct: 20,
+  windowMonths: 12,
+  afterWindowPct: null,
+  bountyAmount: 150,
+  chainRule: "ACCOUNT_WINDOW",
+  expansionPct: null,
+  hardwareRule: "EXCLUDED",
+} as const;
+
+/**
+ * The ONE persistent affiliate the attribution suite links restaurants to,
+ * and the affiliate actor the portal suite signs in as (login from
+ * affiliateActorCredentials, i.e. AFFILIATE_EMAIL / AFFILIATE_PASSWORD).
+ * Persistent on purpose: a user who has an Affiliate row can never be deleted
+ * or anonymized (Affiliate.userId is a required FK), so a per-run affiliate
+ * would pile up on QA forever. Created on first use (admin creates the user,
+ * the user applies through POST /api/affiliates/apply), and set back to
+ * ACTIVE on every run through the admin status endpoint, since only an ACTIVE
+ * affiliate can be linked (and the portal suite expects it ACTIVE).
+ */
+export async function ensureAttributionAffiliate(adminToken: string): Promise<{
+  affiliateId: string;
+  displayName: string;
+}> {
+  const { email, password } = await ensureAffiliateActorUser(adminToken);
+  const firstName = AFFILIATE_ACTOR_FIRST_NAME;
+  const lastName = AFFILIATE_ACTOR_LAST_NAME;
   const login = await apiLogin(email, password);
   type ProfileBody = {
     affiliate?: { id: string };
@@ -7758,7 +7812,9 @@ export async function ensureAttributionAffiliate(adminToken: string): Promise<{
     affiliateId = pick(applied.data);
     if (!affiliateId) {
       throw new Error(
-        `Affiliate apply failed: ${applied.status} ${JSON.stringify(applied.data)}`
+        `Affiliate apply failed for ${email}: ${applied.status} ${JSON.stringify(applied.data)}. ` +
+          `If the tag "${AUTOMATION_ATTRIBUTION_AFFILIATE_TAG}" is already taken, AFFILIATE_EMAIL ` +
+          "must be the user that owns it (the existing fixture affiliate)."
       );
     }
   }
@@ -7767,18 +7823,7 @@ export async function ensureAttributionAffiliate(adminToken: string): Promise<{
     `/api/affiliates/admin/affiliates/${affiliateId}/status`,
     // Approval needs a commission plan (the program defaults); the flat
     // commissionRate is gone.
-    {
-      status: "ACTIVE",
-      plan: {
-        sharePct: 20,
-        windowMonths: 12,
-        afterWindowPct: null,
-        bountyAmount: 150,
-        chainRule: "ACCOUNT_WINDOW",
-        expansionPct: null,
-        hardwareRule: "EXCLUDED",
-      },
-    },
+    { status: "ACTIVE", plan: AFFILIATE_ACTOR_PLAN },
     adminToken
   );
   return { affiliateId, displayName: `${firstName} ${lastName}` };

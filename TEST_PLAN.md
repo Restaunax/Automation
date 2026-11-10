@@ -80,6 +80,13 @@ Re-verify against these files if anything below looks stale:
 | **RESTAURANT_STAFF** | POS device staff                               | Thin `/staff` PIN portal on web; real authority is the POS layer (below)                                          | Dashboard management                             |
 | **USER / Customer**  | Orders on Template Wind                        | Place orders (guest or OTP reward member)                                                                         | Dashboard access                                 |
 
+> **Affiliate is not a role.** An affiliate is an ordinary `USER` whose account
+> has an `Affiliate` row; the dashboard decides from `currentUser.affiliate.id`
+> and serves `/affiliate/signup` + `/affiliate/dashboard`. The suite's fourth
+> dashboard actor, `affiliate` (`AFFILIATE_EMAIL` / `AFFILIATE_PASSWORD`), is
+> the ONE persistent `auto-attribution` affiliate, kept ACTIVE by
+> `ensureAttributionAffiliate`. Its specs live in `tests/dashboard/affiliate/`.
+
 > **Key correction:** ADMIN + EMPLOYEE are the **company** side ("manage & set up
 > everything for the restaurant"); OWNER is the **client**. EMPLOYEE is _not_
 > "an owner's employee" and is _not_ "OWNER with fewer permissions" — the
@@ -190,6 +197,8 @@ Automation/
 │   │   │   ├── api-supply-shop.spec.ts       # ✅ real — owner supply-shop API contract: tier math + 25% spread, X-Restaurant-Id tenancy, search finds the gift card gift-cards-on-or-off, order list strips internals, proof/cancel refusals (TC-478..483)
 │   │   │   ├── 16-marketing-automations.spec.ts  # ✅ real — Automated Marketing tab: master + per-program opt-out, API-verified + self-restoring (needs OWNER creds)
 │   │   │   └── api-negative.spec.ts          # ✅ real — raw API negative cases across menu/coupon/restaurant/demo/auth
+│   │   ├── affiliate/                        # the affiliate portal (USER with an Affiliate row; AFFILIATE_EMAIL/PASSWORD)
+│   │   │   └── affiliate-portal.spec.ts      # ✅ real — UI signup with the agreement modal → Pending dashboard (TC-1112), tag + referral link (TC-1113), empty referrals / payment history + Stripe Connect CTA (TC-1114), SUSPENDED hold notice, restored ACTIVE (TC-1115), signed-out /affiliate program page (TC-1116); gated @affiliate-portal
 │   │   ├── employee/                         # company-side setup staff
 │   │   │   ├── restaurant-create.spec.ts     # ✅ real — needs EMPLOYEE_EMAIL/PASSWORD (POM: OwnerCreateRestaurantPage)
 │   │   │   ├── menu-publish.spec.ts          # scaffold (test.fixme)
@@ -372,21 +381,25 @@ This keeps every selector in one place per screen.
 Specs never contain login steps. `globalSetup` authenticates roles once and
 saves browser sessions to disk; `fixtures/base.ts` restores them.
 
-| Fixture                            | Session                                                              | Use for                                                 |
-| ---------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------- |
-| `ownerPage` / `ownerContext`       | Owner (storageState from `owner-auth.tmp.json`)                      | `tests/dashboard/owner/**`                              |
-| `adminPage` / `adminContext`       | Admin (storageState from `admin-auth.tmp.json`)                      | `tests/dashboard/admin/**`                              |
-| `employeePage` / `employeeContext` | Employee (storageState from `employee-auth.tmp.json`)                | `tests/dashboard/employee/**`                           |
-| `pageForRole(role)`                | Resolver → authenticated page for `"owner" \| "admin" \| "employee"` | `tests/dashboard/access/**` (who-can-reach-what matrix) |
-| `signInPage`                       | Unauthenticated sign-in POM                                          | auth tests                                              |
-| `signUpPage`                       | Unauthenticated sign-up POM                                          | onboarding / sign-up tests                              |
-| `demoBookingPage`                  | Unauthenticated `/demo` POM                                          | public demo tests                                       |
+| Fixture                              | Session                                                              | Use for                                                 |
+| ------------------------------------ | -------------------------------------------------------------------- | ------------------------------------------------------- |
+| `ownerPage` / `ownerContext`         | Owner (storageState from `owner-auth.tmp.json`)                      | `tests/dashboard/owner/**`                              |
+| `adminPage` / `adminContext`         | Admin (storageState from `admin-auth.tmp.json`)                      | `tests/dashboard/admin/**`                              |
+| `employeePage` / `employeeContext`   | Employee (storageState from `employee-auth.tmp.json`)                | `tests/dashboard/employee/**`                           |
+| `affiliatePage` / `affiliateContext` | Affiliate actor (storageState from `affiliate-auth.tmp.json`)        | `tests/dashboard/affiliate/**`                          |
+| `pageForRole(role)`                  | Resolver → authenticated page for `"owner" \| "admin" \| "employee"` | `tests/dashboard/access/**` (who-can-reach-what matrix) |
+| `signInPage`                         | Unauthenticated sign-in POM                                          | auth tests                                              |
+| `signUpPage`                         | Unauthenticated sign-up POM                                          | onboarding / sign-up tests                              |
+| `demoBookingPage`                    | Unauthenticated `/demo` POM                                          | public demo tests                                       |
 
 `globalSetup` saves owner/admin/employee sessions in parallel and warns (not
 fails) when a role's `*_EMAIL`/`*_PASSWORD` pair is unset in `.env` — specs
 for that role then skip via `test.skip(!EMAIL || !PASSWORD, ...)` rather than
 throwing. `pageForRole("employee")` resolves once `EMPLOYEE_EMAIL` /
-`EMPLOYEE_PASSWORD` are set.
+`EMPLOYEE_PASSWORD` are set. The affiliate session is saved only when
+`AFFILIATE_EMAIL` / `AFFILIATE_PASSWORD` are set (globalSetup creates the
+user through the admin API when it is missing; the specs apply and keep it
+ACTIVE); otherwise the portal specs that need it skip with that reason.
 
 **Customer restaurant target:** Template Wind is deployed per-restaurant.
 Customer specs use the plain `page` fixture (the `customer` project's baseURL
@@ -598,6 +611,7 @@ Configured in `Automation/.env`.
 | `OWNER_EMAIL` / `OWNER_PASSWORD`              | Owner account — must already own ≥1 QA restaurant                                                                                            | _(secret)_                              |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD`              | Admin account (admin-flow tests, teardown cleanup)                                                                                           | _(secret)_                              |
 | `EMPLOYEE_EMAIL` / `EMPLOYEE_PASSWORD`        | Employee account — gates `tests/dashboard/employee/**`                                                                                       | _(secret)_                              |
+| `AFFILIATE_EMAIL` / `AFFILIATE_PASSWORD`      | Affiliate actor — the persistent `auto-attribution` affiliate (on QA: the user that owns that tag). Gates the logged-in portal cases         | _(secret)_                              |
 | `MAILPIT_BASE_URL`                            | QA's self-hosted Mailpit sandbox — the API the email tests read, and the UI a human opens. Unset ⇒ the `@email` group skips                  | `https://mail.qa.restaunax.com`         |
 | `MAILPIT_UI_USER` / `MAILPIT_UI_PASSWORD`     | Mailpit HTTP basic auth. Not part of the skip gate on purpose: a missing password should 401 loudly, not skip silently                       | _(secret)_                              |
 | `TEST_EMAIL_DOMAIN`                           | Domain for generated unique test emails                                                                                                      | `demomailtrap.co`                       |
@@ -636,6 +650,11 @@ tests run in **every** invocation — including the nightly.
 - `@affiliate-commission` — affiliate commission plan (RestauNax `feat/sales-attribution`,
   Plan 2): `tests/dashboard/admin/affiliate-commission.spec.ts`, gated by
   `RELEASED_ON_QA.affiliateCommission` (`probeAffiliateCommission`) until the branch is on QA.
+
+- `@affiliate-portal` — what an affiliate sees (RestauNax `feat/sales-attribution`):
+  `tests/dashboard/affiliate/affiliate-portal.spec.ts`, same gate as
+  `@affiliate-commission`. Needs `AFFILIATE_EMAIL` / `AFFILIATE_PASSWORD` for
+  TC-1113..1115.
 
 - `@training` / `@closeout` / `@bugfix-1036` — specs for RestauNax work that lands
   in this suite **before** it reaches QA (the Training Academy branch, PR #1038

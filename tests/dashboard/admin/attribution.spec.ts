@@ -155,6 +155,10 @@ test.describe("HQ — Restaurant attribution", { tag: "@attribution" }, () => {
     adminPage,
   }) => {
     const seed = readSharedState();
+    test.skip(
+      !seed.restaurantId,
+      "No seed restaurant this run (OWNER_EMAIL / OWNER_PASSWORD unset), so there is no activated restaurant to try"
+    );
     const before = await getRestaurantAttributionApi(
       adminToken,
       seed.restaurantId

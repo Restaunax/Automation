@@ -46,6 +46,7 @@ Restaunax is a SaaS platform that provides software for restaurants. It has five
 | `ADMIN`             | Email + password at `/sign-in`        | `/admin` dashboard                                                                                                                                                                                                                                                                                       | `/api/admin/*`                                             |
 | `OWNER`             | Email + password at `/sign-in`        | `/restaurant/*` pages                                                                                                                                                                                                                                                                                    | `/restaurant`, `/menu`, `/api/order`, `/api/coupons`, etc. |
 | `EMPLOYEE`          | Email + password                      | **Company-side** setup staff: can create restaurants, **publish menus**, edit **tax**, manage register devices, **invite a restaurant's POS staff** (`/restaurant/:id/staff/invite`); company-user invites (`/api/admin/users/invite`) stay ADMIN-only. Not "owner with fewer perms" — see TEST_PLAN.md. | `/restaurant/*` + `/publish`, `/tax`                       |
+| `AFFILIATE`         | Email + password at `/sign-in`        | `/affiliate/signup`, `/affiliate/dashboard` — an ordinary `USER` with an `Affiliate` row (not a role). Actor = the persistent `auto-attribution` affiliate (`AFFILIATE_EMAIL`/`AFFILIATE_PASSWORD`).                                                                                                     | `/api/affiliates/*`                                        |
 | `RESTAURANT_STAFF`  | Tablet name + code at Device In Store | `TabletLoginScreen` → `OrdersScreen`                                                                                                                                                                                                                                                                     | `/api/tablet/*`                                            |
 | `Customer (guest)`  | No login                              | Template Wind `/menu` → `/checkout`                                                                                                                                                                                                                                                                      | `/api/order/new/restaurantId/*`                            |
 | `Customer (member)` | OTP phone login                       | Template Wind `/menu` → `/checkout`                                                                                                                                                                                                                                                                      | Same + `/login/send-otp`, `/api/rewards/*`                 |
@@ -123,6 +124,7 @@ Restaunax is a SaaS platform that provides software for restaurants. It has five
 | Public                 | `/sign-in`, `/sign-up`                              | Auth pages          |
 | Public                 | `/demo`                                             | Demo booking form   |
 | Public                 | `/affiliate`                                        | Affiliate signup    |
+| Affiliate              | `/affiliate/dashboard`                              | Affiliate portal    |
 
 ---
 
@@ -214,6 +216,7 @@ tests/
     admin/          — Company admin manages everything
     owner/          — Restaurant client manages their own restaurant(s)
     employee/       — Company-side setup staff (publish/tax/create restaurant)
+    affiliate/      — The affiliate portal (a USER with an Affiliate row)
     staff/          — Thin /staff PIN-card stub (web)
   customer/         — Customer ordering on template-wind (project: customer, baseURL TEMPLATE_WIND_URL)
   customer-lima/    — Embedded ordering on template-lima (project: customer-lima, baseURL LIMA_ORDERING_URL)
@@ -256,12 +259,12 @@ Click the **switch itself**: `getByRole("switch", { name })`, an `#id` (MUI puts
 
 ## Auth & Session Management
 
-- **Owner/Admin:** JWT from `POST /api/login`; sessions saved as `owner-auth.tmp.json` / `admin-auth.tmp.json`
+- **Owner/Admin/Employee/Affiliate:** JWT from `POST /login`; sessions saved as `owner-auth.tmp.json` / `admin-auth.tmp.json` / `employee-auth.tmp.json` / `affiliate-auth.tmp.json` (fixtures `ownerPage` / `adminPage` / `employeePage` / `affiliatePage`)
 - **Tablet/Staff:** JWT from `POST /api/tablet/login`; use directly in API calls
 - **Customer (web):** No auth for guest; OTP for reward member (`POST /login/send-otp`)
 - **Customer (mobile):** OTP via `POST /login/mobile/send-otp`
 
-`globalSetup.ts` creates owner + admin + employee sessions before tests run. `globalTeardown.ts` cleans up test data: seed menu item/group, automation-created categories (`Test Starters *`/`TC45 Delete *`), `AUTO*` coupons, recorded test users, and this run's demo request.
+`globalSetup.ts` creates owner + admin + employee (+ affiliate, when `AFFILIATE_EMAIL`/`AFFILIATE_PASSWORD` are set) sessions before tests run. `globalTeardown.ts` cleans up test data: seed menu item/group, automation-created categories (`Test Starters *`/`TC45 Delete *`), `AUTO*` coupons, recorded test users, and this run's demo request.
 
 ---
 
@@ -277,6 +280,10 @@ OWNER_EMAIL=...
 OWNER_PASSWORD=...
 ADMIN_EMAIL=...
 ADMIN_PASSWORD=...
+# Optional actors: EMPLOYEE_EMAIL/PASSWORD, and AFFILIATE_EMAIL/PASSWORD = the
+# persistent "auto-attribution" affiliate (portal specs skip without it)
+AFFILIATE_EMAIL=...
+AFFILIATE_PASSWORD=...
 
 # Customer storefront
 TEMPLATE_WIND_URL=https://qa.restaunax.com
