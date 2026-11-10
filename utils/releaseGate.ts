@@ -12,7 +12,7 @@
  *
  * Select a part's tests with its tag: `--grep @training`, `--grep @closeout`,
  * `--grep @bugfix-1036`, `--grep @settings-safety`, `--grep @switch-click`,
- * `--grep @attribution`.
+ * `--grep @attribution`, `--grep @affiliate-commission`.
  */
 import { test, expect } from "../fixtures/base";
 import { apiRequestRaw } from "./apiHelper";
@@ -39,6 +39,9 @@ export const RELEASED_ON_QA = {
   /** RestauNax branch feat/sales-attribution — who brought a restaurant in
    *  (HQ "Brought in by", card leaderboard, affiliate Sales tab). */
   attribution: false,
+  /** RestauNax branch feat/sales-attribution (Plan 2) — affiliate commission
+   *  plan, program defaults, termination outcome. */
+  affiliateCommission: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -57,6 +60,8 @@ const REASON: Record<ReleasePart, string> = {
     "Switches toggle only from the switch (RestauNax fix/switch-click-target) is not on this environment yet",
   attribution:
     "Restaurant attribution (RestauNax feat/sales-attribution) is not on this environment yet — /api/admin/attribution answers 404",
+  affiliateCommission:
+    "Affiliate commission (RestauNax feat/sales-attribution) is not on this environment yet — /api/affiliates/admin/program-defaults answers 404",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
@@ -127,6 +132,23 @@ export async function probeAttribution(adminToken: string): Promise<boolean> {
   const res = await apiRequestRaw(
     "GET",
     "/api/admin/attribution/funnel?payee=card",
+    undefined,
+    adminToken
+  );
+  return res.status !== 404;
+}
+
+/**
+ * Is the affiliate commission plan deployed? `GET
+ * /api/affiliates/admin/program-defaults` is a read-only admin route that only
+ * exists with feat/sales-attribution (Plan 2).
+ */
+export async function probeAffiliateCommission(
+  adminToken: string
+): Promise<boolean> {
+  const res = await apiRequestRaw(
+    "GET",
+    "/api/affiliates/admin/program-defaults",
     undefined,
     adminToken
   );

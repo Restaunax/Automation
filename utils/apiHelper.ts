@@ -7784,6 +7784,119 @@ export async function ensureAttributionAffiliate(adminToken: string): Promise<{
   return { affiliateId, displayName: `${firstName} ${lastName}` };
 }
 
+/** The commission plan shape the HQ status endpoint takes (affiliate commission). */
+export type CommissionPlanTerms = {
+  sharePct: number;
+  windowMonths: number;
+  afterWindowPct: number | null;
+  bountyAmount: number;
+  chainRule: string;
+  expansionPct: number | null;
+  hardwareRule: string;
+};
+
+/**
+ * A fresh PENDING affiliate for the commission suite: a new user who applies
+ * with the current agreement version. One per run on purpose: the suite
+ * terminates it, and TERMINATED is final (and an affiliate's user can never
+ * be deleted), so it cannot be a reused fixture.
+ */
+export async function createPendingAffiliate(
+  adminToken: string,
+  runId: string
+): Promise<{ affiliateId: string; referralTag: string; name: string }> {
+  const domain = process.env.TEST_EMAIL_DOMAIN ?? "demomailtrap.co";
+  const referralTag = `auto-commission-${runId}`.toLowerCase();
+  const email = `${referralTag}@${domain}`;
+  const password = "Automation!Commission-1";
+  await adminCreateUser(adminToken, {
+    firstName: "Auto",
+    lastName: `Commission ${runId}`,
+    email,
+    password,
+    role: "USER",
+  });
+  const login = await apiLogin(email, password);
+  const applied = await apiRequestRaw<{ affiliate?: { id: string } }>(
+    "POST",
+    "/api/affiliates/apply",
+    {
+      referralTag,
+      bio: "Automation fixture for the affiliate commission suite",
+      agreedToTerms: true,
+      agreementVersion: AFFILIATE_AGREEMENT_VERSION,
+    },
+    login.accessToken
+  );
+  const affiliateId = applied.data?.affiliate?.id;
+  if (!affiliateId) {
+    throw new Error(
+      `Affiliate apply failed: ${applied.status} ${JSON.stringify(applied.data)}`
+    );
+  }
+  return { affiliateId, referralTag, name: `Auto Commission ${runId}` };
+}
+
+export function getProgramDefaultsRaw(
+  adminToken: string
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "GET",
+    "/api/affiliates/admin/program-defaults",
+    undefined,
+    adminToken
+  );
+}
+
+export function putProgramDefaultsRaw(
+  adminToken: string,
+  terms: CommissionPlanTerms
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "PUT",
+    "/api/affiliates/admin/program-defaults",
+    terms,
+    adminToken
+  );
+}
+
+export function getAffiliatePlanRaw(
+  adminToken: string,
+  affiliateId: string
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "GET",
+    `/api/affiliates/admin/affiliates/${affiliateId}/plan`,
+    undefined,
+    adminToken
+  );
+}
+
+export function getAffiliateDetailsRaw(
+  adminToken: string,
+  affiliateId: string
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "GET",
+    `/api/affiliates/admin/affiliates/${affiliateId}`,
+    undefined,
+    adminToken
+  );
+}
+
+export function setAffiliateStatusRaw(
+  adminToken: string,
+  affiliateId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "PUT",
+    `/api/affiliates/admin/affiliates/${affiliateId}/status`,
+    body,
+    adminToken
+  );
+}
+
 /**
  * The ONE persistent employee business card (owned by the admin user) the
  * leaderboard case looks for. Cards cannot be deleted, only disabled, so a

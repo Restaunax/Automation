@@ -161,6 +161,7 @@ Automation/
 │   │   │   ├── supply-shop.spec.ts           # ✅ real — Supply Shop admin: design queue + advisory preflight (wrong size = WARN with the numbers), Fulfil dialog (final price, out-of-estimate warning, comp), place-on-behalf, COMP → IN_PRODUCTION + gift-card batch + CSV export, finance memo (TC-456..468)
 │   │   │   ├── gift-card-batches.spec.ts     # ✅ real — Physical card stock panel: mint / export CSV / freeze; public balance+validate on stock; adjust refused; unfreeze → INACTIVE; config knobs (TC-469..476)
 │   │   │   ├── attribution.spec.ts           # ✅ real — who brought a restaurant in: link from the affiliate Sales tab → Brought-in-by row (TC-1103), activated restaurant refused with the lock message (TC-1104), card leaderboard (TC-1105), Remove needs a reason and clears the row (TC-1106); gated @attribution
+│   │   │   ├── affiliate-commission.spec.ts  # ✅ real — affiliate commission plan: approval dialog hints + live example (TC-1107), after-window ≥ share refused on the field (TC-1108), program defaults pre-fill the next approval (TC-1109), terminate needs an outcome / Pay what was earned (TC-1110), terminated Edit disabled (TC-1111); gated @affiliate-commission
 │   │   │   └── chains.spec.ts                # ✅ real — grid loads (TC-181), admin creates a chain via the real UI flow (TC-223), link/unlink contract on the persistent Automation Chain (TC-323/324)
 │   │   ├── owner/                            # feature tests, owner as primary actor (shared screens)
 │   │   │   ├── 01-restaurant-list.spec.ts    # ✅ real
@@ -631,6 +632,10 @@ tests run in **every** invocation — including the nightly.
 - `@attribution` — restaurant attribution (RestauNax `feat/sales-attribution`):
   `tests/dashboard/admin/attribution.spec.ts`, gated by `RELEASED_ON_QA.attribution`
   (`probeAttribution`) until the branch is on QA.
+
+- `@affiliate-commission` — affiliate commission plan (RestauNax `feat/sales-attribution`,
+  Plan 2): `tests/dashboard/admin/affiliate-commission.spec.ts`, gated by
+  `RELEASED_ON_QA.affiliateCommission` (`probeAffiliateCommission`) until the branch is on QA.
 
 - `@training` / `@closeout` / `@bugfix-1036` — specs for RestauNax work that lands
   in this suite **before** it reaches QA (the Training Academy branch, PR #1038
