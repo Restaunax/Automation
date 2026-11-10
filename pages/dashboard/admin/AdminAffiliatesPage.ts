@@ -69,7 +69,11 @@ export const createAdminAffiliatesPage = (page: Page) => {
   const cancelDialog = async () => {
     await dialog().getByRole("button", { name: "Cancel" }).click();
     const discard = page.getByRole("button", { name: "Discard changes" });
-    if (await discard.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    const asked = await discard
+      .waitFor({ state: "visible", timeout: 2_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (asked) {
       await discard.click();
     }
     await expect(dialog()).toBeHidden({ timeout: 10_000 });

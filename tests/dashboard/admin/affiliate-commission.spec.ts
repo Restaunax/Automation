@@ -24,10 +24,10 @@
  *
  * Not covered here: an enrolled referral needs the restaurant to ACTIVATE
  * (a real paid Stripe subscription), which this suite cannot create, so the
- * per-run affiliate has no referrals and TC-1110's "referrals ended" check
- * holds for every referral it has (none on a fresh affiliate). The ending of
- * an enrolled referral, the ledger and payouts are covered by the backend
- * unit suites and the branch's local preview walk.
+ * per-run affiliate has no referrals and TC-1110 asserts exactly that (an
+ * empty list) rather than "referrals ended". Ending an enrolled referral, the
+ * ledger and payouts are covered by the backend unit suites and the branch's
+ * local preview walk.
  */
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
@@ -261,7 +261,7 @@ test.describe(
       }
     });
 
-    test("TC-1110: terminating needs a payout outcome; Pay what was earned succeeds and ends the referrals", async ({
+    test("TC-1110: terminating needs a payout outcome; Pay what was earned succeeds", async ({
       adminPage,
     }) => {
       await allure.label("severity", "critical");
@@ -307,8 +307,13 @@ test.describe(
       });
 
       await allure.step(
-        "Every referral the affiliate has is ended",
+        "The details API records TERMINATED; a fresh affiliate has no referrals to end",
         async () => {
+          test.info().annotations.push({
+            type: "note",
+            description:
+              "A fresh affiliate has no enrolled referrals; ending an enrolled referral is covered by the backend unit tests",
+          });
           const res = await getAffiliateDetailsRaw(
             adminToken,
             affiliate.affiliateId
@@ -323,7 +328,8 @@ test.describe(
             }
           ).affiliate;
           expect(a?.status).toBe("TERMINATED");
-          for (const r of a?.referrals ?? []) expect(r.status).toBe("ENDED");
+          expect(Array.isArray(a?.referrals)).toBe(true);
+          expect(a?.referrals).toHaveLength(0);
         }
       );
     });
