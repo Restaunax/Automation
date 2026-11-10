@@ -7755,7 +7755,20 @@ export async function ensureAttributionAffiliate(adminToken: string): Promise<{
   await apiRequest<unknown>(
     "PUT",
     `/api/affiliates/admin/affiliates/${affiliateId}/status`,
-    { status: "ACTIVE", commissionRate: 10 },
+    // Approval needs a commission plan (the program defaults); the flat
+    // commissionRate is gone.
+    {
+      status: "ACTIVE",
+      plan: {
+        sharePct: 20,
+        windowMonths: 12,
+        afterWindowPct: null,
+        bountyAmount: 150,
+        chainRule: "ACCOUNT_WINDOW",
+        expansionPct: null,
+        hardwareRule: "EXCLUDED",
+      },
+    },
     adminToken
   );
   return { affiliateId, displayName: `${firstName} ${lastName}` };
