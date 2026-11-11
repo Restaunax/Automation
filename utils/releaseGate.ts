@@ -130,7 +130,7 @@ export const RELEASED_ON_QA = {
   /** RestauNax branch feat/books-offboarding — books and Avalara Disconnect
    *  is RestauNax staff only; past entries stay downloadable without the
    *  add-on (GET /api/accounting/:id/past). Flip once it is on QA. */
-  booksOffboarding: false,
+  booksOffboarding: true,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
