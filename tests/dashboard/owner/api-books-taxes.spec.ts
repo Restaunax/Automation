@@ -739,6 +739,16 @@ test.describe("Books & taxes — tax calendar, year-end package, card deposits (
       "booksOffboarding",
       await probeBooksOffboarding(ownerToken, restaurantId)
     );
+    // With the add-on on, the owner's 403 is the staff-only wall, not the
+    // add-on gate. Granted here too so the test runs on its own.
+    const on = await setFeatureOverrideAdminRaw(
+      adminToken,
+      restaurantId,
+      "ACCOUNTING_SYNC",
+      true,
+      "TC-1954: the add-on is on"
+    );
+    expect(on.status, JSON.stringify(on.data)).toBeLessThan(300);
     for (const path of ["/disconnect", "/avalara/disconnect"]) {
       const owner = await accountingRaw(
         ownerToken,
