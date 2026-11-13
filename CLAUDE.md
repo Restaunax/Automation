@@ -331,12 +331,18 @@ npm run test:unit     # Pure helper unit tests (tests/unit, playwright.unit.conf
 
 ## CI, reporting & triggers
 
-**Two workflows, and only two:**
+**Three workflows, and only three:**
 
-| Workflow     | Answers                              | When                                               | Secrets  | Time    |
-| ------------ | ------------------------------------ | -------------------------------------------------- | -------- | ------- |
-| `static.yml` | "does the code compile & look right" | every PR + push to qa/main                         | none     | ~1 min  |
-| `e2e.yml`    | "does the product actually work"     | nightly · after a QA deploy · wind deploy · manual | QA creds | ~45 min |
+| Workflow        | Answers                                 | When                                                  | Secrets     | Time    |
+| --------------- | --------------------------------------- | ----------------------------------------------------- | ----------- | ------- |
+| `static.yml`    | "does the code compile & look right"    | every PR + push to qa/main                            | none        | ~1 min  |
+| `e2e.yml`       | "does the product actually work"        | nightly · after a QA deploy · wind deploy · manual    | QA creds    | ~45 min |
+| `sim-daily.yml` | "did the QA simulator's days run clean" | daily 13:00 UTC (after the 12:00 self-check) · manual | admin creds | <1 min  |
+
+`sim-daily.yml` runs no Playwright: `scripts/sim-daily-summary.ts` reads the
+simulator's self-check through the admin API, posts the summary to Slack every
+day and goes red when a check went WRONG since yesterday, a day's run is
+missing or failed, or the self-check didn't run.
 
 `e2e.yml` is the ONLY workflow that runs Playwright — every mode lives there.
 Its `concurrency: qa-e2e` group never cancels a running suite (a killed run
