@@ -21,6 +21,7 @@
  */
 import { test, expect } from "../fixtures/base";
 import { apiRequestRaw } from "./apiHelper";
+import { FRONTEND_URL } from "./testData";
 
 export const RELEASED_ON_QA = {
   /** RestauNax branch feat/training-academy — /training + HQ → People → Training. */
@@ -133,8 +134,15 @@ export const RELEASED_ON_QA = {
   booksOffboarding: true,
   /** RestauNax PR #1174, feat/hq-notices — HQ → Operations → Notices
    *  (`/api/admin/notices/*`, permission HQ_OPERATIONS_NOTICES), the public
-   *  unsubscribe/resubscribe page and `/api/notices/*`. Flip once it is on QA. */
-  hqNotices: false,
+   *  unsubscribe/resubscribe page and `/api/notices/*`. RestauNax PR #1174 —
+   *  API on QA since 2026-11-14; the API/email cases of TC-1980..1989 ran
+   *  7/7 (the 3 browser cases wait on hqNoticesDashboard below). */
+  hqNotices: true,
+  /** The dashboard half of RestauNax PR #1174: HQ → Operations → Notices,
+   *  the restaurant list's "Send a notice" and the public unsubscribe page.
+   *  Deployed separately from the backend (on 2026-11-14 the QA backend had
+   *  the API while the QA dashboard bundle had no Notices yet). */
+  hqNoticesDashboard: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -185,6 +193,8 @@ const REASON: Record<ReleasePart, string> = {
     "Books offboarding (RestauNax feat/books-offboarding) is not on this environment yet — /api/accounting/:id/past answers 404",
   hqNotices:
     "HQ notices (RestauNax PR #1174, feat/hq-notices) are not on this environment yet — /api/admin/notices answers 404",
+  hqNoticesDashboard:
+    "The HQ notices dashboard screens (RestauNax PR #1174) are not on this dashboard yet — locales/en/admin.json has no `notices` block",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
@@ -545,4 +555,22 @@ export async function probeHqNotices(adminToken: string): Promise<boolean> {
     adminToken
   );
   return res.status !== 404;
+}
+
+/**
+ * Is the HQ notices DASHBOARD deployed? The dashboard serves its locale files
+ * statically; `locales/en/admin.json` carries a `notices` block only with the
+ * change. Read-only, no auth.
+ */
+export async function probeHqNoticesDashboard(): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${FRONTEND_URL.replace(/\/+$/, "")}/locales/en/admin.json`
+    );
+    if (!res.ok) return false;
+    const json = (await res.json()) as { notices?: unknown };
+    return typeof json.notices === "object" && json.notices !== null;
+  } catch {
+    return false;
+  }
 }

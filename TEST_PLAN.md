@@ -611,9 +611,16 @@ the team and affiliates (`docs/features/HQ_NOTICES.md` in the restaunax repo).
   Typed API wrappers `utils/hqNoticesApi.ts`; Mailpit headers via
   `getEmailHeaders` / `emailHeader` in `utils/emailHelper.ts`. Tag
   `@hq-notices`; the inbox cases are also `@email`.
-- **Release gate:** `RELEASED_ON_QA.hqNotices` (+ `probeHqNotices`: `GET
-/api/admin/notices` answers 404 until the PR is deployed; 403 still counts as
-  present). Flip the flag once #1174 is on QA.
+- **Release gates — two, because the halves deploy separately:**
+  `RELEASED_ON_QA.hqNotices` (+ `probeHqNotices`: `GET /api/admin/notices`
+  404 = not deployed; 403 still counts as present) is **on** since 2026-11-14,
+  when the API and email cases ran 7/7 on QA. `RELEASED_ON_QA.hqNoticesDashboard`
+  (+ `probeHqNoticesDashboard`: the dashboard's `locales/en/admin.json` has a
+  `notices` block) is **off**: on 2026-11-14 the QA dashboard bundle had no
+  Notices yet. The browser half of TC-1980, plus TC-1986 and TC-1989, skip on
+  it. TC-1984 drives `/api/notices/(un|re)subscribe` directly until then, which
+  is the same endpoint the public page posts to. Flip `hqNoticesDashboard` after
+  the dashboard deploy and a green run.
 - **Who sends:** a per-run `ADMIN` (`autouser_hqnotices_*`) holding
   `HQ_OPERATIONS_NOTICES` — the feature's own permission is the only one named;
   revoke/grant goes through `/api/roles/users/:id/permissions`. Sending as this
@@ -742,7 +749,7 @@ tests run in **every** invocation — including the nightly.
 
 - `@hq-notices` — HQ notices (RestauNax PR #1174, `feat/hq-notices`):
   `tests/dashboard/admin/hq-notices.spec.ts`, gated by `RELEASED_ON_QA.hqNotices`
-  (`probeHqNotices`) until the PR is on QA. Its Mailpit cases are also `@email`.
+  (API, on) and `hqNoticesDashboard` (browser cases, off until the dashboard deploys). Its Mailpit cases are also `@email`.
   `npm run test:hq-notices`.
 
 - `@training` / `@closeout` / `@bugfix-1036` / `@print-builders` — specs for

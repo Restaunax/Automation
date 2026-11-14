@@ -84,7 +84,12 @@ import {
   type NoticeGroup,
   type NoticeType,
 } from "../../../utils/hqNoticesApi";
-import { probeHqNotices, requireRelease } from "../../../utils/releaseGate";
+import {
+  probeHqNotices,
+  probeHqNoticesDashboard,
+  releasePresent,
+  requireRelease,
+} from "../../../utils/releaseGate";
 import {
   FRONTEND_URL,
   generateRunId,
@@ -103,7 +108,8 @@ const NOTICES_URL = "/admin?tab=operations&section=notices";
 
 // admin.json → notices.* / landing.* (EN), settings.json → noticeUnsubscribe.*
 const TXT = {
-  notAllowed: "That section isn't part of your access",
+  operationsGroup: "Operations",
+  noticesNav: "Notices",
   description:
     "Tell the people we work with about outages, product updates, how-tos and legal changes",
   pushChannel: "Push (Owner or Staff app)",
@@ -140,6 +146,10 @@ test.describe("HQ notices", { tag: "@hq-notices" }, () => {
   const subject = (label: string) => `AUTO HQ notice ${runId} ${label}`;
 
   let deployed = false;
+  /** The dashboard half deploys separately from the API. */
+  let dashboardDeployed = false;
+  const requireDashboard = () =>
+    requireRelease("hqNoticesDashboard", dashboardDeployed);
   let adminToken = "";
   /** The per-run HQ admin who sends everything. */
   const hq = {
@@ -205,6 +215,7 @@ test.describe("HQ notices", { tag: "@hq-notices" }, () => {
     adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
     deployed = await probeHqNotices(adminToken);
     if (!deployed) return;
+    dashboardDeployed = await probeHqNoticesDashboard();
 
     // The per-run HQ admin, holding the notices permission.
     recordUserForCleanup(hq.email);
@@ -324,7 +335,7 @@ test.describe("HQ notices", { tag: "@hq-notices" }, () => {
     await allure.description(
       "HQ → Operations → Notices is gated by its own HQ permission. A per-run admin whose " +
         "HQ_OPERATIONS_NOTICES is taken away gets 403 from /api/admin/notices and the dashboard " +
-        "refuses the section ('isn't part of your access'); given it back, both open."
+        "shows no Notices (no Operations → Notices item, the section falls back); given it back, both open."
     );
     const openSection = async (expectAllowed: boolean) => {
       const { context, page } = await loginViaUi(
@@ -338,45 +349,65 @@ test.describe("HQ notices", { tag: "@hq-notices" }, () => {
           await expect(page.getByText(TXT.description).first()).toBeVisible({
             timeout: 20_000,
           });
-          await expect(page.getByText(TXT.notAllowed)).toHaveCount(0);
         } else {
-          await expect(
-            page.getByRole("alert").filter({ hasText: TXT.notAllowed }).first()
-          ).toBeVisible({
+          // The dashboard falls back to the first section the user can see
+          // and tidies the URL to it; the Notices screen never renders.
+          await expect(page).not.toHaveURL(/section=notices/, {
             timeout: 20_000,
           });
           await expect(page.getByText(TXT.description)).toHaveCount(0);
         }
+        // Sidebar: hovering Operations opens its flyout of sections.
+        const flyout = page
+          .locator(".MuiPopper-root")
+          .filter({ has: page.getByRole("button") });
+        await expect(async () => {
+          await page
+            .getByRole("button", { name: TXT.operationsGroup, exact: true })
+            .hover();
+          await expect(flyout.first()).toBeVisible({ timeout: 2_000 });
+        }).toPass({ timeout: 15_000 });
+        const item = flyout.getByRole("button", {
+          name: TXT.noticesNav,
+          exact: true,
+        });
+        if (expectAllowed) await expect(item).toBeVisible();
+        else await expect(item).toHaveCount(0);
       } finally {
         await context.close();
       }
     };
 
     try {
-      await allure.step(
-        "Without the permission: 403 and no section",
-        async () => {
-          await setNoticesPermission(adminToken, hq.userId, false);
-          hq.token = "";
-          const res = await listNoticesRaw(await hqToken());
-          expect(res.status, JSON.stringify(res.data)).toBe(403);
-          await openSection(false);
-        }
-      );
+      await allure.step("API: without the permission → 403", async () => {
+        await setNoticesPermission(adminToken, hq.userId, false);
+        hq.token = "";
+        const res = await listNoticesRaw(await hqToken());
+        expect(res.status, JSON.stringify(res.data)).toBe(403);
+      });
     } finally {
       await setNoticesPermission(adminToken, hq.userId, true);
       hq.token = "";
     }
+    await allure.step("API: with the permission → 200", async () => {
+      const res = await listNoticesRaw(await hqToken());
+      expect(res.status, JSON.stringify(res.data)).toBe(200);
+      expect(Array.isArray(res.data.data?.items)).toBe(true);
+    });
 
-    await allure.step(
-      "With the permission: 200 and the section opens",
-      async () => {
-        const res = await listNoticesRaw(await hqToken());
-        expect(res.status, JSON.stringify(res.data)).toBe(200);
-        expect(Array.isArray(res.data.data?.items)).toBe(true);
-        await openSection(true);
-      }
-    );
+    requireDashboard();
+    try {
+      await allure.step("Dashboard: without it, no Notices", async () => {
+        await setNoticesPermission(adminToken, hq.userId, false);
+        await openSection(false);
+      });
+    } finally {
+      await setNoticesPermission(adminToken, hq.userId, true);
+      hq.token = "";
+    }
+    await allure.step("Dashboard: with it, Notices opens", async () => {
+      await openSection(true);
+    });
   });
 
   test("TC-1981: audience count — owners only, then the team; a PIN-only member shows as 'no email'", async () => {
@@ -508,10 +539,19 @@ test.describe("HQ notices", { tag: "@hq-notices" }, () => {
           "(same page, same token) clears it: the next PRODUCT_UPDATE reaches them again."
       );
       expect(teamUnsubToken, "TC-1982 found no unsubscribe link").toBeTruthy();
+      // The public page posts the same token to the same endpoint; until the
+      // dashboard half is deployed, drive that endpoint directly.
+      const viaPage = releasePresent("hqNoticesDashboard", dashboardDeployed);
       const context = await browser.newContext({ baseURL: FRONTEND_URL });
       const page = await context.newPage();
       try {
-        await allure.step("Unsubscribe on the public page", async () => {
+        await allure.step("Unsubscribe", async () => {
+          if (!viaPage) {
+            const res = await noticeOptRaw("unsubscribe", teamUnsubToken);
+            expect(res.status, JSON.stringify(res.data)).toBe(200);
+            expect(res.data.data?.category).toBe("PRODUCT_UPDATE");
+            return;
+          }
           await page.goto(
             `/notices/unsubscribe?token=${encodeURIComponent(teamUnsubToken)}`,
             { waitUntil: "domcontentloaded" }
@@ -556,10 +596,12 @@ test.describe("HQ notices", { tag: "@hq-notices" }, () => {
         await allure.step(
           "Resubscribe turns product updates back on",
           async () => {
-            await page
-              .getByRole("button", { name: TXT.resubButton, exact: true })
-              .click();
-            await expect(page.getByText(TXT.resubDone)).toBeVisible();
+            if (viaPage) {
+              await page
+                .getByRole("button", { name: TXT.resubButton, exact: true })
+                .click();
+              await expect(page.getByText(TXT.resubDone)).toBeVisible();
+            }
             // The page's token names the muted category; the public endpoint
             // is idempotent, so posting it again just confirms the category.
             const again = await noticeOptRaw("resubscribe", teamUnsubToken);
@@ -658,6 +700,7 @@ test.describe("HQ notices", { tag: "@hq-notices" }, () => {
   test("TC-1986: the composer offers no push channel for a LEGAL notice", async ({
     browser,
   }) => {
+    requireDashboard();
     await allure.description(
       "New notice → the default type (product update) offers Email and Push; switching Type to " +
         "Legal removes the Push option and shows the legal hint."
@@ -779,6 +822,7 @@ test.describe("HQ notices", { tag: "@hq-notices" }, () => {
   test("TC-1989: the restaurant list's 'Send a notice' opens the composer with that restaurant chosen; an unpublished restaurant has no such action", async ({
     browser,
   }) => {
+    requireDashboard();
     await allure.description(
       "HQ → Restaurants → row menu → Send a notice (active, published restaurants only) opens a " +
         "new notice with 'Choose restaurants' picked, the restaurant in the chooser and 'Only " +
