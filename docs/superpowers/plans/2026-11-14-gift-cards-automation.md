@@ -47,6 +47,8 @@
 4. **A double-tapped cash-out pays once.** Same `idempotencyKey` → 200 `alreadyExisted:true`, same `transactionId`, drawer expected cash lowered once. Test: TC-2030 + TC-2031.
 5. **The chain's books tie.** Chain summary totals equal the sum of its locations, every location's roll-forward `difference` is 0 after a cross-location spend, and the holder's OWED row names the sibling. Tests: TC-2017–TC-2019.
 
+> **Align with the web plan (2026-11-14):** the web plan now exists at `restaunax/docs/superpowers/plans/2026-11-14-gift-cards-C-web-dashboard.md` (tab key `gift-cards`, subtabs via `?section=`, card drawer via `?card=`). The page object follows the web implementation's tab key and test ids, not this plan's proposals. Plan B's _Contract amendments_ also apply: refusals carry `code` + `errorCode`; the drawer loads list includes `CASHED_OUT` rows; T10 accepts `managerPin`; `/sell` never refuses a sale approved on its PaymentIntent.
+
 ---
 
 ## File map
