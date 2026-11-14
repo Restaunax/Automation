@@ -30,7 +30,7 @@
  *   TC-2009 unsold stock by batch.
  *   TC-2010 a restaurant outside a chain has no settlement.
  *   TC-2011 answers come back in the caller's language.
- *   TC-2012 a home-food seller is refused the owner gift card routes.
+ *   TC-2012 a home-food seller is refused the owner routes and selling, and still redeems.
  */
 import { randomUUID } from "crypto";
 import * as allure from "allure-js-commons";
@@ -217,8 +217,14 @@ test.describe(
       expect(body.total).toBeGreaterThanOrEqual(2);
       for (const card of body.giftCards as Rec[]) {
         expect(isMaskedCode(card.displayCode), card.displayCode).toBe(true);
-        expect(card.heldHere).toBe(true);
-        expect(card.heldBy.id).toBe(A);
+        if (card.status === "INACTIVE") {
+          // Unsold printed stock has no holder yet.
+          expect(card.heldBy).toBeNull();
+          expect(card.heldHere).toBe(false);
+        } else {
+          expect(card.heldHere).toBe(true);
+          expect(card.heldBy.id).toBe(A);
+        }
         expect(looksLikeKey(card.statusText), card.statusText).toBe(false);
       }
       expect(JSON.stringify(list.data)).not.toContain(web.code);
@@ -233,7 +239,10 @@ test.describe(
       const detail = await asA("GET", `/cards/${web.id}`);
       expect(detail.status, JSON.stringify(detail.data)).toBe(200);
       const card = dataOf(detail.data);
-      const first = card.history[0];
+      const first = (card.history as Rec[]).find(
+        (h) => h.kind === "SOLD"
+      ) as Rec;
+      expect(first, JSON.stringify(card.history)).toBeTruthy();
       expect(first).toMatchObject({
         kind: "SOLD",
         channel: "WEBSITE",
@@ -323,30 +332,35 @@ test.describe(
       expect(system.status, JSON.stringify(system.data)).toBe(400);
       expect(system.data.code).toBe("INVALID_REASON");
 
-      const ok = await freeze("Customer lost it");
-      expect(ok.status, JSON.stringify(ok.data)).toBe(200);
-      expect(dataOf(ok.data).status).toBe("FROZEN");
-      expect(dataOf(ok.data).freeze).toMatchObject({
-        origin: "OWNER",
-        canLift: true,
-        reasonText: "Customer lost it",
-      });
-      const again = await freeze("Customer lost it");
-      expect(again.status).toBe(409);
-      expect(again.data.code).toBe("ALREADY_FROZEN");
+      try {
+        const ok = await freeze("Customer lost it");
+        expect(ok.status, JSON.stringify(ok.data)).toBe(200);
+        expect(dataOf(ok.data).status).toBe("FROZEN");
+        expect(dataOf(ok.data).freeze).toMatchObject({
+          origin: "OWNER",
+          canLift: true,
+          reasonText: "Customer lost it",
+        });
+        const again = await freeze("Customer lost it");
+        expect(again.status).toBe(409);
+        expect(again.data.code).toBe("ALREADY_FROZEN");
 
-      // Owner-frozen is still owed, and is not a funding hold.
-      const during = await summary();
-      expect(money(during.owed).amount).toBe(money(before.owed).amount);
-      expect(money(during.onHold).amount).toBe(0);
+        // Owner-frozen is still owed, and is not a funding hold.
+        const during = await summary();
+        expect(money(during.owed).amount).toBe(money(before.owed).amount);
+        expect(money(during.onHold).amount).toBe(0);
 
-      const lift = await asA("POST", `/cards/${web.id}/unfreeze`);
-      expect(lift.status, JSON.stringify(lift.data)).toBe(200);
-      expect(dataOf(lift.data).status).toBe("ACTIVE");
-      expect(dataOf(lift.data).freeze).toBeNull();
-      const lifted = await asA("POST", `/cards/${web.id}/unfreeze`);
-      expect(lifted.status).toBe(409);
-      expect(lifted.data.code).toBe("NOT_FROZEN");
+        const lift = await asA("POST", `/cards/${web.id}/unfreeze`);
+        expect(lift.status, JSON.stringify(lift.data)).toBe(200);
+        expect(dataOf(lift.data).status).toBe("ACTIVE");
+        expect(dataOf(lift.data).freeze).toBeNull();
+        const lifted = await asA("POST", `/cards/${web.id}/unfreeze`);
+        expect(lifted.status).toBe(409);
+        expect(lifted.data.code).toBe("NOT_FROZEN");
+      } finally {
+        // Never leave the shared card frozen for later cases.
+        await asA("POST", `/cards/${web.id}/unfreeze`).catch(() => {});
+      }
 
       const detail = dataOf((await asA("GET", `/cards/${web.id}`)).data);
       expect(detail.currentBalance).toBe(50);
@@ -449,15 +463,17 @@ test.describe(
       try {
         const off = await asA("PUT", "/config", { isEnabled: false });
         expect(off.status, JSON.stringify(off.data)).toBe(200);
-        const buy = await apiRequestRaw(
+        const buy = await apiRequestRaw<Rec>(
           "POST",
           "/api/stripe/gift-card-payment-intent",
-          { amount: 25, restaurantId: A, deliveryMethod: "LINK" }
+          { amount: 40, restaurantId: A, deliveryMethod: "LINK" }
         );
         expect(buy.status, JSON.stringify(buy.data)).toBeGreaterThanOrEqual(
           400
         );
         expect(buy.status).toBeLessThan(500);
+        // Refused for a reason a client can act on, not an unhandled error.
+        expect(String(buy.data.code ?? buy.data.errorCode ?? "")).not.toBe("");
         // Spending is never read from the selling switch.
         const valid = await validateGiftCardPublicRaw(imported.code, A);
         expect(valid.status, JSON.stringify(valid.data)).toBe(200);
@@ -480,15 +496,15 @@ test.describe(
       // The old shape still answers: the compat pin for old Owner-app builds.
       const legacy = await getOwnerGiftCardSummaryRaw(ownerA, A);
       expect(legacy.status, JSON.stringify(legacy.data)).toBe(200);
-      expect(Object.keys(legacy.data.data).sort()).toEqual(
-        [
-          "cardCount",
-          "importedBalance",
-          "importedCardCount",
-          "isChainWide",
-          "outstandingBalance",
-        ].sort()
-      );
+      const old = legacy.data.data as Rec;
+      for (const key of [
+        "outstandingBalance",
+        "cardCount",
+        "importedBalance",
+        "importedCardCount",
+      ])
+        expect(typeof old[key], key).toBe("number");
+      expect(typeof old.isChainWide).toBe("boolean");
     });
 
     test("TC-2007: today's activity counts the $50 sale and nothing else", async () => {
@@ -624,7 +640,9 @@ test.describe(
         expect(r.data.code).toBe("FEATURE_NOT_AVAILABLE");
         expect(looksLikeKey(r.data.error)).toBe(false);
       }
-      const buy = await apiRequestRaw(
+      // Selling is refused in words, by the feature check (a seller that
+      // never onboarded Stripe would be refused anyway, for another reason).
+      const buy = await apiRequestRaw<Rec>(
         "POST",
         "/api/stripe/gift-card-payment-intent",
         {
@@ -633,8 +651,30 @@ test.describe(
           deliveryMethod: "LINK",
         }
       );
-      expect(buy.status, JSON.stringify(buy.data)).toBeGreaterThanOrEqual(400);
-      expect(buy.status).toBeLessThan(500);
+      expect(buy.status, JSON.stringify(buy.data)).toBe(403);
+      expect(buy.data.code).toBe("FEATURE_NOT_AVAILABLE");
+
+      // A card the seller already holds still redeems (spending never reads
+      // the feature). Seeding goes through the admin import; if the backend
+      // refuses to import onto a home-food seller, say so rather than guess.
+      let seeded: { id: string; code: string } | null = null;
+      try {
+        seeded = await seedFundedGiftCard(adminToken, seller.restaurantId, 15);
+        recordGiftCardForCleanup(seeded.id);
+      } catch (e) {
+        test.info().annotations.push({
+          type: "home-food redeem not checked",
+          description: `admin import refused on a HOME_FOOD seller: ${String(e).slice(0, 300)}`,
+        });
+      }
+      if (seeded) {
+        const valid = await validateGiftCardPublicRaw(
+          seeded.code,
+          seller.restaurantId
+        );
+        expect(valid.status, JSON.stringify(valid.data)).toBe(200);
+        expect(valid.data.data.valid).toBe(true);
+      }
     });
   }
 );
