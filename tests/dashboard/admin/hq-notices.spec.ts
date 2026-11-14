@@ -73,6 +73,7 @@ import {
   hasUnsubscribeLink,
   listNoticesRaw,
   localMinute,
+  noticeOptRaw,
   noticeReportRaw,
   patchNoticeRaw,
   recipientRow,
@@ -120,6 +121,8 @@ const TXT = {
   // email.json → hqNotice.whyReceived*
   whyOwner: "because you work with RestauNax",
   whyLegal: "It can't be turned off.",
+  // api.json → hqNotice.legalNoPush
+  legalNoPush: "Legal notices are sent by email only.",
 };
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -230,7 +233,9 @@ test.describe("HQ notices", { tag: "@hq-notices" }, () => {
     });
     if (zone.status !== 200)
       throw new Error(`[hq-notices] timezone: ${JSON.stringify(zone.data)}`);
-    const r = await apiRequestRaw<{ restaurant?: { name?: string } }>(
+    const r = await apiRequestRaw<{
+      restaurant?: { name?: string; timezone?: string };
+    }>(
       "GET",
       `/restaurant/restaurantId/${restaurantId}`,
       undefined,
@@ -238,6 +243,11 @@ test.describe("HQ notices", { tag: "@hq-notices" }, () => {
     );
     restaurantName = r.data?.restaurant?.name ?? "";
     if (!restaurantName) throw new Error("[hq-notices] no restaurant name");
+    // The scheduled-minute case (TC-1988) computes local time in ZONE.
+    if (r.data?.restaurant?.timezone !== ZONE)
+      throw new Error(
+        `[hq-notices] timezone did not stick: ${r.data?.restaurant?.timezone}`
+      );
 
     // An emailed team member: a staff row with an email and no login yet.
     const invited = await inviteStaffRaw(owner.token, restaurantId, {
@@ -287,6 +297,10 @@ test.describe("HQ notices", { tag: "@hq-notices" }, () => {
     unpublishedId =
       (unpublished.data as { restaurant?: { id?: string } })?.restaurant?.id ??
       "";
+    if (!unpublishedId)
+      throw new Error(
+        `[hq-notices] unpublished restaurant: ${unpublished.status} ${JSON.stringify(unpublished.data)}`
+      );
   });
 
   test.afterAll(async () => {
@@ -321,12 +335,14 @@ test.describe("HQ notices", { tag: "@hq-notices" }, () => {
       try {
         await page.goto(NOTICES_URL, { waitUntil: "domcontentloaded" });
         if (expectAllowed) {
-          await expect(page.getByText(TXT.description)).toBeVisible({
+          await expect(page.getByText(TXT.description).first()).toBeVisible({
             timeout: 20_000,
           });
           await expect(page.getByText(TXT.notAllowed)).toHaveCount(0);
         } else {
-          await expect(page.getByText(TXT.notAllowed)).toBeVisible({
+          await expect(
+            page.getByRole("alert").filter({ hasText: TXT.notAllowed }).first()
+          ).toBeVisible({
             timeout: 20_000,
           });
           await expect(page.getByText(TXT.description)).toHaveCount(0);
@@ -483,6 +499,8 @@ test.describe("HQ notices", { tag: "@hq-notices" }, () => {
     { tag: "@email" },
     async ({ browser }) => {
       test.skip(!MAILPIT, NO_MAILPIT);
+      // Three full sends, each waited out to SENT and to the inbox.
+      test.setTimeout(420_000);
       await allure.description(
         "The team member opens the unsubscribe link from TC-1982 and presses Unsubscribe. The " +
           "next PRODUCT_UPDATE reaches the owner and skips the team member (report: SKIPPED " +
@@ -542,6 +560,11 @@ test.describe("HQ notices", { tag: "@hq-notices" }, () => {
               .getByRole("button", { name: TXT.resubButton, exact: true })
               .click();
             await expect(page.getByText(TXT.resubDone)).toBeVisible();
+            // The page's token names the muted category; the public endpoint
+            // is idempotent, so posting it again just confirms the category.
+            const again = await noticeOptRaw("resubscribe", teamUnsubToken);
+            expect(again.status, JSON.stringify(again.data)).toBe(200);
+            expect(again.data.data?.category).toBe("PRODUCT_UPDATE");
             const n = await draft("PRODUCT_UPDATE", "product D");
             const report = await sendAndWait(await hqToken(), n.id);
             expect(recipientRow(report, teamEmail)?.emailStatus).toBe("SENT");
@@ -567,16 +590,26 @@ test.describe("HQ notices", { tag: "@hq-notices" }, () => {
       expect(serviceMails, "TC-1984 sent no service notice").toHaveLength(2);
       const token = await hqToken();
 
+      let controlId = "";
       await allure.step("API: LEGAL can never push", async () => {
-        const refused = await createNoticeRaw(token, {
-          type: "LEGAL",
-          channels: ["EMAIL", "PUSH"],
+        const payload = {
+          channels: ["EMAIL", "PUSH"] as ("EMAIL" | "PUSH")[],
           audience: audience(["OWNERS"]),
-          subject: subject("legal push refused"),
+          subject: subject("push control"),
+        };
+        const refused = await createNoticeRaw(token, {
+          ...payload,
+          type: "LEGAL",
         });
         expect(refused.status, JSON.stringify(refused.data)).toBe(400);
-        expect(refused.data.error).toBeTruthy();
-        expect(refused.data.error).not.toMatch(/^api:|hqNotice\./);
+        expect(refused.data.error).toBe(TXT.legalNoPush);
+        // Control: the same payload as a product update is a valid draft.
+        const accepted = await createNoticeRaw(token, {
+          ...payload,
+          type: "PRODUCT_UPDATE",
+        });
+        expect(accepted.status, JSON.stringify(accepted.data)).toBe(201);
+        controlId = accepted.data.data?.id ?? "";
       });
 
       const legal = await draft("LEGAL", "legal E", ["OWNERS"]);
@@ -587,8 +620,19 @@ test.describe("HQ notices", { tag: "@hq-notices" }, () => {
             channels: ["EMAIL", "PUSH"],
           });
           expect(patched.status, JSON.stringify(patched.data)).toBe(400);
+          expect(patched.data.error).toBe(TXT.legalNoPush);
           const still = await getNoticeRaw(token, legal.id);
           expect(still.data.data?.channels).toEqual(["EMAIL"]);
+          // Control: the same PATCH on a product-update draft is accepted.
+          const control = await draft("PRODUCT_UPDATE", "patch control", [
+            "OWNERS",
+          ]);
+          const ok = await patchNoticeRaw(token, control.id, {
+            channels: ["EMAIL", "PUSH"],
+          });
+          expect(ok.status, JSON.stringify(ok.data)).toBe(200);
+          expect(ok.data.data?.channels).toEqual(["EMAIL", "PUSH"]);
+          expect(controlId, "create control draft").toBeTruthy();
         }
       );
 
@@ -695,6 +739,10 @@ test.describe("HQ notices", { tag: "@hq-notices" }, () => {
       expect(scheduled.data.data?.status).toBe("SCHEDULED");
       const sendAt = Date.parse(scheduled.data.data?.sendAt ?? "");
       expect(Number.isNaN(sendAt)).toBe(false);
+      // The zone was read back in beforeAll, so sendAt is the minute we asked
+      // for: in the future and no more than ~3 minutes away.
+      expect(sendAt).toBeGreaterThan(Date.now());
+      expect(sendAt - Date.now()).toBeLessThan(180_000);
 
       const cancelled = await cancelNoticeRaw(token, n.id);
       expect(cancelled.status, JSON.stringify(cancelled.data)).toBe(200);
@@ -707,8 +755,10 @@ test.describe("HQ notices", { tag: "@hq-notices" }, () => {
         "Nothing arrives past the scheduled minute",
         async () => {
           const subj = exactSubject(n.subject);
-          const deadline = sendAt + 45_000;
-          // Check the inbox every 10 s until well past sendAt; any copy fails.
+          // Cancel removes the start job, so 20 s past sendAt is enough; never
+          // wait more than 150 s whatever sendAt says.
+          const deadline = Math.min(sendAt + 20_000, Date.now() + 150_000);
+          // Check the inbox every 10 s until past sendAt; any copy fails.
           while (Date.now() < deadline) {
             const got =
               (await listEmailIds(owner.email, { subjectPattern: subj }))
@@ -770,10 +820,6 @@ test.describe("HQ notices", { tag: "@hq-notices" }, () => {
           .first()
       ).toBeVisible();
 
-      test.skip(
-        !unpublishedId,
-        "The unpublished throwaway restaurant could not be created"
-      );
       await restaurants.goto();
       await restaurants.openRowActionMenu(unpublishedName);
       await expect(
