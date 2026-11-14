@@ -53,6 +53,19 @@ type Rec = Record<string, LooseJson>;
 const list = (v: unknown) => (Array.isArray(v) ? (v as Rec[]) : []);
 const YEAR = new Date().getUTCFullYear() - 1;
 const today = () => new Date().toISOString().slice(0, 10);
+/** Last month, whole: a range every free accountant read accepts. */
+const MONTH_START = (() => {
+  const d = new Date();
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1))
+    .toISOString()
+    .slice(0, 10);
+})();
+const MONTH_END = (() => {
+  const d = new Date();
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 0))
+    .toISOString()
+    .slice(0, 10);
+})();
 
 test.describe.configure({ mode: "serial" });
 
@@ -368,7 +381,7 @@ test.describe("Accountant access — invite, read-only, other clients invisible,
     expect(list(owners.data.data).map((x) => x.status)).toEqual(["ACTIVE"]);
   });
 
-  test("TC-780: another restaurant is invisible (404, same as a made-up id); add-on off keeps the list, closes the numbers; revoke ends access at once", async () => {
+  test("TC-780: another restaurant is invisible (404, same as a made-up id); add-on off keeps the free reads open and closes only the add-on ones; revoke ends access at once", async () => {
     const t = accountant.token;
     const other = await accountantRaw(t, `/clients/${b.id}`);
     expect(other.status).toBe(404);
@@ -388,22 +401,44 @@ test.describe("Accountant access — invite, read-only, other clients invisible,
       ).toBe(404);
     }
 
-    // Add-on off: the client list still loads (marked unavailable) — the
-    // screen never 403s — and the numbers are closed with a reason.
+    // Add-on off: the screen never 403s. The accountant's overview, sales
+    // tax, tips, sales summary, payouts and package are free for an active
+    // accountant; only the books day reads, deposits, year end and the
+    // monthly package files stay with the add-on. `available` is always true.
     await deleteFeatureOverrideAdminRaw(adminToken, a.id, "ACCOUNTING_SYNC");
     try {
       const clients = await accountantRaw(t, "/clients");
       expect(clients.status).toBe(200);
       expect(list(clients.data.data)).toMatchObject([
-        { restaurantId: a.id, available: false },
+        { restaurantId: a.id, available: true },
       ]);
-      const closed = await accountantRaw(t, `/clients/${a.id}`);
-      expect(closed.status).toBe(403);
-      // Products are named "RestauNax <Product>" (decision 2026-10-29); the
-      // products API carries no display name, so the EN text is spelled out.
-      expect(closed.data.message).toBe(
-        "This restaurant's RestauNax Books & Taxes add-on is off, so its numbers can't be opened right now."
+      const range = `startDate=${MONTH_START}&endDate=${MONTH_END}`;
+      // One free read answers 200...
+      const free = await accountantRaw(t, `/clients/${a.id}`);
+      expect(free.status, JSON.stringify(free.data)).toBe(200);
+      for (const path of [
+        `sales-tax?${range}`,
+        `books/sales-summary?${range}`,
+        `payouts?${range}`,
+      ]) {
+        const r = await accountantRaw(t, `/clients/${a.id}/${path}`);
+        expect(r.status, path).toBe(200);
+      }
+      // ...and an add-on read answers 403 (no screen loads it unasked).
+      const closed = await accountantRaw(
+        t,
+        `/clients/${a.id}/books/days?${range}`
       );
+      expect(closed.status).toBe(403);
+      for (const path of [
+        `year-end?year=${YEAR}`,
+        "accountant-package/files",
+      ]) {
+        expect(
+          (await accountantRaw(t, `/clients/${a.id}/${path}`)).status,
+          path
+        ).toBe(403);
+      }
     } finally {
       await setFeatureOverrideAdminRaw(
         adminToken,
