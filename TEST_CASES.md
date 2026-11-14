@@ -2726,7 +2726,7 @@ Every sales-tax rule on QA is DRAFT (a suggestion until the CPA confirms) and no
 | **TC-1255** | A paid online order (burger + beer + tip); refunding only the beer by its line gives back $0.80 alcohol-rate tax and nothing at the food rate; the books' tax per rate equals the report's net tax. |
 | **TC-1256** | `GET/PUT /pos-refusal`: off and not opted in; opting in still leaves it off (no register has sold); a bad value is refused; the admin kill switch is admin-only and validated (never flipped).      |
 
-A sale whose card capture FAILED (audit W4:M6) can't be staged on QA without Stripe's secret key; the backend integration test `salesTax.int` proves the report leaves it out.
+A sale whose card capture FAILED (audit W4:M6) can't be staged on QA without Stripe's secret key; the backend integration test `salesTax.int` proves the report counts it (a sale still owed, as in the books).
 
 ---
 
@@ -3768,7 +3768,7 @@ Skipped tests fall into three categories: (1) the feature is restricted to a dif
 
 | TC          | Spec                                          | What it checks                                                                                                                                     |
 | ----------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **TC-1330** | `dashboard/owner/api-books-exports`           | Import files, export check, sales summary and the mapping preset: 403 without the Books & Taxes add-on, 200 with it.                               |
+| **TC-1330** | `dashboard/owner/api-books-exports`           | Import files, export check and the mapping preset: 403 without the Books & Taxes add-on, 200 with it; the sales summary is free (200 both).        |
 | **TC-1331** | `dashboard/owner/api-books-exports`           | "Simple accounts": the sales entry maps to six named accounts in one click; back to detailed; unknown preset 400; the change is in Recent changes. |
 | **TC-1332** | `dashboard/owner/api-books-exports`           | QuickBooks Online file: Intuit's exact headers, no BOM, MM/DD/YYYY dates; the day then shows `exportFormat: QUICKBOOKS_ONLINE` and `exportedAt`.   |
 | **TC-1333** | `dashboard/owner/api-books-exports`           | Xero manual journal file: exact headers (`*Narration … TrackingOption2`); the export check lists nothing left out; an unknown format is 400.       |

@@ -108,11 +108,15 @@ test.describe("Owner — accountant package and Daily Report without the add-on 
       await panel.getByTestId("accountant-package-format").click();
       await page().getByRole("option", { name: f.label, exact: true }).click();
       const [res, download] = await Promise.all([
-        page().waitForResponse(
-          (r) =>
-            r.url().includes("/accountant-package") &&
-            !r.url().includes("/files")
-        ),
+        // The exact download request: the path ends in /accountant-package
+        // and carries a format= query (not the /files list, not a status poll).
+        page().waitForResponse((r) => {
+          const u = new URL(r.url());
+          return (
+            u.pathname.endsWith("/accountant-package") &&
+            u.searchParams.has("format")
+          );
+        }),
         page().waitForEvent("download"),
         panel.getByTestId("accountant-package-download").click(),
       ]);
@@ -144,7 +148,16 @@ test.describe("Owner — accountant package and Daily Report without the add-on 
     await expect(ask).toBeVisible({ timeout: 20_000 });
     await expect(ask).toHaveText(ASK_LINE);
     await expect(ask.getByRole("button", { name: "Ask us." })).toBeVisible();
-    await expect(page().getByText(/coming soon|upgrade|\$\d/i)).toHaveCount(0);
+    // Wording is page-wide; a price is looked for only where an add-on is
+    // offered (the ask line and the add-on sections), because the page also
+    // shows real "$0.00" figures.
+    await expect(page().getByText(/coming soon|upgrade/i)).toHaveCount(0);
+    for (const offer of [
+      ask,
+      page().locator('[data-testid^="books-addon-"]'),
+    ]) {
+      await expect(offer.getByText(/\$\d/)).toHaveCount(0);
+    }
     expect(refused).toEqual([]);
   });
 
