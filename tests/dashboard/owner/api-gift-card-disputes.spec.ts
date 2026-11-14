@@ -98,6 +98,10 @@ test.describe(
       ownerGiftCardRaw<Rec>(owner, { restaurantId: rid }, method, path, body);
     const gate = () => requireRelease("ownerGiftCards", present);
 
+    /** What the last poll saw, so a timeout names the real cause. */
+    let lastSeen = "no poll yet";
+    let failures = 0;
+
     const findDispute = async (): Promise<Rec | undefined> => {
       const r = await apiRequestRaw<Rec>(
         "GET",
@@ -106,10 +110,23 @@ test.describe(
         owner,
         { "X-Restaurant-Id": rid }
       );
-      if (r.status !== 200) return undefined;
-      return ((r.data.data ?? []) as Rec[]).find(
-        (d) => (d.giftCard as Rec | null)?.id === card.id
-      );
+      if (r.status !== 200) {
+        failures += 1;
+        lastSeen = `list answered ${r.status}: ${JSON.stringify(r.data)}`;
+        // A persistent 403/5xx is not a missing webhook: stop waiting.
+        if (failures >= 3 && (r.status === 403 || r.status >= 500))
+          throw new Error(`[gc-dispute] disputes list ${lastSeen}`);
+        return undefined;
+      }
+      failures = 0;
+      const rows = (r.data.data ?? []) as Rec[];
+      const hit = rows.find((d) => (d.giftCard as Rec | null)?.id === card.id);
+      if (!hit)
+        lastSeen =
+          rows.length === 0
+            ? "list is empty (no dispute yet)"
+            : `${rows.length} dispute row(s) but none carries giftCard.id ${card.id} (giftCard values: ${JSON.stringify(rows.map((d) => d.giftCard ?? null))})`;
+      return hit;
     };
 
     const pollDispute = async (limitMs: number): Promise<Rec | undefined> => {
@@ -177,7 +194,7 @@ test.describe(
       }
       if (!found)
         throw new Error(
-          `QA did not deliver charge.dispute.created for ${card.pi} within ${POLL_LIMIT_MS / 1000} s`
+          `QA did not deliver charge.dispute.created for ${card.pi} within ${POLL_LIMIT_MS / 1000} s (last poll: ${lastSeen})`
         );
       dispute = found;
     });
@@ -196,6 +213,7 @@ test.describe(
 
     test("TC-2047: a stolen-card gift card purchase lands on the restaurant that holds the card", async () => {
       gate();
+      expect(dispute.id, "dispute row has an id").toBeTruthy();
       const gc = dispute.giftCard as Rec;
       expect(gc.id).toBe(card.id);
       expect(isMaskedCode(String(gc.maskedCode)), String(gc.maskedCode)).toBe(
@@ -248,8 +266,8 @@ test.describe(
       expect(dataOf(after.data).status).toBe("FROZEN");
 
       // A freeze moves no money: the books still tie.
-      const month = new Date().toISOString().slice(0, 7);
-      const rf = await asOwner("GET", `/reports/roll-forward?month=${month}`);
+      // No month: the backend defaults to the restaurant's local month.
+      const rf = await asOwner("GET", "/reports/roll-forward");
       expect(rf.status, JSON.stringify(rf.data)).toBe(200);
       expect(
         rollForwardTies(
@@ -273,17 +291,21 @@ test.describe(
           `/restaurant/restaurantId/${rid}/subscription?section=disputes`
         );
         const last4 = String((dispute.giftCard as Rec).maskedCode).slice(-4);
-        // Role/text locators; switch to the web plan's test ids (the page
-        // object's `disputeRow`) once they ship.
+        // Rows by role; the testid alternatives are placeholders to align
+        // with the web plan's ids (OwnerGiftCardsPage.disputeRow/Detail).
         const row = page
-          .locator("div, li, tr")
+          .getByRole("row")
+          .or(page.getByTestId("dispute-row"))
           .filter({ hasText: last4 })
-          .filter({ hasText: "$60.00" })
-          .last();
-        await expect(row).toBeVisible({ timeout: 30_000 });
-        await expect(row).toContainText(last4);
-        await expect(row).toContainText("$60.00");
-        await expect(page.getByText(/order\s*#/i)).toHaveCount(0);
+          .filter({ hasText: "$60.00" });
+        await expect(row.first()).toBeVisible({ timeout: 30_000 });
+        await row.first().click();
+        const view = page
+          .getByRole("dialog")
+          .or(page.getByTestId("dispute-detail"));
+        await expect(view).toBeVisible({ timeout: 15_000 });
+        await expect(view).toContainText(last4);
+        await expect(view).not.toContainText(/order\s*#/i);
       } finally {
         await context.close();
       }
