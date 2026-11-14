@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import {
+  csvExportPath,
   isMaskedCode,
   rollForwardTies,
   sumMoneyCounts,
@@ -53,4 +54,13 @@ test("sumMoneyCounts", () => {
       { amount: 0.2, count: 2 },
     ])
   ).toEqual({ amount: 0.3, count: 3 });
+});
+
+test("csvExportPath is /export.csv for both scopes", () => {
+  expect(csvExportPath({ restaurantId: "r1" }, "?status=ACTIVE")).toBe(
+    "/api/gift-cards/restaurants/r1/export.csv?status=ACTIVE"
+  );
+  expect(csvExportPath({ groupId: "g1" })).toBe(
+    "/api/gift-cards/groups/g1/export.csv"
+  );
 });

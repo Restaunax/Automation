@@ -52,18 +52,19 @@ export function ownerGiftCardRaw<T = LooseJson>(
   );
 }
 
+/** Path of the CSV export for a scope: `<prefix>/export.csv` + query. */
+export const csvExportPath = (scope: Scope, query = ""): string =>
+  `${scopePrefix(scope)}/export.csv${query}`;
+
 /** The CSV export (text, not JSON): status, headers and the raw body. */
 export async function ownerGiftCardCsvRaw(
   token: string,
   scope: Scope,
   query = ""
 ): Promise<{ status: number; headers: Headers; text: string }> {
-  const res = await fetch(
-    `${BACKEND_URL}${scopePrefix(scope)}/export${query}`,
-    {
-      headers: { Authorization: `Bearer ${token}`, ...scopeHeaders(scope) },
-    }
-  );
+  const res = await fetch(`${BACKEND_URL}${csvExportPath(scope, query)}`, {
+    headers: { Authorization: `Bearer ${token}`, ...scopeHeaders(scope) },
+  });
   return { status: res.status, headers: res.headers, text: await res.text() };
 }
 
@@ -99,7 +100,12 @@ export async function buyGiftCardOnline(
   const intent = await apiRequestRaw<{ clientSecret?: string }>(
     "POST",
     "/api/stripe/gift-card-payment-intent",
-    { amount, restaurantId }
+    {
+      amount,
+      restaurantId,
+      deliveryMethod: opts.recipientEmail ? "EMAIL" : "LINK",
+      recipientEmail: opts.recipientEmail,
+    }
   );
   expect(
     intent.status,
@@ -126,14 +132,17 @@ export async function buyGiftCardOnline(
     data?: { id?: string; code?: string };
   }>("POST", "/api/gift-cards/purchase", {
     paymentIntentClientSecret: clientSecret,
+    stripePaymentIntentId: paymentIntentId,
     amount,
     restaurantId,
     deliveryMethod: opts.recipientEmail ? "EMAIL" : "LINK",
     recipientEmail: opts.recipientEmail,
   });
-  expect(purchase.status, `purchase: ${JSON.stringify(purchase.data)}`).toBe(
-    200
-  );
+  // 201 on a fresh mint, 200 when the webhook minted the card first.
+  expect(
+    [200, 201],
+    `purchase ${purchase.status}: ${JSON.stringify(purchase.data)}`
+  ).toContain(purchase.status);
   const card = purchase.data.data ?? {};
   expect(card.id, "purchase returns the card id").toBeTruthy();
   expect(card.code, "purchase reveals the code").toBeTruthy();
