@@ -3,7 +3,9 @@
  * package, and the B2 card-deposit surface on a restaurant with no books
  * connection (TC-763..771), and the closed-period lock (W2:A3) on that
  * CSV-only tenant (TC-1300..1302), and the Stage 7 year-end additions (W4:L5:
- * fees paid to RestauNax, gift card liability at year end) (TC-1612).
+ * fees paid to RestauNax, gift card liability at year end) (TC-1612), and
+ * books offboarding (TC-1954..1955): Disconnect is RestauNax staff only, and
+ * the past entries stay downloadable once the add-on is off.
  *
  * restaunax docs/features/back-office/BOOKS_B5_ACCOUNTANT_AND_YEAR_END.md and
  * ACCOUNTING_SYNC.md → B2 (#943). No browser. One throwaway restaurant; the
@@ -22,6 +24,7 @@ import { readZip, type ZipEntry } from "../../../utils/zipReader";
 import { pdfText } from "../../../utils/pdfText";
 import { settingChangesRaw } from "../../../utils/backOfficeApi";
 import {
+  probeBooksOffboarding,
   probeTaxDepthStage7,
   requireRelease,
 } from "../../../utils/releaseGate";
@@ -727,5 +730,82 @@ test.describe("Books & taxes — tax calendar, year-end package, card deposits (
     expect(byKey.get("tips_card_fee")).toBe("Card fee withheld from tips");
     expect(byKey.get("comps")).toBe("Comps");
     expect(byKey.get("unpaid_collected")).toBe("Unpaid orders collected");
+  });
+
+  // Books offboarding (RestauNax feat/books-offboarding, 2026-11-10). This
+  // tenant has no books connection, so even a wrongly allowed Disconnect has
+  // nothing to cut.
+  test("TC-1954: an owner can't disconnect books or Avalara; RestauNax staff can @books-offboarding", async () => {
+    requireRelease(
+      "booksOffboarding",
+      await probeBooksOffboarding(ownerToken, restaurantId)
+    );
+    // With the add-on on, the owner's 403 is the staff-only wall, not the
+    // add-on gate. Granted here too so the test runs on its own.
+    const on = await setFeatureOverrideAdminRaw(
+      adminToken,
+      restaurantId,
+      "ACCOUNTING_SYNC",
+      true,
+      "TC-1954: the add-on is on"
+    );
+    expect(on.status, JSON.stringify(on.data)).toBeLessThan(300);
+    for (const path of ["/disconnect", "/avalara/disconnect"]) {
+      const owner = await accountingRaw(
+        ownerToken,
+        restaurantId,
+        "POST",
+        path,
+        {}
+      );
+      expect(owner.status, `${path} ${JSON.stringify(owner.data)}`).toBe(403);
+      const staff = await accountingRaw(
+        adminToken,
+        restaurantId,
+        "POST",
+        path,
+        {}
+      );
+      expect(staff.status, `${path} ${JSON.stringify(staff.data)}`).toBe(200);
+    }
+  });
+
+  test("TC-1955: without the add-on the past entries still answer, and a range downloads as CSV @books-offboarding", async () => {
+    requireRelease(
+      "booksOffboarding",
+      await probeBooksOffboarding(ownerToken, restaurantId)
+    );
+    const off = await setFeatureOverrideAdminRaw(
+      adminToken,
+      restaurantId,
+      "ACCOUNTING_SYNC",
+      false,
+      "TC-1955: the add-on ended"
+    );
+    expect(off.status, JSON.stringify(off.data)).toBeLessThan(300);
+    // Every other books screen is closed again…
+    const overview = await accountingRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      "/overview"
+    );
+    expect(overview.status).toBe(403);
+    // …but the restaurant's own past is still theirs.
+    const past = await accountingRaw<{
+      data?: {
+        days?: number;
+        ranges?: { startDate: string; endDate: string }[];
+      };
+    }>(ownerToken, restaurantId, "GET", "/past");
+    expect(past.status, JSON.stringify(past.data)).toBe(200);
+    expect(typeof past.data.data?.days).toBe("number");
+    expect(Array.isArray(past.data.data?.ranges)).toBe(true);
+    const csv = await downloadRaw(
+      ownerToken,
+      `/api/accounting/${restaurantId}/past/export.csv?startDate=${LOCK_DAY}&endDate=${LOCK_DAY}&format=restaunax`
+    );
+    expect(csv.status, csv.body.toString().slice(0, 300)).toBe(200);
+    expect(csv.headers.get("content-type") ?? "").toContain("text/csv");
   });
 });

@@ -11,7 +11,8 @@
 #   dispatch: template-deploy    --project=customer       wind-deploy/
 #   manual (workflow_dispatch)   full suite, or --grep    nightly/
 #
-# The OTHER workflow is static.yml: typecheck/lint/format on every PR and push.
+# The other workflows: static.yml (typecheck/lint/format on every PR and push)
+# and sim-daily.yml (the QA simulator's daily summary; no Playwright).
 # No secrets, no QA access, ~1 min. It is deliberately separate — fast per-PR
 # checks and a 45-minute credentialed suite have different triggers, different
 # secrets, and different failure meanings. See CI_PLAN.md.
@@ -94,6 +95,9 @@ jobs:
       ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
       EMPLOYEE_EMAIL: ${{ secrets.EMPLOYEE_EMAIL }}
       EMPLOYEE_PASSWORD: ${{ secrets.EMPLOYEE_PASSWORD }}
+      # The persistent affiliate actor (affiliate portal + attribution suites).
+      AFFILIATE_EMAIL: ${{ secrets.AFFILIATE_EMAIL }}
+      AFFILIATE_PASSWORD: ${{ secrets.AFFILIATE_PASSWORD }}
       # QA's self-hosted Mailpit inbox. The password is a secret so Actions
       # masks it in logs; the URL is not sensitive.
       MAILPIT_BASE_URL: ${{ vars.MAILPIT_BASE_URL }}

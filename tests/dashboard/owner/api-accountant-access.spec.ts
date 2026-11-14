@@ -14,7 +14,7 @@
  *
  * TC-777 is the one browser step: the accountant signs in and opens the
  * read-only workspace (/accountant), with no 403 on any screen load.
- * TC-1956: the accountant's package route refuses a range of only today
+ * TC-1961: the accountant's package route refuses a range of only today
  * ("Nothing to include yet…", EN and ES).
  *
  * Skips without MAILPIT_BASE_URL (CI has it; see TEST_PLAN → Test execution
@@ -307,7 +307,7 @@ test.describe("Accountant access — invite, read-only, other clients invisible,
     expect(zip.headers.get("content-type")).toContain("application/zip");
   });
 
-  test('TC-1956: the accountant\'s package for only today is refused with "Nothing to include yet", in EN and ES', async () => {
+  test('TC-1961: the accountant\'s package for only today is refused with "Nothing to include yet", in EN and ES', async () => {
     // The restaurant's open business day (its time zone, 4 am cutoff).
     const day = await restaurantBusinessToday(a.id);
     const path = (extra: string) =>

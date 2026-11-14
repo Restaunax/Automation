@@ -2,8 +2,8 @@
  * api-tip-waterfall.spec.ts — the tip-out waterfall (P6, restaunax #924) on
  * QA (TC-667..676).
  *
- * No browser. A per-run throwaway restaurant with TIP_MANAGEMENT, moved to a
- * zone where it is about 16:00 (so a whole day of finished shifts fits
+ * No browser. A per-run throwaway restaurant with RestauNax Team (TEAM_BUNDLE,
+ * which brings TIP_MANAGEMENT), moved to a zone where it is about 16:00 (so a whole day of finished shifts fits
  * "today", at any hour), a REGISTER device and, as in the spec's §5 Saturday:
  *   Ana Server 6 h $300 · Ben Server 4 h $200 · Cal Bartender 8 h $150 ·
  *   Dee Busser 5 h · Eli Busser 3 h
@@ -189,7 +189,7 @@ test.describe("Tip-out waterfall (API)", () => {
     const g = await setFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,
-      "TIP_MANAGEMENT",
+      "TEAM_BUNDLE",
       true
     );
     if (!g.ok)
@@ -845,33 +845,24 @@ test.describe("Tip-out waterfall (API)", () => {
       scheduling: { showPayToStaff: true },
     });
 
-    // Without Tip Management (hours kept through Scheduling & Timecards).
-    await setFeatureOverrideAdminRaw(
+    // Without Tip Management: HQ switches tips off inside Team (a revoke is
+    // still allowed); the hours stay through Team's timecards.
+    const off = await setFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,
-      "SCHEDULING",
-      true
+      "TIP_MANAGEMENT",
+      false
     );
-    await deleteFeatureOverrideAdminRaw(
-      adminToken,
-      restaurantId,
-      "TIP_MANAGEMENT"
-    );
+    expect(off.ok, JSON.stringify(off.data)).toBe(true);
     try {
       const without = await mine(day);
       expect(without.status, JSON.stringify(without.data)).toBe(200);
       expect(without.data.data.tipReceipt).toBeNull();
     } finally {
-      await setFeatureOverrideAdminRaw(
-        adminToken,
-        restaurantId,
-        "TIP_MANAGEMENT",
-        true
-      );
       await deleteFeatureOverrideAdminRaw(
         adminToken,
         restaurantId,
-        "SCHEDULING"
+        "TIP_MANAGEMENT"
       );
     }
   });

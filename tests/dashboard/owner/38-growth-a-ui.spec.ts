@@ -33,7 +33,7 @@ test.describe.configure({ mode: "serial" });
 test.describe("Growth A — import, prime cost, cash tip-out sheet (UI) @growth-a", () => {
   requireEnv(
     ["ADMIN_EMAIL", "ADMIN_PASSWORD"],
-    "the file mints its own tenant and grants Timecards + Tip Management"
+    "the file mints its own tenant and grants RestauNax Team (timecards + tips)"
   );
 
   const runId = generateRunId();
@@ -64,8 +64,9 @@ test.describe("Growth A — import, prime cost, cash tip-out sheet (UI) @growth-
       throw new Error("[growth-a-ui] no tenant");
     restaurantId = tenant.restaurantId;
     ownerToken = tenant.accessToken;
-    // TIP_MANAGEMENT brings TIMECARDS (a component, never granted alone).
-    for (const feature of ["TIP_MANAGEMENT"]) {
+    // RestauNax Team brings TIP_MANAGEMENT and TIMECARDS (components, never
+    // granted alone — packaging v3).
+    for (const feature of ["TEAM_BUNDLE"]) {
       const g = await setFeatureOverrideAdminRaw(
         adminToken,
         restaurantId,

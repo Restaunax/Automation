@@ -15,7 +15,9 @@
  \* `--grep @labor-engines`, `--grep @tax-depth`, `--grep @print-builders`,
  \* `--grep @team-comms`, `--grep @staff-setup`, `--grep @daily-views`,
  \* `--grep @growth-a`, `--grep @reservations-audit`,
- \* `--grep @reservations-phase4`.
+ \* `--grep @reservations-phase4`,
+ * `--grep @attribution`, `--grep @affiliate-commission`,
+ * `--grep @books-offboarding`.
  */
 import { test, expect } from "../fixtures/base";
 import { apiRequestRaw } from "./apiHelper";
@@ -39,6 +41,12 @@ export const RELEASED_ON_QA = {
   /** RestauNax branch fix/switch-click-target — a click on a switch's label
    *  text or row no longer toggles it; only the switch does (theme-level). */
   switchClickTarget: false,
+  /** RestauNax branch feat/sales-attribution — who brought a restaurant in
+   *  (HQ "Brought in by", card leaderboard, affiliate Sales tab). */
+  attribution: true,
+  /** RestauNax branch feat/sales-attribution (Plan 2) — affiliate commission
+   *  plan, program defaults, termination outcome. */
+  affiliateCommission: true,
   /** RestauNax back-office audit, Stage 1 paywall (branch bo1031/paywall,
    *  docs/features/back-office/audit-2026-10/W5_PAYWALL_TASKS.md): Menu TVs,
    *  Social Media and Voice AI gated; 404 before the add-on check (L2);
@@ -119,6 +127,10 @@ export const RELEASED_ON_QA = {
    *  (connect a Google Business Profile, list reviews, post/edit/delete
    *  replies, AI drafts, reply settings). */
   googleReviews: false,
+  /** RestauNax branch feat/books-offboarding — books and Avalara Disconnect
+   *  is RestauNax staff only; past entries stay downloadable without the
+   *  add-on (GET /api/accounting/:id/past). Flip once it is on QA. */
+  booksOffboarding: true,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -135,6 +147,10 @@ const REASON: Record<ReleasePart, string> = {
     "Removing cards also removes their stands (RestauNax PR #1102) is not on this environment yet",
   switchClickTarget:
     "Switches toggle only from the switch (RestauNax fix/switch-click-target) is not on this environment yet",
+  attribution:
+    "Restaurant attribution (RestauNax feat/sales-attribution) is not on this environment yet — /api/admin/attribution answers 404",
+  affiliateCommission:
+    "Affiliate commission (RestauNax feat/sales-attribution) is not on this environment yet — /api/affiliates/admin/program-defaults answers 404",
   reservationsAudit:
     "The reservations audit fixes (RestauNax fix/reservations-audit) are not on this environment yet — the booking-hours suggestion carries no suggestedMaxPartiesPerSlot",
   reservationsPhase4:
@@ -161,6 +177,8 @@ const REASON: Record<ReleasePart, string> = {
     "The Stage 6 daily views (RestauNax bo1031/uxdaily) are not on this environment yet — /api/today/:id answers 404",
   googleReviews:
     "Google review replies (RestauNax feat/google-review-replies) is not on this environment yet — /api/google-business/:id answers 404",
+  booksOffboarding:
+    "Books offboarding (RestauNax feat/books-offboarding) is not on this environment yet — /api/accounting/:id/past answers 404",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
@@ -282,6 +300,37 @@ export async function probeSettingsSafety(
 }
 
 /**
+ * Is restaurant attribution deployed? `GET /api/admin/attribution/funnel` is
+ * a read-only admin list that only exists with feat/sales-attribution.
+ */
+export async function probeAttribution(adminToken: string): Promise<boolean> {
+  const res = await apiRequestRaw(
+    "GET",
+    "/api/admin/attribution/funnel?payee=card",
+    undefined,
+    adminToken
+  );
+  return res.status !== 404;
+}
+
+/**
+ * Is the affiliate commission plan deployed? `GET
+ * /api/affiliates/admin/program-defaults` is a read-only admin route that only
+ * exists with feat/sales-attribution (Plan 2).
+ */
+export async function probeAffiliateCommission(
+  adminToken: string
+): Promise<boolean> {
+  const res = await apiRequestRaw(
+    "GET",
+    "/api/affiliates/admin/program-defaults",
+    undefined,
+    adminToken
+  );
+  return res.status !== 404;
+}
+
+/**
  * Is the Stage 1 paywall deployed? On a restaurant WITHOUT Menu TVs, the TV
  * list answers 403 FEATURE_NOT_ENTITLED once the gate exists (200 before).
  * Read-only.
@@ -350,6 +399,23 @@ export async function probeTaxDepthStage7(
     ownerToken
   );
   return res.status !== 404;
+}
+
+/**
+ * Is books offboarding deployed? `GET /api/accounting/:id/past` answers 200
+ * once it is (404 before, for a restaurant with the add-on).
+ */
+export async function probeBooksOffboarding(
+  ownerToken: string,
+  restaurantId: string
+): Promise<boolean> {
+  const res = await apiRequestRaw(
+    "GET",
+    `/api/accounting/${restaurantId}/past`,
+    undefined,
+    ownerToken
+  );
+  return res.status === 200;
 }
 
 /**

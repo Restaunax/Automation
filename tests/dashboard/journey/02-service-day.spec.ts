@@ -186,7 +186,8 @@ test.describe("Journey 2 — a service day, closed by the owner", () => {
     });
     if (zone.status !== 200)
       throw new Error(`[journey-2] zone: ${JSON.stringify(zone.data)}`);
-    for (const feature of ["PAYROLL", "SCHEDULING", "TIP_MANAGEMENT"]) {
+    // PAYROLL brings Team (schedule, timecards, tips): packaging v3.
+    for (const feature of ["PAYROLL"]) {
       const granted = await setFeatureOverrideAdminRaw(
         adminToken,
         restaurantId,

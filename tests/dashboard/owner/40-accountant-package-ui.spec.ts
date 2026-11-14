@@ -2,12 +2,12 @@
  * 40-accountant-package-ui.spec.ts — Books & taxes WITHOUT the add-on (UI):
  * the tab opens with no refused load, the package panel downloads PDF, Excel
  * and CSV ZIP for last month, and after a download the owner is told "Want
- * this sent to your accountant every month? Ask us." (TC-1951..1952). Then the
+ * this sent to your accountant every month? Ask us." (TC-1956..1957). Then the
  * Analytics → Daily Report subtab (`?view=daily-report`) shows the report and
  * the Overview's "Download for your accountant" opens the same panel in a
- * dialog (TC-1953). A range of only today is refused with "Nothing to include
- * yet…" in the language asked for (TC-1954, API), and Products → Books &
- * Taxes "See it in action" opens the add-on's first section (TC-1955).
+ * dialog (TC-1958). A range of only today is refused with "Nothing to include
+ * yet…" in the language asked for (TC-1959, API), and Products → Books &
+ * Taxes "See it in action" opens the add-on's first section (TC-1960).
  *
  * Browser. A per-run throwaway owner with NO add-on logs in through the UI
  * (loginViaUi). Every /api/ response is watched: a screen the owner can see
@@ -107,7 +107,7 @@ test.describe("Owner — accountant package and Daily Report without the add-on 
     await allure.label("severity", "critical");
   });
 
-  test("TC-1951: without the add-on, Books & taxes opens on the package with no refused load, and last month downloads as PDF, Excel and CSV ZIP", async () => {
+  test("TC-1956: without the add-on, Books & taxes opens on the package with no refused load, and last month downloads as PDF, Excel and CSV ZIP", async () => {
     await manage("tab=books-taxes&section=accountantPackage");
     const panel = page().getByTestId("accountant-package");
     await expect(panel).toBeVisible({ timeout: 30_000 });
@@ -144,7 +144,7 @@ test.describe("Owner — accountant package and Daily Report without the add-on 
     expect(refused).toEqual([]);
   });
 
-  test("TC-1952: after a download without the add-on, the page offers the monthly send as an ask, never a price", async () => {
+  test("TC-1957: after a download without the add-on, the page offers the monthly send as an ask, never a price", async () => {
     // The previous test left its last download's outcome on screen; start
     // fresh so the line is the one this download raised.
     await manage("tab=books-taxes&section=accountantPackage");
@@ -172,7 +172,7 @@ test.describe("Owner — accountant package and Daily Report without the add-on 
     expect(refused).toEqual([]);
   });
 
-  test("TC-1953: Analytics → Daily Report shows the report, and Download for your accountant opens the package dialog", async () => {
+  test("TC-1958: Analytics → Daily Report shows the report, and Download for your accountant opens the package dialog", async () => {
     await manage("tab=Analytics&view=daily-report");
     await expect(
       page().getByRole("tab", { name: "Daily Report", selected: true })
@@ -198,7 +198,7 @@ test.describe("Owner — accountant package and Daily Report without the add-on 
     expect(refused).toEqual([]);
   });
 
-  test('TC-1954: a package for only today is refused with "Nothing to include yet", in the language asked for (API)', async () => {
+  test('TC-1959: a package for only today is refused with "Nothing to include yet", in the language asked for (API)', async () => {
     // The restaurant's open business day (its time zone, 4 am cutoff).
     const day = await restaurantBusinessToday(restaurantId);
     const path = (extra = "") =>
@@ -243,7 +243,7 @@ test.describe("Owner — accountant package and Daily Report without the add-on 
     }
   });
 
-  test('TC-1955: Products → Books & Taxes "See it in action" opens the add-on\'s first section', async () => {
+  test('TC-1960: Products → Books & Taxes "See it in action" opens the add-on\'s first section', async () => {
     await manage("tab=Billing&section=addons");
     const card = page().getByTestId("product-card-ACCOUNTING_SYNC");
     await expect(card).toBeVisible({ timeout: 30_000 });

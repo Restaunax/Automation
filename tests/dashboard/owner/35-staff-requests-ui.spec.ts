@@ -7,7 +7,8 @@
  * publishing a first shift in the browser is the journey (TC-984..987). This
  * is the owner's inbox, in the browser, the way they use it.
  *
- * A per-run throwaway restaurant with SCHEDULING. Ana and Bo claim their
+ * A per-run throwaway restaurant with RestauNax Team (TEAM_BUNDLE, which
+ * brings SCHEDULING). Ana and Bo claim their
  * invites from Mailpit into real accounts (the staff app's identity) and
  * work as Servers. Ana is on Tue and Thu evenings; Bo too on Tuesday. From
  * Restaunax Staff (its API): Ana asks for Tuesday off ("wedding"), releases
@@ -196,12 +197,12 @@ test.describe("Staff requests in the dashboard (UI)", () => {
     const g = await setFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,
-      "SCHEDULING",
+      "TEAM_BUNDLE",
       true
     );
     if (!g.ok)
       throw new Error(
-        `[staff-requests-ui] SCHEDULING: ${JSON.stringify(g.data)}`
+        `[staff-requests-ui] TEAM_BUNDLE: ${JSON.stringify(g.data)}`
       );
     await hire(ana, "Ana", "Ruiz");
     await hire(bo, "Bo", "Lee");

@@ -1,0 +1,43 @@
+# The QA simulator's daily summary: one message a day saying whether the three
+# simulator restaurants ran clean yesterday (scripts/sim-daily-summary.ts).
+#
+# 13:00 UTC is an hour after the backend's 12:00 UTC self-check. The run goes
+# red (and GitHub emails) when a check went WRONG since yesterday's summary,
+# yesterday's run is missing / FAILED / PARTIAL, or the self-check didn't run.
+# Slack gets the summary either way, so a silent day means the job stopped.
+#
+# No Playwright and no npm install: Node 24 runs the TypeScript script as is
+# and it only calls the admin API. Well under a minute of Actions time a day.
+name: sim-daily
+
+on:
+  schedule:
+    - cron: "0 13 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: sim-daily
+  cancel-in-progress: false
+
+jobs:
+  summary:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: qa
+    permissions:
+      contents: read
+    env:
+      BACKEND_URL: ${{ vars.BACKEND_URL }}
+      FRONTEND_URL: ${{ vars.FRONTEND_URL }}
+      ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+      ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Summarize yesterday's simulator days
+        run: node scripts/sim-daily-summary.ts

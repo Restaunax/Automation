@@ -92,7 +92,7 @@ test.describe("Back-office setup interview (API) @staff-setup", () => {
     if (!az.restaurantId) throw new Error("[api-setup-interview] no AZ tenant");
     restaurantId = az.restaurantId;
     ownerToken = az.accessToken;
-    for (const f of ["SCHEDULING", "TIP_MANAGEMENT"]) {
+    for (const f of ["TEAM_BUNDLE"]) {
       const r = await setFeatureOverrideAdminRaw(
         adminToken,
         restaurantId,

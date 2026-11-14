@@ -391,10 +391,11 @@ test.describe("POS auto-gratuity (API)", () => {
   });
 
   test("TC-1073: 'paid to staff — the server on the check': Dee's gratuity is on her tips report as wages, not tips", async () => {
+    // RestauNax Team brings tips (packaging v3: Tip Management is a part).
     const addon = await setFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,
-      "TIP_MANAGEMENT",
+      "TEAM_BUNDLE",
       true
     );
     expect(addon.ok, JSON.stringify(addon.data)).toBe(true);

@@ -4,8 +4,8 @@
  * the way a person does it (TC-978..989). docs/COVERAGE_MAP.md §3, phases
  * 0–2.
  *
- * One throwaway restaurant with the PAYROLL, SCHEDULING and TIP_MANAGEMENT
- * add-ons (granted by HQ, as sales does). The owner then follows the "Set up
+ * One throwaway restaurant with RestauNax Payroll (PAYROLL, which brings Team:
+ * schedule, timecards and tips), granted by HQ as sales does. The owner then follows the "Set up
  * your back office" checklist:
  *
  *   TC-978  The checklist starts empty and points at jobs; Go there opens
@@ -166,7 +166,8 @@ test.describe("Journey 1 — open, hire, schedule (UI)", () => {
     restaurantId = tenant.restaurantId;
     ownerEmail = tenant.email;
     ownerPassword = tenant.password;
-    for (const feature of ["PAYROLL", "SCHEDULING", "TIP_MANAGEMENT"]) {
+    // PAYROLL brings Team (schedule, timecards, tips): packaging v3.
+    for (const feature of ["PAYROLL"]) {
       const granted = await setFeatureOverrideAdminRaw(
         adminToken,
         restaurantId,

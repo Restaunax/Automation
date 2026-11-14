@@ -197,7 +197,8 @@ test.describe("Journey 3 — the owner reviews and approves last week", () => {
     ownerEmail = tenant.email;
     ownerPassword = tenant.password;
     const owner = tenant.accessToken;
-    for (const feature of ["PAYROLL", "SCHEDULING", "TIP_MANAGEMENT"]) {
+    // PAYROLL brings Team (schedule, timecards, tips): packaging v3.
+    for (const feature of ["PAYROLL"]) {
       const granted = await setFeatureOverrideAdminRaw(
         adminToken,
         restaurantId,

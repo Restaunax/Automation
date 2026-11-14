@@ -19,6 +19,14 @@ import {
   recordUserForCleanup,
 } from "./testData";
 
+/**
+ * The affiliate agreement version a signup must accept. The backend refuses
+ * POST /api/affiliates/apply without a version it knows. Keep in sync with
+ * AFFILIATE_AGREEMENT_VERSION in restaunax-frontend/src/constants/affiliateAgreement.ts
+ * and restaunax-backend/src/constant/affiliateAgreement.ts.
+ */
+const AFFILIATE_AGREEMENT_VERSION = "2026-11";
+
 export const BACKEND_URL =
   process.env.BACKEND_URL ?? "https://api.qa.restaunax.com";
 
@@ -6956,8 +6964,9 @@ export function updateRestaurantSettingsRaw(
 //
 // Helpers for tests/dashboard/owner/api-staff-*.spec.ts. All raw (status +
 // body) so specs can assert refusals as well as successes. Owner routes are
-// gated by TIMECARDS (jobs) and SCHEDULING (shifts, requests) — grant them
-// with setFeatureOverrideAdminRaw first. Staff-app routes use the STAFF
+// gated by TIMECARDS (jobs) and SCHEDULING (shifts, requests) — grant the
+// package that brings them (TEAM_BUNDLE or PAYROLL; packaging v3) with
+// setFeatureOverrideAdminRaw first. Staff-app routes use the STAFF
 // member's own token (their RestauNax account, claimed from the invite).
 
 /** Owner invites a staff member by email (creates the staff row + sends the
@@ -7782,6 +7791,343 @@ export function adminSearchRestaurantsRaw(
     "GET",
     `/api/admin/restaurants?search=${encodeURIComponent(search)}&limit=10`,
     undefined,
+    adminToken
+  );
+}
+
+// ── Restaurant attribution ("Brought in by") ─────────────────────────────────
+// HQ API under /api/admin/attribution (ADMIN only). Spec in the RestauNax repo:
+// docs/features/RESTAURANT_ATTRIBUTION.md.
+
+export const AUTOMATION_ATTRIBUTION_AFFILIATE_TAG = "auto-attribution";
+export const AUTOMATION_ATTRIBUTION_CARD_CODE = "auto-attribution";
+export const AUTOMATION_ATTRIBUTION_CARD_NAME = "AUTO Attribution Card";
+
+export interface AttributionApiView {
+  data: {
+    via: "DEMO" | "QUOTE" | "CHAIN" | "MANUAL";
+    lockedAt: string | null;
+    payee: { kind: "AFFILIATE" | "EMPLOYEE"; id: string; name: string };
+  } | null;
+  activatedAt: string | null;
+}
+
+/**
+ * Login for the affiliate actor: the ONE persistent affiliate
+ * ("auto-attribution") that the attribution suite links restaurants to and
+ * the affiliate-portal suite signs in as. AFFILIATE_EMAIL / AFFILIATE_PASSWORD
+ * when set (`fromEnv: true`); otherwise the historical fixture login, which
+ * still serves the API-only attribution suite but no browser session is saved
+ * for it (portal tests skip). On QA the env pair must name the user that
+ * already owns the `auto-attribution` tag: a different user cannot apply for
+ * it (the tag is taken) and ensureAttributionAffiliate says so.
+ */
+export function affiliateActorCredentials(): {
+  email: string;
+  password: string;
+  fromEnv: boolean;
+} {
+  const envEmail = process.env.AFFILIATE_EMAIL ?? "";
+  const envPassword = process.env.AFFILIATE_PASSWORD ?? "";
+  if (envEmail && envPassword) {
+    return { email: envEmail, password: envPassword, fromEnv: true };
+  }
+  const domain = process.env.TEST_EMAIL_DOMAIN ?? "demomailtrap.co";
+  return {
+    email: `auto-attribution-affiliate@${domain}`,
+    password: "Automation!Attribution-1",
+    fromEnv: false,
+  };
+}
+
+export const AFFILIATE_ACTOR_FIRST_NAME = "Auto";
+export const AFFILIATE_ACTOR_LAST_NAME = "Attribution Partner";
+
+/**
+ * Creates the affiliate actor's USER account when it does not exist yet
+ * (globalSetup calls this before saving the affiliate session). Creates the
+ * user only; the Affiliate row comes from ensureAttributionAffiliate.
+ */
+export async function ensureAffiliateActorUser(
+  adminToken: string
+): Promise<{ email: string; password: string }> {
+  const { email, password } = affiliateActorCredentials();
+  if (!(await findUserIdByEmail(adminToken, email))) {
+    await adminCreateUser(adminToken, {
+      firstName: AFFILIATE_ACTOR_FIRST_NAME,
+      lastName: AFFILIATE_ACTOR_LAST_NAME,
+      email,
+      password,
+      role: "USER",
+    });
+  }
+  return { email, password };
+}
+
+/** The plan the persistent affiliate is (re)approved with on every run. */
+export const AFFILIATE_ACTOR_PLAN = {
+  sharePct: 20,
+  windowMonths: 12,
+  afterWindowPct: null,
+  bountyAmount: 150,
+  chainRule: "ACCOUNT_WINDOW",
+  expansionPct: null,
+  hardwareRule: "EXCLUDED",
+} as const;
+
+/**
+ * The ONE persistent affiliate the attribution suite links restaurants to,
+ * and the affiliate actor the portal suite signs in as (login from
+ * affiliateActorCredentials, i.e. AFFILIATE_EMAIL / AFFILIATE_PASSWORD).
+ * Persistent on purpose: a user who has an Affiliate row can never be deleted
+ * or anonymized (Affiliate.userId is a required FK), so a per-run affiliate
+ * would pile up on QA forever. Created on first use (admin creates the user,
+ * the user applies through POST /api/affiliates/apply), and set back to
+ * ACTIVE on every run through the admin status endpoint, since only an ACTIVE
+ * affiliate can be linked (and the portal suite expects it ACTIVE).
+ */
+export async function ensureAttributionAffiliate(adminToken: string): Promise<{
+  affiliateId: string;
+  displayName: string;
+}> {
+  const { email, password } = await ensureAffiliateActorUser(adminToken);
+  const firstName = AFFILIATE_ACTOR_FIRST_NAME;
+  const lastName = AFFILIATE_ACTOR_LAST_NAME;
+  const login = await apiLogin(email, password);
+  type ProfileBody = {
+    affiliate?: { id: string };
+    data?: { id?: string; affiliate?: { id: string } };
+  };
+  const pick = (b: ProfileBody | undefined) =>
+    b?.affiliate?.id ?? b?.data?.affiliate?.id ?? b?.data?.id;
+  let affiliateId = pick(
+    (
+      await apiRequestRaw<ProfileBody>(
+        "GET",
+        "/api/affiliates/profile",
+        undefined,
+        login.accessToken
+      )
+    ).data
+  );
+  if (!affiliateId) {
+    const applied = await apiRequestRaw<ProfileBody>(
+      "POST",
+      "/api/affiliates/apply",
+      {
+        referralTag: AUTOMATION_ATTRIBUTION_AFFILIATE_TAG,
+        bio: "Automation fixture for the attribution suite",
+        agreedToTerms: true,
+        agreementVersion: AFFILIATE_AGREEMENT_VERSION,
+      },
+      login.accessToken
+    );
+    affiliateId = pick(applied.data);
+    if (!affiliateId) {
+      throw new Error(
+        `Affiliate apply failed for ${email}: ${applied.status} ${JSON.stringify(applied.data)}. ` +
+          `If the tag "${AUTOMATION_ATTRIBUTION_AFFILIATE_TAG}" is already taken, AFFILIATE_EMAIL ` +
+          "must be the user that owns it (the existing fixture affiliate)."
+      );
+    }
+  }
+  await apiRequest<unknown>(
+    "PUT",
+    `/api/affiliates/admin/affiliates/${affiliateId}/status`,
+    // Approval needs a commission plan (the program defaults); the flat
+    // commissionRate is gone.
+    { status: "ACTIVE", plan: AFFILIATE_ACTOR_PLAN },
+    adminToken
+  );
+  return { affiliateId, displayName: `${firstName} ${lastName}` };
+}
+
+/** The commission plan shape the HQ status endpoint takes (affiliate commission). */
+export type CommissionPlanTerms = {
+  sharePct: number;
+  windowMonths: number;
+  afterWindowPct: number | null;
+  bountyAmount: number;
+  chainRule: string;
+  expansionPct: number | null;
+  hardwareRule: string;
+};
+
+/**
+ * A fresh PENDING affiliate for the commission suite: a new user who applies
+ * with the current agreement version. One per run on purpose: the suite
+ * terminates it, and TERMINATED is final (and an affiliate's user can never
+ * be deleted), so it cannot be a reused fixture.
+ */
+export async function createPendingAffiliate(
+  adminToken: string,
+  runId: string
+): Promise<{ affiliateId: string; referralTag: string; name: string }> {
+  const domain = process.env.TEST_EMAIL_DOMAIN ?? "demomailtrap.co";
+  const referralTag = `auto-commission-${runId}`.toLowerCase();
+  const email = `${referralTag}@${domain}`;
+  const password = "Automation!Commission-1";
+  await adminCreateUser(adminToken, {
+    firstName: "Auto",
+    lastName: `Commission ${runId}`,
+    email,
+    password,
+    role: "USER",
+  });
+  const login = await apiLogin(email, password);
+  const applied = await apiRequestRaw<{ affiliate?: { id: string } }>(
+    "POST",
+    "/api/affiliates/apply",
+    {
+      referralTag,
+      bio: "Automation fixture for the affiliate commission suite",
+      agreedToTerms: true,
+      agreementVersion: AFFILIATE_AGREEMENT_VERSION,
+    },
+    login.accessToken
+  );
+  const affiliateId = applied.data?.affiliate?.id;
+  if (!affiliateId) {
+    throw new Error(
+      `Affiliate apply failed: ${applied.status} ${JSON.stringify(applied.data)}`
+    );
+  }
+  return { affiliateId, referralTag, name: `Auto Commission ${runId}` };
+}
+
+export function getProgramDefaultsRaw(
+  adminToken: string
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "GET",
+    "/api/affiliates/admin/program-defaults",
+    undefined,
+    adminToken
+  );
+}
+
+export function putProgramDefaultsRaw(
+  adminToken: string,
+  terms: CommissionPlanTerms
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "PUT",
+    "/api/affiliates/admin/program-defaults",
+    terms,
+    adminToken
+  );
+}
+
+export function getAffiliatePlanRaw(
+  adminToken: string,
+  affiliateId: string
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "GET",
+    `/api/affiliates/admin/affiliates/${affiliateId}/plan`,
+    undefined,
+    adminToken
+  );
+}
+
+export function getAffiliateDetailsRaw(
+  adminToken: string,
+  affiliateId: string
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "GET",
+    `/api/affiliates/admin/affiliates/${affiliateId}`,
+    undefined,
+    adminToken
+  );
+}
+
+export function setAffiliateStatusRaw(
+  adminToken: string,
+  affiliateId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "PUT",
+    `/api/affiliates/admin/affiliates/${affiliateId}/status`,
+    body,
+    adminToken
+  );
+}
+
+/**
+ * The ONE persistent employee business card (owned by the admin user) the
+ * leaderboard case looks for. Cards cannot be deleted, only disabled, so a
+ * per-run card would accumulate; this one is created once and re-enabled when
+ * a run finds it disabled.
+ */
+export async function ensureAttributionCard(
+  adminToken: string,
+  adminUserId: string
+): Promise<{ cardId: string; fullName: string }> {
+  const list = await apiRequest<{
+    data: { cards: { id: string; code: string; disabledAt: string | null }[] };
+  }>(
+    "GET",
+    `/api/admin/business-cards?search=${encodeURIComponent(AUTOMATION_ATTRIBUTION_CARD_CODE)}&limit=50`,
+    undefined,
+    adminToken
+  );
+  const found = list.data.cards.find(
+    (c) => c.code === AUTOMATION_ATTRIBUTION_CARD_CODE
+  );
+  if (found) {
+    if (found.disabledAt) {
+      await apiRequest<unknown>(
+        "PATCH",
+        `/api/admin/business-cards/${found.id}`,
+        { disabled: false },
+        adminToken
+      );
+    }
+    return { cardId: found.id, fullName: AUTOMATION_ATTRIBUTION_CARD_NAME };
+  }
+  const created = await apiRequest<{ data: { id: string } }>(
+    "POST",
+    "/api/admin/business-cards",
+    {
+      ownerType: "EMPLOYEE",
+      userId: adminUserId,
+      fullName: AUTOMATION_ATTRIBUTION_CARD_NAME,
+      jobTitle: "Automation",
+      code: AUTOMATION_ATTRIBUTION_CARD_CODE,
+    },
+    adminToken
+  );
+  return {
+    cardId: created.data.id,
+    fullName: AUTOMATION_ATTRIBUTION_CARD_NAME,
+  };
+}
+
+/** GET /api/admin/attribution/restaurants/:id — the source and activation. */
+export function getRestaurantAttributionApi(
+  adminToken: string,
+  restaurantId: string
+): Promise<AttributionApiView> {
+  return apiRequest<AttributionApiView>(
+    "GET",
+    `/api/admin/attribution/restaurants/${restaurantId}`,
+    undefined,
+    adminToken
+  );
+}
+
+/** PUT /api/admin/attribution/restaurants/:id — link to an affiliate (raw). */
+export function setRestaurantAttributionRaw(
+  adminToken: string,
+  restaurantId: string,
+  body: { affiliateId?: string; businessCardId?: string; reason: string }
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "PUT",
+    `/api/admin/attribution/restaurants/${restaurantId}`,
+    body,
     adminToken
   );
 }
