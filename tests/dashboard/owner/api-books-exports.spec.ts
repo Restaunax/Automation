@@ -90,7 +90,7 @@ test.describe("Books exports — Simple accounts, QuickBooks / Xero files, sales
     await allure.label("severity", "critical");
   });
 
-  test("TC-1330: without the add-on the import files, the sales summary and the preset are closed; with it they open", async () => {
+  test("TC-1330: without the add-on the import files and the preset are closed and the sales summary is free; with it they all open", async () => {
     const calls = async () => ({
       qbo: (
         await downloadRaw(
@@ -129,7 +129,8 @@ test.describe("Books exports — Simple accounts, QuickBooks / Xero files, sales
     expect(await calls()).toEqual({
       qbo: 403,
       check: 403,
-      summary: 403,
+      // The on-screen sales summary is free (accountant package plan).
+      summary: 200,
       preset: 403,
     });
     const granted = await setFeatureOverrideAdminRaw(

@@ -419,11 +419,19 @@ test.describe("Accountant access — invite, read-only, other clients invisible,
       for (const path of [
         `sales-tax?${range}`,
         `books/sales-summary?${range}`,
+        `tips?${range}`,
         `payouts?${range}`,
       ]) {
         const r = await accountantRaw(t, `/clients/${a.id}/${path}`);
         expect(r.status, path).toBe(200);
       }
+      // The package for a range of up to 93 days is the file itself.
+      const file = await downloadRaw(
+        t,
+        `/api/accountant/clients/${a.id}/accountant-package?${range}&format=pdf`
+      );
+      expect(file.status).toBe(200);
+      expect(file.headers.get("content-type")).toMatch(/application\/pdf/);
       // ...and an add-on read answers 403 (no screen loads it unasked).
       const closed = await accountantRaw(
         t,
