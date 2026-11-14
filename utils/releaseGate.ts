@@ -17,10 +17,11 @@
  \* `--grep @growth-a`, `--grep @reservations-audit`,
  \* `--grep @reservations-phase4`,
  * `--grep @attribution`, `--grep @affiliate-commission`,
- * `--grep @books-offboarding`.
+ * `--grep @books-offboarding`, `--grep @hq-notices`.
  */
 import { test, expect } from "../fixtures/base";
 import { apiRequestRaw } from "./apiHelper";
+import { FRONTEND_URL } from "./testData";
 
 export const RELEASED_ON_QA = {
   /** RestauNax branch feat/training-academy — /training + HQ → People → Training. */
@@ -131,6 +132,18 @@ export const RELEASED_ON_QA = {
    *  is RestauNax staff only; past entries stay downloadable without the
    *  add-on (GET /api/accounting/:id/past). Flip once it is on QA. */
   booksOffboarding: true,
+  /** RestauNax PR #1174, feat/hq-notices — HQ → Operations → Notices
+   *  (`/api/admin/notices/*`, permission HQ_OPERATIONS_NOTICES), the public
+   *  unsubscribe/resubscribe page and `/api/notices/*`. RestauNax PR #1174 —
+   *  API on QA since 2026-11-14; the API/email cases of TC-1980..1989 ran
+   *  7/7 (the 3 browser cases are gated by hqNoticesDashboard below). */
+  hqNotices: true,
+  /** The dashboard half of RestauNax PR #1174: HQ → Operations → Notices,
+   *  the restaurant list's "Send a notice" and the public unsubscribe page.
+   *  Deployed separately from the backend (on 2026-11-14 the QA backend had
+   *  the API while the QA dashboard bundle had no Notices yet); on the QA
+   *  dashboard since RestauNax PR #1175 + #1180 deployed, 2026-11-14. */
+  hqNoticesDashboard: true,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -179,6 +192,10 @@ const REASON: Record<ReleasePart, string> = {
     "Google review replies (RestauNax feat/google-review-replies) is not on this environment yet — /api/google-business/:id answers 404",
   booksOffboarding:
     "Books offboarding (RestauNax feat/books-offboarding) is not on this environment yet — /api/accounting/:id/past answers 404",
+  hqNotices:
+    "HQ notices (RestauNax PR #1174, feat/hq-notices) are not on this environment yet — /api/admin/notices answers 404",
+  hqNoticesDashboard:
+    "The HQ notices dashboard screens (RestauNax PR #1174) are not on this dashboard yet — locales/en/admin.json has no `notices` block",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
@@ -524,4 +541,37 @@ export async function probeGoogleReviews(
     accessToken
   );
   return res.status !== 404;
+}
+
+/**
+ * Are HQ notices deployed? `GET /api/admin/notices` exists only with RestauNax
+ * PR #1174; an admin without HQ_OPERATIONS_NOTICES gets 403 (still "present"),
+ * so only a 404 means the route is missing. Read-only.
+ */
+export async function probeHqNotices(adminToken: string): Promise<boolean> {
+  const res = await apiRequestRaw(
+    "GET",
+    "/api/admin/notices?pageSize=1",
+    undefined,
+    adminToken
+  );
+  return res.status !== 404;
+}
+
+/**
+ * Is the HQ notices DASHBOARD deployed? The dashboard serves its locale files
+ * statically; `locales/en/admin.json` carries a `notices` block only with the
+ * change. Read-only, no auth.
+ */
+export async function probeHqNoticesDashboard(): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${FRONTEND_URL.replace(/\/+$/, "")}/locales/en/admin.json`
+    );
+    if (!res.ok) return false;
+    const json = (await res.json()) as { notices?: unknown };
+    return typeof json.notices === "object" && json.notices !== null;
+  } catch {
+    return false;
+  }
 }
