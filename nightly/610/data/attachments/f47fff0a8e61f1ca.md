@@ -1,0 +1,226 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: dashboard/owner/api-addon-billing.spec.ts >> Add-on billing — Add-ons page, requests, refusals, RestauNax Team, payroll headcount (API) >> TC-781: every per-location service is a row with its terms in fields; each one can be requested or says 'talk to us'
+- Location: tests/dashboard/owner/api-addon-billing.spec.ts:304:7
+
+# Error details
+
+```
+Error: expect(received).not.toContain(expected) // indexOf
+
+Expected value: not "SCHEDULING"
+Received array:     ["MENU_TVS", "SOCIAL_MEDIA", "PAYROLL", "SCHEDULING", "TIP_MANAGEMENT", "TEAM_BUNDLE", "ACCOUNTING_SYNC"]
+```
+
+# Test source
+
+```ts
+  219 |     return {
+  220 |       status: r.status,
+  221 |       data: r.data.data as Rec,
+  222 |       message: r.data.message,
+  223 |     };
+  224 |   };
+  225 |   const fulfil = async (requestId: string, body: Rec = {}) => {
+  226 |     const r = await adminAddonsRaw(
+  227 |       adminToken,
+  228 |       "POST",
+  229 |       `/requests/${requestId}/fulfil`,
+  230 |       body
+  231 |     );
+  232 |     expect(r.status, JSON.stringify(r.data)).toBe(200);
+  233 |     return r.data.data as Rec;
+  234 |   };
+  235 | 
+  236 |   /** Take every SEED_FEATURES add-on off the seed now, and drop its open requests. */
+  237 |   const resetSeed = async () => {
+  238 |     if (!seedId || !adminToken) return;
+  239 |     const listed = await adminAddonsRaw<Rec[]>(
+  240 |       adminToken,
+  241 |       "GET",
+  242 |       `/restaurants/${seedId}`
+  243 |     );
+  244 |     for (const a of list(listed.data)) {
+  245 |       const feature = String((a.addon as Rec | null)?.feature ?? "");
+  246 |       if (a.isActive && a.activeInstanceId && SEED_FEATURES.includes(feature))
+  247 |         await adminAddonsRaw(
+  248 |           adminToken,
+  249 |           "DELETE",
+  250 |           `/restaurants/instances/${String(a.activeInstanceId)}`
+  251 |         );
+  252 |     }
+  253 |     if (!live || !seedToken) return;
+  254 |     for (const r of await hqList("OPEN")) {
+  255 |       const feature = String((r.addon as Rec | null)?.feature ?? "");
+  256 |       if (
+  257 |         (r.restaurant as Rec | null)?.id === seedId &&
+  258 |         SEED_FEATURES.includes(feature)
+  259 |       )
+  260 |         await ownerAddonRequestCancelRaw(seedToken, seedId, String(r.id));
+  261 |     }
+  262 |   };
+  263 | 
+  264 |   test.beforeAll(async () => {
+  265 |     test.setTimeout(180_000);
+  266 |     if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return;
+  267 |     adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
+  268 |     const tenant = await createSecondOwner(adminToken, `${runId}a`, {
+  269 |       alwaysFresh: true,
+  270 |     });
+  271 |     const other = await createSecondOwner(adminToken, `${runId}b`, {
+  272 |       alwaysFresh: true,
+  273 |     });
+  274 |     if (!tenant.restaurantId || !other.restaurantId)
+  275 |       throw new Error("[api-addon-billing] no tenant");
+  276 |     restaurantId = tenant.restaurantId;
+  277 |     ownerToken = tenant.accessToken;
+  278 |     ownerEmail = tenant.email;
+  279 |     otherId = other.restaurantId;
+  280 |     otherOwner = other.accessToken;
+  281 |     live = await addonRequestsLive(adminToken);
+  282 |     stage6 = live && (await probeRequestFlowStage6(adminToken));
+  283 |     if (OWNER_EMAIL && OWNER_PASSWORD) {
+  284 |       seedToken = (await apiLogin(OWNER_EMAIL, OWNER_PASSWORD)).accessToken;
+  285 |       seedId = readSharedState().restaurantId;
+  286 |     }
+  287 |     if (live) await resetSeed();
+  288 |   });
+  289 | 
+  290 |   test.afterAll(async () => {
+  291 |     test.setTimeout(120_000);
+  292 |     if (live) await resetSeed().catch(() => {});
+  293 |     for (const id of [restaurantId, otherId]) {
+  294 |       if (adminToken && id)
+  295 |         await deleteTestRestaurant(adminToken, id).catch(() => {});
+  296 |     }
+  297 |   });
+  298 | 
+  299 |   test.beforeEach(async () => {
+  300 |     await allure.label("feature", "Add-on billing");
+  301 |     await allure.label("severity", "critical");
+  302 |   });
+  303 | 
+  304 |   test("TC-781: every per-location service is a row with its terms in fields; each one can be requested or says 'talk to us'", async () => {
+  305 |     requireAddonRequests(live);
+  306 |     const data = await rows();
+  307 |     expect(data).toMatchObject({
+  308 |       canRequest: true,
+  309 |       subscriptionStatus: null,
+  310 |       payrollBilling: null,
+  311 |     });
+  312 |     expect(data).not.toHaveProperty("canPurchase");
+  313 |     const features = list(data.features);
+  314 |     expect(features.map((f) => f.feature)).toEqual(
+  315 |       expect.arrayContaining(["TEAM_BUNDLE", "PAYROLL", "ACCOUNTING_SYNC"])
+  316 |     );
+  317 |     // Packaging v3: Team's parts are not products of their own.
+  318 |     for (const part of ["SCHEDULING", "TIP_MANAGEMENT", "TIMECARDS"])
+> 319 |       expect(features.map((f) => f.feature)).not.toContain(part);
+      |                                                  ^ Error: expect(received).not.toContain(expected) // indexOf
+  320 |     const offers: string[] = [];
+  321 |     for (const f of features) {
+  322 |       const at = String(f.feature);
+  323 |       expect(Object.keys(f).sort(), at).toEqual([...ROW_FIELDS].sort());
+  324 |       expect(f.source, at).toBeNull();
+  325 |       expect(f, at).toMatchObject({
+  326 |         canRequestRemove: false,
+  327 |         activeAddonId: null,
+  328 |         pendingAdd: null,
+  329 |         pendingRemove: null,
+  330 |         replaces: [],
+  331 |       });
+  332 |       if (f.offer) {
+  333 |         offers.push(at);
+  334 |         expect(Object.keys(f.offer as Rec)).toEqual(
+  335 |           expect.arrayContaining(OFFER_FIELDS)
+  336 |         );
+  337 |         // One trial per feature, ever: a fresh restaurant is still eligible.
+  338 |         if ((f.offer as Rec).trialDays)
+  339 |           expect((f.offer as Rec).trialEligible).toBe(true);
+  340 |         expect(f, at).toMatchObject({
+  341 |           canRequestAdd: true,
+  342 |           requestAddonId: (f.offer as Rec).addonId,
+  343 |           contactUs: false,
+  344 |         });
+  345 |       } else {
+  346 |         // No price in the catalog: "talk to us", never a disabled button.
+  347 |         expect(f, at).toMatchObject({
+  348 |           canRequestAdd: false,
+  349 |           requestAddonId: null,
+  350 |           contactUs: true,
+  351 |         });
+  352 |       }
+  353 |     }
+  354 |     // The selfServe switch is gone: every active flat add-on in the catalog
+  355 |     // is offered (QA's catalog has one for each back-office service).
+  356 |     expect(offers).toEqual(expect.arrayContaining(["TEAM_BUNDLE", "PAYROLL"]));
+  357 |     for (const a of list(data.addons)) {
+  358 |       for (const gone of GONE_FIELDS) expect(a).not.toHaveProperty(gone);
+  359 |       expect(a).toMatchObject({ pendingAdd: null, pendingRemove: null });
+  360 |       expect(typeof a.canRequestAdd).toBe("boolean");
+  361 |       expect(typeof a.canRequestRemove).toBe("boolean");
+  362 |     }
+  363 |     test.info().annotations.push({
+  364 |       type: "catalogue",
+  365 |       description: `requestable on QA: ${offers.join(", ") || "none"}`,
+  366 |     });
+  367 |   });
+  368 | 
+  369 |   test("TC-782: the old buy/remove routes are gone (404); a request is refused in words; another owner can't look or ask", async () => {
+  370 |     requireAddonRequests(live);
+  371 |     const offer = (row(await rows(), "TEAM_BUNDLE")?.offer as Rec).addonId;
+  372 |     expect(offer, "QA's catalog offers RestauNax Team").toBeTruthy();
+  373 | 
+  374 |     // The old owner purchase and removal no longer exist.
+  375 |     expect(
+  376 |       (
+  377 |         await ownerAddonsRaw(ownerToken, restaurantId, "POST", {
+  378 |           addonId: offer,
+  379 |         })
+  380 |       ).status
+  381 |     ).toBe(404);
+  382 |     expect(
+  383 |       (await ownerAddonRemoveRaw(ownerToken, restaurantId, ZERO_ID)).status
+  384 |     ).toBe(404);
+  385 | 
+  386 |     const refused = async (body: Rec, status: number, message: string) => {
+  387 |       const r = await ownerAddonRequestRaw(ownerToken, restaurantId, body);
+  388 |       expect(r.status, JSON.stringify(r.data)).toBe(status);
+  389 |       expect(r.data.message).toBe(message);
+  390 |     };
+  391 |     await refused({}, 400, MSG.invalid);
+  392 |     await refused({ addonId: offer, kind: "BUY" }, 400, MSG.invalid);
+  393 |     await refused({ addonId: ZERO_ID, kind: "ADD" }, 404, MSG.addonNotFound);
+  394 |     await refused({ addonId: offer, kind: "REMOVE" }, 400, MSG.notOn);
+  395 |     const unknown = await ownerAddonRequestCancelRaw(
+  396 |       ownerToken,
+  397 |       restaurantId,
+  398 |       ZERO_ID
+  399 |     );
+  400 |     expect(unknown.status).toBe(404);
+  401 |     expect(unknown.data.message).toBe(MSG.requestNotFound);
+  402 | 
+  403 |     // Another restaurant's owner can neither look nor ask; HQ's list is HQ's.
+  404 |     expect((await ownerAddonsRaw(otherOwner, restaurantId, "GET")).status).toBe(
+  405 |       403
+  406 |     );
+  407 |     expect(
+  408 |       (
+  409 |         await ownerAddonRequestRaw(otherOwner, restaurantId, {
+  410 |           addonId: offer,
+  411 |           kind: "ADD",
+  412 |         })
+  413 |       ).status
+  414 |     ).toBe(403);
+  415 |     expect(
+  416 |       (await ownerAddonRequestCancelRaw(otherOwner, restaurantId, ZERO_ID))
+  417 |         .status
+  418 |     ).toBe(403);
+  419 |     expect(
+```

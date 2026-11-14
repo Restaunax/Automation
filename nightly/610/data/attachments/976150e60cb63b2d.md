@@ -1,0 +1,394 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: dashboard/admin/addon-requests-ui.spec.ts >> HQ — add-on requests (UI) >> TC-1536: the Waiting toggle shows its count and note; a request from a restaurant that isn't live waits there with nothing to do yet
+- Location: tests/dashboard/admin/addon-requests-ui.spec.ts:244:7
+
+# Error details
+
+```
+Error: expect(locator).toBeVisible() failed
+
+Locator: locator('.MuiCard-root').filter({ has: getByRole('heading', { name: 'Automation Owner2 Store d9048b2c' }) }).filter({ hasText: 'RestauNax Team · ' })
+Expected: visible
+Timeout: 20000ms
+Error: element(s) not found
+
+Call log:
+  - Expect "toBeVisible" with timeout 20000ms
+  - waiting for locator('.MuiCard-root').filter({ has: getByRole('heading', { name: 'Automation Owner2 Store d9048b2c' }) }).filter({ hasText: 'RestauNax Team · ' })
+
+```
+
+```yaml
+- banner:
+  - img
+  - button "Restaurant"
+  - button "Affiliate Partner"
+  - button "Book a Demo"
+  - button "Account settings": R
+  - button "Select Language":
+    - img
+    - text: EN
+  - button
+- button "People":
+  - paragraph: People
+- button "Restaurant":
+  - paragraph: Restaurant
+- button "Finance":
+  - paragraph: Finance
+- button "Marketing":
+  - paragraph: Marketing
+- button "Analytics":
+  - paragraph: Analytics
+- button "Cards & Codes":
+  - paragraph: Cards & Codes
+- button "Operations":
+  - paragraph: Operations
+- button "System":
+  - paragraph: System
+- tabpanel:
+  - heading "Add-on Catalog" [level=5]
+  - paragraph: Define à la carte features that customers can opt into beyond their base plan. Each add-on maps to a Stripe Price and unlocks one RestaurantFeature.
+  - button "New add-on"
+  - heading "Add-on requests" [level=6]
+  - paragraph: Owners can't add or remove add-ons themselves. They request them on Billing → Add-ons; set up what's needed with them, then do it here. The owners get an email when it's done.
+  - group "Which requests":
+    - button "Open (0)"
+    - button "Waiting (2)" [pressed]
+    - button "Closed"
+  - alert: Asked before the restaurant's account was live. Each one opens here on its own as soon as the subscription activates, so there is nothing to do yet.
+  - heading "Automation Owner2 Store d9048b2c" [level=6]
+  - button "View as Owner"
+  - text: Turn on Waiting for the account
+  - paragraph: Menu TVs · Menu TVs
+  - text: Asked by Auto SecondOwner (auto-owner2-d9048b2c@demomailtrap.co) · Nov 8, 2026 6:07 AM
+  - heading "Automation Owner2 Store d9048b2c" [level=6]
+  - button "View as Owner"
+  - text: Turn on Waiting for the account
+  - paragraph: Team bundle · Team bundle
+  - text: Asked by Auto SecondOwner (auto-owner2-d9048b2c@demomailtrap.co) · Nov 8, 2026 6:07 AM
+  - alert: Create the recurring Price in Stripe Dashboard first, then paste the price ID (price_…) here. Adding an add-on attaches it as a subscription_item on the customer's existing Stripe Subscription.
+  - table:
+    - rowgroup:
+      - row "Name Feature Monthly Yearly Status Actions":
+        - columnheader "Name"
+        - columnheader "Feature"
+        - columnheader "Monthly"
+        - columnheader "Yearly"
+        - columnheader "Status"
+        - columnheader "Actions"
+    - rowgroup:
+      - row "Accounting Sync Each day's sales, taxes, tips and payments posted to QuickBooks Online or Xero by themselves, smart account matching, and one clear alert when something needs the owner. $10.00/mo — Inactive Edit Delete":
+        - cell "Accounting Sync"
+        - cell "Each day's sales, taxes, tips and payments posted to QuickBooks Online or Xero by themselves, smart account matching, and one clear alert when something needs the owner.": Books & Taxes
+        - cell "$10.00/mo"
+        - cell "—"
+        - cell "Inactive"
+        - cell "Edit Delete":
+          - button "Edit"
+          - button "Delete"
+      - row "AI Calling 2 subscribers AI answers the restaurant's phone and takes orders. Billed per call minute (usage-based), enrolled from the Voice AI tab. $0.15/min — Active Edit 2 restaurant(s) still have this add-on. Remove it from those restaurants before deleting. To stop new restaurants adding it meanwhile, turn off \"Available in catalog\".":
+        - cell "AI Calling 2 subscribers"
+        - cell "AI answers the restaurant's phone and takes orders. Billed per call minute (usage-based), enrolled from the Voice AI tab.": AI Calling
+        - cell "$0.15/min"
+        - cell "—"
+        - cell "Active"
+        - cell "Edit 2 restaurant(s) still have this add-on. Remove it from those restaurants before deleting. To stop new restaurants adding it meanwhile, turn off \"Available in catalog\".":
+          - button "Edit"
+          - button "Delete" [disabled]
+      - row "Books & Taxes 5 subscribers Each day's sales, taxes, tips and payments posted to QuickBooks Online or Xero by themselves, smart account matching, and one clear alert when something needs the owner. $10.00/mo — Active Edit 5 restaurant(s) still have this add-on. Remove it from those restaurants before deleting. To stop new restaurants adding it meanwhile, turn off \"Available in catalog\".":
+        - cell "Books & Taxes 5 subscribers"
+        - cell "Each day's sales, taxes, tips and payments posted to QuickBooks Online or Xero by themselves, smart account matching, and one clear alert when something needs the owner.": Books & Taxes
+        - cell "$10.00/mo"
+        - cell "—"
+        - cell "Active"
+        - cell "Edit 5 restaurant(s) still have this add-on. Remove it from those restaurants before deleting. To stop new restaurants adding it meanwhile, turn off \"Available in catalog\".":
+          - button "Edit"
+          - button "Delete" [disabled]
+      - row "Menu TVs 1 subscriber Display digital menu boards on in-store TV screens. $20.00/mo — Active Edit 1 restaurant(s) still have this add-on. Remove it from those restaurants before deleting. To stop new restaurants adding it meanwhile, turn off \"Available in catalog\".":
+        - cell "Menu TVs 1 subscriber"
+        - cell "Display digital menu boards on in-store TV screens.": Menu TVs
+        - cell "$20.00/mo"
+        - cell "—"
+        - cell "Active"
+        - cell "Edit 1 restaurant(s) still have this add-on. Remove it from those restaurants before deleting. To stop new restaurants adding it meanwhile, turn off \"Available in catalog\".":
+          - button "Edit"
+          - button "Delete" [disabled]
+      - 'row "Payroll & Team 2 subscribers Run payroll here with our partner Gusto: taxes withheld and filed, direct deposit, W-2s and pay stubs. Includes timecards and Tip Management. $10.00/mo — Active Edit 2 restaurant(s) still have this add-on. Remove it from those restaurants before deleting. To stop new restaurants adding it meanwhile, turn off \"Available in catalog\"."':
+        - cell "Payroll & Team 2 subscribers"
+        - 'cell "Run payroll here with our partner Gusto: taxes withheld and filed, direct deposit, W-2s and pay stubs. Includes timecards and Tip Management."': RestauNax Payroll
+        - cell "$10.00/mo"
+        - cell "—"
+        - cell "Active"
+        - cell "Edit 2 restaurant(s) still have this add-on. Remove it from those restaurants before deleting. To stop new restaurants adding it meanwhile, turn off \"Available in catalog\".":
+          - button "Edit"
+          - button "Delete" [disabled]
+      - 'row "Scheduling 3 subscribers Build and publish staff schedules, clock-in rules and shift notifications, plus timecards: jobs and pay rates, break rules, corrections, pay period approval, overtime, labor cost, and payroll export files. $15.00/mo — Active Edit 3 restaurant(s) still have this add-on. Remove it from those restaurants before deleting. To stop new restaurants adding it meanwhile, turn off \"Available in catalog\"."':
+        - cell "Scheduling 3 subscribers"
+        - 'cell "Build and publish staff schedules, clock-in rules and shift notifications, plus timecards: jobs and pay rates, break rules, corrections, pay period approval, overtime, labor cost, and payroll export files."': Scheduling & Timecards
+        - cell "$15.00/mo"
+        - cell "—"
+        - cell "Active"
+        - cell "Edit 3 restaurant(s) still have this add-on. Remove it from those restaurants before deleting. To stop new restaurants adding it meanwhile, turn off \"Available in catalog\".":
+          - button "Edit"
+          - button "Delete" [disabled]
+      - row "Social Media Free 2 subscribers Connect Instagram/Facebook, schedule posts, curate featured reels, and generate AI media — all per location. Free — Active Edit 2 restaurant(s) still have this add-on. Remove it from those restaurants before deleting. To stop new restaurants adding it meanwhile, turn off \"Available in catalog\".":
+        - cell "Social Media Free 2 subscribers"
+        - cell "Connect Instagram/Facebook, schedule posts, curate featured reels, and generate AI media — all per location.": Social Media
+        - cell "Free"
+        - cell "—"
+        - cell "Active"
+        - cell "Edit 2 restaurant(s) still have this add-on. Remove it from those restaurants before deleting. To stop new restaurants adding it meanwhile, turn off \"Available in catalog\".":
+          - button "Edit"
+          - button "Delete" [disabled]
+      - row "Tables & Reservations 3 subscribers Floor plan, table management, host stand, waitlist, and online reservations for dine-in restaurants. $10.00/mo — Active Edit 3 restaurant(s) still have this add-on. Remove it from those restaurants before deleting. To stop new restaurants adding it meanwhile, turn off \"Available in catalog\".":
+        - cell "Tables & Reservations 3 subscribers"
+        - cell "Floor plan, table management, host stand, waitlist, and online reservations for dine-in restaurants.": Tables & Reservations
+        - cell "$10.00/mo"
+        - cell "—"
+        - cell "Active"
+        - cell "Edit 3 restaurant(s) still have this add-on. Remove it from those restaurants before deleting. To stop new restaurants adding it meanwhile, turn off \"Available in catalog\".":
+          - button "Edit"
+          - button "Delete" [disabled]
+      - row "Team bundle 1 subscriber Scheduling & Timecards and Tip Management sold together for less. Buying it replaces either one a restaurant pays for separately, with a credit for the unused time. $100.00/mo — Active Edit 1 restaurant(s) still have this add-on. Remove it from those restaurants before deleting. To stop new restaurants adding it meanwhile, turn off \"Available in catalog\".":
+        - cell "Team bundle 1 subscriber"
+        - cell "Scheduling & Timecards and Tip Management sold together for less. Buying it replaces either one a restaurant pays for separately, with a credit for the unused time.": Team bundle
+        - cell "$100.00/mo"
+        - cell "—"
+        - cell "Active"
+        - cell "Edit 1 restaurant(s) still have this add-on. Remove it from those restaurants before deleting. To stop new restaurants adding it meanwhile, turn off \"Available in catalog\".":
+          - button "Edit"
+          - button "Delete" [disabled]
+      - row "Tip Management 1 subscriber Tip pools and tip-outs, cash tip declarations, card-fee withholding, and per-employee tip reports — with the timecards tips are split by. $10.00/mo — Active Edit 1 restaurant(s) still have this add-on. Remove it from those restaurants before deleting. To stop new restaurants adding it meanwhile, turn off \"Available in catalog\".":
+        - cell "Tip Management 1 subscriber"
+        - cell "Tip pools and tip-outs, cash tip declarations, card-fee withholding, and per-employee tip reports — with the timecards tips are split by.": Tip Management
+        - cell "$10.00/mo"
+        - cell "—"
+        - cell "Active"
+        - cell "Edit 1 restaurant(s) still have this add-on. Remove it from those restaurants before deleting. To stop new restaurants adding it meanwhile, turn off \"Available in catalog\".":
+          - button "Edit"
+          - button "Delete" [disabled]
+  - 'heading "RestauNax Payroll: people billed" [level=6]'
+  - paragraph: Each location's employees on payroll plus contractors paid, counted nightly from Gusto. Compared with what Gusto bills us for the same company.
+  - text: Month
+  - textbox "Month": 2026-11
+  - table:
+    - rowgroup:
+      - row "Location Billed Gusto Difference Not paid 60 days Status":
+        - columnheader "Location"
+        - columnheader "Billed"
+        - columnheader "Gusto"
+        - columnheader "Difference"
+        - columnheader "Not paid 60 days"
+        - columnheader "Status"
+        - columnheader
+    - rowgroup:
+      - 'row "my 2 store 0 — — 0 Couldn''t read Gusto: check the connection Count again View as Owner"':
+        - cell "my 2 store"
+        - cell "0"
+        - cell "—"
+        - cell "—"
+        - cell "0"
+        - 'cell "Couldn''t read Gusto: check the connection"'
+        - cell "Count again View as Owner":
+          - button "Count again"
+          - button "View as Owner"
+```
+
+# Test source
+
+```ts
+  165 |     await expect(req.getByRole("button", { name: "Mark done" })).toBeVisible();
+  166 |   });
+  167 | 
+  168 |   test("TC-1095: Attach asks first, then says there's no subscription; the request stays open", async ({
+  169 |     adminPage: page,
+  170 |   }) => {
+  171 |     test.skip(stage6, STAGE6_SKIP);
+  172 |     await openAddons(page);
+  173 |     await card(page, "Menu TVs")
+  174 |       .getByRole("button", { name: "Attach" })
+  175 |       .click();
+  176 |     const dialog = activeDialog(page);
+  177 |     await expect(dialog).toHaveAccessibleName(
+  178 |       `Attach Menu TVs for ${storeName}?`
+  179 |     );
+  180 |     await expect(dialog).toContainText(
+  181 |       "It goes on their subscription now, prorated for the rest of this billing period"
+  182 |     );
+  183 |     await dialog.getByRole("button", { name: "Attach" }).click();
+  184 |     await expectSeenByUser(
+  185 |       page
+  186 |         .getByRole("alert")
+  187 |         .filter({
+  188 |           hasText: "This restaurant has no subscription to add it to.",
+  189 |         })
+  190 |         .first(),
+  191 |       "the no-subscription refusal"
+  192 |     );
+  193 |     await expect(
+  194 |       card(page, "Menu TVs").getByRole("button", { name: "Attach" })
+  195 |     ).toBeVisible();
+  196 |     const tv = (await addonRows()).find((a) => a.feature === "MENU_TVS");
+  197 |     expect(tv).toMatchObject({ activeInstanceId: null });
+  198 |   });
+  199 | 
+  200 |   test("TC-1096: Mark done closes it, says the owners were emailed, and attaches nothing", async ({
+  201 |     adminPage: page,
+  202 |   }) => {
+  203 |     test.skip(stage6, STAGE6_SKIP);
+  204 |     await openAddons(page);
+  205 |     await card(page, "Menu TVs")
+  206 |       .getByRole("button", { name: "Mark done" })
+  207 |       .click();
+  208 |     await expectSeenByUser(
+  209 |       page
+  210 |         .getByRole("alert")
+  211 |         .filter({ hasText: "Marked done. The owners have been emailed." })
+  212 |         .first(),
+  213 |       '"Marked done."'
+  214 |     );
+  215 |     await expect(card(page, "Menu TVs")).toHaveCount(0);
+  216 |     await show(page, "Closed");
+  217 |     const closed = card(page, "Menu TVs");
+  218 |     await expect(closed).toContainText("Done");
+  219 |     await expect(closed).toContainText(/Handled by .+ · /);
+  220 |     const tv = (await addonRows()).find((a) => a.feature === "MENU_TVS");
+  221 |     expect(tv).toMatchObject({ activeInstanceId: null, pendingAdd: null });
+  222 |   });
+  223 | 
+  224 |   test("TC-1097: a request the owner withdraws leaves HQ's Open list", async ({
+  225 |     adminPage: page,
+  226 |   }) => {
+  227 |     const id = await ask("PAYROLL");
+  228 |     await openAddons(page);
+  229 |     if (stage6) await show(page, "Waiting");
+  230 |     await expect(card(page, "Payroll")).toBeVisible({ timeout: 20_000 });
+  231 |     const cancelled = await ownerAddonRequestCancelRaw(
+  232 |       ownerToken,
+  233 |       restaurantId,
+  234 |       id
+  235 |     );
+  236 |     expect(cancelled.ok, JSON.stringify(cancelled.data)).toBe(true);
+  237 |     await openAddons(page);
+  238 |     if (stage6) await show(page, "Waiting");
+  239 |     await expect(card(page, "Payroll")).toHaveCount(0);
+  240 |     await show(page, "Closed");
+  241 |     await expect(card(page, "Payroll")).toContainText("Cancelled by the owner");
+  242 |   });
+  243 | 
+  244 |   test("TC-1536: the Waiting toggle shows its count and note; a request from a restaurant that isn't live waits there with nothing to do yet", async ({
+  245 |     adminPage: page,
+  246 |   }) => {
+  247 |     requireRelease("requestFlowStage6", stage6);
+  248 |     // Packaging v3: RestauNax Team (Scheduling is part of it, not asked for
+  249 |     // on its own).
+  250 |     await ask("TEAM_BUNDLE");
+  251 |     await openAddons(page);
+  252 |     const toggle = page
+  253 |       .getByRole("group", { name: "Which requests" })
+  254 |       .getByRole("button", { name: /^Waiting \(\d+\)$/ });
+  255 |     await expect(toggle).toBeVisible();
+  256 |     await toggle.click();
+  257 |     await expect(
+  258 |       page.getByText(
+  259 |         "Asked before the restaurant's account was live. Each one opens here on its own as soon as the subscription activates, so there is nothing to do yet."
+  260 |       )
+  261 |     ).toBeVisible();
+  262 |     // The card names the product, then the catalog add-on:
+  263 |     // "RestauNax Team · <catalog name>".
+  264 |     const req = card(page, "RestauNax Team");
+> 265 |     await expect(req).toBeVisible({ timeout: 20_000 });
+      |                       ^ Error: expect(locator).toBeVisible() failed
+  266 |     await expect(req).toContainText("Waiting for the account");
+  267 |     for (const name of ["Attach", "Mark done", "Decline"])
+  268 |       await expect(req.getByRole("button", { name })).toHaveCount(0);
+  269 |     // It is not in the Open list.
+  270 |     await show(page, "Open");
+  271 |     await expect(card(page, "RestauNax Team")).toHaveCount(0);
+  272 |   });
+  273 | 
+  274 |   test("TC-1537: Decline on an open request (the seed's, made by this test): the dialog, Cancel, then Decline; Closed shows it Declined", async ({
+  275 |     adminPage: page,
+  276 |   }) => {
+  277 |     requireRelease("requestFlowStage6", stage6);
+  278 |     test.skip(
+  279 |       !OWNER_EMAIL || !OWNER_PASSWORD,
+  280 |       "OWNER_EMAIL / OWNER_PASSWORD not set (the seed restaurant, the only live one)"
+  281 |     );
+  282 |     const seedToken = (await apiLogin(OWNER_EMAIL, OWNER_PASSWORD)).accessToken;
+  283 |     const seedId = readSharedState().restaurantId;
+  284 |     const features = await apiRequestRaw<{ data?: Rec }>(
+  285 |       "GET",
+  286 |       `/restaurant/restaurantId/${seedId}/features`,
+  287 |       undefined,
+  288 |       seedToken
+  289 |     );
+  290 |     const products = (features.data.data?.availableProducts ?? []) as Rec[];
+  291 |     // Not one api-addon-billing attaches (Menu TVs, Team, Payroll).
+  292 |     const product = products.find(
+  293 |       (p) =>
+  294 |         !p.pendingRequestStatus &&
+  295 |         !["MENU_TVS", "TEAM_BUNDLE", "PAYROLL"].includes(String(p.feature))
+  296 |     );
+  297 |     test.skip(!product, "the seed restaurant has no product left to ask for");
+  298 |     const note = `automation ${runId}: decline me`;
+  299 |     const r = await ownerAddonRequestRaw(seedToken, seedId, {
+  300 |       feature: String(product!.feature),
+  301 |       kind: "ADD",
+  302 |       note,
+  303 |       source: "products_page",
+  304 |     });
+  305 |     expect(r.status, JSON.stringify(r.data)).toBe(201);
+  306 |     const id = String(((r.data as Rec).data as Rec).id);
+  307 |     try {
+  308 |       await openAddons(page);
+  309 |       const req = page.locator(".MuiCard-root").filter({ hasText: note });
+  310 |       await expect(req).toBeVisible({ timeout: 20_000 });
+  311 |       await req.getByRole("button", { name: "Decline" }).click();
+  312 |       let dialog = activeDialog(page);
+  313 |       await expect(dialog).toHaveAccessibleName(/^Decline .+ for .+\?$/);
+  314 |       await expect(dialog).toContainText(
+  315 |         "The request closes and the owners get an email and an Owner app notification."
+  316 |       );
+  317 |       await expect(
+  318 |         dialog.getByLabel("Reason for the owner (optional)")
+  319 |       ).toBeVisible();
+  320 |       await dialog.getByRole("button", { name: "Cancel" }).click();
+  321 |       await expect(req.getByRole("button", { name: "Decline" })).toBeVisible();
+  322 | 
+  323 |       await req.getByRole("button", { name: "Decline" }).click();
+  324 |       dialog = activeDialog(page);
+  325 |       await dialog
+  326 |         .getByLabel("Reason for the owner (optional)")
+  327 |         .fill("Automation: not for this restaurant yet");
+  328 |       await dialog.getByRole("button", { name: "Decline" }).click();
+  329 |       await expectSeenByUser(
+  330 |         page
+  331 |           .getByRole("alert")
+  332 |           // The snackbar shows the server's message (backend api.json).
+  333 |           .filter({ hasText: "Declined. The owners have been told." })
+  334 |           .first(),
+  335 |         '"Request declined."'
+  336 |       );
+  337 |       await expect(
+  338 |         page.locator(".MuiCard-root").filter({ hasText: note })
+  339 |       ).toHaveCount(0);
+  340 |       await show(page, "Closed");
+  341 |       await expect(
+  342 |         page.locator(".MuiCard-root").filter({ hasText: note })
+  343 |       ).toContainText("Declined");
+  344 |     } finally {
+  345 |       // Never leave the seed with this file's request open.
+  346 |       await ownerAddonRequestCancelRaw(seedToken, seedId, id).catch(() => {});
+  347 |     }
+  348 |   });
+  349 | });
+  350 | 
+```
