@@ -17,7 +17,7 @@
  \* `--grep @growth-a`, `--grep @reservations-audit`,
  \* `--grep @reservations-phase4`,
  * `--grep @attribution`, `--grep @affiliate-commission`,
- * `--grep @books-offboarding`, `--grep @hq-notices`.
+ * `--grep @books-offboarding`, `--grep @hq-notices`, `--grep @split-hours`.
  */
 import { test, expect } from "../fixtures/base";
 import { apiRequestRaw } from "./apiHelper";
@@ -144,6 +144,21 @@ export const RELEASED_ON_QA = {
    *  the API while the QA dashboard bundle had no Notices yet); on the QA
    *  dashboard since RestauNax PR #1175 + #1180 deployed, 2026-11-14. */
   hqNoticesDashboard: true,
+  /** RestauNax branch feat/split-hours (docs/features/SPLIT_HOURS.md) — a
+   *  day, weekly or a holiday date, can have several open windows; hours rows
+   *  carry `windows`, and the order gate, ordering status and the save
+   *  preview read them. Flip once the backend is on QA and
+   *  api-split-hours.spec.ts is green there. */
+  splitHours: false,
+  /** The dashboard half of feat/split-hours: "Add hours" in the business
+   *  hours editor and the holiday dialog. Deployed separately from the
+   *  backend. Flip after 41-split-hours-ui.spec.ts is green on QA. */
+  splitHoursDashboard: false,
+  /** Template-lima feat/split-hours: the break of a split day on the
+   *  ordering site ("We reopen at 5:00 PM", today's hours with every window,
+   *  slots only inside a window). Deployed separately from the backend. Flip
+   *  after customer-lima/20-split-hours.spec.ts is green on QA. */
+  splitHoursLima: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -196,6 +211,12 @@ const REASON: Record<ReleasePart, string> = {
     "HQ notices (RestauNax PR #1174, feat/hq-notices) are not on this environment yet — /api/admin/notices answers 404",
   hqNoticesDashboard:
     "The HQ notices dashboard screens (RestauNax PR #1174) are not on this dashboard yet — locales/en/admin.json has no `notices` block",
+  splitHours:
+    "Split hours (RestauNax feat/split-hours) are not on this environment yet — saved hours rows carry no `windows`",
+  splitHoursDashboard:
+    "The split hours editor (RestauNax feat/split-hours) is not on this dashboard yet — locales/en/common.json has no businessHours.addHours",
+  splitHoursLima:
+    "Split hours (Template-lima feat/split-hours) are not on this ordering site yet — the order-time notice has no order-time-notice test id",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
@@ -571,6 +592,48 @@ export async function probeHqNoticesDashboard(): Promise<boolean> {
     if (!res.ok) return false;
     const json = (await res.json()) as { notices?: unknown };
     return typeof json.notices === "object" && json.notices !== null;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Is the split-hours BACKEND deployed? A saved hours row carries a `windows`
+ * key (null for a one-window day) only with RestauNax feat/split-hours.
+ * Read-only. The restaurant needs at least one saved day: with no rows there
+ * is nothing to read the key from, and this answers false.
+ */
+export async function probeSplitHours(
+  token: string,
+  restaurantId: string
+): Promise<boolean> {
+  const res = await apiRequestRaw<{ businessHours?: unknown }>(
+    "GET",
+    `/restaurant/${restaurantId}/hours`,
+    undefined,
+    token
+  );
+  const rows = Array.isArray(res.data?.businessHours)
+    ? (res.data.businessHours as Record<string, unknown>[])
+    : [];
+  return rows.length > 0 && rows.every((row) => "windows" in row);
+}
+
+/**
+ * Is the split-hours DASHBOARD deployed? Its `locales/en/common.json` has
+ * `businessHours.addHours` ("Add hours") only with the change. Read-only, no
+ * auth.
+ */
+export async function probeSplitHoursDashboard(): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${FRONTEND_URL.replace(/\/+$/, "")}/locales/en/common.json`
+    );
+    if (!res.ok) return false;
+    const json = (await res.json()) as {
+      businessHours?: { addHours?: unknown };
+    };
+    return typeof json.businessHours?.addHours === "string";
   } catch {
     return false;
   }

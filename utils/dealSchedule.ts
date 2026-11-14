@@ -291,3 +291,89 @@ export function openSpanOn(
   const close = minutesOf(row.closingTime);
   return { open, close: close <= open ? 1439 : close };
 }
+
+// ── Split hours (restaunax docs/features/SPLIT_HOURS.md) ────────────────────
+
+/** One open window of a split day, as the hours API sends it ("HH:MM:SS"). */
+export interface HoursWindowTimes {
+  openingTime: string;
+  closingTime: string;
+}
+
+/** Today (restaurant-local) as two open windows with a break between them. */
+export interface SplitDayPlan {
+  dateKey: string;
+  dayName: DayName;
+  first: LocalWindow;
+  second: LocalWindow;
+  /** The two windows as the hours API takes and returns them. */
+  windows: HoursWindowTimes[];
+}
+
+const windowOn = (
+  dateKey: string,
+  startMinute: number,
+  endMinute: number
+): LocalWindow => ({
+  dateKey,
+  start: hhmm(startMinute),
+  end: hhmm(endMinute),
+  startMinute,
+  endMinute,
+});
+
+/**
+ * A split day built AROUND now, because a test can't move the clock.
+ *
+ *   - "break": the first window closed 20–35 minutes ago and the second opens
+ *     60–75 minutes from now, so "now" is in the break for the whole file.
+ *   - "first": "now" is inside the first window (opened 30–45 minutes ago,
+ *     closes 60–75 minutes from now); the second opens an hour after that.
+ *
+ * Every edge is a 15-minute mark (the storefronts' slot grid). Null when
+ * today has no room: before about 00:50 or after about 22:00 on the
+ * restaurant's clock. Callers skip with that reason instead of building
+ * windows that cross midnight.
+ */
+export function splitDayAroundNow(
+  timeZone: string,
+  where: "break" | "first",
+  now: Date = new Date()
+): SplitDayPlan | null {
+  const p = localParts(timeZone, now);
+  const m = p.minuteOfDay;
+  const up = (minute: number) => Math.ceil(minute / 15) * 15;
+  const down = (minute: number) => Math.floor(minute / 15) * 15;
+  let firstStart: number;
+  let firstEnd: number;
+  let secondStart: number;
+  if (where === "break") {
+    firstEnd = down(m - 20);
+    firstStart = Math.max(0, firstEnd - 120);
+    secondStart = up(m + 60);
+  } else {
+    firstStart = down(m - 30);
+    firstEnd = up(m + 60);
+    secondStart = firstEnd + 60;
+  }
+  // 23:45 is the last mark a same-day window can close on.
+  const secondEnd = Math.min(secondStart + 120, 1425);
+  if (firstStart < 0 || firstEnd - firstStart < 15) return null;
+  if (secondEnd - secondStart < 30) return null;
+  const first = windowOn(p.dateKey, firstStart, firstEnd);
+  const second = windowOn(p.dateKey, secondStart, secondEnd);
+  return {
+    dateKey: p.dateKey,
+    dayName: p.dayName,
+    first,
+    second,
+    windows: [first, second].map((w) => ({
+      openingTime: `${w.start}:00`,
+      closingTime: `${w.end}:00`,
+    })),
+  };
+}
+
+/** Why splitDayAroundNow returned null, for a test.skip reason. */
+export const NO_ROOM_FOR_SPLIT_DAY =
+  "too close to midnight on the restaurant's clock to fit two open windows around now (works from about 00:50 to 22:00 local)";

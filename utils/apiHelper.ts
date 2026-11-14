@@ -1051,6 +1051,53 @@ export function placeOrderRaw(
   );
 }
 
+/**
+ * placeOrderRaw for the simplest guest order there is: PICKUP from the
+ * website, ONE unit of one item, no tip, tax at the restaurant's flat rate.
+ * `scheduledFor` null = "as soon as possible". For the hours-gate specs,
+ * where the answer (201, or 400 + `message` / `errorCode`) is the assertion.
+ * Same caveat as placeOrderRaw: a success leaves an INITIALIZED order, so
+ * throwaway tenants only.
+ */
+export function placeGuestPickupOrderRaw(
+  restaurantId: string,
+  opts: {
+    item: { id: string; name: string; price: number };
+    taxPercent: number;
+    scheduledFor?: string | null;
+    customerEmail: string;
+  }
+): Promise<
+  RawResponse<
+    { id?: string; status?: string; scheduledFor?: string } & ApiErrorBody
+  >
+> {
+  const { item, taxPercent } = opts;
+  const tax = Math.round(item.price * taxPercent) / 100;
+  return apiRequestRaw("POST", `/api/order/new/restaurantId/${restaurantId}`, {
+    restaurantId,
+    orderType: "PICKUP",
+    orderSource: "WEB",
+    scheduledFor: opts.scheduledFor ?? null,
+    subtotal: item.price,
+    tax,
+    tip: 0,
+    total: Math.round((item.price + tax) * 100) / 100,
+    customerEmail: opts.customerEmail,
+    customerPhone: "5555550123",
+    firstName: "Gia",
+    lastName: "Guest",
+    orderItems: [
+      {
+        menuItemId: item.id,
+        menuItemName: item.name,
+        quantity: 1,
+        price: item.price,
+      },
+    ],
+  });
+}
+
 // ── Chains (RestaurantGroup) ─────────────────────────────────────────────────
 //
 // A chain IS a RestaurantGroup; membership is Restaurant.restaurantGroupId.
@@ -1141,13 +1188,24 @@ export async function ensureBusinessHours(
   );
 }
 
-/** A BusinessHours row (times "HH:MM:SS"; closed rows carry nulls). */
+/** One open window of a split day ("HH:MM:SS"). */
+export interface HoursWindowRow {
+  openingTime: string;
+  closingTime: string;
+}
+
+/**
+ * A BusinessHours row (times "HH:MM:SS"; closed rows carry nulls). With
+ * split hours (restaunax SPLIT_HOURS.md) the times are the OUTER SPAN and
+ * `windows` lists the day's windows when it has two or more, else null.
+ */
 export interface BusinessHoursRow {
   day: string;
   openingTime: string | null;
   closingTime: string | null;
   isClosed: boolean;
   is24Hours: boolean;
+  windows?: HoursWindowRow[] | null;
 }
 
 /** GET /restaurant/:id/hours (owner/admin) → {businessHours}. */
@@ -1183,8 +1241,32 @@ export async function setBusinessHoursApi(
         closingTime: r.closingTime,
         isClosed: r.isClosed,
         is24Hours: r.is24Hours,
+        // Only when the caller set it: a day sent with NO `windows` key is
+        // read as an editor from before split hours (it keeps the stored
+        // windows when its times are unchanged).
+        ...(r.windows !== undefined ? { windows: r.windows } : {}),
       })),
     },
+    accessToken
+  );
+}
+
+/**
+ * PUT /restaurant/:id/hours, RAW — for the refusals and for days sent
+ * exactly as given (with, without, or with a null `windows` key). Replaces
+ * every row on success; a refused save (400 + `message`) changes nothing.
+ */
+export function putBusinessHoursRaw(
+  accessToken: string,
+  restaurantId: string,
+  days: Record<string, unknown>[]
+): Promise<
+  RawResponse<{ businessHours?: unknown; restaurant?: unknown } & ApiErrorBody>
+> {
+  return apiRequestRaw(
+    "PUT",
+    `/restaurant/${restaurantId}/hours`,
+    { hoursOfOperation: days },
     accessToken
   );
 }
