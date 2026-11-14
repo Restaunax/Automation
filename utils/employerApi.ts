@@ -87,6 +87,8 @@ export async function ownerWithRestaurants(
   ownerToken: string;
   userId: string;
   restaurantIds: string[];
+  email: string;
+  password: string;
 }> {
   const tenant = await createSecondOwner(adminToken, runId, {
     alwaysFresh: true,
@@ -141,7 +143,13 @@ export async function ownerWithRestaurants(
         );
     }
   }
-  return { ownerToken, userId: tenant.userId, restaurantIds };
+  return {
+    ownerToken,
+    userId: tenant.userId,
+    restaurantIds,
+    email: tenant.email,
+    password: tenant.password,
+  };
 }
 
 /**
