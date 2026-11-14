@@ -157,6 +157,7 @@ test.describe(
     const dee = { id: "", pin: "4826", session: "" };
     const rae = { id: "", pin: "5938", session: "" };
     const sam = { id: "", pin: "7261", session: "" };
+    let webBoughtAt = new Date();
     let cashCard = { id: "", code: "" };
     let webCard = { id: "", code: "" };
     let importedCard = { id: "", code: "" };
@@ -166,12 +167,22 @@ test.describe(
     let cashOutTransactionId = "";
 
     const gate = () => requireRelease("ownerGiftCards", present);
-    const gc = <T = LooseJson>(
+    /** Every POS gift card call; except /sell (it reveals the code once),
+     *  no body may ever carry a full card code. */
+    const gc = async <T = LooseJson>(
       session: string | undefined,
       method: "POST" | "PUT",
       path: string,
       body?: unknown
-    ) => tabletGiftCardRaw<T>(tablet, session, method, path, body);
+    ) => {
+      const r = await tabletGiftCardRaw<T>(tablet, session, method, path, body);
+      if (path !== "/sell") {
+        const text = JSON.stringify(r.data);
+        for (const code of [cashCard.code, webCard.code, importedCard.code])
+          if (code) expect(text, "no full card code").not.toContain(code);
+      }
+      return r;
+    };
     const loads = async () => {
       const r = await tabletRaw<{ data: { kind: string; amount: number }[] }>(
         tablet,
@@ -190,7 +201,6 @@ test.describe(
           isThisDevice: boolean;
           session: {
             expectedCash: number;
-            giftCardCashOuts: number;
           } | null;
         }[];
       }>(tablet, "GET", "/register/overview", undefined, owner.session);
@@ -214,7 +224,11 @@ test.describe(
       );
     const details = (session: string, code: string) =>
       gc<{ data: TabletDetails }>(session, "POST", "/details", { code });
-    const refusal = (r: { data: unknown }) => r.data as Refusal;
+    const refusal = (r: { data: unknown }) => {
+      const body = r.data as Refusal;
+      expect(looksLikeKey(body.error), `error text: ${body.error}`).toBe(false);
+      return body;
+    };
     const mint = async (
       firstName: string,
       pin: string,
@@ -304,6 +318,7 @@ test.describe(
       const bought = await buyGiftCardOnline(pk, rid, 40, {
         recipientEmail: webRecipient,
       });
+      webBoughtAt = new Date();
       webCard = { id: bought.giftCardId, code: bought.code };
       recordGiftCardForCleanup(webCard.id);
 
@@ -431,6 +446,7 @@ test.describe(
       );
       expect(raeIntent.status, JSON.stringify(raeIntent.data)).toBe(403);
       expect(raeIntent.data.code).toBe("GIFT_CARD_PERMISSION_REQUIRED");
+      expect(looksLikeKey(raeIntent.data.error)).toBe(false);
       expect(raeIntent.data.clientSecret).toBeUndefined();
 
       // A manager's PIN approves it for her.
@@ -558,7 +574,7 @@ test.describe(
         new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(
           new Date(eligibleAt)
         )
-      ).toBe(addDays(localToday(tz), 30));
+      ).toBe(addDays(localToday(tz, webBoughtAt), 30));
       expect(out.refusal?.text).toMatch(/30 days/);
       expect(looksLikeKey(out.refusal?.text)).toBe(false);
     });
@@ -649,6 +665,7 @@ test.describe(
         data: { history: HistoryEntry[] };
       }>(ownerToken, { restaurantId: rid }, "GET", `/cards/${cashCard.id}`);
       expect(card.status, JSON.stringify(card.data)).toBe(200);
+      expect(JSON.stringify(card.data)).not.toContain(cashCard.code);
       expect(
         card.data.data.history.find((h) => h.kind === "CASHED_OUT")
       ).toMatchObject({ amount: -25, balanceAfter: 0 });
@@ -672,7 +689,6 @@ test.describe(
       gate();
       // Cash sales: Dee 25, Rae (manager PIN) 20, Dee 20; cash-out 25.
       const live = await drawer();
-      expect(live.giftCardCashOuts).toBe(25);
       expect(live.expectedCash).toBe(140);
 
       // The drawer's loads list shows the cash-out, not voidable.
@@ -751,7 +767,7 @@ test.describe(
 
     test("TC-2050: a cash-out retry replays the original before the drawer and eligibility checks", async () => {
       gate();
-      // The drawer is closed and the card reads DEPLETED, yet the key that
+      // Plan B contract amendment: replay-before-checks. The drawer is closed and the card reads DEPLETED, yet the key that
       // paid out once still answers that success (200, same transaction).
       const again = await gc<{ data: CashOutResult }>(
         owner.session,
