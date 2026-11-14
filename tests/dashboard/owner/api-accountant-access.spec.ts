@@ -14,6 +14,8 @@
  *
  * TC-777 is the one browser step: the accountant signs in and opens the
  * read-only workspace (/accountant), with no 403 on any screen load.
+ * TC-1956: the accountant's package route refuses a range of only today
+ * ("Nothing to include yet…", EN and ES).
  *
  * Skips without MAILPIT_BASE_URL (CI has it; see TEST_PLAN → Test execution
  * strategy). Serial: every step builds on the claimed account.
@@ -26,6 +28,7 @@ import { waitForEmail, extractInviteToken } from "../../../utils/emailHelper";
 import { loginViaUi } from "../../../utils/auth";
 import {
   apiLogin,
+  apiRequestRaw,
   createSecondOwner,
   deleteTestRestaurant,
   setFeatureOverrideAdminRaw,
@@ -301,6 +304,46 @@ test.describe("Accountant access — invite, read-only, other clients invisible,
     );
     expect(zip.status).toBe(200);
     expect(zip.headers.get("content-type")).toContain("application/zip");
+  });
+
+  test('TC-1956: the accountant\'s package for only today is refused with "Nothing to include yet", in EN and ES', async () => {
+    // Today in the tenant's time zone (a Miami restaurant): never closed or over.
+    const day = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/New_York",
+    }).format(new Date());
+    const path = (extra: string) =>
+      `/api/accountant/clients/${a.id}/accountant-package?startDate=${day}&endDate=${day}&format=pdf${extra}`;
+    const cases = [
+      {
+        name: "EN",
+        extra: "&lang=en",
+        headers: { "Accept-Language": "en" },
+        want: "Nothing to include yet: the most recent days are added once they're closed or over.",
+      },
+      {
+        name: "ES by Accept-Language",
+        extra: "",
+        headers: { "Accept-Language": "es" },
+        want: "Todavía no hay nada que incluir: los días más recientes se agregan cuando se cierran o terminan.",
+      },
+      {
+        name: "ES by lang=",
+        extra: "&lang=es",
+        headers: { "Accept-Language": "en" },
+        want: "Todavía no hay nada que incluir: los días más recientes se agregan cuando se cierran o terminan.",
+      },
+    ];
+    for (const c of cases) {
+      const res = await apiRequestRaw<{ success?: boolean; message?: string }>(
+        "GET",
+        path(c.extra),
+        undefined,
+        accountant.token,
+        c.headers
+      );
+      expect(res.status, `${c.name}: ${JSON.stringify(res.data)}`).toBe(400);
+      expect(res.data.message, c.name).toBe(c.want);
+    }
   });
 
   test("TC-779: every write is refused for the accountant; the owner's own books routes are closed to them", async () => {

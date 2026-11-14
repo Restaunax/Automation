@@ -3976,4 +3976,20 @@ Browser as the owner, on the dashboard's Reviews tab (`?tab=reviews`). The API c
 | **TC-1949** | Post History's Create Post opens the composer inside the portal, not a Not Found page.                                        |
 | **TC-1950** | Staff: unsaved payroll settings ask on Back and on a subtab click; Back shows the previous subtab.                            |
 
+### `dashboard/owner/40-accountant-package-ui.spec.ts`
+
+| TC          | What it checks                                                                                                                                      |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **TC-1951** | Without the add-on, Books & taxes opens on the package with no refused load; last month downloads as PDF, Excel and CSV ZIP.                        |
+| **TC-1952** | After a download without the add-on, the page offers the monthly send as an ask ("Ask us."), never a price.                                         |
+| **TC-1953** | Analytics → Daily Report shows the report; "Download for your accountant" opens the package dialog.                                                 |
+| **TC-1954** | API: a package for only today is refused (400) with "Nothing to include yet…", in English, and in Spanish by `Accept-Language: es` or by `lang=es`. |
+| **TC-1955** | Products → Books & Taxes "See it in action" opens `?tab=books-taxes&section=books`, the add-on's first section, with no price.                      |
+
+### `dashboard/owner/api-accountant-access.spec.ts`
+
+| TC          | What it checks                                                                                                                                         |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **TC-1956** | The accountant's package route refuses a range of only today (400, "Nothing to include yet…") in English and Spanish (`Accept-Language` or `lang=es`). |
+
 ---

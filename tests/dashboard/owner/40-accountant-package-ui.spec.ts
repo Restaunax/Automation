@@ -5,7 +5,9 @@
  * this sent to your accountant every month? Ask us." (TC-1951..1952). Then the
  * Analytics → Daily Report subtab (`?view=daily-report`) shows the report and
  * the Overview's "Download for your accountant" opens the same panel in a
- * dialog (TC-1953).
+ * dialog (TC-1953). A range of only today is refused with "Nothing to include
+ * yet…" in the language asked for (TC-1954, API), and Products → Books &
+ * Taxes "See it in action" opens the add-on's first section (TC-1955).
  *
  * Browser. A per-run throwaway owner with NO add-on logs in through the UI
  * (loginViaUi). Every /api/ response is watched: a screen the owner can see
@@ -20,6 +22,7 @@ import { generateRunId } from "../../../utils/testData";
 import { loginViaUi, type UiLoginSession } from "../../../utils/auth";
 import {
   apiLogin,
+  apiRequestRaw,
   createSecondOwner,
   deleteTestRestaurant,
 } from "../../../utils/apiHelper";
@@ -27,6 +30,16 @@ import {
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 const ASK_LINE = "Want this sent to your accountant every month? Ask us.";
+// The server's refusal for a range with no closed or finished day (EN / ES).
+const NOTHING_YET = {
+  en: "Nothing to include yet: the most recent days are added once they're closed or over.",
+  es: "Todavía no hay nada que incluir: los días más recientes se agregan cuando se cierran o terminan.",
+} as const;
+/** Today in the tenant's time zone (a Miami restaurant): never closed or over. */
+const localToday = () =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(
+    new Date()
+  );
 
 const FORMATS = [
   { label: "PDF", ext: "pdf", type: /application\/pdf/ },
@@ -48,6 +61,7 @@ test.describe("Owner — accountant package and Daily Report without the add-on 
 
   const runId = generateRunId();
   let adminToken = "";
+  let ownerToken = "";
   let restaurantId = "";
   let session: UiLoginSession | undefined;
   const refused: string[] = [];
@@ -76,6 +90,7 @@ test.describe("Owner — accountant package and Daily Report without the add-on 
     const tenant = await createSecondOwner(adminToken, runId);
     if (!tenant.restaurantId) throw new Error("[package-ui] no tenant");
     restaurantId = tenant.restaurantId;
+    ownerToken = tenant.accessToken;
     session = await loginViaUi(
       browser,
       tenant.email,
@@ -184,6 +199,64 @@ test.describe("Owner — accountant package and Daily Report without the add-on 
     ).toBeEnabled();
     await dialog.getByRole("button", { name: "Close" }).click();
     await expect(dialog).toBeHidden();
+    expect(refused).toEqual([]);
+  });
+
+  test('TC-1954: a package for only today is refused with "Nothing to include yet", in the language asked for (API)', async () => {
+    const day = localToday();
+    const path = (extra = "") =>
+      `/api/reports/${restaurantId}/accountant-package?startDate=${day}&endDate=${day}&format=pdf${extra}`;
+    const cases: {
+      name: string;
+      extra: string;
+      headers: Record<string, string>;
+      want: string;
+    }[] = [
+      {
+        name: "EN",
+        extra: "&lang=en",
+        headers: { "Accept-Language": "en" },
+        want: NOTHING_YET.en,
+      },
+      {
+        name: "ES by Accept-Language",
+        extra: "",
+        headers: { "Accept-Language": "es" },
+        want: NOTHING_YET.es,
+      },
+      // The dashboard sends the language it is showing (lang=), which wins.
+      {
+        name: "ES by lang=",
+        extra: "&lang=es",
+        headers: { "Accept-Language": "en" },
+        want: NOTHING_YET.es,
+      },
+    ];
+    for (const c of cases) {
+      const res = await apiRequestRaw<{ success?: boolean; message?: string }>(
+        "GET",
+        path(c.extra),
+        undefined,
+        ownerToken,
+        c.headers
+      );
+      expect(res.status, `${c.name}: ${JSON.stringify(res.data)}`).toBe(400);
+      expect(res.data.success, c.name).toBe(false);
+      expect(res.data.message, c.name).toBe(c.want);
+    }
+  });
+
+  test('TC-1955: Products → Books & Taxes "See it in action" opens the add-on\'s first section', async () => {
+    await manage("tab=Billing&section=addons");
+    const card = page().getByTestId("product-card-ACCOUNTING_SYNC");
+    await expect(card).toBeVisible({ timeout: 30_000 });
+    await card.getByRole("button", { name: "See it in action" }).click();
+    await expect(page()).toHaveURL(/[?&]tab=books-taxes(&|$)/);
+    await expect(page()).toHaveURL(/[?&]section=books(&|$)/);
+    // The add-on's first section says what it does, with the ask; no price.
+    const teaser = page().getByTestId("books-addon-books");
+    await expect(teaser).toBeVisible({ timeout: 30_000 });
+    await expect(teaser.getByText(/\$\d/)).toHaveCount(0);
     expect(refused).toEqual([]);
   });
 });
