@@ -3,7 +3,9 @@
  * package, and the B2 card-deposit surface on a restaurant with no books
  * connection (TC-763..771), and the closed-period lock (W2:A3) on that
  * CSV-only tenant (TC-1300..1302), and the Stage 7 year-end additions (W4:L5:
- * fees paid to RestauNax, gift card liability at year end) (TC-1612), and
+ * fees paid to RestauNax, gift card liability at year end; with owner gift
+ * cards the row reads "Cards whose money you hold" and no "Older cards held by
+ * RestauNax" row appears for a fresh tenant) (TC-1612), and
  * books offboarding (TC-1954..1955): Disconnect is RestauNax staff only, and
  * the past entries stay downloadable once the add-on is off.
  *
@@ -26,6 +28,7 @@ import { settingChangesRaw } from "../../../utils/backOfficeApi";
 import {
   probeBooksOffboarding,
   probeTaxDepthStage7,
+  releasePresent,
   requireRelease,
 } from "../../../utils/releaseGate";
 import {
@@ -476,7 +479,18 @@ test.describe("Books & taxes — tax calendar, year-end package, card deposits (
     );
     expect(cards.status).toBe(200);
     const cardText = cards.body.toString("utf8");
-    expect(cardText).toContain("This restaurant's gift cards,0,0.00");
+    // feat/owner-gift-cards renames the row (Plan A Task 11) and adds a line
+    // for cards RestauNax still holds, which a fresh tenant doesn't have.
+    const renamed = releasePresent(
+      "ownerGiftCards",
+      cardText.includes("Cards whose money you hold,0,0.00")
+    );
+    if (renamed) {
+      expect(cardText).not.toContain("This restaurant's gift cards");
+      expect(cardText).not.toContain("Older cards held by RestauNax");
+    } else {
+      expect(cardText).toContain("This restaurant's gift cards,0,0.00");
+    }
     expect(cardText).toContain(
       `Unredeemed balances at the end of ${YEAR}-12-31`
     );

@@ -1,6 +1,6 @@
 /**
  * manager-role.spec.ts — the manager dashboard role (W0:MF-2) on QA
- * (TC-1550..1557).
+ * (TC-1550..1557, TC-2034..2036).
  *
  * No browser. A per-run throwaway restaurant with RestauNax Team (TEAM_BUNDLE:
  * SCHEDULING, TIP_MANAGEMENT and TIMECARDS). One staff member with a real account
@@ -15,14 +15,29 @@
  *     Payday, export, labor, payroll settings, jobs & pay, tips, the payroll
  *     provider, billing, add-ons, books, sales tax and handing out access;
  *   - the owner still sees pay on the same timecards route;
- *   - removing manager access ends it.
+ *   - removing manager access ends it;
+ *   - gift cards (RestauNax feat/owner-gift-cards; gated by
+ *     RELEASED_ON_QA.ownerGiftCards): the capability list gains "giftCards"
+ *     (TC-1551); a manager finds, freezes and resends cards (TC-2034), is
+ *     refused the owner's controls with MANAGER_NOT_ALLOWED (TC-2035), and
+ *     the GETs their Gift cards screen loads all answer 200 (TC-2036).
  *
  * Gating: needs admin credentials (it mints its own tenant) and Mailpit (the
  * invite travels by email) — FAILS, never skips, without them.
  */
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
-import { generateRunId, recordUserForCleanup } from "../../../utils/testData";
+import {
+  generateRunId,
+  recordGiftCardForCleanup,
+  recordUserForCleanup,
+} from "../../../utils/testData";
+import {
+  probeOwnerGiftCards,
+  releasePresent,
+  requireRelease,
+} from "../../../utils/releaseGate";
+import { ownerGiftCardRaw } from "../../../utils/giftCardOwnerApi";
 import { waitForEmail, extractInviteToken } from "../../../utils/emailHelper";
 import {
   apiLogin,
@@ -31,6 +46,7 @@ import {
   deleteTestRestaurant,
   inviteStaffRaw,
   registerWithInvite,
+  seedFundedGiftCard,
   setFeatureOverrideAdminRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
@@ -58,6 +74,9 @@ test.describe("Manager dashboard role (API)", () => {
   let restaurantId = "";
   let managerToken = "";
   let managerStaffId = "";
+  /** Owner gift card routes exist on this stack (probed once, in beforeAll). */
+  let giftCardsPresent = false;
+  let giftCardId = "";
   const managerEmail = `auto-mgr-${runId}@${DOMAIN}`;
   const managerPassword = `Automation!Mgr-${runId}`;
   const start = isoDay(-7);
@@ -91,6 +110,13 @@ test.describe("Manager dashboard role (API)", () => {
     if (!tenant.restaurantId) throw new Error("[manager-role] no tenant");
     restaurantId = tenant.restaurantId;
     ownerToken = tenant.accessToken;
+    giftCardsPresent = await probeOwnerGiftCards(ownerToken, restaurantId);
+    if (giftCardsPresent) {
+      // One funded card the manager can find and freeze (TC-2034).
+      const card = await seedFundedGiftCard(adminToken, restaurantId, 20);
+      giftCardId = card.id;
+      recordGiftCardForCleanup(card.id);
+    }
     // RestauNax Team brings SCHEDULING, TIP_MANAGEMENT and TIMECARDS,
     // components the server refuses to grant on their own (packaging v3).
     for (const feature of ["TEAM_BUNDLE"]) {
@@ -166,11 +192,12 @@ test.describe("Manager dashboard role (API)", () => {
     const row = rows.find((r) => r.id === restaurantId);
     expect(row?.accessRole).toBe("MANAGER");
     // RestauNax bo1031/growthb appends "announcements" (TC-1799 asserts it).
-    expect(
-      ((row?.managerCapabilities ?? []) as string[]).filter(
-        (c) => c !== "announcements"
-      )
-    ).toEqual([
+    const caps = ((row?.managerCapabilities ?? []) as string[]).filter(
+      (c) => c !== "announcements"
+    );
+    // feat/owner-gift-cards adds "giftCards" after "reports".
+    const hasGc = releasePresent("ownerGiftCards", caps.includes("giftCards"));
+    expect(caps).toEqual([
       "orders",
       "menuAvailability",
       "schedule",
@@ -178,6 +205,7 @@ test.describe("Manager dashboard role (API)", () => {
       "timecards",
       "dayClose",
       "reports",
+      ...(hasGc ? ["giftCards"] : []),
     ]);
   });
 
@@ -272,6 +300,114 @@ test.describe("Manager dashboard role (API)", () => {
         );
     }
     expect(wrong).toEqual([]);
+  });
+
+  const asManager = (
+    method: "GET" | "POST" | "PUT",
+    path: string,
+    body?: unknown,
+    lang?: "en" | "es"
+  ) =>
+    ownerGiftCardRaw<Rec>(
+      managerToken,
+      { restaurantId },
+      method,
+      path,
+      body,
+      lang
+    );
+
+  test("TC-2034: a manager finds, freezes and resends gift cards", async () => {
+    requireRelease("ownerGiftCards", giftCardsPresent);
+    for (const path of [
+      "/cards",
+      `/cards/${giftCardId}`,
+      "/reports/summary",
+      "/reports/activity",
+    ]) {
+      const res = await asManager("GET", path);
+      expect(res.status, `${path} → ${JSON.stringify(res.data)}`).toBe(200);
+    }
+    try {
+      const frozen = await asManager("POST", `/cards/${giftCardId}/freeze`, {
+        reason: "Manager hold",
+      });
+      expect(frozen.status, JSON.stringify(frozen.data)).toBe(200);
+      expect(frozen.data.data?.freeze).toMatchObject({ origin: "STAFF" });
+    } finally {
+      // The owner lifts it: a manager can't unfreeze (TC-2035).
+      await ownerGiftCardRaw(
+        ownerToken,
+        { restaurantId },
+        "POST",
+        `/cards/${giftCardId}/unfreeze`
+      ).catch(() => {});
+    }
+    // The seeded card has no email: a contract answer, not an access refusal.
+    const resend = await asManager("POST", `/cards/${giftCardId}/resend`, {});
+    expect(resend.status, JSON.stringify(resend.data)).toBe(400);
+    expect(resend.data.code).toBe("NO_EMAIL");
+  });
+
+  test("TC-2035: a manager can't reach the owner's gift card controls", async () => {
+    requireRelease("ownerGiftCards", giftCardsPresent);
+    const refused: [
+      { restaurantId: string } | { groupId: string },
+      "GET" | "POST" | "PUT",
+      string,
+    ][] = [
+      [{ restaurantId }, "POST", `/cards/${giftCardId}/unfreeze`],
+      [{ restaurantId }, "PUT", `/cards/${giftCardId}/recipient`],
+      [{ restaurantId }, "GET", "/config"],
+      [{ restaurantId }, "PUT", "/config"],
+      [{ restaurantId }, "GET", "/reports/roll-forward"],
+      [{ restaurantId }, "GET", "/reports/stock"],
+      [{ restaurantId }, "GET", "/reports/settlement"],
+      [{ restaurantId }, "GET", "/export.csv"],
+      [{ restaurantId }, "GET", "/summary"],
+      [{ groupId: restaurantId }, "GET", "/cards"],
+    ];
+    const wrong: string[] = [];
+    for (const [scope, method, path] of refused) {
+      const res = await ownerGiftCardRaw<Rec>(
+        managerToken,
+        scope,
+        method,
+        path,
+        method === "GET" ? undefined : {},
+        "es"
+      );
+      const ok =
+        res.status === 403 &&
+        res.data.error === "MANAGER_NOT_ALLOWED" &&
+        res.data.message ===
+          "Los gerentes no pueden abrir esto. Pídeselo al dueño.";
+      if (!ok)
+        wrong.push(
+          `${method} ${JSON.stringify(scope)}${path} → ${res.status} ${JSON.stringify(res.data)}`
+        );
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  test("TC-2036: the manager's Gift cards screen loads", async () => {
+    requireRelease("ownerGiftCards", giftCardsPresent);
+    // The GETs the web Overview (summary + finder + an opened card) and the
+    // Reports tab (activity) issue for a manager (web plan C, Tasks 3-6).
+    // Align with the shipped web code once it lands: any other route here
+    // must fail naming the route.
+    const loads = [
+      "/reports/summary",
+      "/cards",
+      `/cards/${giftCardId}`,
+      "/reports/activity",
+    ];
+    const out: string[] = [];
+    for (const path of loads) {
+      const res = await asManager("GET", path);
+      out.push(`${path} → ${res.status}`);
+    }
+    expect(out.filter((l) => !l.endsWith("→ 200"))).toEqual([]);
   });
 
   test("TC-1555: the owner on the same timecards route still gets pay fields", async () => {

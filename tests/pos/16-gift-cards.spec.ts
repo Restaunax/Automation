@@ -26,11 +26,19 @@
  *   TC-1065 The drawer counts out to the cent (the $95 of gift card cash
  *           taken, less the $30 handed back) and the owner owes $39.32 on
  *           2 cards.
+ *
+ * With RestauNax feat/owner-gift-cards (gated by RELEASED_ON_QA.ownerGiftCards;
+ * the old halves keep running without it) "what the owner owes" reads the new
+ * reports/summary.owed (TC-1059, TC-1065), the lookup carries `freeze: null`
+ * (TC-1061) and the day close lists the gift cards sold, voided and cashed
+ * out (TC-1065).
  */
 import { randomUUID } from "crypto";
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../fixtures/base";
 import { generateRunId } from "../../utils/testData";
+import { probeOwnerGiftCards, releasePresent } from "../../utils/releaseGate";
+import { ownerGiftCardRaw } from "../../utils/giftCardOwnerApi";
 import { csvToObjects } from "../../utils/csvHelper";
 import {
   apiLogin,
@@ -98,6 +106,8 @@ test.describe("POS gift cards (API)", () => {
   const printed = { code: "", transactionId: "" };
   /** The second printed card, never sold. */
   let spareCode = "";
+  /** Owner gift card routes exist on this stack (probed once, in beforeAll). */
+  let ownerGc = false;
 
   const pos = (method: "GET" | "POST", path: string, body?: Rec) =>
     tabletRaw<Rec>(tablet, method, path, body, owner.session);
@@ -109,7 +119,24 @@ test.describe("POS gift cards (API)", () => {
     quantity: 1,
     price: 12,
   };
+  /**
+   * What the owner owes. feat/owner-gift-cards moves it to
+   * `reports/summary.owed` ({ amount, count }); before it, the legacy
+   * `/summary` carries outstandingBalance + cardCount. Both are returned as
+   * `{ outstandingBalance, cardCount }` so the assertions read the same.
+   */
   const liability = async () => {
+    if (releasePresent("ownerGiftCards", ownerGc)) {
+      const r = await ownerGiftCardRaw<Rec>(
+        ownerToken,
+        { restaurantId },
+        "GET",
+        "/reports/summary"
+      );
+      expect(r.status, JSON.stringify(r.data)).toBe(200);
+      const owed = dataOf(r.data).owed as { amount: number; count: number };
+      return { outstandingBalance: owed.amount, cardCount: owed.count };
+    }
     const r = await getOwnerGiftCardSummaryRaw(ownerToken, restaurantId);
     expect(r.status, JSON.stringify(r.data)).toBe(200);
     return r.data.data;
@@ -130,6 +157,7 @@ test.describe("POS gift cards (API)", () => {
     if (!tenant.restaurantId) throw new Error("[gift-cards] no tenant");
     restaurantId = tenant.restaurantId;
     ownerToken = tenant.accessToken;
+    ownerGc = await probeOwnerGiftCards(ownerToken, restaurantId);
     await updateRestaurantSettingsApi(ownerToken, restaurantId, {
       tableServiceEnabled: true,
       acceptingOrders: true,
@@ -277,6 +305,10 @@ test.describe("POS gift cards (API)", () => {
       activatable: true,
       displayCode: `****-****-****-${printed.code.slice(-4)}`,
     });
+    // An unfrozen card carries freeze: null (feat/owner-gift-cards, T2).
+    if (releasePresent("ownerGiftCards", ownerGc)) {
+      expect(dataOf(scan.data).freeze).toBeNull();
+    }
     // The response never repeats the full code (it's a bearer credential).
     expect(JSON.stringify(scan.data)).not.toContain(printed.code);
 
@@ -435,5 +467,27 @@ test.describe("POS gift cards (API)", () => {
     });
     // The unsold stock card still holds nothing.
     expect(await balanceOf(spareCode)).toBe(0);
+
+    if (releasePresent("ownerGiftCards", ownerGc)) {
+      // The day close lists gift card sales apart from sales (Plan B T15).
+      // Per its contract `total` is gross (every cash sale rung: $25 + $40 +
+      // the $30 later voided) and `net` takes the void back off; `voided`
+      // names the $30 reversal. Nothing was cashed out.
+      const close = await apiRequestRaw<Rec>(
+        "GET",
+        `/restaurant/${restaurantId}/daily-close`,
+        undefined,
+        ownerToken
+      );
+      expect(close.status, JSON.stringify(close.data)).toBe(200);
+      expect(dataOf(close.data).giftCardsSold).toEqual({
+        cash: { amount: 95, count: 3 },
+        card: { amount: 0, count: 0 },
+        total: { amount: 95, count: 3 },
+        voided: { amount: 30, count: 1 },
+        net: 65,
+        cashedOut: { amount: 0, count: 0 },
+      });
+    }
   });
 });
