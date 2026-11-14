@@ -17,7 +17,7 @@
  \* `--grep @growth-a`, `--grep @reservations-audit`,
  \* `--grep @reservations-phase4`,
  * `--grep @attribution`, `--grep @affiliate-commission`,
- * `--grep @books-offboarding`.
+ * `--grep @books-offboarding`, `--grep @hq-notices`.
  */
 import { test, expect } from "../fixtures/base";
 import { apiRequestRaw } from "./apiHelper";
@@ -131,6 +131,10 @@ export const RELEASED_ON_QA = {
    *  is RestauNax staff only; past entries stay downloadable without the
    *  add-on (GET /api/accounting/:id/past). Flip once it is on QA. */
   booksOffboarding: true,
+  /** RestauNax PR #1174, feat/hq-notices — HQ → Operations → Notices
+   *  (`/api/admin/notices/*`, permission HQ_OPERATIONS_NOTICES), the public
+   *  unsubscribe/resubscribe page and `/api/notices/*`. Flip once it is on QA. */
+  hqNotices: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -179,6 +183,8 @@ const REASON: Record<ReleasePart, string> = {
     "Google review replies (RestauNax feat/google-review-replies) is not on this environment yet — /api/google-business/:id answers 404",
   booksOffboarding:
     "Books offboarding (RestauNax feat/books-offboarding) is not on this environment yet — /api/accounting/:id/past answers 404",
+  hqNotices:
+    "HQ notices (RestauNax PR #1174, feat/hq-notices) are not on this environment yet — /api/admin/notices answers 404",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
@@ -522,6 +528,21 @@ export async function probeGoogleReviews(
     `/api/google-business/${restaurantId}`,
     undefined,
     accessToken
+  );
+  return res.status !== 404;
+}
+
+/**
+ * Are HQ notices deployed? `GET /api/admin/notices` exists only with RestauNax
+ * PR #1174; an admin without HQ_OPERATIONS_NOTICES gets 403 (still "present"),
+ * so only a 404 means the route is missing. Read-only.
+ */
+export async function probeHqNotices(adminToken: string): Promise<boolean> {
+  const res = await apiRequestRaw(
+    "GET",
+    "/api/admin/notices?pageSize=1",
+    undefined,
+    adminToken
   );
   return res.status !== 404;
 }
