@@ -83,9 +83,8 @@ type Rec = Record<string, LooseJson>;
 const dataOf = (body: unknown): Rec =>
   ((body as Rec | undefined)?.data ?? {}) as Rec;
 const cents = (n: unknown): number => Math.round(Number(n) * 100);
-/** A location's id inside a chain report row (the field name is not pinned). */
-const locId = (row: Rec): string =>
-  String(row.id ?? row.restaurantId ?? (row.restaurant as Rec | undefined)?.id);
+/** A chain report row's location id: `{ restaurant: NamedRef, ... }`. */
+const locId = (row: Rec): string => String((row.restaurant as Rec).id);
 const sanitize = (s: string): string => s.replace(/[^A-Za-z0-9]/g, "");
 
 type Register = {
@@ -243,8 +242,10 @@ test.describe(
         throw new Error(`[gc-chain] config: ${JSON.stringify(cfg.data)}`);
 
       tz = (await getRestaurantTimeZonePublic(A)) || tz;
-      nameB =
-        (await getOwnerRestaurants(owner)).find((r) => r.id === B)?.name ?? "";
+      const owned = await getOwnerRestaurants(owner);
+      const ownedB = owned.find((r) => r.id === B);
+      if (!ownedB) throw new Error(`[gc-chain] owner does not list B (${B})`);
+      nameB = ownedB.name;
 
       await setUpLocation("A", A);
       const atB = await setUpLocation("B", B);
@@ -408,8 +409,7 @@ test.describe(
       expect(cents(((await owed(at(A))).owed as Rec).amount)).toBe(3716);
       expect(((await owed(at(B))).owed as Rec).amount).toBe(0);
       const group = await owed(chain());
-      const legacy = (group.legacyPlatformHeld ??
-        (group.totals as Rec | undefined)?.legacyPlatformHeld) as Rec;
+      const legacy = (group.totals as Rec).legacyPlatformHeld as Rec;
       expect(legacy, JSON.stringify(group)).toBeTruthy();
       expect(legacy.amount).toBe(0);
 
@@ -471,7 +471,9 @@ test.describe(
       const summary = await get("/reports/summary");
       const rows = summary.byLocation as Rec[];
       expect(rows.map(locId).sort()).toEqual([A, B].sort());
-      const owedSum = sumMoneyCounts(rows.map((r) => r.owed as Rec as never));
+      const owedSum = sumMoneyCounts(
+        rows.map((r) => r.owed as { amount: number; count: number })
+      );
       expect(cents((summary.totals as Rec & { owed: Rec }).owed.amount)).toBe(
         cents(owedSum.amount)
       );
@@ -479,7 +481,7 @@ test.describe(
       const activity = await get(`/reports/activity?from=${today}&to=${today}`);
       const soldSum = sumMoneyCounts(
         (activity.byLocation as Rec[]).map(
-          (l) => (l.sold as Rec).total as Rec as never
+          (l) => (l.sold as Rec).total as { amount: number; count: number }
         )
       );
       const soldTotal = ((activity.totals as Rec).sold as Rec).total as Rec & {
@@ -585,7 +587,7 @@ test.describe(
         eligible: false,
         refusal: { code: "CASH_OUT_WRONG_HOLDER" },
       });
-      expect(looksLikeKey(((d.cashOut as Rec).refusal as Rec).error)).toBe(
+      expect(looksLikeKey(((d.cashOut as Rec).refusal as Rec).text)).toBe(
         false
       );
       expect((d.heldBy as Rec).id).toBe(A);
@@ -597,6 +599,7 @@ test.describe(
       });
       expect(out.status, JSON.stringify(out.data)).toBe(409);
       expect(out.data.code).toBe("CASH_OUT_WRONG_HOLDER");
+      expect(out.data.errorCode).toBe("CASH_OUT_WRONG_HOLDER");
 
       // B's drawer: the $100 float and no cash (the $12.84 was gift card).
       const closed = await closeRegisterSessionPosRaw(
