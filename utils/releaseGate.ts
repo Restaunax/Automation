@@ -136,13 +136,14 @@ export const RELEASED_ON_QA = {
    *  (`/api/admin/notices/*`, permission HQ_OPERATIONS_NOTICES), the public
    *  unsubscribe/resubscribe page and `/api/notices/*`. RestauNax PR #1174 —
    *  API on QA since 2026-11-14; the API/email cases of TC-1980..1989 ran
-   *  7/7 (the 3 browser cases wait on hqNoticesDashboard below). */
+   *  7/7 (the 3 browser cases are gated by hqNoticesDashboard below). */
   hqNotices: true,
   /** The dashboard half of RestauNax PR #1174: HQ → Operations → Notices,
    *  the restaurant list's "Send a notice" and the public unsubscribe page.
    *  Deployed separately from the backend (on 2026-11-14 the QA backend had
-   *  the API while the QA dashboard bundle had no Notices yet). */
-  hqNoticesDashboard: false,
+   *  the API while the QA dashboard bundle had no Notices yet); on the QA
+   *  dashboard since RestauNax PR #1175 + #1180 deployed, 2026-11-14. */
+  hqNoticesDashboard: true,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;

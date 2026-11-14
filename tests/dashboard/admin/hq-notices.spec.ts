@@ -855,13 +855,11 @@ test.describe("HQ notices", { tag: "@hq-notices" }, () => {
       await expect(
         page.getByRole("switch", { name: TXT.liveOnly })
       ).not.toBeChecked();
-      // Default group is Owners: the composer's count is the API's.
+      // Default group is Owners: the composer's count is the API's. The
+      // count line reads "1 person · 1 restaurant · push reaches 0".
+      const reach = people === 1 ? "1 person" : `${people} people`;
       await expect(
-        page
-          .getByText(people === 1 ? "1 person" : `${people} people`, {
-            exact: true,
-          })
-          .first()
+        page.getByText(new RegExp(`^${reach} · `)).first()
       ).toBeVisible();
 
       await restaurants.goto();
