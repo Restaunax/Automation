@@ -23,7 +23,8 @@
  * admin kill switch, replacing POS_TAX_REFUSAL_ENABLED). A sale whose card
  * capture FAILED (W4:M6) can't be staged on QA without Stripe's secret key
  * (the hold must be cancelled and the day closed): the backend integration
- * test salesTax.int proves the report leaves it out.
+ * test salesTax.int proves the report COUNTS it (the sale is still owed, as
+ * in the books), so nothing here asserts a failed capture is left out.
  *
  * RestauNax audit Stage 7 (TC-1637): this restaurant never turned on tax
  * math v2 (W4:M2 + H5), so its report is exactly the figures above — no tax

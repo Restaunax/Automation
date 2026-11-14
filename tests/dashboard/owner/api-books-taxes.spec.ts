@@ -108,7 +108,7 @@ test.describe("Books & taxes — tax calendar, year-end package, card deposits (
     await allure.label("severity", "critical");
   });
 
-  test("TC-763: without the Books & Taxes add-on every books route refuses; with it every screen load answers 200", async () => {
+  test("TC-763: without the Books & Taxes add-on the add-on routes refuse (the accountant list is free); with it every screen load answers 200", async () => {
     const features = await getRestaurantFeaturesRaw(ownerToken, restaurantId);
     expect(features.data.data?.features ?? []).not.toContain("ACCOUNTING_SYNC");
     const loads = async () => ({
@@ -135,7 +135,8 @@ test.describe("Books & taxes — tax calendar, year-end package, card deposits (
     expect(await loads()).toEqual({
       calendar: 403,
       yearEnd: 403,
-      accountants: 403,
+      // Read-only accountant access is free.
+      accountants: 200,
       books: 403,
       deposits: 403,
     });

@@ -1,11 +1,13 @@
 /**
- * 24-books-gating-ui.spec.ts — Books & taxes follows its add-on in the
- * dashboard: hidden (never shown locked) without it, every section loads
- * with it; Connected apps (the free partner API) is there either way
- * (TC-789..791). A deep link without it says where to get it — since
- * restaunax #998, where to REQUEST it — and the seed owner sends and cancels
- * that request from Billing → Add-ons (TC-897; skipped until #998 is on QA,
- * utils/addonRequestGate.ts).
+ * 24-books-gating-ui.spec.ts — Books & taxes is free for every restaurant
+ * (your numbers, the accountant package, the accountant login); only the
+ * add-on's sections (books posting, monthly send, year end, tax calendar)
+ * follow ACCOUNTING_SYNC. Without it those show as one teaser with the
+ * add-on mark and Ask us, never a refused load; with it every section loads;
+ * Connected apps (the free partner API) is there either way (TC-789..791).
+ * A teaser's Ask us is a REQUEST (restaunax #998) and the seed owner sends
+ * and cancels one from Billing → Add-ons (TC-897; skipped until #998 is on
+ * QA, utils/addonRequestGate.ts).
  *
  * Browser. A per-run throwaway owner logs in through the UI (loginViaUi);
  * the "Books & Taxes" add-on (ACCOUNTING_SYNC) is switched by admin override
@@ -65,7 +67,7 @@ const OPTIONAL_TOGGLES = ["deposits", "calendar", "yearEnd"];
 
 test.describe.configure({ mode: "serial" });
 
-test.describe("Owner — Books & taxes is hidden without its add-on; Connected apps is free (UI)", () => {
+test.describe("Owner — Books & taxes is free; its add-on sections are teasers without the add-on (UI)", () => {
   requireEnv(
     ["ADMIN_EMAIL", "ADMIN_PASSWORD"],
     "the file mints its own tenant"
@@ -129,7 +131,7 @@ test.describe("Owner — Books & taxes is hidden without its add-on; Connected a
     await allure.label("severity", "critical");
   });
 
-  test("TC-789: without the add-on there is no Books & taxes item at all (not a locked one); Connected apps loads", async () => {
+  test("TC-789: without the add-on Books & taxes is there with its package, the add-on's tabs carry the add-on mark; Connected apps loads", async () => {
     await manage("tab=Store%20Settings&settingsTab=connected-apps");
     await expect(
       page().getByRole("tab", { name: "Connected apps" })
@@ -139,9 +141,19 @@ test.describe("Owner — Books & taxes is hidden without its add-on; Connected a
     await expect(
       page().getByRole("button", { name: "Create API key" }).first()
     ).toBeVisible({ timeout: 20_000 });
-    // The sidebar is there; Books & taxes is simply not in it.
+    // Books & taxes is in the sidebar for every restaurant.
     await expect(sideItem("Store Settings")).toBeVisible();
-    await expect(sideItem(BOOKS)).toHaveCount(0);
+    await expect(sideItem(BOOKS)).toBeVisible();
+    await manage("tab=books-taxes&section=accountantPackage");
+    await expect(page().getByTestId("accountant-package")).toBeVisible({
+      timeout: 20_000,
+    });
+    // The add-on's sections are marked, not hidden.
+    await expect(
+      page()
+        .getByTestId("books-tab-calendar")
+        .getByTestId("add-on-mark-ACCOUNTING_SYNC")
+    ).toBeVisible();
     expect(refused).toEqual([]);
   });
 
@@ -201,41 +213,35 @@ test.describe("Owner — Books & taxes is hidden without its add-on; Connected a
     expect(refused).toEqual([]);
   });
 
-  test("TC-791: removing the add-on hides it again, and a deep link doesn't open it — it says where to get it", async () => {
+  test("TC-791: removing the add-on turns its sections back into teasers, and a deep link to one says where to ask; the free part stays", async () => {
     await deleteFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,
       "ACCOUNTING_SYNC"
     );
     await manage("tab=books-taxes&section=calendar");
-    // The tab names the product. When the server offers it (usual) the page
-    // is its preview with the ask; otherwise a neutral "isn't on" note. Never
-    // the old "Not part of this restaurant's plan" lock or its Add-ons button.
+    // The tax calendar is an add-on section: its teaser with the mark and
+    // the ask, never the old "Not part of this restaurant's plan" lock or a
+    // refused load.
+    const teaser = page().getByTestId("books-addon-calendar");
+    await expect(teaser).toBeVisible({ timeout: 20_000 });
     await expect(
-      page().getByRole("heading", { name: "RestauNax Books & Taxes" })
-    ).toBeVisible({ timeout: 20_000 });
-    // The throwaway restaurant isn't live yet, so the ask reads "Ask us —
-    // we'll set it up when your account is live" (Stage 6 request flow).
-    await expect(
-      page()
-        .getByRole("button", { name: /^Ask us/ })
-        .or(
-          page().getByText(
-            "RestauNax Books & Taxes isn't on for this restaurant. Your RestauNax team can help you with it."
-          )
-        )
+      teaser
+        .getByTestId("add-on-mark-ACCOUNTING_SYNC")
+        .or(teaser.getByText("Add-on", { exact: true }))
     ).toBeVisible();
+    await expect(teaser.getByRole("button", { name: /^Ask us/ })).toBeVisible();
     await expect(
       page().getByText("Not part of this restaurant's plan")
     ).toHaveCount(0);
     await expect(
       page().getByRole("button", { name: "Go to Add-ons" })
     ).toHaveCount(0);
-    await expect(page().getByRole("tab", { name: "Tax calendar" })).toHaveCount(
-      0
-    );
-    await expect(sideItem("Store Settings")).toBeVisible();
-    await expect(sideItem(BOOKS)).toHaveCount(0);
+    // The rest of the page is free: the package is one tab away.
+    await expect(sideItem(BOOKS)).toBeVisible();
+    await page().getByTestId("books-tab-accountantPackage").click();
+    await expect(page().getByTestId("accountant-package")).toBeVisible();
+    expect(refused).toEqual([]);
   });
 });
 
@@ -300,14 +306,14 @@ test.describe("Owner — requests an add-on from Billing → Add-ons (UI)", () =
       "the seed restaurant has Books & Taxes on — no locked tab to start from"
     );
     await ownerPage.goto(
-      `/restaurant/restaurantId/${seedId}/restaurantManagement?tab=books-taxes`,
+      `/restaurant/restaurantId/${seedId}/restaurantManagement?tab=books-taxes&section=books`,
       { waitUntil: "domcontentloaded" }
     );
-    // The locked tab is now the product's preview (or a neutral note), not a
-    // "Go to Add-ons" lock; the request is made from Billing → Add-ons.
-    await expect(
-      ownerPage.getByRole("heading", { name: "RestauNax Books & Taxes" })
-    ).toBeVisible({ timeout: 20_000 });
+    // The locked section is a teaser, not a "Go to Add-ons" lock; the
+    // request is made from Billing → Add-ons.
+    await expect(ownerPage.getByTestId("books-addon-books")).toBeVisible({
+      timeout: 20_000,
+    });
     await ownerPage.goto(
       `/restaurant/restaurantId/${seedId}/restaurantManagement?tab=Billing&section=addons`,
       { waitUntil: "domcontentloaded" }
