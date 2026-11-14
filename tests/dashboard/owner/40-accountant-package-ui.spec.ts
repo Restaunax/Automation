@@ -25,6 +25,7 @@ import {
   apiRequestRaw,
   createSecondOwner,
   deleteTestRestaurant,
+  restaurantBusinessToday,
 } from "../../../utils/apiHelper";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
@@ -35,11 +36,6 @@ const NOTHING_YET = {
   en: "Nothing to include yet: the most recent days are added once they're closed or over.",
   es: "Todavía no hay nada que incluir: los días más recientes se agregan cuando se cierran o terminan.",
 } as const;
-/** Today in the tenant's time zone (a Miami restaurant): never closed or over. */
-const localToday = () =>
-  new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(
-    new Date()
-  );
 
 const FORMATS = [
   { label: "PDF", ext: "pdf", type: /application\/pdf/ },
@@ -203,7 +199,8 @@ test.describe("Owner — accountant package and Daily Report without the add-on 
   });
 
   test('TC-1954: a package for only today is refused with "Nothing to include yet", in the language asked for (API)', async () => {
-    const day = localToday();
+    // The restaurant's open business day (its time zone, 4 am cutoff).
+    const day = await restaurantBusinessToday(restaurantId);
     const path = (extra = "") =>
       `/api/reports/${restaurantId}/accountant-package?startDate=${day}&endDate=${day}&format=pdf${extra}`;
     const cases: {

@@ -34,6 +34,7 @@ import {
   setFeatureOverrideAdminRaw,
   deleteFeatureOverrideAdminRaw,
   registerWithInvite,
+  restaurantBusinessToday,
   getOwnerRestaurants,
   booksRaw,
   accountantRaw,
@@ -307,10 +308,8 @@ test.describe("Accountant access — invite, read-only, other clients invisible,
   });
 
   test('TC-1956: the accountant\'s package for only today is refused with "Nothing to include yet", in EN and ES', async () => {
-    // Today in the tenant's time zone (a Miami restaurant): never closed or over.
-    const day = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "America/New_York",
-    }).format(new Date());
+    // The restaurant's open business day (its time zone, 4 am cutoff).
+    const day = await restaurantBusinessToday(a.id);
     const path = (extra: string) =>
       `/api/accountant/clients/${a.id}/accountant-package?startDate=${day}&endDate=${day}&format=pdf${extra}`;
     const cases = [

@@ -2184,6 +2184,23 @@ export async function getRestaurantTimeZonePublic(
     : "";
 }
 
+/**
+ * The restaurant's current business day (YYYY-MM-DD) in its own time zone
+ * (getRestaurantTimeZonePublic, else America/New_York), with the day running
+ * from `cutoffHour` (4 am by default) to 4 am the next morning — the day the
+ * backend treats as still open.
+ */
+export async function restaurantBusinessToday(
+  restaurantId: string,
+  cutoffHour = 4
+): Promise<string> {
+  const timeZone =
+    (await getRestaurantTimeZonePublic(restaurantId)) || "America/New_York";
+  return new Intl.DateTimeFormat("en-CA", { timeZone }).format(
+    new Date(Date.now() - cutoffHour * 3_600_000)
+  );
+}
+
 export interface MealPeriod {
   value: string;
   start: string | null;
