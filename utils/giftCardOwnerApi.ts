@@ -174,7 +174,8 @@ export async function buyGiftCardOnline(
 export const isMaskedCode = (s: string): boolean =>
   /^\*{4}-\*{4}-\*{4}-[A-Z0-9]{4}$/.test(s);
 
-const cents = (n: number): number => Math.round(n * 100);
+/** Dollars (a number or a numeric string) to whole cents. */
+export const cents = (n: unknown): number => Math.round(Number(n) * 100);
 
 /** Roll-forward: start + Σ lines = end, to the cent, and difference is 0. */
 export const rollForwardTies = (rf: {

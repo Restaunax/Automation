@@ -1,10 +1,17 @@
 import { test, expect } from "@playwright/test";
 import {
+  cents,
   csvExportPath,
   isMaskedCode,
   rollForwardTies,
   sumMoneyCounts,
 } from "../../utils/giftCardOwnerApi";
+
+test("cents rounds dollars, numbers or numeric strings, to whole cents", () => {
+  expect(cents(37.16)).toBe(3716);
+  expect(cents("12.84")).toBe(1284);
+  expect(cents(0.1 + 0.2)).toBe(30);
+});
 
 test("isMaskedCode accepts only the masked shape", () => {
   expect(isMaskedCode("****-****-****-AB12")).toBe(true);

@@ -31,6 +31,7 @@ import {
 import { looksLikeKey } from "../../../utils/backOfficeApi";
 import {
   buyGiftCardOnline,
+  dataOf,
   isMaskedCode,
   ownerGiftCardRaw,
   rollForwardTies,
@@ -62,8 +63,6 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 
 type Rec = Record<string, LooseJson>;
-const dataOf = (body: unknown): Rec =>
-  ((body as Rec | undefined)?.data ?? {}) as Rec;
 
 const POLL_MS = 5_000;
 const POLL_LIMIT_MS = 120_000;

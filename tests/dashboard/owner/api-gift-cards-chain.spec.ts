@@ -34,13 +34,17 @@
 import { randomUUID } from "crypto";
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
-import { generateRunId } from "../../../utils/testData";
+import {
+  generateRunId,
+  recordGiftCardForCleanup,
+} from "../../../utils/testData";
 import { loginViaUi } from "../../../utils/auth";
 import { createOwnerGiftCardsPage } from "../../../pages/dashboard/owner/OwnerGiftCardsPage";
 import { parseCsv } from "../../../utils/csvHelper";
 import { localToday, looksLikeKey } from "../../../utils/backOfficeApi";
 import { ownerWithRestaurants } from "../../../utils/employerApi";
 import {
+  cents,
   dataOf,
   isMaskedCode,
   ownerGiftCardCsvRaw,
@@ -87,7 +91,6 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 
 type Rec = Record<string, LooseJson>;
-const cents = (n: unknown): number => Math.round(Number(n) * 100);
 /** A chain report row's location id: `{ restaurant: NamedRef, ... }`. */
 const locId = (row: Rec): string => String((row.restaurant as Rec).id);
 
@@ -273,6 +276,7 @@ test.describe(
         id: String(dataOf(sold.data).giftCardId),
         code: String(dataOf(sold.data).code),
       };
+      recordGiftCardForCleanup(card.id);
 
       // B takes $12.84 of it on an open check (TC-1064's pattern).
       const check = await createTabletOrderRaw(regs.B.tablet, regs.B.session, {
@@ -322,9 +326,29 @@ test.describe(
             reg.deviceId
           ).catch(() => {});
       }
-      if (linked)
-        await adminUnlinkRestaurantFromChainRaw(adminToken, gid, B).catch(
-          () => {}
+      // There is no DELETE /api/admin/chains endpoint (see chains.spec.ts).
+      // The group goes away only when unlinking drops it below two members
+      // (auto-dissolve), and the server refuses to unlink an "established"
+      // member: published, with real orders, or with gift cards sold. By the
+      // end of this file A and B are all three, so both unlinks are expected
+      // to be refused and the group "Auto GC chain <runId>" stays on QA with
+      // archived members. Try anyway (a run that stopped early may have left
+      // them unestablished), and name the leftover so it can be found.
+      let dissolved = false;
+      if (linked) {
+        for (const id of [B, A]) {
+          if (dissolved || !id) continue;
+          const r = await adminUnlinkRestaurantFromChainRaw(
+            adminToken,
+            gid,
+            id
+          ).catch(() => null);
+          dissolved = r?.status === 200 && r.data?.dissolved === true;
+        }
+      }
+      if (gid && !dissolved)
+        console.warn(
+          `[gc-chain] chain group left on QA (no admin delete; members established): "Auto GC chain ${runId}" (${gid})`
         );
       for (const id of [A, B, S]) {
         if (id)
