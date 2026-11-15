@@ -59,8 +59,8 @@
 | `utils/giftCardOwnerApi.ts` (new)                                                            | raw wrappers for R/G/T routes, `buyGiftCardOnline`, `disputeGiftCardOnline`, pure checks |
 | `utils/employerApi.ts`                                                                       | `ownerWithRestaurants` also returns `email`, `password` (additive)                       |
 | `tests/unit/giftCardOwnerApi.helper.spec.ts` (new)                                           | pure helpers                                                                             |
-| `tests/dashboard/owner/api-gift-cards-owner.spec.ts` (new)                                   | TC-2000…2011                                                                             |
-| `tests/dashboard/owner/api-gift-card-disputes.spec.ts` (new)                                 | TC-2012…2014                                                                             |
+| `tests/dashboard/owner/api-gift-cards-owner.spec.ts` (new)                                   | TC-2000…2012                                                                             |
+| `tests/dashboard/owner/api-gift-card-disputes.spec.ts` (new)                                 | TC-2047…2049                                                                             |
 | `tests/dashboard/owner/api-gift-cards-chain.spec.ts` (new)                                   | TC-2015…2023                                                                             |
 | `tests/pos/25-gift-card-care.spec.ts` (new)                                                  | TC-2024…2033                                                                             |
 | `tests/dashboard/access/manager-role.spec.ts`                                                | TC-1551 list + new TC-2034…2036                                                          |
@@ -238,7 +238,7 @@ Setup (serial, `beforeAll`, 240 s):
 
 ---
 
-### Task 3: Gift card disputes — `api-gift-card-disputes.spec.ts` (TC-2012…2014)
+### Task 3: Gift card disputes — `api-gift-card-disputes.spec.ts` (TC-2047…2049)
 
 **Files:**
 
@@ -247,16 +247,16 @@ Setup (serial, `beforeAll`, 240 s):
 Setup: fresh tenant, Stripe TEST onboarded, gift cards on. `card = buyGiftCardOnline(pk, rid, 60, { cardToken: "tok_createDispute" })`. Poll `GET /api/disputes/restaurant/:rid` every 5 s for ≤ 120 s until a row has `giftCard.id === card.giftCardId`. On timeout: if `stripeTestModeReady()`, fire `charge.dispute.created` for the intent's charge and poll 30 s more. Otherwise fail with "QA did not deliver charge.dispute.created for <pi> within 120 s".
 
 - [ ] **Step 1: Write the tests:**
-  - **TC-2012 a stolen-card gift card purchase lands on the restaurant that holds the card.**
+  - **TC-2047 (planned as TC-2012) a stolen-card gift card purchase lands on the restaurant that holds the card.**
     - The dispute row has `giftCard: { id, maskedCode }` with `isMaskedCode(maskedCode)`.
     - `GET /api/disputes/:id` (owner) answers 200 with the same `giftCard`.
     - The card detail shows `status: "FROZEN"`, `freeze.origin: "SYSTEM"`, `freeze.reason: "FUNDING_DISPUTED"`, `freeze.canLift: false`, `reasonText` resolved and not the code.
-  - **TC-2013 the disputed money is on hold, not owed, and only RestauNax lifts it.**
+  - **TC-2048 (planned as TC-2013) the disputed money is on hold, not owed, and only RestauNax lifts it.**
     - `reports/summary` → `onHold: { amount: 60, count: 1 }`, `owed.amount: 0`.
     - Owner unfreeze → 403 `FREEZE_NOT_LIFTABLE`.
     - Roll-forward `rollForwardTies` still true (a freeze moves no money).
-  - **TC-2014 the owner's Disputes screen shows the gift card.** UI via `loginViaUi(browser, tenant.email, password)`: `/restaurant/restaurantId/:rid/subscription?section=disputes` lists a row containing the masked code's last 4 and the amount `$60.00`. Opening it shows the gift card, not an order number. Use role/text locators. If the web plan ships test ids, switch to them in the POM (`OwnerGiftCardsPage.disputeRow`).
-- [ ] **Step 2–5:** as Task 2 (skip today → pass on a feature stack → static checks → commit `test(automation): gift card disputes are attributed to the holder (TC-2012..2014)`).
+  - **TC-2049 (planned as TC-2014) the owner's Disputes screen shows the gift card.** UI via `loginViaUi(browser, tenant.email, password)`: `/restaurant/restaurantId/:rid/subscription?section=disputes` lists a row containing the masked code's last 4 and the amount `$60.00`. Opening it shows the gift card, not an order number. Use role/text locators. If the web plan ships test ids, switch to them in the POM (`OwnerGiftCardsPage.disputeRow`).
+- [ ] **Step 2–5:** as Task 2 (skip today → pass on a feature stack → static checks → commit `test(automation): gift card disputes are attributed to the holder (TC-2047..2049)`).
 
 ---
 
@@ -513,8 +513,16 @@ for f in docs/COVERAGE_MAP.md TEST_PLAN.md tests/pos/README.md CLAUDE.md; do
 
 ## Unresolved (for Neaj / the RestauNax plans)
 
-1. **The web plan is not written.** Tab key, sub-tab param and test ids above are proposals. The web implementer should adopt them, or this POM follows theirs.
+1. ~~**The web plan is not written.**~~ **Resolved (2026-11-14):** the web plan exists and the POM follows the built UI, not these proposals. The POM and UI specs still need a heal pass against a live UI (see Pending verification).
 2. **Early fraud warning on a gift card charge** has no reliable test-mode trigger through the publishable key. It stays covered by RestauNax unit tests only, unless a Stripe test token for EFW is confirmed.
-3. **Dispute delivery depends on QA's Stripe webhook endpoint** receiving `charge.dispute.created` for test-mode destination charges. If QA doesn't, TC-2012–2014 need E2E*STRIPE*\* in CI (scripts/with-stripe-test-env.sh) for the `fireStripeEvent` fallback.
+3. **Dispute delivery depends on QA's Stripe webhook endpoint** receiving `charge.dispute.created` for test-mode destination charges. If QA doesn't, TC-2047–2049 need E2E*STRIPE*\* in CI (scripts/with-stripe-test-env.sh) for the `fireStripeEvent` fallback.
 4. **`giftCardsSold.cash` with a voided load** (TC-1065): Plan B says "not voided", so a voided load sits only in `voided`. Confirm before relying on 65 vs 95.
 5. **Terminal intent created by TC-2026's no-session call** is left uncaptured on the shared Stripe test account unless the backend offers a cancel route.
+
+## TC numbering (as built)
+
+TC-2000..2046 are the owner, chain, POS, manager and web UI cases. The disputes spec is TC-2047..2049 (the plan's TC-2012..2014: TC-2012 went to the home-food refusal case), and the POS replay-before-checks test is TC-2050. TC-2049 was retitled in Task 7. All of TC-2000..2050 are gated by `RELEASED_ON_QA.ownerGiftCards`.
+
+## Pending verification
+
+None of the new specs has run against a live backend or UI: the backend is not on QA and `ownerGiftCards` stays `false`. The UI specs (`41-gift-cards-ui`, TC-2049's Disputes screen step, TC-2046) have never run against the built web UI, so `OwnerGiftCardsPage` needs a heal pass (playwright-cli) once a stack has it. Then run every file from Tasks 2-7 on a feature stack, flip `ownerGiftCards: true`, and run the Final verification against QA.

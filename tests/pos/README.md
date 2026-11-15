@@ -217,6 +217,24 @@ closed: false}` before it even generates candidate slots from the period —
   block people already up to date); an enabled POS row always does (the POS enforces
   its minimum only then). Read-only.
 
+- **`25-gift-card-care.spec.ts` (TC-2024..2033, TC-2050)** — the register finds a
+  gift card and cashes a balance out (RestauNax `feat/owner-gift-cards`; gated by
+  `RELEASED_ON_QA.ownerGiftCards`, so it skips with the gate's reason until the
+  backend is on QA). Own throwaway tenant (`createSecondOwner`, Stripe TEST, gift
+  cards on with cash + physical activation) + a REGISTER device
+  (`tabletStaffSignIn` → `X-Staff-Session`) + four people: the owner (MANAGER), a
+  cashier, a cashier without `SELL_GIFT_CARDS`, and a shift lead granted
+  `MANAGE_GIFT_CARDS`; a $25 cash-sold, a $40 web and a $15 imported card, plus a
+  stranger tenant's card. Proves: any staff finds a card, unknown and foreign
+  codes answer the same 404; the old lookup still answers; a cashier who may not
+  sell is stopped before money moves; freeze needs MANAGE_GIFT_CARDS; resend
+  needs selling rights; which balances can be cashed out; cash-out pays the whole
+  balance once and a retry replays the original (checked before the drawer and
+  eligibility); the drawer expects the cash that left; the day close lists gift
+  cards sold and cashed out apart from sales; cash-out needs an open drawer.
+  Cleanup in `afterAll`: the device is deactivated, seeded cards recorded for
+  cleanup, the tenants deleted. Not yet run against a live backend.
+
 ## 09-dual-pricing.spec.ts
 
 Dual pricing v2 (per-item cash tier) at the API level, on its OWN throwaway
