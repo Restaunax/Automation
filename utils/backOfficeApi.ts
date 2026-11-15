@@ -9,6 +9,7 @@
  *   GET  /api/needs-you/restaurant/:rid · /api/needs-you/mine
  *   GET|POST /api/restaurantId/:rid/special-hours · PUT|DELETE …/:id
  *   GET  /api/restaurantId/:rid/ordering-status
+ *   POST /api/restaurantId/:rid/hours/preview           — the hours save preview
  *   GET  /api/restaurantId/:rid/settings/changes?area=&limit=
  *   GET|PUT /api/owner-settings/reports/:rid          — morningSummaryEnabled
  *   GET  /api/compliance/:rid/rules?date=             — labor + tax rules (Stage 2)
@@ -138,6 +139,24 @@ export const specialHoursRaw = (
     method,
     `/api/restaurantId/${rid}/special-hours${id ? `/${id}` : ""}`,
     body,
+    token
+  );
+
+/**
+ * POST /api/restaurantId/:rid/hours/preview — "what happens if I save these
+ * hours?" for the same body as the hours PUT. Writes nothing. `data.effect`
+ * (CLOSES_NOW / OPENS_NOW / STAYS_OPEN / STAYS_CLOSED / NEVER_OPEN),
+ * `data.message` (resolved text), `data.needsConfirm`.
+ */
+export const hoursPreviewRaw = (
+  token: string,
+  rid: string,
+  days: Record<string, unknown>[]
+) =>
+  apiRequestRaw<{ success?: boolean; data?: Rec; message?: string }>(
+    "POST",
+    `/api/restaurantId/${rid}/hours/preview`,
+    { hoursOfOperation: days },
     token
   );
 
