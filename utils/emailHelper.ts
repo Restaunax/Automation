@@ -277,6 +277,31 @@ export async function listEmailIds(
     .map((m) => m.ID);
 }
 
+/**
+ * The raw headers of one message (`GET /api/v1/message/{ID}/headers`), keyed
+ * by header name with every value Mailpit saw. Header names are matched
+ * case-insensitively by `emailHeader` below — use that for assertions.
+ */
+export async function getEmailHeaders(
+  messageId: string
+): Promise<Record<string, string[]>> {
+  return mailpitGet<Record<string, string[]>>(
+    mailpitConfig(),
+    `/api/v1/message/${messageId}/headers`
+  );
+}
+
+/** Values of header `name` (case-insensitive), [] when absent. */
+export function emailHeader(
+  headers: Record<string, string[]>,
+  name: string
+): string[] {
+  const wanted = name.toLowerCase();
+  return Object.entries(headers)
+    .filter(([key]) => key.toLowerCase() === wanted)
+    .flatMap(([, values]) => values);
+}
+
 /** Recipient summary for the timeout message — on a shared inbox this is the debug. */
 function describeRecipients(items: MailpitListItem[]): string {
   if (!items.length) return "";
