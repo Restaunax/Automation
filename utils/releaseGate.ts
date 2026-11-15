@@ -159,6 +159,12 @@ export const RELEASED_ON_QA = {
    *  slots only inside a window). Deployed separately from the backend. Flip
    *  after customer-lima/20-split-hours.spec.ts is green on QA. */
   splitHoursLima: false,
+  /** Template-wind feat/split-hours: the break of a split day on the
+   *  restaurant website (hero "Closed · Opens 5:00 PM", every window in the
+   *  hours table, checkout offers only times inside a window and leaves ASAP
+   *  when the restaurant closes). Deployed separately from the backend. Flip
+   *  after customer/15-split-hours.spec.ts is green on QA. */
+  splitHoursWind: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -217,6 +223,8 @@ const REASON: Record<ReleasePart, string> = {
     "The split hours editor (RestauNax feat/split-hours) is not on this dashboard yet — locales/en/common.json has no businessHours.addHours",
   splitHoursLima:
     "Split hours (Template-lima feat/split-hours) are not on this ordering site yet — the order-time notice has no order-time-notice test id",
+  splitHoursWind:
+    "Split hours (Template-wind feat/split-hours) are not on this website yet — checkout has no order-time-notice in the break",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
