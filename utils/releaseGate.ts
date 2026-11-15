@@ -132,6 +132,10 @@ export const RELEASED_ON_QA = {
    *  is RestauNax staff only; past entries stay downloadable without the
    *  add-on (GET /api/accounting/:id/past). Flip once it is on QA. */
   booksOffboarding: true,
+  /** RestauNax feat/owner-gift-cards (plans A + B + web) — owner gift card
+   *  reports, cards, batches, cash-out, disputes and the POS sell/reload
+   *  routes. Flip once it is on QA. */
+  ownerGiftCards: false,
   /** RestauNax PR #1174, feat/hq-notices — HQ → Operations → Notices
    *  (`/api/admin/notices/*`, permission HQ_OPERATIONS_NOTICES), the public
    *  unsubscribe/resubscribe page and `/api/notices/*`. RestauNax PR #1174 —
@@ -220,6 +224,8 @@ const REASON: Record<ReleasePart, string> = {
     "Google review replies (RestauNax feat/google-review-replies) is not on this environment yet — /api/google-business/:id answers 404",
   booksOffboarding:
     "Books offboarding (RestauNax feat/books-offboarding) is not on this environment yet — /api/accounting/:id/past answers 404",
+  ownerGiftCards:
+    "Owner gift cards (RestauNax feat/owner-gift-cards) are not on this environment yet — /api/gift-cards/restaurants/:id/reports/summary answers 404",
   hqNotices:
     "HQ notices (RestauNax PR #1174, feat/hq-notices) are not on this environment yet — /api/admin/notices answers 404",
   hqNoticesDashboard:
@@ -471,6 +477,28 @@ export async function probeBooksOffboarding(
     ownerToken
   );
   return res.status === 200;
+}
+
+/**
+ * Are owner gift cards deployed? `GET /api/gift-cards/restaurants/:rid/
+ * reports/summary` answers 200 once they are (404 before). Only 404 means
+ * "backend missing": a deployed backend answers a tenant without GIFT_CARDS
+ * (a home-food seller) 403 FEATURE_NOT_AVAILABLE, which is still "deployed",
+ * and any other answer surfaces as a real failure rather than a skip
+ * (same rule as probeTaxDepthStage7). Read-only.
+ */
+export async function probeOwnerGiftCards(
+  ownerToken: string,
+  restaurantId: string
+): Promise<boolean> {
+  const res = await apiRequestRaw(
+    "GET",
+    `/api/gift-cards/restaurants/${restaurantId}/reports/summary`,
+    undefined,
+    ownerToken,
+    { "X-Restaurant-Id": restaurantId }
+  );
+  return res.status !== 404;
 }
 
 /**

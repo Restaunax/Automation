@@ -27,7 +27,9 @@
  *           like the close (W2:A8), refunds $4.00, and $56.00 before refunds.
  *   TC-1038 The books entry: balanced; sales = the report's net sales, tax =
  *           its net tax, tips = the close's, the refund split into its tax
- *           and the rest, each tender = the money taken less the refund.
+ *           and the rest, each tender = the money taken less the refund;
+ *           with owner gift cards the drawer also carries
+ *           giftCardCashOutCents: 0.
  *   TC-1039 The partner API's day: closed, version 1, the same sales, tax,
  *           tips, refunds and tenders — and the books entry's lines.
  */
@@ -35,6 +37,10 @@ import type { Page } from "@playwright/test";
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
 import { generateRunId } from "../../../utils/testData";
+import {
+  probeOwnerGiftCards,
+  releasePresent,
+} from "../../../utils/releaseGate";
 import { loginViaUi, type UiLoginSession } from "../../../utils/auth";
 import {
   apiLogin,
@@ -93,6 +99,7 @@ test.describe("Journey 7 — one closed day reads the same everywhere", () => {
   let ownerEmail = "";
   let ownerPassword = "";
   let ownerToken = "";
+  let giftCardsPresent = false;
   let restaurantId = "";
   let deviceId = "";
   /** The closed business day, "YYYY-MM-DD". */
@@ -127,6 +134,7 @@ test.describe("Journey 7 — one closed day reads the same everywhere", () => {
     ownerEmail = tenant.email;
     ownerPassword = tenant.password;
     ownerToken = tenant.accessToken;
+    giftCardsPresent = await probeOwnerGiftCards(ownerToken, restaurantId);
     const owner = ownerToken;
 
     const zone = await restaurantBasicInfoRaw(adminToken, restaurantId, {
@@ -456,11 +464,20 @@ test.describe("Journey 7 — one closed day reads the same everywhere", () => {
     });
     // W2:A1: no paid-outs, paid-ins or tip-outs this day: the drawer adds
     // nothing, and cash is exactly what was taken.
-    expect(journal.drawer).toEqual({
+    // feat/owner-gift-cards (Plan A Task 12) adds the cash-out line.
+    const drawer = journal.drawer as Rec;
+    // With the backend present the new shape is required.
+    if (giftCardsPresent) expect(drawer).toHaveProperty("giftCardCashOutCents");
+    const hasCashOut = releasePresent(
+      "ownerGiftCards",
+      "giftCardCashOutCents" in drawer
+    );
+    expect(drawer).toEqual({
       paidInCents: 0,
       paidOutCents: 0,
       tipsPaidCashCents: 0,
       giftCardCashRefundCents: 0,
+      ...(hasCashOut ? { giftCardCashOutCents: 0 } : {}),
     });
   });
 
