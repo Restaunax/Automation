@@ -47,6 +47,7 @@ import {
 } from "../../../utils/backOfficeApi";
 import {
   buyGiftCardOnline,
+  dataOf,
   isMaskedCode,
   ownerGiftCardRaw,
   rollForwardTies,
@@ -80,8 +81,6 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 const EMAIL_DOMAIN = process.env.TEST_EMAIL_DOMAIN ?? "demomailtrap.co";
 
 type Rec = Record<string, LooseJson>;
-const dataOf = (body: unknown): Rec =>
-  ((body as Rec | undefined)?.data ?? {}) as Rec;
 const money = (x: unknown): Rec => x as Rec;
 
 test.describe.configure({ mode: "serial" });
@@ -384,7 +383,11 @@ test.describe(
         const lift = await asA("POST", `/cards/${imported.id}/unfreeze`);
         expect(lift.status, JSON.stringify(lift.data)).toBe(403);
         expect(lift.data.code).toBe("FREEZE_NOT_LIFTABLE");
-        expect(lift.data.error).toBe("Only RestauNax can lift this hold");
+        // error:giftCard.care.FREEZE_NOT_LIFTABLE (RestauNax en/error.json).
+        expect(looksLikeKey(lift.data.error), lift.data.error).toBe(false);
+        expect(lift.data.error).toBe(
+          "This card was frozen by RestauNax and only RestauNax can unfreeze it. Contact support."
+        );
       } finally {
         await unfreezeGiftCardRaw(adminToken, imported.id);
       }
@@ -640,8 +643,11 @@ test.describe(
         expect(r.data.code).toBe("FEATURE_NOT_AVAILABLE");
         expect(looksLikeKey(r.data.error)).toBe(false);
       }
-      // Selling is refused in words, by the feature check (a seller that
-      // never onboarded Stripe would be refused anyway, for another reason).
+      // Selling is refused in words, by the feature check. A fresh tenant is
+      // unpublished, and the public buy route refuses an unpublished
+      // restaurant first (400 preview mode), so publish it. The feature check
+      // runs before any Stripe-readiness check, so no onboarding is needed.
+      await setRestaurantPublishedApi(adminToken, seller.restaurantId, true);
       const buy = await apiRequestRaw<Rec>(
         "POST",
         "/api/stripe/gift-card-payment-intent",
