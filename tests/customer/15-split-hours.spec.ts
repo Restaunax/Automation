@@ -321,9 +321,11 @@ test.describe(
       await expect(readyNote()).toHaveText(
         "Pick a time below and your order will be ready for pickup then."
       );
+      // The prep time is for an order made now; in the break it would read
+      // as "ready in 35 minutes" right above "Closed".
       await expect(
         page().getByText(`About ${PREP_MINUTES} minutes`, { exact: true })
-      ).toBeVisible();
+      ).toHaveCount(0);
       await expectNoFixedPickupTime();
 
       // Today is on offer (dinner is still to come), first in the list.
