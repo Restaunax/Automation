@@ -165,6 +165,13 @@ export const RELEASED_ON_QA = {
    *  when the restaurant closes). Deployed separately from the backend. Flip
    *  after customer/15-split-hours.spec.ts is green on QA. */
   splitHoursWind: false,
+  /** RestauNax feat/split-hours (b09705706): the public waitlist status read
+   *  (`GET /api/public/restaurants/:id/waitlist`) answers 200 `disabled` for a
+   *  restaurant without the reservations add-on instead of 403
+   *  RESERVATIONS_NOT_ENABLED (apps call it on launch). While this is false
+   *  TC-1236 accepts the old 403 too; flip it once the backend is on QA and
+   *  the 403 becomes a failure. */
+  waitlistStatusWithoutAddon: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -223,6 +230,8 @@ const REASON: Record<ReleasePart, string> = {
     "The split hours editor (RestauNax feat/split-hours) is not on this dashboard yet — locales/en/common.json has no businessHours.addHours",
   splitHoursLima:
     "Split hours (Template-lima feat/split-hours) are not on this ordering site yet — the order-time notice has no order-time-notice test id",
+  waitlistStatusWithoutAddon:
+    "The public waitlist status still answers 403 without the reservations add-on (RestauNax feat/split-hours b09705706 is not on this environment yet)",
   splitHoursWind:
     "Split hours (Template-wind feat/split-hours) are not on this website yet — checkout has no order-time-notice in the break",
 };

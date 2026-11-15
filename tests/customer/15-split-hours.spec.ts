@@ -15,8 +15,11 @@
  *   TC-2021 Checkout in the break: "Closed · Opens <dinner>", "We reopen at
  *           <dinner> today…", ASAP off, Schedule for later picked, today on
  *           offer, the dinner opening the first time, nothing in the break.
+ *           The pickup note asks for a time, then says "ready for pickup
+ *           today at <dinner>"; never the old fixed "15-20 minutes".
  *   TC-2022 Inside the first window (a new guest): the hero says "Open Now",
- *           ASAP is offered and picked, no closed notice.
+ *           ASAP is offered and picked, no closed notice; the pickup note
+ *           says ready around now + the restaurant's own prep time.
  *   TC-2023 The guest stays on checkout with ASAP while the first window
  *           closes (the browser clock is moved, nothing is reloaded):
  *           checkout moves to Schedule for later by itself.
@@ -49,6 +52,7 @@ import {
   DAY_NAMES,
   formatClockEn,
   hhmm,
+  localParts,
   NO_ROOM_FOR_SPLIT_DAY,
   splitDayAroundNow,
   type SplitDayPlan,
@@ -58,6 +62,8 @@ import { probeSplitHours, requireRelease } from "../../utils/releaseGate";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
+/** The restaurant's pickup prep time (settings.pickupPrepTimeDefault). */
+const PREP_MINUTES = 35;
 
 test.describe.configure({ mode: "serial" });
 
@@ -151,6 +157,11 @@ test.describe(
     const later = () =>
       page().getByRole("radio", { name: /^Schedule for later/ });
     const notice = () => page().getByTestId("order-time-notice");
+    /** When the pickup order will be ready, under the pickup address. */
+    const readyNote = () => page().getByTestId("pickup-ready-note");
+    /** Checkout never promises the old fixed "15-20 minutes". */
+    const expectNoFixedPickupTime = async () =>
+      expect(page().locator("body")).not.toContainText("15-20 minutes");
     /** The date and time pickers under "Schedule for later" (no ids). */
     const dateSelect = () =>
       page()
@@ -187,6 +198,9 @@ test.describe(
       ownerToken = tenant.accessToken;
       await updateRestaurantSettingsApi(ownerToken, restaurantId, {
         acceptingOrders: true,
+        // A number no default would give, so the page can only have it from
+        // this restaurant.
+        pickupPrepTimeDefault: PREP_MINUTES,
       });
       await ensureTaxRate(ownerToken, restaurantId, 7);
       await setRestaurantPublishedApi(adminToken, restaurantId, true);
@@ -302,6 +316,15 @@ test.describe(
         new RegExp(`Closed · Opens ${shown(second.startMinute)}`)
       );
       await expect(later()).toBeChecked();
+      // Nothing is promised until a time is picked.
+      await expectSeenByUser(readyNote(), "the pickup note");
+      await expect(readyNote()).toHaveText(
+        "Pick a time below and your order will be ready for pickup then."
+      );
+      await expect(
+        page().getByText(`About ${PREP_MINUTES} minutes`, { exact: true })
+      ).toBeVisible();
+      await expectNoFixedPickupTime();
 
       // Today is on offer (dinner is still to come), first in the list.
       const dates = await dateSelect().locator("option").allInnerTexts();
@@ -318,6 +341,18 @@ test.describe(
         new RegExp(`^${shown(second.endMinute - 15)}$`)
       );
       expect(times).toHaveLength((second.endMinute - second.startMinute) / 15);
+
+      // A date alone is still no promise; the dinner opening is.
+      await expect(readyNote()).toHaveText(
+        "Pick a time below and your order will be ready for pickup then."
+      );
+      await timeSelect().selectOption({ index: 1 });
+      await expect(readyNote()).toHaveText(
+        new RegExp(
+          `^Your order will be ready for pickup today at ${shown(second.startMinute)}\\.$`
+        )
+      );
+      await expectNoFixedPickupTime();
     });
 
     test("TC-2022: inside the first window ASAP is offered and picked, and the hero says Open Now", async ({
@@ -330,6 +365,28 @@ test.describe(
       await expect(asap()).toBeChecked();
       await expect(later()).not.toBeChecked();
       await expect(notice()).toHaveCount(0);
+
+      // Ready about the restaurant's prep time from now (a minute may tick
+      // over between the page's reading of the clock and ours).
+      const nowMinute = localParts(timeZone).minuteOfDay;
+      const around = [-1, 0, 1]
+        .map((d) => shown(nowMinute + PREP_MINUTES + d))
+        .join("|");
+      await expectSeenByUser(readyNote(), "the pickup note");
+      await expect(readyNote()).toHaveText(
+        new RegExp(
+          `^Order now and it will be ready for pickup around (?:${around}), about ${PREP_MINUTES} minutes after you order\\.$`
+        )
+      );
+      await expect(
+        page().getByText(`About ${PREP_MINUTES} minutes`, { exact: true })
+      ).toBeVisible();
+      await expectNoFixedPickupTime();
+      // Choosing to schedule takes the promise back until a time is picked.
+      await later().check();
+      await expect(readyNote()).toHaveText(
+        "Pick a time below and your order will be ready for pickup then."
+      );
 
       await page().goto(site("/"), { waitUntil: "domcontentloaded" });
       await expect(page().getByTestId("restaurant-open-status")).toHaveText(

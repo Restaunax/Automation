@@ -33,6 +33,7 @@ import {
 } from "../../utils/apiHelper";
 import {
   probeReservationsPhase4,
+  RELEASED_ON_QA,
   requireRelease,
 } from "../../utils/releaseGate";
 import {
@@ -142,10 +143,27 @@ test.describe("POS — Online waitlist (phase 4) @reservations-phase4", () => {
     expect((host.data as any).onlineWaitlist.enabled).toBe(false);
   });
 
-  test("TC-1236: without the add-on, every public call answers 403 RESERVATIONS_NOT_ENABLED", async () => {
+  test("TC-1236: without the add-on, the public status reads disabled (not an error) and a join or a pause answers 403 RESERVATIONS_NOT_ENABLED", async () => {
+    // Apps read the status on launch: a restaurant that doesn't offer a
+    // waitlist is not an error (RestauNax b09705706). Before that change the
+    // read answered 403 like the writes; that answer is accepted only until
+    // RELEASED_ON_QA.waitlistStatusWithoutAddon is flipped.
     const status = await getPublicWaitlistRaw(bare.restaurantId, 2);
-    expect(status.status).toBe(403);
-    expect(errorCode(status.data)).toBe("RESERVATIONS_NOT_ENABLED");
+    if (status.status === 403 && !RELEASED_ON_QA.waitlistStatusWithoutAddon) {
+      expect(errorCode(status.data)).toBe("RESERVATIONS_NOT_ENABLED");
+    } else {
+      expect(status.status, JSON.stringify(status.data)).toBe(200);
+      expect(status.data).toMatchObject({
+        success: true,
+        data: {
+          status: "disabled",
+          quoteMinutes: null,
+          partiesAhead: 0,
+          maxPartySize: null,
+          restaurantPhone: null,
+        },
+      });
+    }
 
     const refused = await joinPublicWaitlistRaw(bare.restaurantId, joinBody());
     expect(refused.status).toBe(403);
