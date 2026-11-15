@@ -516,6 +516,32 @@ test.describe(
       );
       expect(lifted.status, JSON.stringify(lifted.data)).toBe(200);
       expect(lifted.data.data.status).toBe("ACTIVE");
+
+      // The ledger names the manager whose PIN approved Dee's unfreeze, and
+      // names no approver for Sam, who froze on his own grant. The note is
+      // read from the admin movement ledger (masked codes): owner and tablet
+      // history rows carry no note.
+      const ledger = await apiRequestRaw<{
+        data: {
+          transactions: { giftCardId: string; note: string | null }[];
+        };
+      }>(
+        "GET",
+        `/api/admin/gift-cards/transactions?restaurantId=${rid}&limit=100`,
+        undefined,
+        adminToken
+      );
+      expect(ledger.status, JSON.stringify(ledger.data)).toBe(200);
+      const notes = ledger.data.data.transactions
+        .filter((t) => t.giftCardId === cashCard.id)
+        .map((t) => t.note ?? "");
+      const unfrozenNote = notes.find((n) => n.startsWith("Card unfrozen"));
+      const frozenNote = notes.find((n) => n.startsWith("Card frozen"));
+      expect(unfrozenNote, notes.join(" | ")).toContain(
+        `(approved by staff ${owner.id})`
+      );
+      expect(frozenNote, notes.join(" | ")).toBeTruthy();
+      expect(frozenNote).not.toContain("approved by");
     });
 
     test("TC-2028: resend needs selling rights; changing the recipient needs managing rights", async () => {
