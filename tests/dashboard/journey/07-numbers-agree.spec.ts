@@ -37,7 +37,10 @@ import type { Page } from "@playwright/test";
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
 import { generateRunId } from "../../../utils/testData";
-import { releasePresent } from "../../../utils/releaseGate";
+import {
+  probeOwnerGiftCards,
+  releasePresent,
+} from "../../../utils/releaseGate";
 import { loginViaUi, type UiLoginSession } from "../../../utils/auth";
 import {
   apiLogin,
@@ -96,6 +99,7 @@ test.describe("Journey 7 — one closed day reads the same everywhere", () => {
   let ownerEmail = "";
   let ownerPassword = "";
   let ownerToken = "";
+  let giftCardsPresent = false;
   let restaurantId = "";
   let deviceId = "";
   /** The closed business day, "YYYY-MM-DD". */
@@ -130,6 +134,7 @@ test.describe("Journey 7 — one closed day reads the same everywhere", () => {
     ownerEmail = tenant.email;
     ownerPassword = tenant.password;
     ownerToken = tenant.accessToken;
+    giftCardsPresent = await probeOwnerGiftCards(ownerToken, restaurantId);
     const owner = ownerToken;
 
     const zone = await restaurantBasicInfoRaw(adminToken, restaurantId, {
@@ -461,6 +466,8 @@ test.describe("Journey 7 — one closed day reads the same everywhere", () => {
     // nothing, and cash is exactly what was taken.
     // feat/owner-gift-cards (Plan A Task 12) adds the cash-out line.
     const drawer = journal.drawer as Rec;
+    // With the backend present the new shape is required.
+    if (giftCardsPresent) expect(drawer).toHaveProperty("giftCardCashOutCents");
     const hasCashOut = releasePresent(
       "ownerGiftCards",
       "giftCardCashOutCents" in drawer

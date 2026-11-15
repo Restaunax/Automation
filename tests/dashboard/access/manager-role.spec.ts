@@ -19,7 +19,8 @@
  *   - gift cards (RestauNax feat/owner-gift-cards; gated by
  *     RELEASED_ON_QA.ownerGiftCards): the capability list gains "giftCards"
  *     (TC-1551); a manager finds, freezes and resends cards (TC-2034), is
- *     refused the owner's controls with MANAGER_NOT_ALLOWED (TC-2035), and
+ *     refused the owner's controls with MANAGER_NOT_ALLOWED, or FORBIDDEN on a
+ *     chain route (TC-2035), and
  *     the GETs their Gift cards screen loads all answer 200 (TC-2036).
  *
  * Gating: needs admin credentials (it mints its own tenant) and Mailpit (the
@@ -169,6 +170,9 @@ test.describe("Manager dashboard role (API)", () => {
       (c) => c !== "announcements"
     );
     // feat/owner-gift-cards adds "giftCards" after "reports".
+    // With the backend present the new shape is required; without it the old
+    // list is still accepted.
+    if (giftCardsPresent) expect(caps).toContain("giftCards");
     const hasGc = releasePresent("ownerGiftCards", caps.includes("giftCards"));
     expect(caps).toEqual([
       "orders",
@@ -338,6 +342,10 @@ test.describe("Manager dashboard role (API)", () => {
       [{ restaurantId }, "GET", "/reports/settlement"],
       [{ restaurantId }, "GET", "/export.csv"],
       [{ restaurantId }, "GET", "/summary"],
+      // A group route names no restaurant the manager manages, so the
+      // manager scope lets it through and the controller's own group check
+      // refuses it with FORBIDDEN. The groupId is a dummy: a manager belongs
+      // to no chain, so any id is refused the same way.
       [{ groupId: restaurantId }, "GET", "/cards"],
     ];
     const wrong: string[] = [];
@@ -351,10 +359,12 @@ test.describe("Manager dashboard role (API)", () => {
         "es"
       );
       const ok =
-        res.status === 403 &&
-        res.data.error === "MANAGER_NOT_ALLOWED" &&
-        res.data.message ===
-          "Los gerentes no pueden abrir esto. Pídeselo al dueño.";
+        "groupId" in scope
+          ? res.status === 403 && res.data.code === "FORBIDDEN"
+          : res.status === 403 &&
+            res.data.error === "MANAGER_NOT_ALLOWED" &&
+            res.data.message ===
+              "Los gerentes no pueden abrir esto. Pídeselo al dueño.";
       if (!ok)
         wrong.push(
           `${method} ${JSON.stringify(scope)}${path} → ${res.status} ${JSON.stringify(res.data)}`

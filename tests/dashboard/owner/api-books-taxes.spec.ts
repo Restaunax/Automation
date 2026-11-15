@@ -28,6 +28,7 @@ import { settingChangesRaw } from "../../../utils/backOfficeApi";
 import {
   probeBooksOffboarding,
   probeTaxDepthStage7,
+  probeOwnerGiftCards,
   releasePresent,
   requireRelease,
 } from "../../../utils/releaseGate";
@@ -88,6 +89,7 @@ test.describe("Books & taxes — tax calendar, year-end package, card deposits (
   const runId = generateRunId();
   let adminToken = "";
   let ownerToken = "";
+  let giftCardsPresent = false;
   let restaurantId = "";
   let zip: ZipEntry[] = [];
 
@@ -99,6 +101,7 @@ test.describe("Books & taxes — tax calendar, year-end package, card deposits (
     if (!tenant.restaurantId) throw new Error("[api-books-taxes] no tenant");
     restaurantId = tenant.restaurantId;
     ownerToken = tenant.accessToken;
+    giftCardsPresent = await probeOwnerGiftCards(ownerToken, restaurantId);
   });
 
   test.afterAll(async () => {
@@ -481,6 +484,9 @@ test.describe("Books & taxes — tax calendar, year-end package, card deposits (
     const cardText = cards.body.toString("utf8");
     // feat/owner-gift-cards renames the row (Plan A Task 11) and adds a line
     // for cards RestauNax still holds, which a fresh tenant doesn't have.
+    // With the backend present the renamed row is required.
+    if (giftCardsPresent)
+      expect(cardText).toContain("Cards whose money you hold,0,0.00");
     const renamed = releasePresent(
       "ownerGiftCards",
       cardText.includes("Cards whose money you hold,0,0.00")
