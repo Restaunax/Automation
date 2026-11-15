@@ -312,13 +312,23 @@ test.describe("Manager dashboard role (API)", () => {
       expect(frozen.status, JSON.stringify(frozen.data)).toBe(200);
       expect(frozen.data.data?.freeze).toMatchObject({ origin: "STAFF" });
     } finally {
-      // The owner lifts it: a manager can't unfreeze (TC-2035).
-      await ownerGiftCardRaw(
+      // The owner lifts it: a manager can't unfreeze (TC-2035). A failed
+      // lift leaves the card frozen for the later cases, so say so (409
+      // NOT_FROZEN only means the freeze above never landed).
+      const lift = await ownerGiftCardRaw(
         ownerToken,
         { restaurantId },
         "POST",
         `/cards/${giftCardId}/unfreeze`
-      ).catch(() => {});
+      ).catch((e: unknown) => ({ status: 0, data: { error: String(e) } }));
+      const notFrozen =
+        lift.status === 409 &&
+        (lift.data as { code?: string })?.code === "NOT_FROZEN";
+      if (lift.status !== 200 && !notFrozen) {
+        const description = `owner unfreeze of ${giftCardId} answered ${lift.status}: ${JSON.stringify(lift.data).slice(0, 300)}; the card may still be frozen`;
+        test.info().annotations.push({ type: "cleanup failed", description });
+        console.warn(`[manager-role] TC-2034 cleanup: ${description}`);
+      }
     }
     // The seeded card has no email: a contract answer, not an access refusal.
     const resend = await asManager("POST", `/cards/${giftCardId}/resend`, {});

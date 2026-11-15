@@ -426,7 +426,11 @@ export async function probeBooksOffboarding(
 
 /**
  * Are owner gift cards deployed? `GET /api/gift-cards/restaurants/:rid/
- * reports/summary` answers 200 once they are (404 before). Read-only.
+ * reports/summary` answers 200 once they are (404 before). Only 404 means
+ * "backend missing": a deployed backend answers a tenant without GIFT_CARDS
+ * (a home-food seller) 403 FEATURE_NOT_AVAILABLE, which is still "deployed",
+ * and any other answer surfaces as a real failure rather than a skip
+ * (same rule as probeTaxDepthStage7). Read-only.
  */
 export async function probeOwnerGiftCards(
   ownerToken: string,
@@ -439,7 +443,7 @@ export async function probeOwnerGiftCards(
     ownerToken,
     { "X-Restaurant-Id": restaurantId }
   );
-  return res.status === 200;
+  return res.status !== 404;
 }
 
 /**
