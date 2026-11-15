@@ -35,16 +35,18 @@ import { test, expect } from "../../../fixtures/base";
 import {
   generateRunId,
   recordGiftCardForCleanup,
-  recordUserForCleanup,
 } from "../../../utils/testData";
 import { parseCsv } from "../../../utils/csvHelper";
 import { looksLikeKey } from "../../../utils/backOfficeApi";
 import { loginViaUi, type UiLoginSession } from "../../../utils/auth";
-import { waitForEmail, extractInviteToken } from "../../../utils/emailHelper";
+import { createRestaurantManager } from "../../../utils/managerApi";
 import {
   buyGiftCardOnline,
+  dataOf,
   isMaskedCode,
   ownerGiftCardRaw,
+  sanitizeCode,
+  usd,
 } from "../../../utils/giftCardOwnerApi";
 import {
   probeOwnerGiftCards,
@@ -57,10 +59,7 @@ import {
   deleteTestRestaurant,
   ensureBusinessHours,
   freezeGiftCardApi,
-  inviteStaffRaw,
-  registerWithInvite,
   seedFundedGiftCard,
-  setFeatureOverrideAdminRaw,
   setRestaurantPublishedApi,
   stripeConfigRaw,
   stripeTestOnboardingRaw,
@@ -77,17 +76,6 @@ const MAILPIT = !!process.env.MAILPIT_BASE_URL;
 const EMAIL_DOMAIN = process.env.TEST_EMAIL_DOMAIN ?? "demomailtrap.co";
 
 type Rec = Record<string, LooseJson>;
-const dataOf = (body: unknown): Rec =>
-  ((body as Rec | undefined)?.data ?? {}) as Rec;
-/** The web's money format (dailyReport/shared.tsx `usd`). */
-const usd = (n: number): string =>
-  `$${n.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-const sanitize = (s: string): string =>
-  s.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
-
 /** EN copy the Spanish page must not show (web giftCards.json, en). */
 const EN = {
   sidebar: "Gift cards",
@@ -274,8 +262,8 @@ test.describe(
       );
       expect(await gc().historyLabels()).toEqual(expected);
       expect(await page().content()).not.toContain(web.code);
-      expect(sanitize(await page().content())).not.toContain(
-        sanitize(web.code)
+      expect(sanitizeCode(await page().content())).not.toContain(
+        sanitizeCode(web.code)
       );
       await gc().closeCard();
       expect(refused).toEqual([]);
@@ -356,6 +344,11 @@ test.describe(
         const flipped = dataOf((await asOwner("GET", "/config")).data);
         expect(flipped.allowCashFunding).toBe(!was);
       } finally {
+        // A mid-test failure can leave a draft: discard it, so the next goto
+        // never meets the unsaved-changes prompt, then restore through the API.
+        await gc()
+          .discardChanges()
+          .catch(() => {});
         await asOwner("PUT", "/config", {
           presetDenominations: before.presetDenominations,
           allowCashFunding: before.allowCashFunding,
@@ -400,7 +393,7 @@ test.describe(
       const body = rows.slice(1).filter((r) => r.some((c) => c.trim()));
       expect(body.length, JSON.stringify(rows[0])).toBeGreaterThanOrEqual(2);
       const hasCode = (code: string) =>
-        body.some((r) => r.some((c) => sanitize(c) === sanitize(code)));
+        body.some((r) => r.some((c) => sanitizeCode(c) === sanitizeCode(code)));
       expect(hasCode(web.code), "the web card's full code").toBe(true);
       expect(hasCode(imported.code), "the imported card's full code").toBe(
         true
@@ -509,43 +502,18 @@ test.describe(
       test.setTimeout(240_000);
       const managerEmail = `auto-gcmgr-${runId}@${EMAIL_DOMAIN}`;
       const managerPassword = `Automation!Mgr-${runId}`;
-      recordUserForCleanup(managerEmail);
-      // The manager-role harness (access/manager-role.spec.ts): RestauNax
-      // Team, an invited team member with their own account, made manager.
-      const grant = await setFeatureOverrideAdminRaw(
+      // The shared manager-role harness: RestauNax Team, an invited team
+      // member with their own account, made manager.
+      await createRestaurantManager({
         adminToken,
-        rid,
-        "TEAM_BUNDLE",
-        true
-      );
-      expect(grant.ok, JSON.stringify(grant.data)).toBe(true);
-      const invited = await inviteStaffRaw(owner, rid, {
-        email: managerEmail,
-        firstName: "Gia",
-        lastName: "Manager",
-      });
-      expect(invited.status, JSON.stringify(invited.data)).toBe(201);
-      const staffMemberId = String(invited.data.data?.staffMemberId ?? "");
-      const mail = await waitForEmail(managerEmail, {
-        subjectPattern: /added to the team at/i,
-        timeoutMs: 90_000,
-      });
-      await registerWithInvite({
-        firstName: "Gia",
-        lastName: "Manager",
+        ownerToken: owner,
+        restaurantId: rid,
         email: managerEmail,
         password: managerPassword,
-        userInvitationToken: extractInviteToken(
-          mail.text_body || mail.html_body
-        ),
+        firstName: "Gia",
+        lastName: "Manager",
+        tag: "[gc-ui]",
       });
-      const made = await apiRequestRaw<Rec>(
-        "POST",
-        `/restaurant/${rid}/staff/managers`,
-        { staffMemberId },
-        owner
-      );
-      expect(made.status, JSON.stringify(made.data)).toBe(200);
 
       const manager = await loginViaUi(browser, managerEmail, managerPassword);
       const statuses: string[] = [];

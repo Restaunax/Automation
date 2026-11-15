@@ -29,9 +29,13 @@ export type GiftCardsReportKey =
   | "stock"
   | "settlement";
 
-/** Last 4 characters of a full code, ignoring separators. */
+/** Last 4 characters of a full code, ignoring separators, upper-cased
+ * (the masked code shows them upper-case; matches `sanitizeCode`). */
 export const last4Of = (code: string): string =>
-  code.replace(/[^A-Za-z0-9]/g, "").slice(-4);
+  code
+    .replace(/[^A-Za-z0-9]/g, "")
+    .slice(-4)
+    .toUpperCase();
 
 export const createOwnerGiftCardsPage = (page: Page) => {
   const section = () => page.getByTestId("gift-cards-section");
@@ -215,8 +219,8 @@ export const createOwnerGiftCardsPage = (page: Page) => {
     const chips = settingsPresets();
     for (let n = await chips.count(); n > 0; n -= 1) {
       await chips.first().locator(".MuiChip-deleteIcon").click();
+      await expect(chips).toHaveCount(n - 1);
     }
-    await expect(chips).toHaveCount(0);
   };
   const removeLastPreset = async () =>
     settingsPresets().last().locator(".MuiChip-deleteIcon").click();
@@ -236,6 +240,20 @@ export const createOwnerGiftCardsPage = (page: Page) => {
       .locator(".MuiFormHelperText-root");
   /** Save lives in the shared UnsavedChangesBar. */
   const saveButton = (): Locator => page.getByTestId("unsaved-changes-save");
+  /**
+   * Throws away an unsaved draft: clicks the bar's Discard (the text button
+   * just before Save; no test id) when the bar is showing. A no-op otherwise.
+   */
+  const discardChanges = async () => {
+    if (
+      !(await saveButton()
+        .isVisible()
+        .catch(() => false))
+    )
+      return;
+    await saveButton().locator("xpath=preceding-sibling::button[1]").click();
+    await expect(saveButton()).toBeHidden({ timeout: 10_000 });
+  };
   const saveSettings = async () => {
     await saveButton().click();
     await expect(saveButton()).toBeHidden({ timeout: 15_000 });
@@ -361,6 +379,7 @@ export const createOwnerGiftCardsPage = (page: Page) => {
     presetsError,
     saveButton,
     saveSettings,
+    discardChanges,
     chainLevelNotice,
     openChainSettings,
     reportTab,

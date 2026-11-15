@@ -41,12 +41,15 @@ import { parseCsv } from "../../../utils/csvHelper";
 import { localToday, looksLikeKey } from "../../../utils/backOfficeApi";
 import { ownerWithRestaurants } from "../../../utils/employerApi";
 import {
+  dataOf,
   isMaskedCode,
   ownerGiftCardCsvRaw,
   ownerGiftCardRaw,
   rollForwardTies,
+  sanitizeCode,
   sumMoneyCounts,
   tabletGiftCardRaw,
+  usd,
   type Scope,
 } from "../../../utils/giftCardOwnerApi";
 import {
@@ -84,12 +87,9 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 
 type Rec = Record<string, LooseJson>;
-const dataOf = (body: unknown): Rec =>
-  ((body as Rec | undefined)?.data ?? {}) as Rec;
 const cents = (n: unknown): number => Math.round(Number(n) * 100);
 /** A chain report row's location id: `{ restaurant: NamedRef, ... }`. */
 const locId = (row: Rec): string => String((row.restaurant as Rec).id);
-const sanitize = (s: string): string => s.replace(/[^A-Za-z0-9]/g, "");
 
 type Register = {
   restaurantId: string;
@@ -365,7 +365,7 @@ test.describe(
 
     test("TC-2016: any location finds the whole chain's cards and says who holds the money", async () => {
       gate();
-      const last4 = sanitize(card.code).slice(-4);
+      const last4 = sanitizeCode(card.code).slice(-4);
       const cardsOf = async (scope: Scope, query: string) => {
         const r = await asOwner(scope, "GET", `/cards${query}`);
         expect(r.status, JSON.stringify(r.data)).toBe(200);
@@ -551,7 +551,7 @@ test.describe(
       );
       const rows = parseCsv(csv.text);
       const row = rows.find((cells) =>
-        cells.some((c) => sanitize(c).toUpperCase() === card.code.toUpperCase())
+        cells.some((c) => sanitizeCode(c) === card.code.toUpperCase())
       );
       expect(row, "a row carrying the card's full code").toBeTruthy();
       expect((row ?? []).some((c) => cents(c) === 3716)).toBe(true);
@@ -630,11 +630,6 @@ test.describe(
       const s = await asOwner(chain(), "GET", "/reports/summary");
       expect(s.status, JSON.stringify(s.data)).toBe(200);
       const totals = dataOf(s.data).totals as Rec;
-      const usd = (n: number) =>
-        `$${n.toLocaleString("en-US", {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        })}`;
 
       const { context, page } = await loginViaUi(
         browser,

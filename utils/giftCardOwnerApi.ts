@@ -20,6 +20,23 @@ import { expect } from "../fixtures/base";
 
 export type Scope = { restaurantId: string } | { groupId: string };
 
+type Rec = Record<string, LooseJson>;
+
+/** The `data` of a `{ success, data }` body (an empty object when absent). */
+export const dataOf = (body: unknown): Rec =>
+  ((body as Rec | undefined)?.data ?? {}) as Rec;
+
+/** Dollars as the web dashboard shows them (dailyReport/shared.tsx `usd`). */
+export const usd = (n: number): string =>
+  `$${n.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+
+/** A card code without separators, upper-cased: compare codes with this. */
+export const sanitizeCode = (s: string): string =>
+  s.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+
 const scopePrefix = (scope: Scope): string =>
   "restaurantId" in scope
     ? `/api/gift-cards/restaurants/${scope.restaurantId}`

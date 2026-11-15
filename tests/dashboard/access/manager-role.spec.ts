@@ -30,7 +30,6 @@ import { test, expect } from "../../../fixtures/base";
 import {
   generateRunId,
   recordGiftCardForCleanup,
-  recordUserForCleanup,
 } from "../../../utils/testData";
 import {
   probeOwnerGiftCards,
@@ -38,16 +37,13 @@ import {
   requireRelease,
 } from "../../../utils/releaseGate";
 import { ownerGiftCardRaw } from "../../../utils/giftCardOwnerApi";
-import { waitForEmail, extractInviteToken } from "../../../utils/emailHelper";
+import { createRestaurantManager } from "../../../utils/managerApi";
 import {
   apiLogin,
   apiRequestRaw,
   createSecondOwner,
   deleteTestRestaurant,
-  inviteStaffRaw,
-  registerWithInvite,
   seedFundedGiftCard,
-  setFeatureOverrideAdminRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
 
@@ -117,42 +113,19 @@ test.describe("Manager dashboard role (API)", () => {
       giftCardId = card.id;
       recordGiftCardForCleanup(card.id);
     }
-    // RestauNax Team brings SCHEDULING, TIP_MANAGEMENT and TIMECARDS,
-    // components the server refuses to grant on their own (packaging v3).
-    for (const feature of ["TEAM_BUNDLE"]) {
-      const g = await setFeatureOverrideAdminRaw(
-        adminToken,
-        restaurantId,
-        feature,
-        true
-      );
-      if (!g.ok)
-        throw new Error(
-          `[manager-role] grant ${feature}: ${JSON.stringify(g.data)}`
-        );
-    }
-
-    // A team member with their own account…
-    recordUserForCleanup(managerEmail);
-    const invited = await inviteStaffRaw(ownerToken, restaurantId, {
-      email: managerEmail,
-      firstName: "Mia",
-      lastName: "Manager",
-    });
-    if (invited.status !== 201)
-      throw new Error(`[manager-role] invite: ${JSON.stringify(invited.data)}`);
-    managerStaffId = String(invited.data.data?.staffMemberId ?? "");
-    const mail = await waitForEmail(managerEmail, {
-      subjectPattern: /added to the team at/i,
-      timeoutMs: 90_000,
-    });
-    await registerWithInvite({
-      firstName: "Mia",
-      lastName: "Manager",
+    // RestauNax Team, and a team member with their own account (invite →
+    // Mailpit → register). TC-1550 makes them a manager.
+    ({ staffMemberId: managerStaffId } = await createRestaurantManager({
+      adminToken,
+      ownerToken,
+      restaurantId,
       email: managerEmail,
       password: managerPassword,
-      userInvitationToken: extractInviteToken(mail.text_body || mail.html_body),
-    });
+      firstName: "Mia",
+      lastName: "Manager",
+      promote: false,
+      tag: "[manager-role]",
+    }));
   });
 
   test.afterAll(async () => {
