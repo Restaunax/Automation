@@ -392,13 +392,15 @@ test.describe("Manager dashboard role (API)", () => {
 
   test("TC-2036: the manager's Gift cards screen loads", async () => {
     requireRelease("ownerGiftCards", giftCardsPresent);
-    // The GETs the web Overview (summary + finder + an opened card) and the
-    // Reports tab (activity) issue for a manager (web plan C, Tasks 3-6).
-    // Align with the shipped web code once it lands: any other route here
-    // must fail naming the route.
+    // Exactly the GETs the built web section issues for a manager
+    // (RestauNax restaunax-frontend GiftCards/**, giftCardUrls.ts): Overview
+    // = summary + the finder's first page (`page=1&limit=20`), the card
+    // drawer (`?card=`) = the card, Reports = Activity only, with no dates.
+    // A manager never mounts Settings, the other reports or the export.
+    // Any refused route fails naming it. The browser check is TC-2045.
     const loads = [
       "/reports/summary",
-      "/cards",
+      "/cards?page=1&limit=20",
       `/cards/${giftCardId}`,
       "/reports/activity",
     ];

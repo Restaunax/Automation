@@ -1,6 +1,6 @@
 /**
  * api-gift-cards-chain.spec.ts — gift cards across a chain of two locations
- * (TC-2015..2023).
+ * (TC-2015..2023, plus the chain shell UI TC-2046).
  *
  * RestauNax feat/owner-gift-cards (plan B "API contract", chain routes
  * `/api/gift-cards/groups/:gid/...`): chain settings are edited at chain level
@@ -28,11 +28,15 @@
  *   TC-2021 the chain CSV is the one place the full code appears.
  *   TC-2022 a card frozen at one location shows frozen at another's register.
  *   TC-2023 a sibling can't cash out a card whose money A holds.
+ *   TC-2046 (UI) the chain shell shows the chain's cards by location; a
+ *           member's settings point to the chain.
  */
 import { randomUUID } from "crypto";
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
 import { generateRunId } from "../../../utils/testData";
+import { loginViaUi } from "../../../utils/auth";
+import { createOwnerGiftCardsPage } from "../../../pages/dashboard/owner/OwnerGiftCardsPage";
 import { parseCsv } from "../../../utils/csvHelper";
 import { localToday, looksLikeKey } from "../../../utils/backOfficeApi";
 import { ownerWithRestaurants } from "../../../utils/employerApi";
@@ -114,7 +118,10 @@ test.describe(
     let B = "";
     let S = "";
     let gid = "";
+    let nameA = "";
     let nameB = "";
+    let ownerEmail = "";
+    let ownerPassword = "";
     let tz = "America/New_York";
     let linked = false;
     /** Owner routes exist on this stack (probed once, in beforeAll). */
@@ -205,6 +212,8 @@ test.describe(
       });
       [A, B] = tenant.restaurantIds as [string, string];
       owner = tenant.ownerToken;
+      ownerEmail = tenant.email;
+      ownerPassword = tenant.password;
       // Probe before spending anything: no owner routes, nothing to seed.
       present = await probeOwnerGiftCards(owner, A);
       if (!present) return;
@@ -246,6 +255,7 @@ test.describe(
       const ownedB = owned.find((r) => r.id === B);
       if (!ownedB) throw new Error(`[gc-chain] owner does not list B (${B})`);
       nameB = ownedB.name;
+      nameA = owned.find((r) => r.id === A)?.name ?? "";
 
       await setUpLocation("A", A);
       const atB = await setUpLocation("B", B);
@@ -610,6 +620,53 @@ test.describe(
       expect(closed.status, JSON.stringify(closed.data)).toBe(200);
       expect(closed.data.data).toMatchObject({ expectedCash: 100 });
       regs.B.drawerId = "";
+    });
+
+    test("TC-2046: the chain shell shows the chain's cards by location; a member's settings point to the chain", async ({
+      browser,
+    }) => {
+      gate();
+      test.setTimeout(120_000);
+      const s = await asOwner(chain(), "GET", "/reports/summary");
+      expect(s.status, JSON.stringify(s.data)).toBe(200);
+      const totals = dataOf(s.data).totals as Rec;
+      const usd = (n: number) =>
+        `$${n.toLocaleString("en-US", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })}`;
+
+      const { context, page } = await loginViaUi(
+        browser,
+        ownerEmail,
+        ownerPassword
+      );
+      try {
+        const gc = createOwnerGiftCardsPage(page);
+        await gc.gotoChain(gid);
+        await expect(gc.chainSidebarItem()).toBeVisible({ timeout: 30_000 });
+        await expect(gc.byLocationRows()).toHaveCount(2, { timeout: 30_000 });
+        await expect(gc.byLocationRow(nameA)).toHaveCount(1);
+        await expect(gc.byLocationRow(nameB)).toHaveCount(1);
+        await expect(gc.byLocationOwed(nameA)).toHaveText("$37.16");
+        await expect(gc.owedFigure()).toHaveText(
+          usd(Number((totals.owed as Rec).amount))
+        );
+
+        // A member location reads the chain's settings, read-only, with a
+        // way to the chain's page (this owner controls the chain).
+        await gc.goto(B, "settings");
+        await expect(gc.chainLevelNotice()).toBeVisible({ timeout: 30_000 });
+        const notice = (await gc.chainLevelNotice().innerText()).trim();
+        expect(looksLikeKey(notice), notice).toBe(false);
+        await expect(gc.openChainSettings()).toBeVisible();
+        for (const key of ["selling", "custom", "cash", "physical"] as const)
+          await expect(gc.settingsSwitch(key)).toBeDisabled();
+        await expect(gc.presetInput()).toHaveCount(0);
+        await expect(gc.saveButton()).toHaveCount(0);
+      } finally {
+        await context.close().catch(() => {});
+      }
     });
   }
 );

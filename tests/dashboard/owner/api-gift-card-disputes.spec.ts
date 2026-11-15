@@ -20,7 +20,7 @@
  *
  *   TC-2047 a stolen-card gift card purchase lands on the restaurant that holds the card.
  *   TC-2048 the disputed money is on hold, not owed, and only RestauNax lifts it.
- *   TC-2049 the owner's Disputes screen shows the gift card.
+ *   TC-2049 the owner's Disputes screen shows the gift card and opens it.
  */
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
@@ -45,6 +45,7 @@ import {
   stripeTestModeReady,
 } from "../../../utils/stripeTestMode";
 import { loginViaUi } from "../../../utils/auth";
+import { createOwnerGiftCardsPage } from "../../../pages/dashboard/owner/OwnerGiftCardsPage";
 import {
   apiLogin,
   apiRequestRaw,
@@ -276,7 +277,7 @@ test.describe(
       ).toBe(true);
     });
 
-    test("TC-2049: the owner's Disputes screen shows the gift card", async ({
+    test("TC-2049: the owner's Disputes screen shows the gift card and opens it", async ({
       browser,
     }) => {
       gate();
@@ -287,25 +288,32 @@ test.describe(
         ownerPassword
       );
       try {
-        await page.goto(
-          `/restaurant/restaurantId/${rid}/subscription?section=disputes`
+        // The portal's Billing → Chargebacks: each dispute is a card (no rows,
+        // no detail dialog); a gift card dispute names the masked card and,
+        // in the portal, opens it in the Gift cards drawer.
+        const gc = createOwnerGiftCardsPage(page);
+        const masked = String((dispute.giftCard as Rec).maskedCode);
+        const last4 = masked.slice(-4);
+        await gc.gotoDisputes(rid);
+        const disputeCard = gc.disputeCard(masked);
+        await expect(disputeCard).toBeVisible({ timeout: 30_000 });
+        await expect(disputeCard).toContainText("$60.00");
+        await expect(disputeCard).not.toContainText(/order\s*#/i);
+        // The server says the card is frozen: the "we froze it" line shows.
+        await expect(disputeCard).toContainText(
+          "We froze this card so its balance can't be spent while the bank decides."
         );
-        const last4 = String((dispute.giftCard as Rec).maskedCode).slice(-4);
-        // Rows by role; the testid alternatives are placeholders to align
-        // with the web plan's ids (OwnerGiftCardsPage.disputeRow/Detail).
-        const row = page
-          .getByRole("row")
-          .or(page.getByTestId("dispute-row"))
-          .filter({ hasText: last4 })
-          .filter({ hasText: "$60.00" });
-        await expect(row.first()).toBeVisible({ timeout: 30_000 });
-        await row.first().click();
-        const view = page
-          .getByRole("dialog")
-          .or(page.getByTestId("dispute-detail"));
-        await expect(view).toBeVisible({ timeout: 15_000 });
-        await expect(view).toContainText(last4);
-        await expect(view).not.toContainText(/order\s*#/i);
+        expect(await page.content()).not.toContain(card.code);
+
+        await gc.disputeOpenCard(masked).click();
+        await expect(page).toHaveURL(/[?&]tab=gift-cards(&|$)/);
+        await expect(page).toHaveURL(new RegExp(`[?&]card=${card.id}(&|$)`));
+        await expect(gc.drawerCode()).toContainText(last4, { timeout: 15_000 });
+        await expect(gc.freezeBanner()).toBeVisible();
+        await expect(gc.unfreezeButton()).toBeHidden();
+        await expect(gc.unfreezeBlocked()).toHaveText(
+          "The bank flagged the payment that bought this card. RestauNax lifts this hold if the bank sides with you."
+        );
       } finally {
         await context.close();
       }
