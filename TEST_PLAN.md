@@ -703,23 +703,23 @@ outer span, `windows` lists the windows when there are two or more, else null.
   config without `globalSetup` / `globalTeardown`. 8 + 3 + 4 passed; lima also
   with `TZ=UTC`.
 
-| TC      | Case                                                                                                                                                                             | Layer         |
-| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
-| TC-2000 | A week with split days saves and reads back as outer span + windows, sorted even when sent out of order; one-window, 24-hour and closed days keep `windows: null`                | API           |
-| TC-2001 | Overlap, touching, more than 4, same open and close, a non-last window past midnight: 400 with the sentence, and the saved rows are the same rows                                | API           |
-| TC-2002 | A day sent with no `windows` key keeps its windows when its times equal the saved outer span and drops them when a time changed; `windows: null` clears                          | API           |
-| TC-2003 | Save preview in the break: the same week STAYS_CLOSED "You'll reopen <dinner>", one window over the break OPENS_NOW, bad windows 400; nothing is written                         | API           |
-| TC-2004 | Ordering status: in the break "Closed · Opens <dinner>" with `opensAt`; inside lunch "Open until <lunch close>"; proposing the break from there previews CLOSES_NOW              | API           |
-| TC-2005 | Order gate: ASAP inside a window 201; ASAP in the break 400 "It opens again at <dinner>"; a dinner time from the break 201; a break time 400 ORDER_SCHEDULED_OUTSIDE_HOURS       | API           |
-| TC-2006 | Special hours with windows: create (sorted, outer span), list, refusals, an edit without `windows` keeps them, null clears, a split TODAY closes the break for ordering, delete  | API           |
-| TC-2007 | `GET /api/order/restaurantId/:id` and `GET /restaurant/:id/details` carry each day's `windows`; `currentStatus` says "Opens <dinner>"                                            | API           |
-| TC-2010 | Add hours → empty second row + "Give each set of hours…" (Save disabled); lunch + dinner typed, preview seen, saved, Recent changes in words, both rows after a reload; phone OK | Browser + API |
-| TC-2011 | Dinner moved into lunch (and onto its closing minute): "These hours overlap…" on the day, Save disabled, nothing saved; at four rows Add hours is gone                           | Browser + API |
-| TC-2012 | Remove these hours on the dinner row: one row, no remove button; saved (`windows: null`), Recent changes in words, one row after a reload                                        | Browser + API |
-| TC-L87  | Lima cart in the break: "We're closed now. We reopen at <dinner>."; ASAP checkout stopped in words; the server refuses an ASAP order with the reopening time                     | Browser + API |
-| TC-L88  | Lima Change time: "Closed · Opens <dinner>", today's hours list both windows, ASAP off, Schedule for later on TODAY with the dinner opening first, no time in the break          | Browser       |
-| TC-L89  | Lima: Done with the dinner time → the cart shows Scheduled + the time → checkout opens                                                                                           | Browser       |
-| TC-L90  | The server takes the order for the dinner time (201, `scheduledFor` kept) and refuses a break time naming both windows                                                           | API           |
+| TC      | Case                                                                                                                                                                                                      | Layer         |
+| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| TC-2000 | A week with split days saves and reads back as outer span + windows, sorted even when sent out of order; one-window, 24-hour and closed days keep `windows: null`                                         | API           |
+| TC-2001 | Overlap, touching, more than 4, same open and close, a non-last window past midnight: 400 with the sentence, and the saved rows are the same rows                                                         | API           |
+| TC-2002 | A day sent with no `windows` key keeps its windows when its times equal the saved outer span and drops them when a time changed; `windows: null` clears                                                   | API           |
+| TC-2003 | Save preview in the break: the same week STAYS_CLOSED "You'll reopen <dinner>", one window over the break OPENS_NOW, bad windows 400; nothing is written                                                  | API           |
+| TC-2004 | Ordering status: in the break "Closed · Opens <dinner>" with `opensAt`; inside lunch "Open until <lunch close>"; proposing the break from there previews CLOSES_NOW                                       | API           |
+| TC-2005 | Order gate: ASAP inside a window 201; ASAP in the break 400 "It opens again at <dinner>"; a dinner time from the break 201; a break time 400 ORDER_SCHEDULED_OUTSIDE_HOURS                                | API           |
+| TC-2006 | Special hours with windows: create (sorted, outer span), list, refusals, an edit without `windows` keeps them, null clears, a split TODAY closes the break for ordering, delete                           | API           |
+| TC-2007 | `GET /api/order/restaurantId/:id` and `GET /restaurant/:id/details` carry each day's `windows`; `currentStatus` says "Opens <dinner>"                                                                     | API           |
+| TC-2010 | Add hours → empty second row + "Give each set of hours…" (Save disabled); lunch + dinner typed, preview seen, saved, Recent changes in words, both rows after a reload; phone OK                          | Browser + API |
+| TC-2011 | Dinner moved into lunch (and onto its closing minute): "These hours overlap…" on the day, Save disabled, nothing saved; at four rows Add hours is gone                                                    | Browser + API |
+| TC-2012 | Remove these hours on the dinner row: one row, no remove button; saved (`windows: null`), Recent changes in words, one row after a reload                                                                 | Browser + API |
+| TC-L87  | Lima cart in the break: "We're closed now. We reopen at <dinner>."; ASAP checkout stopped with "We're closed right now and reopen at <dinner>…"; the server refuses an ASAP order with the reopening time | Browser + API |
+| TC-L88  | Lima Change time: "Closed · Opens <dinner>", today's hours list both windows, ASAP off, Schedule for later on TODAY with the dinner opening first, no time in the break                                   | Browser       |
+| TC-L89  | Lima: ASAP refused, then Done with the dinner time → the refusal is gone, the cart shows Scheduled + the time → checkout opens                                                                            | Browser       |
+| TC-L90  | The server takes the order for the dinner time (201, `scheduledFor` kept) and refuses a break time naming both windows                                                                                    | API           |
 
 ---
 

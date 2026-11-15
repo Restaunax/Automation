@@ -15,7 +15,8 @@
  *   TC-L88 Change time: "Closed · Opens <dinner>", today's hours list both
  *          windows, ASAP is off, Schedule for later is picked with TODAY and
  *          the dinner opening as the first time; no time falls in the break.
- *   TC-L89 Done with the dinner time: the cart shows it and checkout opens.
+ *   TC-L89 Done with the dinner time: the ASAP refusal leaves the cart, the
+ *          cart shows the time and checkout opens.
  *   TC-L90 The server takes the order for the dinner time and refuses one
  *          for a time in the break, naming both windows.
  *
@@ -25,7 +26,7 @@
  * file skips. Gated: RELEASED_ON_QA.splitHours + splitHoursLima.
  * Tag @split-hours.
  */
-import type { BrowserContext, Page } from "@playwright/test";
+import type { Browser, BrowserContext, Page } from "@playwright/test";
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../fixtures/base";
 import { createLimaStorefrontPage } from "../../pages/lima/LimaStorefrontPage";
@@ -112,6 +113,17 @@ test.describe(
         page().getByRole("button", { name: "Clear Cart" })
       ).toBeVisible({ timeout: 25_000 });
     };
+    /** A new guest (empty browser storage) with a burger, on the cart. */
+    const newGuest = async (browser: Browser) => {
+      // Best-effort: the previous guest's window is no longer needed.
+      if (context) await context.close().catch(() => {});
+      context = await browser.newContext();
+      guestPage = await context.newPage();
+      await lima().gotoMenu(slug);
+      await lima().openItemModal("Burger");
+      await lima().clickAddToCart();
+      await openCart();
+    };
     const order = (scheduledFor: string | null) =>
       placeGuestPickupOrderRaw(restaurantId, {
         item: burger,
@@ -173,12 +185,7 @@ test.describe(
       );
       if (!saved.ok)
         throw new Error(`[lima-split] hours: ${JSON.stringify(saved.data)}`);
-      context = await browser.newContext();
-      guestPage = await context.newPage();
-      await lima().gotoMenu(slug);
-      await lima().openItemModal("Burger");
-      await lima().clickAddToCart();
-      await openCart();
+      await newGuest(browser);
       // The closed alert has always been on the cart; its test id came with
       // split hours.
       siteShowsBreak = await page()
@@ -221,7 +228,9 @@ test.describe(
       await expectSeenByUser(
         page()
           .getByText(
-            "Restaurant is currently closed. Please schedule your order for later or try again when we're open."
+            new RegExp(
+              `We're closed right now and reopen at ${shown(reopens)}\\. Tap "Change time" to schedule your order for then\\.`
+            )
           )
           .first(),
         "the closed-now message"
@@ -300,9 +309,18 @@ test.describe(
       );
     });
 
-    test("TC-L89: Done with the dinner time — the cart shows it and checkout opens", async () => {
+    test("TC-L89: Done with the dinner time — the refusal goes, the cart shows the time and checkout opens", async ({
+      browser,
+    }) => {
       const { second } = today();
-      await openCart();
+      // A new guest: TC-L88 opened the time picker, and opening it is enough
+      // for the site to keep "Schedule for later" with the dinner time, so
+      // that guest's cart would go straight to checkout. This one asks for
+      // ASAP first, so the refusal is on the page when the time is picked.
+      await newGuest(browser);
+      const refusal = page().getByText(/We're closed right now/);
+      await page().getByRole("button", { name: "Proceed to Checkout" }).click();
+      await expectSeenByUser(refusal.first(), "the closed-now message");
       await page().getByRole("button", { name: "Change time" }).click();
       const dialog = activeDialog(page());
       await expect(
@@ -314,6 +332,9 @@ test.describe(
       await expect(
         page().getByRole("heading", { name: "Scheduled", exact: true })
       ).toBeVisible();
+      // Picking a time answers the refusal: it used to stay above a cart
+      // that already said "Scheduled".
+      await expect(refusal).toHaveCount(0);
       await expect(page().getByRole("heading", { name: "ASAP" })).toHaveCount(
         0
       );
