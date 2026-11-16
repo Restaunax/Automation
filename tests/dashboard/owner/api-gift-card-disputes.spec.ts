@@ -33,7 +33,10 @@
  */
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
-import { recordGiftCardForCleanup } from "../../../utils/testData";
+import {
+  readRestaurantId,
+  recordGiftCardForCleanup,
+} from "../../../utils/testData";
 import { looksLikeKey } from "../../../utils/backOfficeApi";
 import {
   buyGiftCardOnline,
@@ -149,15 +152,15 @@ test.describe(
       if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return;
       adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
 
+      // Probe before touching the seed: no owner routes, nothing changes.
+      rid = readRestaurantId();
+      owner = (await apiLogin(OWNER_EMAIL, OWNER_PASSWORD)).accessToken;
+      present = await probeOwnerGiftCards(owner, rid);
+      if (!present) return;
       const seed = await seedRestaurantForCardSales(adminToken, [60]);
-      rid = seed.restaurantId;
-      owner = seed.ownerToken;
       ownerEmail = seed.ownerEmail;
       ownerPassword = seed.ownerPassword;
       restoreSeed = seed.restore;
-      // Probe before spending anything: no owner routes, nothing to buy.
-      present = await probeOwnerGiftCards(owner, rid);
-      if (!present) return;
 
       const before = await asOwner("GET", "/reports/summary");
       if (before.status !== 200)
@@ -270,7 +273,10 @@ test.describe(
       const after = await asOwner("GET", `/cards/${card.id}`);
       expect(dataOf(after.data).status).toBe("FROZEN");
 
-      // A freeze moves no money: the books still tie.
+      // A freeze moves no money: the books still tie. This is a whole-seed
+      // check (every card at the seed, not just this run's), which holds
+      // whatever else is sold there, since the roll-forward ties by
+      // construction rather than to this run's numbers.
       // No month: the backend defaults to the restaurant's local month.
       const rf = await asOwner("GET", "/reports/roll-forward");
       expect(rf.status, JSON.stringify(rf.data)).toBe(200);

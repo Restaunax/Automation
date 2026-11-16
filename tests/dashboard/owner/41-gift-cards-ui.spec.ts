@@ -9,7 +9,7 @@
  * CSV export moved to Gift cards → Reports behind the same "treat it like
  * cash" warning. Selectors live in OwnerGiftCardsPage (the web's own ids).
  *
- * Browser. A fresh owner (gift cards on) with a $50 imported card (`web`), a
+ * Browser. A fresh owner (gift cards on) with a $50 imported card (`importedBig`), a
  * $30 imported card (`imported`) and a $10 imported card frozen by RestauNax
  * (`adminFrozen`), signed in through the UI. No card is sold BY CARD here: a
  * throwaway tenant's Stripe setup is unfinished, so since RestauNax
@@ -114,7 +114,7 @@ test.describe(
     let rid = "";
     /** Owner routes exist on this stack (probed once, in beforeAll). */
     let present = false;
-    let web = { id: "", code: "" };
+    let importedBig = { id: "", code: "" };
     let imported = { id: "", code: "" };
     let adminFrozen = { id: "", code: "" };
     let session: UiLoginSession | undefined;
@@ -179,8 +179,8 @@ test.describe(
         throw new Error(`[gc-ui] config: ${JSON.stringify(cfg.data)}`);
 
       const first = await seedFundedGiftCard(adminToken, rid, 50);
-      web = { id: first.id, code: first.code };
-      recordGiftCardForCleanup(web.id);
+      importedBig = { id: first.id, code: first.code };
+      recordGiftCardForCleanup(importedBig.id);
       const imp = await seedFundedGiftCard(adminToken, rid, 30);
       imported = { id: imp.id, code: imp.code };
       recordGiftCardForCleanup(imported.id);
@@ -251,25 +251,27 @@ test.describe(
     test("TC-2038: find a card by its last 4 and read its history", async () => {
       gate();
       await gc().goto(rid, "overview");
-      const last4 = last4Of(web.code);
+      const last4 = last4Of(importedBig.code);
       await gc().search(last4);
       await expect(gc().rows()).toHaveCount(1, { timeout: 15_000 });
       const shown = (
-        await gc().rowById(web.id).locator("td").first().innerText()
+        await gc().rowById(importedBig.id).locator("td").first().innerText()
       ).trim();
       expect(isMaskedCode(shown), shown).toBe(true);
 
       await gc().openCard(last4);
-      await expect(page()).toHaveURL(new RegExp(`[?&]card=${web.id}(&|$)`));
-      const detail = await asOwner("GET", `/cards/${web.id}`);
+      await expect(page()).toHaveURL(
+        new RegExp(`[?&]card=${importedBig.id}(&|$)`)
+      );
+      const detail = await asOwner("GET", `/cards/${importedBig.id}`);
       expect(detail.status, JSON.stringify(detail.data)).toBe(200);
       const expected = (dataOf(detail.data).history as Rec[]).map((h) =>
         String(h.label)
       );
       expect(await gc().historyLabels()).toEqual(expected);
-      expect(await page().content()).not.toContain(web.code);
+      expect(await page().content()).not.toContain(importedBig.code);
       expect(sanitizeCode(await page().content())).not.toContain(
-        sanitizeCode(web.code)
+        sanitizeCode(importedBig.code)
       );
       await gc().closeCard();
       expect(refused).toEqual([]);
@@ -278,10 +280,12 @@ test.describe(
     test("TC-2039: freeze a lost card, then unfreeze it; a RestauNax hold has no button", async () => {
       gate();
       await gc().goto(rid, "overview");
-      await gc().openCard(last4Of(web.code), web.id);
+      await gc().openCard(last4Of(importedBig.code), importedBig.id);
       await gc().freeze("Customer lost it");
       try {
-        const frozen = dataOf((await asOwner("GET", `/cards/${web.id}`)).data);
+        const frozen = dataOf(
+          (await asOwner("GET", `/cards/${importedBig.id}`)).data
+        );
         expect(frozen.status).toBe("FROZEN");
         expect((frozen.freeze as Rec).origin).toBe("OWNER");
         await expect(gc().drawerStatus()).toHaveText(String(frozen.statusText));
@@ -290,16 +294,20 @@ test.describe(
         await gc().unfreeze();
       } finally {
         // The card must be spendable for the rest of the file.
-        const now = dataOf((await asOwner("GET", `/cards/${web.id}`)).data);
+        const now = dataOf(
+          (await asOwner("GET", `/cards/${importedBig.id}`)).data
+        );
         if (now.status === "FROZEN")
           await ownerGiftCardRaw(
             owner,
             { restaurantId: rid },
             "POST",
-            `/cards/${web.id}/unfreeze`
+            `/cards/${importedBig.id}/unfreeze`
           );
       }
-      const active = dataOf((await asOwner("GET", `/cards/${web.id}`)).data);
+      const active = dataOf(
+        (await asOwner("GET", `/cards/${importedBig.id}`)).data
+      );
       expect(active.status).toBe("ACTIVE");
       await expect(gc().drawerStatus()).toHaveText(String(active.statusText));
       await gc().closeCard();
@@ -407,7 +415,7 @@ test.describe(
       expect(body.length, JSON.stringify(rows[0])).toBeGreaterThanOrEqual(2);
       const hasCode = (code: string) =>
         body.some((r) => r.some((c) => sanitizeCode(c) === sanitizeCode(code)));
-      expect(hasCode(web.code), "the $50 card's full code").toBe(true);
+      expect(hasCode(importedBig.code), "the $50 card's full code").toBe(true);
       expect(hasCode(imported.code), "the imported card's full code").toBe(
         true
       );
@@ -492,13 +500,16 @@ test.describe(
           (
             dataOf((await asOwner("GET", "/cards", undefined, lang)).data)
               .giftCards as Rec[]
-          ).find((c) => c.id === web.id) as Rec;
+          ).find((c) => c.id === importedBig.id) as Rec;
         const es = String((await list("es")).statusText);
         const en = String((await list("en")).statusText);
         expect(es).not.toBe(en);
-        await expect(gc().rowStatus(gc().rowById(web.id))).toHaveText(es, {
-          timeout: 30_000,
-        });
+        await expect(gc().rowStatus(gc().rowById(importedBig.id))).toHaveText(
+          es,
+          {
+            timeout: 30_000,
+          }
+        );
         expect(looksLikeKey(es), es).toBe(false);
       } finally {
         await setLocale("en");

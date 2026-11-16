@@ -205,7 +205,7 @@ export const sumMoneyCounts = (
  * The shared seed restaurant (`readRestaurantId()`, the globalSetup /
  * TEMPLATE_WIND_RESTAURANT_ID restaurant) as the place to sell gift cards BY
  * CARD. It is the one QA restaurant whose Stripe setup is finished (charges
- * and payouts enabled). A throwaway tenant only gets the QA dummy onboarding,
+ * enabled, which is all the backend checks). A throwaway tenant only gets the QA dummy onboarding,
  * which can't accept Stripe's terms, so since RestauNax
  * feat/gift-cards-owner-ux a card-paid sale there is refused with 409
  * GIFT_CARD_HOLDER_CANNOT_RECEIVE: the product rule, which the specs follow
@@ -216,8 +216,12 @@ export const sumMoneyCounts = (
  *  - it reads the config through the admin route and turns on only what is
  *    off: selling, and a custom amount range wide enough for `amounts`;
  *  - `restore()` writes back only the fields it changed (call it in afterAll).
- * A parallel run doing the same could still restore a field mid-run; that
- * window only exists when the seed had selling off, which it does not on QA.
+ * A parallel run doing the same can still restore a field mid-run. That
+ * window exists when the seed had selling off (it does not on QA) and for the
+ * custom-amount range: the owner spec needs $50 and the disputes spec $60, so
+ * one file's restore can narrow the range while the other is buying. To keep
+ * that rare, the range is only ever widened (never narrowed below what is
+ * stored right now) and only the fields this call changed are restored.
  * Callers record every card with recordGiftCardForCleanup and assert deltas
  * or their own card's id, never the seed's absolute totals.
  */
@@ -250,9 +254,12 @@ export async function seedRestaurantForCardSales(
       a >= was.minCustomAmount &&
       a <= was.maxCustomAmount);
   if (!amounts.every(sellable)) {
-    patch.allowCustomAmount = true;
-    patch.minCustomAmount = Math.min(was.minCustomAmount, ...amounts);
-    patch.maxCustomAmount = Math.max(was.maxCustomAmount, ...amounts);
+    // Widen only: a range another file widened stays at least that wide.
+    if (!was.allowCustomAmount) patch.allowCustomAmount = true;
+    const min = Math.min(was.minCustomAmount, ...amounts);
+    const max = Math.max(was.maxCustomAmount, ...amounts);
+    if (min < was.minCustomAmount) patch.minCustomAmount = min;
+    if (max > was.maxCustomAmount) patch.maxCustomAmount = max;
   }
   if (Object.keys(patch).length) {
     const put = await putGiftCardConfigAdminRaw(
