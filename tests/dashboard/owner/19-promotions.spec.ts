@@ -44,6 +44,7 @@ import {
   createCouponPromotion,
   deletePromotionRaw,
   listPromotions,
+  waitForDealPictureSettled,
   type PromotionListRow,
 } from "../../../utils/promotionsApi";
 import { publicMenuItem } from "../../../utils/promotionFixtures";
@@ -798,6 +799,9 @@ test.describe("Owner — Promotions", () => {
           { id: itemB.id, name: itemB.name, price: itemB.price },
         ]
       );
+      // The deal's queued AI picture job must finish first, or it can overtake
+      // the upload / remove below.
+      await waitForDealPictureSettled(token, { restaurantId }, deal.id);
       await createCouponPromotion(token, restaurantId, {
         name: couponName,
         code: generateCouponCode(),

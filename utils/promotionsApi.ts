@@ -5,6 +5,7 @@
  * server's (quote / redeem responses), never computed here.
  */
 
+import { expect } from "@playwright/test";
 import { apiRequestRaw, type RawResponse } from "./apiHelper";
 
 export type ApplyMode = "AUTOMATIC" | "CODE" | "BOTH";
@@ -402,4 +403,31 @@ export function deletePromotionRaw(
     undefined,
     token
   );
+}
+
+/**
+ * Waits until a deal's AI picture job is no longer running (its list-row
+ * `picture.status` is not "pending" / "generating"). Creating a deal queues
+ * one AI picture job, and an upload or remove made while that job runs can be
+ * overtaken by it (the job lands afterwards and brings a picture back). Call
+ * after seeding a deal and before any upload / remove step.
+ */
+export async function waitForDealPictureSettled(
+  accessToken: string,
+  scope: { restaurantId: string },
+  dealId: string
+): Promise<void> {
+  await expect
+    .poll(
+      async () =>
+        (await listPromotions(accessToken, scope.restaurantId)).find(
+          (r) => r.id === dealId
+        )?.picture?.status ?? null,
+      {
+        message: "the deal's AI picture job finishes",
+        timeout: 90_000,
+        intervals: [3_000],
+      }
+    )
+    .not.toMatch(/^(pending|generating)$/);
 }

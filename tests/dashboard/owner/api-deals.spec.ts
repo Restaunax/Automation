@@ -112,6 +112,7 @@ import {
 import {
   createCouponPromotion,
   listPromotions,
+  waitForDealPictureSettled,
 } from "../../../utils/promotionsApi";
 
 const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
@@ -3197,6 +3198,7 @@ test.describe("Owner — Deals API contract", () => {
           "url answers 404 or 403 within 10 s (the old file is removed after the new one is saved)."
       );
       const deal = await seedDeal("Picture Upload", 12, twoItems());
+      await waitForDealPictureSettled(token, { restaurantId }, deal.id);
 
       const first = await uploadDealImageApi(token, deal.id, PNG);
       expect(first.status, JSON.stringify(first.data)).toBe(200);
@@ -3234,6 +3236,7 @@ test.describe("Owner — Deals API contract", () => {
           "picture.url is exactly what it was before."
       );
       const deal = await seedDeal("Picture Pdf", 12, twoItems());
+      await waitForDealPictureSettled(token, { restaurantId }, deal.id);
       const ok = await uploadDealImageApi(token, deal.id, PNG);
       expect(ok.status, JSON.stringify(ok.data)).toBe(200);
       const before = await listPicture(deal.id);
@@ -3252,6 +3255,7 @@ test.describe("Owner — Deals API contract", () => {
           "picture is { url: null, status: null }; a second DELETE with no picture is also 200."
       );
       const deal = await seedDeal("Picture Remove", 12, twoItems());
+      await waitForDealPictureSettled(token, { restaurantId }, deal.id);
       const up = await uploadDealImageApi(token, deal.id, PNG);
       expect(up.status, JSON.stringify(up.data)).toBe(200);
 
@@ -3300,6 +3304,7 @@ test.describe("Owner — Deals API contract", () => {
           "picture.url is the same URL as before the edit."
       );
       const deal = await seedDeal("Picture Edit", 12, twoItems());
+      await waitForDealPictureSettled(token, { restaurantId }, deal.id);
       const up = await uploadDealImageApi(token, deal.id, PNG);
       expect(up.status, JSON.stringify(up.data)).toBe(200);
       const url = up.data.data?.imageUrl;
