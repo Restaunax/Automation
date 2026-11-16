@@ -544,18 +544,16 @@ test.describe(
       expect(saved.status, JSON.stringify(saved.data)).toBe(200);
       expect(dataOf((await asA("GET", "/config")).data)).toMatchObject(wanted);
 
-      // Which restaurant proves "selling off refuses a purchase": on the old
-      // backend, A. On the new one A is refused for its unfinished Stripe
-      // setup BEFORE the selling switch is read (409, TC-2055), so the leg
-      // runs at the seed, the one restaurant that can sell by card. That
-      // switches the shared seed's selling off for one request, so it runs
-      // only on the new backend and is put back in finally. Spending is still
-      // checked on A, which stays isolated.
-      const sellingOffRefuses = async (rid: string) => {
+      // "Selling off refuses a purchase" runs on A on the old backend only.
+      // On the new one A is refused for its unfinished Stripe setup BEFORE
+      // the selling switch is read (409, TC-2055), and the shared seed's
+      // selling is never switched off, so that leg is skipped there.
+      // Spending is still checked on A on both.
+      const sellingOffRefuses = async () => {
         const buy = await apiRequestRaw<Rec>(
           "POST",
           "/api/stripe/gift-card-payment-intent",
-          { amount: 40, restaurantId: rid, deliveryMethod: "LINK" }
+          { amount: 40, restaurantId: A, deliveryMethod: "LINK" }
         );
         expect(buy.status, JSON.stringify(buy.data)).toBe(400);
         expect(buy.data.code).not.toBe("GIFT_CARD_HOLDER_CANNOT_RECEIVE");
@@ -572,7 +570,7 @@ test.describe(
           isEnabled: false,
         });
         expect(off.status, JSON.stringify(off.data)).toBe(200);
-        if (!uxPresent) await sellingOffRefuses(A);
+        if (!uxPresent) await sellingOffRefuses();
         // Spending is never read from the selling switch.
         const valid = await validateGiftCardPublicRaw(imported.code, A);
         expect(valid.status, JSON.stringify(valid.data)).toBe(200);
@@ -580,18 +578,12 @@ test.describe(
       } finally {
         await putGiftCardConfigAdminRaw(adminToken, A, { isEnabled: true });
       }
-      if (uxPresent) {
-        try {
-          const off = await putGiftCardConfigAdminRaw(adminToken, S, {
-            isEnabled: false,
-          });
-          expect(off.status, JSON.stringify(off.data)).toBe(200);
-          await sellingOffRefuses(S);
-        } finally {
-          // seedRestaurantForCardSales left selling on: put it back on.
-          await putGiftCardConfigAdminRaw(adminToken, S, { isEnabled: true });
-        }
-      }
+      if (uxPresent)
+        test.info().annotations.push({
+          type: "selling-off purchase leg skipped",
+          description:
+            "The new backend refuses a purchase for the seller's Stripe state (409 GIFT_CARD_HOLDER_CANNOT_RECEIVE) before it reads the selling switch, and the shared seed's selling is never switched off; backend unit tests cover the selling-off refusal.",
+        });
       expect(dataOf((await asA("GET", "/config")).data).isEnabled).toBe(true);
     });
 
