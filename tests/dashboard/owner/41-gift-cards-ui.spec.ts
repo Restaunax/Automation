@@ -9,10 +9,15 @@
  * CSV export moved to Gift cards → Reports behind the same "treat it like
  * cash" warning. Selectors live in OwnerGiftCardsPage (the web's own ids).
  *
- * Browser. A fresh owner (Stripe TEST onboarded, gift cards on) with a $50
- * card bought on the website (`web`), a $30 imported card (`imported`) and a
- * $10 imported card frozen by RestauNax (`adminFrozen`), signed in through
- * the UI. Every /api/gift-cards/ response is watched: the screen must never
+ * Browser. A fresh owner (gift cards on) with a $50 imported card (`web`), a
+ * $30 imported card (`imported`) and a $10 imported card frozen by RestauNax
+ * (`adminFrozen`), signed in through the UI. No card is sold BY CARD here: a
+ * throwaway tenant's Stripe setup is unfinished, so since RestauNax
+ * feat/gift-cards-owner-ux it may not sell one (TC-2055), and this file can't
+ * use the shared seed restaurant instead: it switches the owner's language
+ * (TC-2044), edits settings (TC-2040) and compares totals, all of which need
+ * an owner and a restaurant of its own. A card sold online is covered at the
+ * seed in api-gift-cards-owner.spec.ts (TC-2000, TC-2004, TC-2007). Every /api/gift-cards/ response is watched: the screen must never
  * answer 401/403 while it loads.
  *
  * Gated behind RELEASED_ON_QA.ownerGiftCards: skips with the gate's reason
@@ -49,7 +54,6 @@ import { looksLikeKey } from "../../../utils/backOfficeApi";
 import { loginViaUi, type UiLoginSession } from "../../../utils/auth";
 import { createRestaurantManager } from "../../../utils/managerApi";
 import {
-  buyGiftCardOnline,
   dataOf,
   isMaskedCode,
   ownerGiftCardRaw,
@@ -67,13 +71,9 @@ import {
   apiRequestRaw,
   createSecondOwner,
   deleteTestRestaurant,
-  ensureBusinessHours,
   freezeGiftCardApi,
   putGiftCardConfigAdminRaw,
   seedFundedGiftCard,
-  setRestaurantPublishedApi,
-  stripeConfigRaw,
-  stripeTestOnboardingRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
 import {
@@ -170,11 +170,6 @@ test.describe(
       present = await probeOwnerGiftCards(owner, rid);
       if (!present) return;
 
-      await setRestaurantPublishedApi(adminToken, rid, true);
-      await ensureBusinessHours(owner, rid);
-      const onboard = await stripeTestOnboardingRaw(owner, rid);
-      if (onboard.status !== 200)
-        throw new Error(`[gc-ui] stripe: ${JSON.stringify(onboard.data)}`);
       // Selling is RestauNax's to switch (an owner's PUT drops it since
       // feat/gift-cards-owner-ux): the admin config route turns it on.
       const cfg = await putGiftCardConfigAdminRaw(adminToken, rid, {
@@ -183,13 +178,8 @@ test.describe(
       if (!cfg.ok)
         throw new Error(`[gc-ui] config: ${JSON.stringify(cfg.data)}`);
 
-      const pk = String(
-        (await stripeConfigRaw()).data.data?.publishableKey ?? ""
-      );
-      const bought = await buyGiftCardOnline(pk, rid, 50, {
-        recipientEmail: `auto-gcui-${runId}@${EMAIL_DOMAIN}`,
-      });
-      web = { id: bought.giftCardId, code: bought.code };
+      const first = await seedFundedGiftCard(adminToken, rid, 50);
+      web = { id: first.id, code: first.code };
       recordGiftCardForCleanup(web.id);
       const imp = await seedFundedGiftCard(adminToken, rid, 30);
       imported = { id: imp.id, code: imp.code };
@@ -395,7 +385,8 @@ test.describe(
       const act = await asOwner("GET", "/reports/activity");
       expect(act.status, JSON.stringify(act.data)).toBe(200);
       const sold = Number(((dataOf(act.data).sold as Rec).total as Rec).amount);
-      expect(sold).toBe(50);
+      // Imports are not sales: nothing was sold here.
+      expect(sold).toBe(0);
       await expect(gc().soldTotalAmount()).toHaveText(usd(sold), {
         timeout: 30_000,
       });
@@ -416,7 +407,7 @@ test.describe(
       expect(body.length, JSON.stringify(rows[0])).toBeGreaterThanOrEqual(2);
       const hasCode = (code: string) =>
         body.some((r) => r.some((c) => sanitizeCode(c) === sanitizeCode(code)));
-      expect(hasCode(web.code), "the web card's full code").toBe(true);
+      expect(hasCode(web.code), "the $50 card's full code").toBe(true);
       expect(hasCode(imported.code), "the imported card's full code").toBe(
         true
       );
