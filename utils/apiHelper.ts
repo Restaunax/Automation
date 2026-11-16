@@ -2048,6 +2048,78 @@ export function updateDealRaw(
   return apiRequestRaw("PUT", `/api/deals/${dealId}`, body, accessToken);
 }
 
+/** A deal's picture as the owner endpoints return it (null/null = none). */
+export interface DealImageResult {
+  success?: boolean;
+  message?: string;
+  error?: string;
+  data?: { imageUrl: string | null; imageStatus: string | null };
+}
+
+/**
+ * POST /api/deals/:dealId/image — multipart field `file` (jpeg/png/webp/gif,
+ * 5 MB max). Raw so a refused type (400 { success:false, error }) is the
+ * assertion. Bypasses apiRequestRaw's JSON body handling, like
+ * uploadMenuItemImageRaw.
+ */
+export async function uploadDealImageApi(
+  accessToken: string | undefined,
+  dealId: string,
+  file: { buffer: Buffer; filename: string; mimeType: string }
+): Promise<RawResponse<DealImageResult>> {
+  const form = new FormData();
+  form.append(
+    "file",
+    new Blob([new Uint8Array(file.buffer)], { type: file.mimeType }),
+    file.filename
+  );
+  const headers: Record<string, string> = {};
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+  const res = await fetch(`${BACKEND_URL}/api/deals/${dealId}/image`, {
+    method: "POST",
+    headers,
+    body: form,
+  });
+  const text = await res.text();
+  let data: unknown = text;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    /* leave as text */
+  }
+  return { status: res.status, ok: res.ok, data: data as DealImageResult };
+}
+
+/** DELETE /api/deals/:dealId/image — 200 { data: { imageUrl: null, imageStatus: null } }, even with no picture. */
+export function removeDealImageApi(
+  accessToken: string | undefined,
+  dealId: string
+): Promise<RawResponse<DealImageResult>> {
+  return apiRequestRaw(
+    "DELETE",
+    `/api/deals/${dealId}/image`,
+    undefined,
+    accessToken
+  );
+}
+
+/**
+ * POST /api/deals/:dealId/regenerate-image — starts an AI picture. It spends
+ * real Google AI money: NEVER call it from a test that runs on QA. Here for
+ * completeness only.
+ */
+export function regenerateDealImageApi(
+  accessToken: string | undefined,
+  dealId: string
+): Promise<RawResponse<DealImageResult>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/deals/${dealId}/regenerate-image`,
+    undefined,
+    accessToken
+  );
+}
+
 /** PATCH /api/deals/:dealId/status {status: ACTIVE|INACTIVE}. */
 export function setDealStatusRaw(
   accessToken: string | undefined,

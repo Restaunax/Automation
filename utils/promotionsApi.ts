@@ -129,6 +129,8 @@ export interface PromotionListRow {
   type: string;
   /** The server's own "this deal takes one of the active-deal slots" flag. */
   holdsDealSlot?: boolean;
+  /** Deal rows: { url, status } (status "completed" | "pending" | "failed" | null); coupon rows: null. */
+  picture?: { url: string | null; status: string | null } | null;
 }
 
 const DAY_MS = 86_400_000;
@@ -193,6 +195,7 @@ interface PromotionRowWire {
   code: string | null;
   statusActive: boolean;
   holdsDealSlot?: boolean;
+  picture?: { url: string | null; status: string | null } | null;
 }
 
 const toListRow = (r: PromotionRowWire): PromotionListRow => ({
@@ -203,6 +206,7 @@ const toListRow = (r: PromotionRowWire): PromotionListRow => ({
   status: r.statusActive ? "ACTIVE" : "INACTIVE",
   type: r.type,
   holdsDealSlot: r.holdsDealSlot,
+  picture: r.picture,
 });
 
 /** GET /api/promotions/restaurant/:id (owner token), normalised. */

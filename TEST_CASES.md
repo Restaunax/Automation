@@ -4329,6 +4329,30 @@ restaunax `docs/features/back-office/ACCOUNTING_SYNC.md` → _When the add-on en
 
 ---
 
+## TC-1962 → TC-1967 — Promotion pictures: see, upload or remove a promotion's picture (RestauNax #1189)
+
+**Status:** ⏳ written before RestauNax #1189 reached QA; compiles, lints and lists, not yet run. The AI button ("Make one with AI", `POST /api/deals/:id/regenerate-image`) is never pressed: it spends real Google AI money. Each test seeds its own deals and deletes them.
+
+A Combo / BOGO row in Promotions shows a picture thumbnail; coupon rows have none. The thumbnail (or the row menu's "Picture") opens a dialog to upload your own photo, make one with AI, or remove it. The API returns `picture: { url, status } | null` on each row of `GET /api/promotions/restaurant/:id`.
+
+### `dashboard/owner/api-deals.spec.ts`
+
+| TC          | What it checks                                                                                                                                                                                          |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **TC-1962** | Upload a PNG: 200 with `imageStatus` "completed", and the list row's `picture.url` is that URL. A second upload changes it, and the first URL answers 403 or 404 within 10 s (the old file is deleted). |
+| **TC-1963** | Upload a PDF: 400 `{ success: false, error }`, and the list row's picture is exactly what it was.                                                                                                       |
+| **TC-1964** | Remove: 200 `{ imageUrl: null, imageStatus: null }`, the row's picture is `{ url: null, status: null }`, and removing again with no picture is still 200.                                               |
+| **TC-1965** | A coupon row's `picture` is null; a deal row's is an object with `url` and `status`.                                                                                                                    |
+| **TC-1966** | Editing a deal's items (`PUT /api/deals/:id`) keeps the same `picture.url`.                                                                                                                             |
+
+### `dashboard/owner/19-promotions.spec.ts`
+
+| TC          | What it checks                                                                                                                                                                                                                                                                                                                                                                         |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **TC-1967** | Coupon row: no thumbnail. Combo row: the thumbnail opens the Promotion picture dialog; "Upload your own photo" shows the new picture, and after Close the thumbnail shows it. "Remove picture" asks first: Cancel keeps it, Remove clears it ("No picture yet"), and after Close the thumbnail is the placeholder. The row menu's Picture item opens the dialog, and Escape closes it. |
+
+---
+
 ---
 
 ## TC-2000 → TC-2023, TC-L87 → TC-L90 — Split hours: several open windows in one day (RestauNax + Template-lima `feat/split-hours`)
