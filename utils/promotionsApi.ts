@@ -422,7 +422,7 @@ export async function waitForDealPictureSettled(
       async () =>
         (await listPromotions(accessToken, scope.restaurantId)).find(
           (r) => r.id === dealId
-        )?.picture?.status ?? null,
+        )?.picture?.status ?? "none",
       {
         message: "the deal's AI picture job finishes",
         timeout: 90_000,

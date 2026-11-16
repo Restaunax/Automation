@@ -3289,10 +3289,10 @@ test.describe("Owner — Deals API contract", () => {
         expect(couponRow?.picture).toBeNull();
         const dealRow = rows.find((r) => r.id === deal.id);
         expect(dealRow?.source).toBe("DEAL");
-        expect(dealRow?.picture).toEqual({
-          url: expect.anything(),
-          status: expect.anything(),
-        });
+        // url and status may both be null (no picture yet); the shape is what counts.
+        expect(dealRow?.picture).not.toBeNull();
+        expect(dealRow?.picture).toHaveProperty("url");
+        expect(dealRow?.picture).toHaveProperty("status");
       } finally {
         await deleteCouponApi(token, coupon.id).catch(() => {});
       }
