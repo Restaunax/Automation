@@ -27,6 +27,14 @@
  *   TC-2043 Payouts no longer carries gift card blocks.
  *   TC-2044 the page is plain Spanish for a Spanish owner.
  *   TC-2045 a manager opens Gift cards without a 403.
+ *   TC-2054 a standalone restaurant has no Chain settlement report.
+ *
+ * The owner UX follow-up (RestauNax feat/gift-cards-owner-ux, dashboard
+ * gate RELEASED_ON_QA.giftCardsOwnerUxDashboard): selling / cash / printed
+ * cards are "Set up by RestauNax" read-only rows for an owner (TC-2040), and
+ * Chain settlement shows only on a chain or chain member page (TC-2054; the
+ * chain report itself is TC-2018). Selling is switched on through the admin
+ * config route, since an owner's PUT drops it on the new backend.
  */
 import { readFile } from "fs/promises";
 import * as allure from "allure-js-commons";
@@ -49,7 +57,9 @@ import {
   usd,
 } from "../../../utils/giftCardOwnerApi";
 import {
+  probeGiftCardsOwnerUxDashboard,
   probeOwnerGiftCards,
+  releasePresent,
   requireRelease,
 } from "../../../utils/releaseGate";
 import {
@@ -59,6 +69,7 @@ import {
   deleteTestRestaurant,
   ensureBusinessHours,
   freezeGiftCardApi,
+  putGiftCardConfigAdminRaw,
   seedFundedGiftCard,
   setRestaurantPublishedApi,
   stripeConfigRaw,
@@ -83,6 +94,7 @@ const EN = {
     "What your customers can still spend on cards whose money you hold.",
   restaunaxHold: "RestauNax froze this card. Call us to lift it.",
   exportWarning: /treat it like cash/i,
+  platformHint: "RestauNax sets this up for you. Ask us to change it.",
 } as const;
 
 test.describe.configure({ mode: "serial" });
@@ -163,8 +175,12 @@ test.describe(
       const onboard = await stripeTestOnboardingRaw(owner, rid);
       if (onboard.status !== 200)
         throw new Error(`[gc-ui] stripe: ${JSON.stringify(onboard.data)}`);
-      const cfg = await asOwner("PUT", "/config", { isEnabled: true });
-      if (cfg.status !== 200)
+      // Selling is RestauNax's to switch (an owner's PUT drops it since
+      // feat/gift-cards-owner-ux): the admin config route turns it on.
+      const cfg = await putGiftCardConfigAdminRaw(adminToken, rid, {
+        isEnabled: true,
+      });
+      if (!cfg.ok)
         throw new Error(`[gc-ui] config: ${JSON.stringify(cfg.data)}`);
 
       const pk = String(
@@ -335,14 +351,30 @@ test.describe(
         const still = dataOf((await asOwner("GET", "/config")).data);
         expect(still.presetDenominations).toEqual([20, 40, 60]);
 
-        // The switch itself flips "Take cash for cards at the register".
-        const cash = gc().settingsSwitch("cash");
-        const was = await cash.isChecked();
-        await cash.click();
-        await expect(cash).toBeChecked({ checked: !was });
-        await gc().saveSettings();
-        const flipped = dataOf((await asOwner("GET", "/config")).data);
-        expect(flipped.allowCashFunding).toBe(!was);
+        // Selling, cash and printed cards are set up by RestauNax: the owner
+        // reads them as On/Off, with no switch to flip.
+        const ux = releasePresent(
+          "giftCardsOwnerUxDashboard",
+          await probeGiftCardsOwnerUxDashboard()
+        );
+        if (ux) {
+          const cfg = dataOf((await asOwner("GET", "/config")).data);
+          await expect(gc().platformGroup()).toBeVisible();
+          await expect(gc().platformHint()).toHaveText(EN.platformHint);
+          const onOff = (v: unknown) => (v === true ? "On" : "Off");
+          const fields = {
+            selling: cfg.isEnabled,
+            cash: cfg.allowCashFunding,
+            physical: cfg.allowPhysicalActivation,
+          } as const;
+          for (const [key, value] of Object.entries(fields) as [
+            keyof typeof fields,
+            unknown,
+          ][]) {
+            await expect(gc().settingsReadonly(key)).toHaveText(onOff(value));
+            await expect(gc().settingsSwitch(key)).toHaveCount(0);
+          }
+        }
       } finally {
         // A mid-test failure can leave a draft: discard it, so the next goto
         // never meets the unsaved-changes prompt, then restore through the API.
@@ -351,7 +383,6 @@ test.describe(
           .catch(() => {});
         await asOwner("PUT", "/config", {
           presetDenominations: before.presetDenominations,
-          allowCashFunding: before.allowCashFunding,
         });
       }
       expect(refused).toEqual([]);
@@ -375,15 +406,6 @@ test.describe(
       const rfHint = (await gc().reportHint().innerText()).trim();
       expect(rfHint).not.toBe("");
       expect(looksLikeKey(rfHint), rfHint).toBe(false);
-
-      await gc().openReport("settlement");
-      await expect(
-        page().getByTestId("gift-cards-report-settlement")
-      ).toBeVisible({ timeout: 30_000 });
-      const stHint = (await gc().reportHint().innerText()).trim();
-      expect(stHint).not.toBe("");
-      expect(stHint).not.toBe(rfHint);
-      expect(looksLikeKey(stHint), stHint).toBe(false);
 
       const download = await gc().exportCsv(async (dialog) => {
         await expect(dialog).toContainText(EN.exportWarning);
@@ -491,6 +513,43 @@ test.describe(
         await setLocale("en");
         await page().reload({ waitUntil: "domcontentloaded" });
       }
+      expect(refused).toEqual([]);
+    });
+
+    test("TC-2054: a standalone restaurant has no Chain settlement report", async () => {
+      gate();
+      requireRelease(
+        "giftCardsOwnerUxDashboard",
+        await probeGiftCardsOwnerUxDashboard()
+      );
+      const settlementCalls: string[] = [];
+      const onRequest = (req: { url: () => string }) => {
+        if (req.url().includes("/reports/settlement"))
+          settlementCalls.push(req.url());
+      };
+      page().on("request", onRequest);
+      try {
+        await gc().goto(rid, "reports");
+        await expect(gc().reportTab("activity")).toBeVisible({
+          timeout: 30_000,
+        });
+        await expect(gc().reportTab("rollForward")).toBeVisible();
+        await expect(gc().reportTab("settlement")).toHaveCount(0);
+
+        // An old link to the chain report falls back to Activity.
+        await page().goto(
+          `/restaurant/restaurantId/${rid}/restaurantManagement?tab=gift-cards&section=reports&report=settlement`,
+          { waitUntil: "domcontentloaded" }
+        );
+        await expect(gc().soldTotalAmount()).toBeVisible({ timeout: 30_000 });
+        await expect(
+          page().getByTestId("gift-cards-report-settlement")
+        ).toHaveCount(0);
+        await expect(gc().reportTab("settlement")).toHaveCount(0);
+      } finally {
+        page().off("request", onRequest);
+      }
+      expect(settlementCalls).toEqual([]);
       expect(refused).toEqual([]);
     });
 

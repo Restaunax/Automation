@@ -31,6 +31,16 @@
  *   TC-2010 a restaurant outside a chain has no settlement.
  *   TC-2011 answers come back in the caller's language.
  *   TC-2012 a home-food seller is refused the owner routes and selling, and still redeems.
+ *   TC-2051 an owner can't change selling, cash or printed cards (silently kept).
+ *   TC-2052 RestauNax staff change them through the owner route.
+ *   TC-2053 the unsold stock report is paged; totals cover every batch.
+ *
+ * TC-2051..2053 are the owner UX follow-up (RestauNax feat/gift-cards-owner-ux),
+ * gated on RELEASED_ON_QA.giftCardsOwnerUx (probe: GET config carries
+ * `canEditPlatformFields`). Selling, cash and printed cards are set up by
+ * RestauNax, so the setup and TC-2005 switch them through the admin config
+ * route (`PUT /api/admin/gift-cards/config`), which works before and after
+ * that change.
  */
 import { randomUUID } from "crypto";
 import * as allure from "allure-js-commons";
@@ -53,6 +63,7 @@ import {
   rollForwardTies,
 } from "../../../utils/giftCardOwnerApi";
 import {
+  probeGiftCardsOwnerUx,
   probeOwnerGiftCards,
   requireRelease,
 } from "../../../utils/releaseGate";
@@ -70,6 +81,7 @@ import {
   seedFundedGiftCard,
   setRestaurantPublishedApi,
   stripeConfigRaw,
+  putGiftCardConfigAdminRaw,
   stripeTestOnboardingRaw,
   unfreezeGiftCardRaw,
   validateGiftCardPublicRaw,
@@ -104,11 +116,15 @@ test.describe(
     let B = "";
     /** Owner routes exist on this stack (probed once, in beforeAll). */
     let present = false;
+    /** The owner UX follow-up is on this stack (probed once, in beforeAll). */
+    let uxPresent = false;
     let tz = "America/New_York";
     let imported = { id: "", code: "" };
     let web = { id: "", code: "" };
     let batchId = "";
     let batchLabel = "";
+    /** A second batch TC-2053 mints so the stock report has two pages. */
+    let secondBatchId = "";
     const extraRestaurants: string[] = [];
 
     const scopeA = () => ({ restaurantId: A });
@@ -118,12 +134,19 @@ test.describe(
       body?: unknown,
       lang?: "en" | "es"
     ) => ownerGiftCardRaw<Rec>(ownerA, scopeA(), method, path, body, lang);
+    /** RestauNax staff on the owner route (platform-only settings). */
+    const asAdminA = (method: "GET" | "PUT", path: string, body?: unknown) =>
+      ownerGiftCardRaw<Rec>(adminToken, scopeA(), method, path, body);
     const summary = async () => {
       const r = await asA("GET", "/reports/summary");
       expect(r.status, JSON.stringify(r.data)).toBe(200);
       return dataOf(r.data);
     };
     const gate = () => requireRelease("ownerGiftCards", present);
+    const uxGate = () => {
+      gate();
+      requireRelease("giftCardsOwnerUx", uxPresent);
+    };
 
     test.beforeAll(async () => {
       test.setTimeout(240_000);
@@ -145,17 +168,15 @@ test.describe(
       const onboard = await stripeTestOnboardingRaw(ownerA, A);
       if (onboard.status !== 200)
         throw new Error(`[gc-owner] stripe: ${JSON.stringify(onboard.data)}`);
-      // The owner turns selling on itself (route R8).
-      const cfg = await asA("PUT", "/config", {
+      uxPresent = await probeGiftCardsOwnerUx(ownerA, A);
+      // Selling, cash and printed cards are RestauNax's to switch (an owner's
+      // PUT drops them): the admin config route turns them on.
+      const cfg = await putGiftCardConfigAdminRaw(adminToken, A, {
         isEnabled: true,
         allowCashFunding: true,
         allowPhysicalActivation: true,
       });
-      if (cfg.status === 404) {
-        present = false;
-        return;
-      }
-      if (cfg.status !== 200)
+      if (!cfg.ok)
         throw new Error(`[gc-owner] config: ${JSON.stringify(cfg.data)}`);
       tz = (await getRestaurantTimeZonePublic(A)) || tz;
 
@@ -193,8 +214,8 @@ test.describe(
 
     test.afterAll(async () => {
       if (!adminToken) return;
-      if (batchId)
-        await freezeGiftCardBatchRaw(adminToken, batchId).catch(() => {});
+      for (const id of [batchId, secondBatchId])
+        if (id) await freezeGiftCardBatchRaw(adminToken, id).catch(() => {});
       for (const id of [A, B, ...extraRestaurants]) {
         if (id)
           await deleteTestRestaurant(adminToken, id).catch(() => {
@@ -464,7 +485,10 @@ test.describe(
       expect(dataOf((await asA("GET", "/config")).data)).toMatchObject(wanted);
 
       try {
-        const off = await asA("PUT", "/config", { isEnabled: false });
+        // RestauNax switches selling off (an owner can't: TC-2051).
+        const off = await putGiftCardConfigAdminRaw(adminToken, A, {
+          isEnabled: false,
+        });
         expect(off.status, JSON.stringify(off.data)).toBe(200);
         const buy = await apiRequestRaw<Rec>(
           "POST",
@@ -482,7 +506,7 @@ test.describe(
         expect(valid.status, JSON.stringify(valid.data)).toBe(200);
         expect(valid.data.data.valid).toBe(true);
       } finally {
-        await asA("PUT", "/config", { isEnabled: true });
+        await putGiftCardConfigAdminRaw(adminToken, A, { isEnabled: true });
       }
       expect(dataOf((await asA("GET", "/config")).data).isEnabled).toBe(true);
     });
@@ -681,6 +705,106 @@ test.describe(
         expect(valid.status, JSON.stringify(valid.data)).toBe(200);
         expect(valid.data.data.valid).toBe(true);
       }
+    });
+
+    const PLATFORM_FIELDS = [
+      "isEnabled",
+      "allowCashFunding",
+      "allowPhysicalActivation",
+    ] as const;
+    const platformOf = (c: Rec) =>
+      Object.fromEntries(PLATFORM_FIELDS.map((k) => [k, c[k]]));
+
+    test("TC-2051: an owner can't switch selling, cash or printed cards; the save keeps them", async () => {
+      uxGate();
+      const before = await asA("GET", "/config");
+      expect(before.status, JSON.stringify(before.data)).toBe(200);
+      const was = dataOf(before.data);
+      expect(was.canEditPlatformFields).toBe(false);
+      expect(was).toMatchObject({ isEnabled: true, allowCashFunding: true });
+
+      // Old Owner-app builds send these on every save: dropped, never refused.
+      const put = await asA("PUT", "/config", {
+        isEnabled: false,
+        allowCashFunding: false,
+      });
+      expect(put.status, JSON.stringify(put.data)).toBe(200);
+      expect(platformOf(dataOf(put.data))).toEqual(platformOf(was));
+      expect(dataOf(put.data).canEditPlatformFields).toBe(false);
+
+      const after = dataOf((await asA("GET", "/config")).data);
+      expect(platformOf(after)).toEqual(platformOf(was));
+      expect(after.presetDenominations).toEqual(was.presetDenominations);
+    });
+
+    test("TC-2052: RestauNax staff switch them through the owner route", async () => {
+      uxGate();
+      const was = dataOf((await asA("GET", "/config")).data);
+      const asStaff = await asAdminA("GET", "/config");
+      expect(asStaff.status, JSON.stringify(asStaff.data)).toBe(200);
+      expect(dataOf(asStaff.data).canEditPlatformFields).toBe(true);
+      try {
+        const put = await asAdminA("PUT", "/config", {
+          allowCashFunding: false,
+          allowPhysicalActivation: false,
+        });
+        expect(put.status, JSON.stringify(put.data)).toBe(200);
+        const seen = dataOf((await asA("GET", "/config")).data);
+        expect(seen).toMatchObject({
+          allowCashFunding: false,
+          allowPhysicalActivation: false,
+          canEditPlatformFields: false,
+        });
+      } finally {
+        const restore = await asAdminA("PUT", "/config", platformOf(was));
+        expect(restore.status, JSON.stringify(restore.data)).toBe(200);
+      }
+      const restored = dataOf((await asA("GET", "/config")).data);
+      expect(platformOf(restored)).toEqual(platformOf(was));
+    });
+
+    test("TC-2053: the unsold stock report is paged and its totals cover every batch", async () => {
+      uxGate();
+      const second = await createGiftCardBatchRaw(adminToken, {
+        restaurantId: A,
+        quantity: 1,
+        label: `${batchLabel} 2`,
+      });
+      if (!second.ok || !second.data.data)
+        throw new Error(`[gc-owner] batch 2: ${JSON.stringify(second.data)}`);
+      secondBatchId = second.data.data.id;
+
+      const page = async (query: string) => {
+        const r = await asA("GET", `/reports/stock${query}`);
+        expect(r.status, JSON.stringify(r.data)).toBe(200);
+        return dataOf(r.data);
+      };
+      const all = await page("");
+      expect(all).toMatchObject({ page: 1, limit: 20 });
+      expect(all.total).toBeGreaterThanOrEqual(2);
+
+      const p1 = await page("?page=1&limit=1");
+      expect(p1).toMatchObject({ page: 1, limit: 1, total: all.total });
+      expect(p1.totalPages).toBe(all.total);
+      const p2 = await page("?page=2&limit=1");
+      expect(p2).toMatchObject({ page: 2, limit: 1, total: all.total });
+      expect(p1.batches as Rec[]).toHaveLength(1);
+      expect(p2.batches as Rec[]).toHaveLength(1);
+      // Newest first: the batch just minted, then the setup's batch.
+      expect((p1.batches as Rec[])[0]?.id).toBe(secondBatchId);
+      expect((p2.batches as Rec[])[0]?.id).toBe(batchId);
+      // Totals are the whole scope, the same on every page.
+      expect(p1.totals).toEqual(all.totals);
+      expect(p2.totals).toEqual(all.totals);
+      expect((all.totals as Rec).unsold).toBeGreaterThanOrEqual(3);
+
+      const past = await page(`?page=${Number(all.total) + 1}&limit=1`);
+      expect(past.batches).toEqual([]);
+      expect(past).toMatchObject({
+        total: all.total,
+        totalPages: all.total,
+      });
+      expect(past.totals).toEqual(all.totals);
     });
   }
 );

@@ -17,7 +17,8 @@
  \* `--grep @growth-a`, `--grep @reservations-audit`,
  \* `--grep @reservations-phase4`,
  * `--grep @attribution`, `--grep @affiliate-commission`,
- * `--grep @books-offboarding`, `--grep @hq-notices`, `--grep @split-hours`.
+ * `--grep @books-offboarding`, `--grep @hq-notices`, `--grep @split-hours`,
+ * `--grep @owner-gift-cards`.
  */
 import { test, expect } from "../fixtures/base";
 import { apiRequestRaw } from "./apiHelper";
@@ -136,6 +137,20 @@ export const RELEASED_ON_QA = {
    *  reports, cards, batches, cash-out, disputes and the POS sell/reload
    *  routes. Flip once it is on QA. */
   ownerGiftCards: false,
+  /** RestauNax feat/gift-cards-owner-ux (backend): GET config carries
+   *  `canEditPlatformFields`; an owner PUT silently drops `isEnabled`,
+   *  `allowCashFunding` and `allowPhysicalActivation` (RestauNax staff still
+   *  write them through the owner route); the stock report is paged
+   *  (`?page&limit` → `total`, `page`, `limit`, `totalPages`, `totals` over
+   *  every batch). Flip once it is on QA. */
+  giftCardsOwnerUx: false,
+  /** The dashboard half of feat/gift-cards-owner-ux: "Set up by RestauNax"
+   *  read-only rows for owners, the stock report's pagination, Chain
+   *  settlement only on a chain or chain member page, no "Money held by" /
+   *  "Sold at" in the drawer and finder (chain-only captions). Deployed
+   *  separately from the backend. Flip after 41-gift-cards-ui.spec.ts is
+   *  green on QA. */
+  giftCardsOwnerUxDashboard: false,
   /** RestauNax PR #1174, feat/hq-notices — HQ → Operations → Notices
    *  (`/api/admin/notices/*`, permission HQ_OPERATIONS_NOTICES), the public
    *  unsubscribe/resubscribe page and `/api/notices/*`. RestauNax PR #1174 —
@@ -226,6 +241,10 @@ const REASON: Record<ReleasePart, string> = {
     "Books offboarding (RestauNax feat/books-offboarding) is not on this environment yet — /api/accounting/:id/past answers 404",
   ownerGiftCards:
     "Owner gift cards (RestauNax feat/owner-gift-cards) are not on this environment yet — /api/gift-cards/restaurants/:id/reports/summary answers 404",
+  giftCardsOwnerUx:
+    "The gift cards owner UX follow-up (RestauNax feat/gift-cards-owner-ux) is not on this environment yet — GET /api/gift-cards/restaurants/:id/config carries no canEditPlatformFields",
+  giftCardsOwnerUxDashboard:
+    "The gift cards owner UX screens (RestauNax feat/gift-cards-owner-ux) are not on this dashboard yet — locales/en/giftCards.json has no settings.platformGroup",
   hqNotices:
     "HQ notices (RestauNax PR #1174, feat/hq-notices) are not on this environment yet — /api/admin/notices answers 404",
   hqNoticesDashboard:
@@ -499,6 +518,50 @@ export async function probeOwnerGiftCards(
     { "X-Restaurant-Id": restaurantId }
   );
   return res.status !== 404;
+}
+
+/**
+ * Is the gift cards owner UX follow-up deployed (backend)? `GET
+ * /api/gift-cards/restaurants/:rid/config` (an owner read) carries a boolean
+ * `canEditPlatformFields` only with it. Read-only.
+ */
+export async function probeGiftCardsOwnerUx(
+  ownerToken: string,
+  restaurantId: string
+): Promise<boolean> {
+  const res = await apiRequestRaw<{
+    data?: { canEditPlatformFields?: unknown };
+  }>(
+    "GET",
+    `/api/gift-cards/restaurants/${restaurantId}/config`,
+    undefined,
+    ownerToken,
+    { "X-Restaurant-Id": restaurantId }
+  );
+  return (
+    res.status === 200 &&
+    typeof res.data?.data?.canEditPlatformFields === "boolean"
+  );
+}
+
+/**
+ * Is the gift cards owner UX DASHBOARD deployed? Its
+ * `locales/en/giftCards.json` has `settings.platformGroup` ("Set up by
+ * RestauNax") only with the change. Read-only, no auth.
+ */
+export async function probeGiftCardsOwnerUxDashboard(): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${FRONTEND_URL.replace(/\/+$/, "")}/locales/en/giftCards.json`
+    );
+    if (!res.ok) return false;
+    const json = (await res.json()) as {
+      settings?: { platformGroup?: unknown };
+    };
+    return typeof json.settings?.platformGroup === "string";
+  } catch {
+    return false;
+  }
 }
 
 /**

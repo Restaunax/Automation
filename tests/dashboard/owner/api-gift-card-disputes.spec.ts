@@ -55,6 +55,7 @@ import {
   ensureBusinessHours,
   setRestaurantPublishedApi,
   stripeConfigRaw,
+  putGiftCardConfigAdminRaw,
   stripeTestOnboardingRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
@@ -160,12 +161,14 @@ test.describe(
       const onboard = await stripeTestOnboardingRaw(owner, rid);
       if (onboard.status !== 200)
         throw new Error(`[gc-dispute] stripe: ${JSON.stringify(onboard.data)}`);
-      const cfg = await asOwner("PUT", "/config", {
+      // Selling and cash are RestauNax's to switch (an owner's PUT drops them
+      // since feat/gift-cards-owner-ux): the admin config route turns them on.
+      const cfg = await putGiftCardConfigAdminRaw(adminToken, rid, {
         isEnabled: true,
         allowCashFunding: true,
         allowPhysicalActivation: true,
       });
-      if (cfg.status !== 200)
+      if (!cfg.ok)
         throw new Error(`[gc-dispute] config: ${JSON.stringify(cfg.data)}`);
 
       const pk = String(
