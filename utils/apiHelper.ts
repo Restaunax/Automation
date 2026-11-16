@@ -6640,6 +6640,20 @@ export function putGiftCardConfigAdminRaw(
   );
 }
 
+/** The chain's config row (`?restaurantGroupId=`); same body as above. */
+export function putGiftCardGroupConfigAdminRaw(
+  adminToken: string,
+  restaurantGroupId: string,
+  body: Partial<GiftCardConfigFull>
+): Promise<RawResponse<{ success: boolean; data: GiftCardConfigFull }>> {
+  return apiRequestRaw(
+    "PUT",
+    `/api/admin/gift-cards/config?restaurantGroupId=${restaurantGroupId}`,
+    body,
+    adminToken
+  );
+}
+
 export interface GiftCardBatchRow {
   id: string;
   label: string;

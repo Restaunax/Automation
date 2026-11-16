@@ -8,21 +8,29 @@
  * what is owed, the activity, the monthly roll-forward, the unsold stock and
  * the settlement. A restaurant outside a chain has no settlement.
  *
- * Tenant A: a fresh owner, Stripe TEST onboarded, published, open; cards: an
- * imported $30 card, a $50 card bought on the website (emailed), and a batch
- * of 2 printed stock cards. Tenant B: a second fresh owner with one $10
+ * Tenant A: a fresh owner, published, open, with only the QA dummy Stripe
+ * onboarding (charges NOT enabled: its Stripe setup is unfinished, like a
+ * real restaurant that never pressed Agree); cards: an imported $30 card and a
+ * batch of 2 printed stock cards. Tenant B: a second fresh owner with one $10
  * imported card (the IDOR counterpart). TC-2012 mints its own home-food
  * seller.
+ *
+ * The $50 card bought on the website (emailed) is bought at the shared SEED
+ * restaurant S (`seedRestaurantForCardSales`): only a restaurant whose Stripe
+ * setup is finished may sell a card by card, and the seed is the one QA
+ * restaurant that has. S is shared, so its cases use the seed owner's token
+ * and assert deltas or this run's card by id, never S's totals; its config is
+ * put back in afterAll.
  *
  * The whole file is gated behind RELEASED_ON_QA.ownerGiftCards: it skips
  * (with the gate's reason) until the owner routes are on the stack, and the
  * setup stops before any money is seeded when they are not.
  *
- *   TC-2000 list and detail: masked codes, resolved text, history of the web card.
+ *   TC-2000 list and detail: masked codes, resolved text, history of the web card (S).
  *   TC-2001 another owner: 403 on the scope, 404 on the id (same as a missing card).
  *   TC-2002 owner freezes and unfreezes; no money moves.
  *   TC-2003 a RestauNax freeze can't be lifted by the owner.
- *   TC-2004 @email resend and change recipient.
+ *   TC-2004 @email resend and change recipient (the web card, S).
  *   TC-2005 settings save, validate; selling off never stops spending.
  *   TC-2006 what's owed, from the cards actually held.
  *   TC-2007 activity for today.
@@ -31,6 +39,17 @@
  *   TC-2010 a restaurant outside a chain has no settlement.
  *   TC-2011 answers come back in the caller's language.
  *   TC-2012 a home-food seller is refused the owner routes and selling, and still redeems.
+ *   TC-2051 an owner can't change selling, cash or printed cards (silently kept).
+ *   TC-2052 RestauNax staff change them through the owner route.
+ *   TC-2053 the unsold stock report is paged; totals cover every batch.
+ *   TC-2055 a restaurant whose Stripe setup is unfinished can't sell a card by card.
+ *
+ * TC-2051..2053 and TC-2055 are the owner UX follow-up (RestauNax feat/gift-cards-owner-ux),
+ * gated on RELEASED_ON_QA.giftCardsOwnerUx (probe: GET config carries
+ * `canEditPlatformFields`). Selling, cash and printed cards are set up by
+ * RestauNax, so the setup and TC-2005 switch them through the admin config
+ * route (`PUT /api/admin/gift-cards/config`), which works before and after
+ * that change.
  */
 import { randomUUID } from "crypto";
 import * as allure from "allure-js-commons";
@@ -51,8 +70,10 @@ import {
   isMaskedCode,
   ownerGiftCardRaw,
   rollForwardTies,
+  seedRestaurantForCardSales,
 } from "../../../utils/giftCardOwnerApi";
 import {
+  probeGiftCardsOwnerUx,
   probeOwnerGiftCards,
   requireRelease,
 } from "../../../utils/releaseGate";
@@ -70,6 +91,7 @@ import {
   seedFundedGiftCard,
   setRestaurantPublishedApi,
   stripeConfigRaw,
+  putGiftCardConfigAdminRaw,
   stripeTestOnboardingRaw,
   unfreezeGiftCardRaw,
   validateGiftCardPublicRaw,
@@ -78,6 +100,8 @@ import {
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
+const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
+const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
 const EMAIL_DOMAIN = process.env.TEST_EMAIL_DOMAIN ?? "demomailtrap.co";
 
 type Rec = Record<string, LooseJson>;
@@ -90,8 +114,8 @@ test.describe(
   { tag: ["@owner-gift-cards"] },
   () => {
     test.skip(
-      !ADMIN_EMAIL || !ADMIN_PASSWORD,
-      "ADMIN_EMAIL / ADMIN_PASSWORD not set (the file mints its own tenants)"
+      !ADMIN_EMAIL || !ADMIN_PASSWORD || !OWNER_EMAIL || !OWNER_PASSWORD,
+      "ADMIN_* / OWNER_* not set (own tenants, plus a web card at the seed)"
     );
 
     const runId = generateRunId();
@@ -104,11 +128,22 @@ test.describe(
     let B = "";
     /** Owner routes exist on this stack (probed once, in beforeAll). */
     let present = false;
+    /** The owner UX follow-up is on this stack (probed once, in beforeAll). */
+    let uxPresent = false;
     let tz = "America/New_York";
     let imported = { id: "", code: "" };
+    /** The $50 web card, bought at the seed restaurant S. */
     let web = { id: "", code: "" };
+    let S = "";
+    let ownerS = "";
+    let restoreSeed: () => Promise<void> = async () => {};
+    let seedTz = "America/New_York";
+    /** S's website sales today before this run's purchase. */
+    let seedSoldBefore = { amount: 0, count: 0 };
     let batchId = "";
     let batchLabel = "";
+    /** A second batch TC-2053 mints so the stock report has two pages. */
+    let secondBatchId = "";
     const extraRestaurants: string[] = [];
 
     const scopeA = () => ({ restaurantId: A });
@@ -118,12 +153,41 @@ test.describe(
       body?: unknown,
       lang?: "en" | "es"
     ) => ownerGiftCardRaw<Rec>(ownerA, scopeA(), method, path, body, lang);
+    /** RestauNax staff on the owner route (platform-only settings). */
+    const asAdminA = (method: "GET" | "PUT", path: string, body?: unknown) =>
+      ownerGiftCardRaw<Rec>(adminToken, scopeA(), method, path, body);
+    /** The seed owner on the seed restaurant S. */
+    const asS = (
+      method: "GET" | "POST" | "PUT",
+      path: string,
+      body?: unknown,
+      lang?: "en" | "es"
+    ) =>
+      ownerGiftCardRaw<Rec>(
+        ownerS,
+        { restaurantId: S },
+        method,
+        path,
+        body,
+        lang
+      );
+    const seedWebsiteSold = async () => {
+      const today = localToday(seedTz);
+      const r = await asS("GET", `/reports/activity?from=${today}&to=${today}`);
+      expect(r.status, JSON.stringify(r.data)).toBe(200);
+      const w = (dataOf(r.data).sold as Rec).website as Rec;
+      return { amount: Number(w.amount), count: Number(w.count) };
+    };
     const summary = async () => {
       const r = await asA("GET", "/reports/summary");
       expect(r.status, JSON.stringify(r.data)).toBe(200);
       return dataOf(r.data);
     };
     const gate = () => requireRelease("ownerGiftCards", present);
+    const uxGate = () => {
+      gate();
+      requireRelease("giftCardsOwnerUx", uxPresent);
+    };
 
     test.beforeAll(async () => {
       test.setTimeout(240_000);
@@ -145,27 +209,34 @@ test.describe(
       const onboard = await stripeTestOnboardingRaw(ownerA, A);
       if (onboard.status !== 200)
         throw new Error(`[gc-owner] stripe: ${JSON.stringify(onboard.data)}`);
-      // The owner turns selling on itself (route R8).
-      const cfg = await asA("PUT", "/config", {
+      uxPresent = await probeGiftCardsOwnerUx(ownerA, A);
+      // Selling, cash and printed cards are RestauNax's to switch (an owner's
+      // PUT drops them): the admin config route turns them on.
+      const cfg = await putGiftCardConfigAdminRaw(adminToken, A, {
         isEnabled: true,
         allowCashFunding: true,
         allowPhysicalActivation: true,
       });
-      if (cfg.status === 404) {
-        present = false;
-        return;
-      }
-      if (cfg.status !== 200)
+      if (!cfg.ok)
         throw new Error(`[gc-owner] config: ${JSON.stringify(cfg.data)}`);
       tz = (await getRestaurantTimeZonePublic(A)) || tz;
 
-      const pk = String(
-        (await stripeConfigRaw()).data.data?.publishableKey ?? ""
-      );
       const seeded = await seedFundedGiftCard(adminToken, A, 30);
       imported = { id: seeded.id, code: seeded.code };
       recordGiftCardForCleanup(imported.id);
-      const bought = await buyGiftCardOnline(pk, A, 50, {
+
+      // The web card: sold by card at the seed restaurant, the only QA
+      // restaurant whose Stripe setup is finished.
+      const seed = await seedRestaurantForCardSales(adminToken, [50]);
+      S = seed.restaurantId;
+      ownerS = seed.ownerToken;
+      restoreSeed = seed.restore;
+      seedTz = (await getRestaurantTimeZonePublic(S)) || seedTz;
+      seedSoldBefore = await seedWebsiteSold();
+      const pk = String(
+        (await stripeConfigRaw()).data.data?.publishableKey ?? ""
+      );
+      const bought = await buyGiftCardOnline(pk, S, 50, {
         recipientEmail: webRecipient,
       });
       web = { id: bought.giftCardId, code: bought.code };
@@ -193,8 +264,9 @@ test.describe(
 
     test.afterAll(async () => {
       if (!adminToken) return;
-      if (batchId)
-        await freezeGiftCardBatchRaw(adminToken, batchId).catch(() => {});
+      await restoreSeed().catch(() => {});
+      for (const id of [batchId, secondBatchId])
+        if (id) await freezeGiftCardBatchRaw(adminToken, id).catch(() => {});
       for (const id of [A, B, ...extraRestaurants]) {
         if (id)
           await deleteTestRestaurant(adminToken, id).catch(() => {
@@ -226,16 +298,25 @@ test.describe(
         }
         expect(looksLikeKey(card.statusText), card.statusText).toBe(false);
       }
-      expect(JSON.stringify(list.data)).not.toContain(web.code);
       expect(JSON.stringify(list.data)).not.toContain(imported.code);
 
-      const last4 = web.code.replace(/[^A-Za-z0-9]/g, "").slice(-4);
+      const last4 = imported.code.replace(/[^A-Za-z0-9]/g, "").slice(-4);
       const found = await asA("GET", `/cards?search=${last4}`);
       expect(found.status, JSON.stringify(found.data)).toBe(200);
       const ids = (dataOf(found.data).giftCards as Rec[]).map((c) => c.id);
-      expect(ids).toEqual([web.id]);
+      expect(ids).toEqual([imported.id]);
 
-      const detail = await asA("GET", `/cards/${web.id}`);
+      // The web card, at the seed restaurant: found by its last 4 among S's
+      // cards (others may share them), masked, sold on the website by card.
+      const webLast4 = web.code.replace(/[^A-Za-z0-9]/g, "").slice(-4);
+      const atS = await asS("GET", `/cards?search=${webLast4}`);
+      expect(atS.status, JSON.stringify(atS.data)).toBe(200);
+      expect((dataOf(atS.data).giftCards as Rec[]).map((c) => c.id)).toContain(
+        web.id
+      );
+      expect(JSON.stringify(atS.data)).not.toContain(web.code);
+
+      const detail = await asS("GET", `/cards/${web.id}`);
       expect(detail.status, JSON.stringify(detail.data)).toBe(200);
       const card = dataOf(detail.data);
       const first = (card.history as Rec[]).find(
@@ -313,8 +394,8 @@ test.describe(
         expect(r.status, `${path}: ${JSON.stringify(r.data)}`).toBe(404);
         expect(r.data.code).toBe("CARD_NOT_FOUND");
       }
-      // Still A's card, still untouched.
-      const detail = await asA("GET", `/cards/${web.id}`);
+      // Still the seed's card, still untouched.
+      const detail = await asS("GET", `/cards/${web.id}`);
       expect(dataOf(detail.data).status).toBe("ACTIVE");
     });
 
@@ -322,7 +403,7 @@ test.describe(
       gate();
       const before = await summary();
       const freeze = (reason: string) =>
-        asA("POST", `/cards/${web.id}/freeze`, { reason });
+        asA("POST", `/cards/${imported.id}/freeze`, { reason });
 
       const empty = await freeze("");
       expect(empty.status, JSON.stringify(empty.data)).toBe(400);
@@ -349,20 +430,20 @@ test.describe(
         expect(money(during.owed).amount).toBe(money(before.owed).amount);
         expect(money(during.onHold).amount).toBe(0);
 
-        const lift = await asA("POST", `/cards/${web.id}/unfreeze`);
+        const lift = await asA("POST", `/cards/${imported.id}/unfreeze`);
         expect(lift.status, JSON.stringify(lift.data)).toBe(200);
         expect(dataOf(lift.data).status).toBe("ACTIVE");
         expect(dataOf(lift.data).freeze).toBeNull();
-        const lifted = await asA("POST", `/cards/${web.id}/unfreeze`);
+        const lifted = await asA("POST", `/cards/${imported.id}/unfreeze`);
         expect(lifted.status).toBe(409);
         expect(lifted.data.code).toBe("NOT_FROZEN");
       } finally {
-        // Never leave the shared card frozen for later cases.
-        await asA("POST", `/cards/${web.id}/unfreeze`).catch(() => {});
+        // Never leave the card frozen for later cases.
+        await asA("POST", `/cards/${imported.id}/unfreeze`).catch(() => {});
       }
 
-      const detail = dataOf((await asA("GET", `/cards/${web.id}`)).data);
-      expect(detail.currentBalance).toBe(50);
+      const detail = dataOf((await asA("GET", `/cards/${imported.id}`)).data);
+      expect(detail.currentBalance).toBe(30);
       const history = detail.history as Rec[];
       for (const kind of ["FROZEN", "UNFROZEN"]) {
         const row = history.find((h) => h.kind === kind);
@@ -398,7 +479,7 @@ test.describe(
     test("TC-2004: @email the owner resends the card and changes the recipient", async () => {
       gate();
       const t0 = new Date();
-      const resend = await asA("POST", `/cards/${web.id}/resend`);
+      const resend = await asS("POST", `/cards/${web.id}/resend`);
       expect(resend.status, JSON.stringify(resend.data)).toBe(200);
       expect(dataOf(resend.data).sentTo).toBe(webRecipient);
       const mail = await waitForEmail(webRecipient, {
@@ -407,34 +488,34 @@ test.describe(
       });
       expect(mail.to_email.toLowerCase()).toBe(webRecipient.toLowerCase());
 
-      const bad = await asA("PUT", `/cards/${web.id}/recipient`, {
+      const bad = await asS("PUT", `/cards/${web.id}/recipient`, {
         recipientEmail: "nope",
       });
       expect(bad.status, JSON.stringify(bad.data)).toBe(400);
       expect(bad.data.code).toBe("INVALID_EMAIL");
 
       const t1 = new Date();
-      const moved = await asA("PUT", `/cards/${web.id}/recipient`, {
+      const moved = await asS("PUT", `/cards/${web.id}/recipient`, {
         recipientEmail: newRecipient,
       });
       expect(moved.status, JSON.stringify(moved.data)).toBe(200);
       expect(dataOf(moved.data).sentTo).toBe(newRecipient);
       expect(dataOf(moved.data).card.recipientEmail).toBe(newRecipient);
-      const history = dataOf((await asA("GET", `/cards/${web.id}`)).data)
+      const history = dataOf((await asS("GET", `/cards/${web.id}`)).data)
         .history as Rec[];
       expect(history.map((h) => h.kind)).toContain("RECIPIENT_CHANGED");
       await waitForEmail(newRecipient, { timeoutMs: 60_000, notBefore: t1 });
 
-      const frozen = await asA("POST", `/cards/${web.id}/freeze`, {
+      const frozen = await asS("POST", `/cards/${web.id}/freeze`, {
         reason: "Hold while resend is checked",
       });
       expect(frozen.status, JSON.stringify(frozen.data)).toBe(200);
       try {
-        const blocked = await asA("POST", `/cards/${web.id}/resend`);
+        const blocked = await asS("POST", `/cards/${web.id}/resend`);
         expect(blocked.status, JSON.stringify(blocked.data)).toBe(409);
         expect(blocked.data.code).toBe("CARD_NOT_SENDABLE");
       } finally {
-        await asA("POST", `/cards/${web.id}/unfreeze`);
+        await asS("POST", `/cards/${web.id}/unfreeze`);
       }
     });
 
@@ -463,34 +544,54 @@ test.describe(
       expect(saved.status, JSON.stringify(saved.data)).toBe(200);
       expect(dataOf((await asA("GET", "/config")).data)).toMatchObject(wanted);
 
-      try {
-        const off = await asA("PUT", "/config", { isEnabled: false });
-        expect(off.status, JSON.stringify(off.data)).toBe(200);
+      // "Selling off refuses a purchase" runs on A on the old backend only.
+      // On the new one A is refused for its unfinished Stripe setup BEFORE
+      // the selling switch is read (409, TC-2055), and the shared seed's
+      // selling is never switched off, so that leg is skipped there.
+      // Spending is still checked on A on both.
+      const sellingOffRefuses = async () => {
         const buy = await apiRequestRaw<Rec>(
           "POST",
           "/api/stripe/gift-card-payment-intent",
           { amount: 40, restaurantId: A, deliveryMethod: "LINK" }
         );
-        expect(buy.status, JSON.stringify(buy.data)).toBeGreaterThanOrEqual(
-          400
+        expect(buy.status, JSON.stringify(buy.data)).toBe(400);
+        expect(buy.data.code).not.toBe("GIFT_CARD_HOLDER_CANNOT_RECEIVE");
+        expect(buy.data.errorCode).not.toBe("GIFT_CARD_HOLDER_CANNOT_RECEIVE");
+        // error:giftCard.notEnabledForProgram (RestauNax en/error.json).
+        expect(String(buy.data.message ?? buy.data.error)).toBe(
+          "Gift cards are not enabled for this program."
         );
-        expect(buy.status).toBeLessThan(500);
-        // Refused for a reason a client can act on, not an unhandled error.
-        expect(String(buy.data.code ?? buy.data.errorCode ?? "")).not.toBe("");
+        expect(buy.data.clientSecret).toBeUndefined();
+      };
+      try {
+        // RestauNax switches selling off (an owner can't: TC-2051).
+        const off = await putGiftCardConfigAdminRaw(adminToken, A, {
+          isEnabled: false,
+        });
+        expect(off.status, JSON.stringify(off.data)).toBe(200);
+        if (!uxPresent) await sellingOffRefuses();
         // Spending is never read from the selling switch.
         const valid = await validateGiftCardPublicRaw(imported.code, A);
         expect(valid.status, JSON.stringify(valid.data)).toBe(200);
         expect(valid.data.data.valid).toBe(true);
       } finally {
-        await asA("PUT", "/config", { isEnabled: true });
+        await putGiftCardConfigAdminRaw(adminToken, A, { isEnabled: true });
       }
+      if (uxPresent)
+        test.info().annotations.push({
+          type: "selling-off purchase leg skipped",
+          description:
+            "The new backend refuses a purchase for the seller's Stripe state (409 GIFT_CARD_HOLDER_CANNOT_RECEIVE) before it reads the selling switch, and the shared seed's selling is never switched off; backend unit tests cover the selling-off refusal.",
+        });
       expect(dataOf((await asA("GET", "/config")).data).isEnabled).toBe(true);
     });
 
     test("TC-2006: what is owed comes from the cards actually held", async () => {
       gate();
       const s = await summary();
-      expect(s.owed).toMatchObject({ amount: 80, count: 2 });
+      // The imported card alone: the web card was sold at the seed.
+      expect(s.owed).toMatchObject({ amount: 30, count: 1 });
       expect(s.ofWhichImported).toMatchObject({ amount: 30, count: 1 });
       expect(s.onHold).toMatchObject({ amount: 0, count: 0 });
       expect(s.legacyPlatformHeld).toMatchObject({ amount: 0, count: 0 });
@@ -516,9 +617,13 @@ test.describe(
       const r = await asA("GET", `/reports/activity?from=${today}&to=${today}`);
       expect(r.status, JSON.stringify(r.data)).toBe(200);
       const a = dataOf(r.data);
-      expect(a.sold.website).toMatchObject({ amount: 50, count: 1 });
-      // An import is not a sale.
-      expect(a.sold.total).toMatchObject({ amount: 50, count: 1 });
+      // An import is not a sale: A sold nothing.
+      expect(a.sold.total).toMatchObject({ amount: 0, count: 0 });
+      // The $50 web sale counts at the seed. S is shared (other runs sell
+      // there too), so its website sales grew by AT LEAST this one.
+      const seedNow = await seedWebsiteSold();
+      expect(seedNow.amount - seedSoldBefore.amount).toBeGreaterThanOrEqual(50);
+      expect(seedNow.count - seedSoldBefore.count).toBeGreaterThanOrEqual(1);
       expect(a.spent.total.amount).toBe(0);
       expect(a.cashedOut.amount).toBe(0);
 
@@ -544,7 +649,7 @@ test.describe(
       expect(r.status, JSON.stringify(r.data)).toBe(200);
       const rf = dataOf(r.data) as Parameters<typeof rollForwardTies>[0] & Rec;
       expect(rf.isCurrentPeriod).toBe(true);
-      expect(rf.lines.sold).toBe(50);
+      expect(rf.lines.sold).toBe(0);
       expect(rf.lines.importedOpening).toBe(30);
       const s = await summary();
       expect(Math.round(rf.endBalance * 100)).toBe(
@@ -595,9 +700,9 @@ test.describe(
         expect(card.statusText).not.toBe(enStatus.get(card.id));
       }
 
-      const enDetail = dataOf((await asA("GET", `/cards/${web.id}`)).data);
+      const enDetail = dataOf((await asS("GET", `/cards/${web.id}`)).data);
       const esDetail = dataOf(
-        (await asA("GET", `/cards/${web.id}`, undefined, "es")).data
+        (await asS("GET", `/cards/${web.id}`, undefined, "es")).data
       );
       const label = (d: Rec) => (d.history as Rec[])[0]?.label;
       expect(looksLikeKey(label(esDetail)), label(esDetail)).toBe(false);
@@ -605,13 +710,13 @@ test.describe(
 
       const refusedEn = await asA(
         "POST",
-        `/cards/${web.id}/freeze`,
+        `/cards/${imported.id}/freeze`,
         { reason: "funding_disputed" },
         "en"
       );
       const refusedEs = await asA(
         "POST",
-        `/cards/${web.id}/freeze`,
+        `/cards/${imported.id}/freeze`,
         { reason: "funding_disputed" },
         "es"
       );
@@ -681,6 +786,129 @@ test.describe(
         expect(valid.status, JSON.stringify(valid.data)).toBe(200);
         expect(valid.data.data.valid).toBe(true);
       }
+    });
+
+    const PLATFORM_FIELDS = [
+      "isEnabled",
+      "allowCashFunding",
+      "allowPhysicalActivation",
+    ] as const;
+    const platformOf = (c: Rec) =>
+      Object.fromEntries(PLATFORM_FIELDS.map((k) => [k, c[k]]));
+
+    test("TC-2051: an owner can't switch selling, cash or printed cards; the save keeps them", async () => {
+      uxGate();
+      const before = await asA("GET", "/config");
+      expect(before.status, JSON.stringify(before.data)).toBe(200);
+      const was = dataOf(before.data);
+      expect(was.canEditPlatformFields).toBe(false);
+      expect(was).toMatchObject({ isEnabled: true, allowCashFunding: true });
+
+      // Old Owner-app builds send these on every save: dropped, never refused.
+      const put = await asA("PUT", "/config", {
+        isEnabled: false,
+        allowCashFunding: false,
+      });
+      expect(put.status, JSON.stringify(put.data)).toBe(200);
+      expect(platformOf(dataOf(put.data))).toEqual(platformOf(was));
+      expect(dataOf(put.data).canEditPlatformFields).toBe(false);
+
+      const after = dataOf((await asA("GET", "/config")).data);
+      expect(platformOf(after)).toEqual(platformOf(was));
+      expect(after.presetDenominations).toEqual(was.presetDenominations);
+    });
+
+    test("TC-2052: RestauNax staff switch them through the owner route", async () => {
+      uxGate();
+      const was = dataOf((await asA("GET", "/config")).data);
+      const asStaff = await asAdminA("GET", "/config");
+      expect(asStaff.status, JSON.stringify(asStaff.data)).toBe(200);
+      expect(dataOf(asStaff.data).canEditPlatformFields).toBe(true);
+      try {
+        const put = await asAdminA("PUT", "/config", {
+          allowCashFunding: false,
+          allowPhysicalActivation: false,
+        });
+        expect(put.status, JSON.stringify(put.data)).toBe(200);
+        const seen = dataOf((await asA("GET", "/config")).data);
+        expect(seen).toMatchObject({
+          allowCashFunding: false,
+          allowPhysicalActivation: false,
+          canEditPlatformFields: false,
+        });
+      } finally {
+        const restore = await asAdminA("PUT", "/config", platformOf(was));
+        expect(restore.status, JSON.stringify(restore.data)).toBe(200);
+      }
+      const restored = dataOf((await asA("GET", "/config")).data);
+      expect(platformOf(restored)).toEqual(platformOf(was));
+    });
+
+    test("TC-2053: the unsold stock report is paged and its totals cover every batch", async () => {
+      uxGate();
+      const second = await createGiftCardBatchRaw(adminToken, {
+        restaurantId: A,
+        quantity: 1,
+        label: `${batchLabel} 2`,
+      });
+      if (!second.ok || !second.data.data)
+        throw new Error(`[gc-owner] batch 2: ${JSON.stringify(second.data)}`);
+      secondBatchId = second.data.data.id;
+
+      const page = async (query: string) => {
+        const r = await asA("GET", `/reports/stock${query}`);
+        expect(r.status, JSON.stringify(r.data)).toBe(200);
+        return dataOf(r.data);
+      };
+      const all = await page("");
+      expect(all).toMatchObject({ page: 1, limit: 20 });
+      expect(all.total).toBeGreaterThanOrEqual(2);
+
+      const p1 = await page("?page=1&limit=1");
+      expect(p1).toMatchObject({ page: 1, limit: 1, total: all.total });
+      expect(p1.totalPages).toBe(all.total);
+      const p2 = await page("?page=2&limit=1");
+      expect(p2).toMatchObject({ page: 2, limit: 1, total: all.total });
+      expect(p1.batches as Rec[]).toHaveLength(1);
+      expect(p2.batches as Rec[]).toHaveLength(1);
+      // Newest first: the batch just minted, then the setup's batch.
+      expect((p1.batches as Rec[])[0]?.id).toBe(secondBatchId);
+      expect((p2.batches as Rec[])[0]?.id).toBe(batchId);
+      // Totals are the whole scope, the same on every page.
+      expect(p1.totals).toEqual(all.totals);
+      expect(p2.totals).toEqual(all.totals);
+      expect((all.totals as Rec).unsold).toBeGreaterThanOrEqual(3);
+
+      const past = await page(`?page=${Number(all.total) + 1}&limit=1`);
+      expect(past.batches).toEqual([]);
+      expect(past).toMatchObject({
+        total: all.total,
+        totalPages: all.total,
+      });
+      expect(past.totals).toEqual(all.totals);
+    });
+
+    test("TC-2055: a restaurant whose Stripe setup is unfinished can't sell a card by card", async () => {
+      uxGate();
+      // A has a Stripe account from the QA dummy onboarding but never accepted
+      // Stripe's terms, so it can't take charges: the purchase is refused
+      // before any money moves, rather than kept on the platform.
+      const buy = await apiRequestRaw<Rec>(
+        "POST",
+        "/api/stripe/gift-card-payment-intent",
+        { amount: 40, restaurantId: A, deliveryMethod: "LINK" }
+      );
+      expect(buy.status, JSON.stringify(buy.data)).toBe(409);
+      expect(buy.data.code).toBe("GIFT_CARD_HOLDER_CANNOT_RECEIVE");
+      expect(buy.data.message).toBe(
+        "Gift cards can't be bought here right now. Please try again later."
+      );
+      expect(buy.data.clientSecret).toBeUndefined();
+      expect(looksLikeKey(String(buy.data.error)), String(buy.data.error)).toBe(
+        false
+      );
+      // Selling is on: the refusal is the Stripe setup, not the switch.
+      expect(dataOf((await asA("GET", "/config")).data).isEnabled).toBe(true);
     });
   }
 );

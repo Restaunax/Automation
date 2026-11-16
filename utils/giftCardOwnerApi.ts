@@ -9,7 +9,11 @@
  */
 import {
   BACKEND_URL,
+  apiLogin,
   apiRequestRaw,
+  getGiftCardConfigAdminRaw,
+  putGiftCardConfigAdminRaw,
+  type GiftCardConfigFull,
   stripeConfigRaw,
   stripePublicRaw,
   tabletRaw,
@@ -17,6 +21,7 @@ import {
   type RawResponse,
 } from "./apiHelper";
 import { expect } from "../fixtures/base";
+import { readRestaurantId } from "./testData";
 
 export type Scope = { restaurantId: string } | { groupId: string };
 
@@ -195,3 +200,82 @@ export const sumMoneyCounts = (
   amount: xs.reduce((s, x) => s + cents(x.amount), 0) / 100,
   count: xs.reduce((s, x) => s + x.count, 0),
 });
+
+/**
+ * The shared seed restaurant (`readRestaurantId()`, the globalSetup /
+ * TEMPLATE_WIND_RESTAURANT_ID restaurant) as the place to sell gift cards BY
+ * CARD. It is the one QA restaurant whose Stripe setup is finished (charges
+ * enabled, which is all the backend checks). A throwaway tenant only gets the QA dummy onboarding,
+ * which can't accept Stripe's terms, so since RestauNax
+ * feat/gift-cards-owner-ux a card-paid sale there is refused with 409
+ * GIFT_CARD_HOLDER_CANNOT_RECEIVE: the product rule, which the specs follow
+ * rather than work around. Cash and imported value stay on throwaway tenants.
+ *
+ * The seed is shared with every other spec (and an overlapping CI e2e run),
+ * so this changes as little as it can and puts it back:
+ *  - it reads the config through the admin route and turns on only what is
+ *    off: selling, and a custom amount range wide enough for `amounts`;
+ *  - `restore()` writes back only the fields it changed (call it in afterAll).
+ * A parallel run doing the same can still restore a field mid-run. That
+ * window exists when the seed had selling off (it does not on QA) and for the
+ * custom-amount range: the owner spec needs $50 and the disputes spec $60, so
+ * one file's restore can narrow the range while the other is buying. To keep
+ * that rare, the range is only ever widened (never narrowed below what is
+ * stored right now) and only the fields this call changed are restored.
+ * Callers record every card with recordGiftCardForCleanup and assert deltas
+ * or their own card's id, never the seed's absolute totals.
+ */
+export async function seedRestaurantForCardSales(
+  adminToken: string,
+  amounts: number[]
+): Promise<{
+  restaurantId: string;
+  ownerToken: string;
+  ownerEmail: string;
+  ownerPassword: string;
+  restore: () => Promise<void>;
+}> {
+  const ownerEmail = process.env.OWNER_EMAIL ?? "";
+  const ownerPassword = process.env.OWNER_PASSWORD ?? "";
+  if (!ownerEmail || !ownerPassword)
+    throw new Error("OWNER_EMAIL / OWNER_PASSWORD (the seed owner) not set");
+  const restaurantId = readRestaurantId();
+  const ownerToken = (await apiLogin(ownerEmail, ownerPassword)).accessToken;
+
+  const read = await getGiftCardConfigAdminRaw(adminToken, restaurantId);
+  if (read.status !== 200)
+    throw new Error(`[seed gift cards] config: ${JSON.stringify(read.data)}`);
+  const was = read.data.data;
+  const patch: Partial<GiftCardConfigFull> = {};
+  if (!was.isEnabled) patch.isEnabled = true;
+  const sellable = (a: number) =>
+    (was.presetDenominations ?? []).includes(a) ||
+    (was.allowCustomAmount &&
+      a >= was.minCustomAmount &&
+      a <= was.maxCustomAmount);
+  if (!amounts.every(sellable)) {
+    // Widen only: a range another file widened stays at least that wide.
+    if (!was.allowCustomAmount) patch.allowCustomAmount = true;
+    const min = Math.min(was.minCustomAmount, ...amounts);
+    const max = Math.max(was.maxCustomAmount, ...amounts);
+    if (min < was.minCustomAmount) patch.minCustomAmount = min;
+    if (max > was.maxCustomAmount) patch.maxCustomAmount = max;
+  }
+  if (Object.keys(patch).length) {
+    const put = await putGiftCardConfigAdminRaw(
+      adminToken,
+      restaurantId,
+      patch
+    );
+    if (!put.ok)
+      throw new Error(`[seed gift cards] enable: ${JSON.stringify(put.data)}`);
+  }
+  const restore = async () => {
+    if (!Object.keys(patch).length) return;
+    const back = Object.fromEntries(
+      Object.keys(patch).map((k) => [k, was[k as keyof GiftCardConfigFull]])
+    ) as Partial<GiftCardConfigFull>;
+    await putGiftCardConfigAdminRaw(adminToken, restaurantId, back);
+  };
+  return { restaurantId, ownerToken, ownerEmail, ownerPassword, restore };
+}

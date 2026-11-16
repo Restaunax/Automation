@@ -7,9 +7,17 @@
  * throwaway restaurant (Stripe TEST, gift cards on with cash + physical
  * activation, a REGISTER device) with four people: the owner (MANAGER, PIN
  * 8462), Dee (STAFF), Rae (STAFF without SELL_GIFT_CARDS) and Sam (SHIFT_LEAD
- * granted MANAGE_GIFT_CARDS). Cards: a $25 cash-sold card, a $40 web card
- * (card-funded today) and a $15 imported card. A stranger tenant holds one
- * seeded card.
+ * granted MANAGE_GIFT_CARDS). Cards: a $25 cash-sold card, a $40 cash-sold
+ * card emailed to a recipient and a $15 imported card. A stranger tenant
+ * holds one seeded card.
+ *
+ * Nothing here is sold BY CARD. The tenant has only the QA dummy Stripe
+ * onboarding (charges not enabled), and since RestauNax
+ * feat/gift-cards-owner-ux such a restaurant may not sell a card by card:
+ * TC-2026 asserts that refusal at the register (gated giftCardsOwnerUx). The
+ * "card-funded today waits 30 days to cash out" case (CASH_OUT_TOO_SOON) needs
+ * a card-funded card at a register of a restaurant that can take charges; on
+ * QA that is only the shared seed restaurant, so it is not covered here.
  *
  * Gated behind RELEASED_ON_QA.ownerGiftCards: the setup probes the owner
  * routes right after the tenant exists and stops before seeding when they
@@ -17,7 +25,8 @@
  *
  *   TC-2024 any signed-in staff member finds a card; unknown and foreign codes answer the same 404.
  *   TC-2025 the old lookup still answers what old registers read, plus `freeze`.
- *   TC-2026 a cashier who may not sell is stopped before any money moves.
+ *   TC-2026 a cashier who may not sell is stopped before any money moves; an
+ *           unfinished Stripe setup refuses a card sale (409).
  *   TC-2027 freezing needs MANAGE_GIFT_CARDS; a shift lead with the grant may.
  *   TC-2028 resend needs selling rights; changing the recipient needs managing rights.
  *   TC-2029 which balances can be cashed out now.
@@ -31,14 +40,18 @@ import { randomUUID } from "crypto";
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../fixtures/base";
 import { generateRunId, recordGiftCardForCleanup } from "../../utils/testData";
-import { addDays, localToday, looksLikeKey } from "../../utils/backOfficeApi";
+import { looksLikeKey } from "../../utils/backOfficeApi";
 import {
-  buyGiftCardOnline,
   isMaskedCode,
   ownerGiftCardRaw,
   tabletGiftCardRaw,
 } from "../../utils/giftCardOwnerApi";
-import { probeOwnerGiftCards, requireRelease } from "../../utils/releaseGate";
+import {
+  probeGiftCardsOwnerUx,
+  probeOwnerGiftCards,
+  releasePresent,
+  requireRelease,
+} from "../../utils/releaseGate";
 import {
   apiLogin,
   apiRequestRaw,
@@ -55,7 +68,6 @@ import {
   seedFundedGiftCard,
   setOwnerPosPin,
   setRestaurantPublishedApi,
-  stripeConfigRaw,
   stripeTestOnboardingRaw,
   tabletLogin,
   tabletRaw,
@@ -141,7 +153,7 @@ test.describe(
     );
 
     const runId = generateRunId();
-    const webRecipient = `auto-gc-care-${runId}@${EMAIL_DOMAIN}`;
+    const emailRecipient = `auto-gc-care-${runId}@${EMAIL_DOMAIN}`;
     const newRecipient = `auto-gc-care-new-${runId}@${EMAIL_DOMAIN}`;
     let adminToken = "";
     let ownerToken = "";
@@ -157,9 +169,8 @@ test.describe(
     const dee = { id: "", pin: "4826", session: "" };
     const rae = { id: "", pin: "5938", session: "" };
     const sam = { id: "", pin: "7261", session: "" };
-    let webBoughtAt = new Date();
     let cashCard = { id: "", code: "" };
-    let webCard = { id: "", code: "" };
+    let emailCard = { id: "", code: "" };
     let importedCard = { id: "", code: "" };
     let strangerCode = "";
     /** The idempotency key of the successful cash-out (TC-2030 / TC-2050). */
@@ -178,7 +189,7 @@ test.describe(
       const r = await tabletGiftCardRaw<T>(tablet, session, method, path, body);
       if (path !== "/sell") {
         const text = JSON.stringify(r.data);
-        for (const code of [cashCard.code, webCard.code, importedCard.code])
+        for (const code of [cashCard.code, emailCard.code, importedCard.code])
           if (code) expect(text, "no full card code").not.toContain(code);
       }
       return r;
@@ -311,16 +322,17 @@ test.describe(
       cashCard = { id: sold.data.data.giftCardId, code: sold.data.data.code };
       recordGiftCardForCleanup(cashCard.id);
 
-      // webCard: bought online with a card today, emailed.
-      const pk = String(
-        (await stripeConfigRaw()).data.data?.publishableKey ?? ""
-      );
-      const bought = await buyGiftCardOnline(pk, rid, 40, {
-        recipientEmail: webRecipient,
+      // emailCard: Dee sells $40 cash, emailed to a recipient.
+      const emailed = await sellCash(dee.session, 40, {
+        deliveryMethod: "EMAIL",
+        recipientEmail: emailRecipient,
       });
-      webBoughtAt = new Date();
-      webCard = { id: bought.giftCardId, code: bought.code };
-      recordGiftCardForCleanup(webCard.id);
+      expect(emailed.status, JSON.stringify(emailed.data)).toBe(201);
+      emailCard = {
+        id: emailed.data.data.giftCardId,
+        code: emailed.data.data.code,
+      };
+      recordGiftCardForCleanup(emailCard.id);
 
       // importedCard: opening balance from a migration.
       const imported = await seedFundedGiftCard(adminToken, rid, 15);
@@ -367,10 +379,10 @@ test.describe(
       expect(looksLikeKey(d.history[0]?.label)).toBe(false);
       expect(JSON.stringify(r.data)).not.toContain(cashCard.code);
 
-      const web = await details(dee.session, webCard.code);
+      const web = await details(dee.session, emailCard.code);
       expect(web.status, JSON.stringify(web.data)).toBe(200);
       expect(web.data.data.recipient?.emailMasked).toMatch(MASKED_EMAIL);
-      expect(JSON.stringify(web.data)).not.toContain(webRecipient);
+      expect(JSON.stringify(web.data)).not.toContain(emailRecipient);
 
       const foreign = await details(dee.session, strangerCode);
       const randomCode = Array.from(
@@ -449,30 +461,50 @@ test.describe(
       expect(looksLikeKey(raeIntent.data.error)).toBe(false);
       expect(raeIntent.data.clientSecret).toBeUndefined();
 
-      // A manager's PIN approves it for her.
-      const raeIntentApproved = await tabletRaw<{ clientSecret?: string }>(
+      // On the new backend a restaurant whose Stripe setup is unfinished
+      // can't sell a new card by card at all: past the permission check, the
+      // intent is refused with 409 before any money moves (the old backend
+      // kept such money on the platform and answered 200).
+      const ux = releasePresent(
+        "giftCardsOwnerUx",
+        await probeGiftCardsOwnerUx(ownerToken, rid)
+      );
+      const expectIntent = (r: {
+        status: number;
+        data: { clientSecret?: string; code?: string };
+      }) => {
+        if (ux) {
+          expect(r.status, JSON.stringify(r.data)).toBe(409);
+          expect(r.data.code).toBe("GIFT_CARD_HOLDER_CANNOT_RECEIVE");
+          expect(r.data.clientSecret).toBeUndefined();
+        } else {
+          expect(r.status, JSON.stringify(r.data)).toBe(200);
+          expect(r.data.clientSecret).toMatch(/_secret_/);
+        }
+      };
+
+      // A manager's PIN approves it for her (no 403 any more).
+      const raeIntentApproved = await tabletRaw<{
+        clientSecret?: string;
+        code?: string;
+      }>(
         tablet,
         "POST",
         "/terminal/create-gift-card-payment-intent",
         { ...intentBody, ...approval() },
         rae.session
       );
-      expect(
-        raeIntentApproved.status,
-        JSON.stringify(raeIntentApproved.data)
-      ).toBe(200);
-      expect(raeIntentApproved.data.clientSecret).toMatch(/_secret_/);
+      expectIntent(raeIntentApproved);
 
-      // No session header (kiosk, old build): unchanged. The uncaptured
-      // intent expires on its own.
-      const kiosk = await tabletRaw<{ clientSecret?: string }>(
+      // No session header (kiosk, old build): no permission check, same
+      // answer. An uncaptured intent expires on its own.
+      const kiosk = await tabletRaw<{ clientSecret?: string; code?: string }>(
         tablet,
         "POST",
         "/terminal/create-gift-card-payment-intent",
         intentBody
       );
-      expect(kiosk.status, JSON.stringify(kiosk.data)).toBe(200);
-      expect(kiosk.data.clientSecret).toMatch(/_secret_/);
+      expectIntent(kiosk);
 
       // Rae with a manager's PIN sells; Dee's default STAFF rights unchanged.
       const approved = await sellCash(rae.session, 20, approval());
@@ -549,13 +581,13 @@ test.describe(
       const resend = await gc<{ data: { sentTo: string } }>(
         dee.session,
         "POST",
-        `/${webCard.id}/resend`,
+        `/${emailCard.id}/resend`,
         {}
       );
       expect(resend.status, JSON.stringify(resend.data)).toBe(200);
       expect(resend.data.data.sentTo).toMatch(MASKED_EMAIL);
 
-      const byDee = await gc(dee.session, "PUT", `/${webCard.id}/recipient`, {
+      const byDee = await gc(dee.session, "PUT", `/${emailCard.id}/recipient`, {
         recipientEmail: newRecipient,
       });
       expect(byDee.status, JSON.stringify(byDee.data)).toBe(403);
@@ -568,7 +600,7 @@ test.describe(
       const bySam = await gc<{ data: { sentTo: string } }>(
         sam.session,
         "PUT",
-        `/${webCard.id}/recipient`,
+        `/${emailCard.id}/recipient`,
         { recipientEmail: newRecipient }
       );
       expect(bySam.status, JSON.stringify(bySam.data)).toBe(200);
@@ -589,20 +621,6 @@ test.describe(
         eligible: true,
         amount: 15,
       });
-
-      const web = await details(owner.session, webCard.code);
-      expect(web.status, JSON.stringify(web.data)).toBe(200);
-      const out = web.data.data.cashOut;
-      expect(out.eligible).toBe(false);
-      expect(out.refusal?.code).toBe("CASH_OUT_TOO_SOON");
-      const eligibleAt = String(out.refusal?.eligibleAt);
-      expect(
-        new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(
-          new Date(eligibleAt)
-        )
-      ).toBe(addDays(localToday(tz, webBoughtAt), 30));
-      expect(out.refusal?.text).toMatch(/30 days/);
-      expect(looksLikeKey(out.refusal?.text)).toBe(false);
     });
 
     test("TC-2030: cash-out pays the whole balance once", async () => {
@@ -695,27 +713,14 @@ test.describe(
       expect(
         card.data.data.history.find((h) => h.kind === "CASHED_OUT")
       ).toMatchObject({ amount: -25, balanceAfter: 0 });
-
-      // The web card is card-funded today: it waits.
-      const tooSoon = await gc(owner.session, "POST", "/cash-out", {
-        giftCardId: webCard.id,
-        idempotencyKey: randomUUID(),
-        expectedAmount: 40,
-      });
-      expect(tooSoon.status, JSON.stringify(tooSoon.data)).toBe(409);
-      const soon = refusal(tooSoon);
-      expect(soon).toMatchObject({
-        code: "CASH_OUT_TOO_SOON",
-        errorCode: "CASH_OUT_TOO_SOON",
-      });
-      expect(typeof soon.eligibleAt).toBe("string");
     });
 
     test("TC-2031: the drawer expects the cash that left", async () => {
       gate();
-      // Cash sales: Dee 25, Rae (manager PIN) 20, Dee 20; cash-out 25.
+      // Cash sales: Dee 25, Dee 40 (emailed), Rae (manager PIN) 20, Dee 20;
+      // cash-out 25.
       const live = await drawer();
-      expect(live.expectedCash).toBe(140);
+      expect(live.expectedCash).toBe(180);
 
       // The drawer's loads list shows the cash-out, not voidable.
       const rows = await tabletRaw<{
@@ -731,14 +736,14 @@ test.describe(
         { amount: 25, voidable: false }
       );
 
-      // Count the drawer out: 100 + 25 + 20 + 20 - 25 = 140, nothing over.
+      // Count the drawer out: 100 + 25 + 40 + 20 + 20 - 25 = 180, nothing over.
       const closed = await closeRegisterSessionPosRaw(tablet, owner.session, {
-        countedCash: 140,
+        countedCash: 180,
       });
       expect(closed.status, JSON.stringify(closed.data)).toBe(200);
       expect(closed.data.data).toMatchObject({
-        expectedCash: 140,
-        countedCash: 140,
+        expectedCash: 180,
+        countedCash: 180,
         overShort: 0,
       });
     });
@@ -763,11 +768,11 @@ test.describe(
       expect(r.status, JSON.stringify(r.data)).toBe(200);
       const d = r.data.data;
       expect(d.giftCardsSold).toEqual({
-        cash: { amount: 65, count: 3 },
+        cash: { amount: 105, count: 4 },
         card: { amount: 0, count: 0 },
-        total: { amount: 65, count: 3 },
+        total: { amount: 105, count: 4 },
         voided: { amount: 0, count: 0 },
-        net: 65,
+        net: 105,
         cashedOut: { amount: 25, count: 1 },
       });
       expect(d.cash.giftCardCashOutTotal).toBe(25);

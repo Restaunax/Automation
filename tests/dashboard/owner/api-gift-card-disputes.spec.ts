@@ -9,9 +9,18 @@
  * cannot lift it. Its money is "on hold", not owed. The owner's dispute
  * payload carries `giftCard: { id, maskedCode }`.
  *
- * Setup: a fresh owner, Stripe TEST onboarded, gift cards on. A $60 card is
- * bought with `tok_createDispute`; Stripe opens the dispute a few seconds
- * later and QA's own webhook delivers it. The setup polls the owner's
+ * Setup: the shared SEED restaurant (`seedRestaurantForCardSales`) and its
+ * owner. A card can only be sold by card where the Stripe setup is finished
+ * (charges enabled), and the seed is the one QA restaurant that has; a
+ * throwaway tenant is refused (TC-2055). A $60 card is bought with
+ * `tok_createDispute`; Stripe opens the dispute a few seconds later and QA's
+ * own webhook delivers it.
+ *
+ * Each run leaves one lost $60 chargeback (plus Stripe's dispute fee) accrued
+ * to the seed restaurant's QA payouts, and the card stays frozen by the
+ * system. That is accepted on QA (Neaj, 2026-11-16). The seed is shared, so
+ * the cases assert this run's dispute and card by id, and the summary as a
+ * delta, never the seed's totals; the gift card config is put back after. The setup polls the owner's
  * disputes for up to 120 s; if QA never delivers it and E2E_STRIPE_* is set,
  * the real `charge.dispute.created` event is delivered by hand.
  *
@@ -25,7 +34,7 @@
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
 import {
-  generateRunId,
+  readRestaurantId,
   recordGiftCardForCleanup,
 } from "../../../utils/testData";
 import { looksLikeKey } from "../../../utils/backOfficeApi";
@@ -35,6 +44,7 @@ import {
   isMaskedCode,
   ownerGiftCardRaw,
   rollForwardTies,
+  seedRestaurantForCardSales,
 } from "../../../utils/giftCardOwnerApi";
 import {
   probeOwnerGiftCards,
@@ -50,17 +60,14 @@ import { createOwnerGiftCardsPage } from "../../../pages/dashboard/owner/OwnerGi
 import {
   apiLogin,
   apiRequestRaw,
-  createSecondOwner,
-  deleteTestRestaurant,
-  ensureBusinessHours,
-  setRestaurantPublishedApi,
   stripeConfigRaw,
-  stripeTestOnboardingRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
+const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
+const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
 
 type Rec = Record<string, LooseJson>;
 
@@ -75,11 +82,10 @@ test.describe(
   { tag: ["@owner-gift-cards"] },
   () => {
     test.skip(
-      !ADMIN_EMAIL || !ADMIN_PASSWORD,
-      "ADMIN_EMAIL / ADMIN_PASSWORD not set (the file mints its own tenant)"
+      !ADMIN_EMAIL || !ADMIN_PASSWORD || !OWNER_EMAIL || !OWNER_PASSWORD,
+      "ADMIN_* / OWNER_* not set (the card is sold at the seed restaurant)"
     );
 
-    const runId = generateRunId();
     let adminToken = "";
     let owner = "";
     let ownerEmail = "";
@@ -89,6 +95,9 @@ test.describe(
     let present = false;
     let card = { id: "", code: "", pi: "" };
     let dispute: Rec = {};
+    let restoreSeed: () => Promise<void> = async () => {};
+    /** The seed's on-hold money before this run's purchase. */
+    let onHoldBefore = { amount: 0, count: 0 };
 
     const asOwner = (
       method: "GET" | "POST" | "PUT",
@@ -143,30 +152,21 @@ test.describe(
       if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return;
       adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
 
-      const a = await createSecondOwner(adminToken, runId, {
-        alwaysFresh: true,
-      });
-      if (!a.restaurantId) throw new Error("[gc-dispute] no tenant");
-      rid = a.restaurantId;
-      owner = a.accessToken;
-      ownerEmail = a.email;
-      ownerPassword = a.password ?? "";
-      // Probe before spending anything: no owner routes, nothing to buy.
+      // Probe before touching the seed: no owner routes, nothing changes.
+      rid = readRestaurantId();
+      owner = (await apiLogin(OWNER_EMAIL, OWNER_PASSWORD)).accessToken;
       present = await probeOwnerGiftCards(owner, rid);
       if (!present) return;
+      const seed = await seedRestaurantForCardSales(adminToken, [60]);
+      ownerEmail = seed.ownerEmail;
+      ownerPassword = seed.ownerPassword;
+      restoreSeed = seed.restore;
 
-      await setRestaurantPublishedApi(adminToken, rid, true);
-      await ensureBusinessHours(owner, rid);
-      const onboard = await stripeTestOnboardingRaw(owner, rid);
-      if (onboard.status !== 200)
-        throw new Error(`[gc-dispute] stripe: ${JSON.stringify(onboard.data)}`);
-      const cfg = await asOwner("PUT", "/config", {
-        isEnabled: true,
-        allowCashFunding: true,
-        allowPhysicalActivation: true,
-      });
-      if (cfg.status !== 200)
-        throw new Error(`[gc-dispute] config: ${JSON.stringify(cfg.data)}`);
+      const before = await asOwner("GET", "/reports/summary");
+      if (before.status !== 200)
+        throw new Error(`[gc-dispute] summary: ${JSON.stringify(before.data)}`);
+      const held = dataOf(before.data).onHold as Rec;
+      onHoldBefore = { amount: Number(held.amount), count: Number(held.count) };
 
       const pk = String(
         (await stripeConfigRaw()).data.data?.publishableKey ?? ""
@@ -200,10 +200,10 @@ test.describe(
     });
 
     test.afterAll(async () => {
-      if (adminToken && rid)
-        await deleteTestRestaurant(adminToken, rid).catch(() => {
-          /* archive is best-effort; globalTeardown sweeps the users */
-        });
+      // The seed restaurant stays; only its gift card config is put back.
+      // The disputed card stays frozen by the system (the teardown sweep
+      // freezes recorded cards anyway).
+      await restoreSeed().catch(() => {});
     });
 
     test.beforeEach(async () => {
@@ -252,8 +252,16 @@ test.describe(
       const s = await asOwner("GET", "/reports/summary");
       expect(s.status, JSON.stringify(s.data)).toBe(200);
       const sum = dataOf(s.data);
-      expect(sum.onHold).toMatchObject({ amount: 60, count: 1 });
-      expect((sum.owed as Rec).amount).toBe(0);
+      // The seed is shared: this run's $60 joined what was on hold (an
+      // overlapping run's dispute can add more).
+      const held = sum.onHold as Rec;
+      expect(Number(held.amount) - onHoldBefore.amount).toBeGreaterThanOrEqual(
+        60
+      );
+      expect(Number(held.count) - onHoldBefore.count).toBeGreaterThanOrEqual(1);
+      // Frozen by the system: held, not spendable.
+      const card1 = dataOf((await asOwner("GET", `/cards/${card.id}`)).data);
+      expect(card1.status).toBe("FROZEN");
 
       const lift = await asOwner("POST", `/cards/${card.id}/unfreeze`);
       expect(lift.status, JSON.stringify(lift.data)).toBe(403);
@@ -265,7 +273,10 @@ test.describe(
       const after = await asOwner("GET", `/cards/${card.id}`);
       expect(dataOf(after.data).status).toBe("FROZEN");
 
-      // A freeze moves no money: the books still tie.
+      // A freeze moves no money: the books still tie. This is a whole-seed
+      // check (every card at the seed, not just this run's), which holds
+      // whatever else is sold there, since the roll-forward ties by
+      // construction rather than to this run's numbers.
       // No month: the backend defaults to the restaurant's local month.
       const rf = await asOwner("GET", "/reports/roll-forward");
       expect(rf.status, JSON.stringify(rf.data)).toBe(200);

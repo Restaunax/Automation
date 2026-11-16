@@ -29,7 +29,12 @@
  *   TC-2022 a card frozen at one location shows frozen at another's register.
  *   TC-2023 a sibling can't cash out a card whose money A holds.
  *   TC-2046 (UI) the chain shell shows the chain's cards by location; a
- *           member's settings point to the chain.
+ *           member's settings point to the chain. With the owner UX
+ *           follow-up (gated giftCardsOwnerUxDashboard): the chain page
+ *           captions where a card was sold, a member page doesn't, and the
+ *           member reads selling / cash / printed cards as On/Off text.
+ *           The chain page's Chain settlement report renders (formerly
+ *           checked on a standalone tenant in TC-2041).
  */
 import { randomUUID } from "crypto";
 import * as allure from "allure-js-commons";
@@ -57,7 +62,9 @@ import {
   type Scope,
 } from "../../../utils/giftCardOwnerApi";
 import {
+  probeGiftCardsOwnerUxDashboard,
   probeOwnerGiftCards,
+  releasePresent,
   requireRelease,
 } from "../../../utils/releaseGate";
 import {
@@ -78,6 +85,7 @@ import {
   getOwnerRestaurants,
   getRestaurantTimeZonePublic,
   openRegisterSessionPos,
+  putGiftCardGroupConfigAdminRaw,
   setOwnerPosPin,
   setRestaurantPublishedApi,
   tabletLogin,
@@ -241,16 +249,15 @@ test.describe(
       // A fresh login so the owner token reflects the chain membership.
       owner = (await apiLogin(tenant.email, tenant.password)).accessToken;
 
-      const cfg = await asOwner(chain(), "PUT", "/config", {
+      // Selling, cash and printed cards are RestauNax's to switch (an
+      // owner's PUT drops them since feat/gift-cards-owner-ux): the admin
+      // config route turns them on for the chain.
+      const cfg = await putGiftCardGroupConfigAdminRaw(adminToken, gid, {
         isEnabled: true,
         allowCashFunding: true,
         allowPhysicalActivation: true,
       });
-      if (cfg.status === 404) {
-        present = false;
-        return;
-      }
-      if (cfg.status !== 200)
+      if (!cfg.ok)
         throw new Error(`[gc-chain] config: ${JSON.stringify(cfg.data)}`);
 
       tz = (await getRestaurantTimeZonePublic(A)) || tz;
@@ -671,6 +678,40 @@ test.describe(
         await expect(gc.owedFigure()).toHaveText(
           usd(Number((totals.owed as Rec).amount))
         );
+        const ux = releasePresent(
+          "giftCardsOwnerUxDashboard",
+          await probeGiftCardsOwnerUxDashboard()
+        );
+        const last4 = sanitizeCode(card.code).slice(-4);
+        const soldAt = `Sold at ${nameA}`;
+        if (ux) {
+          // The chain page says where a card was sold, as a caption only.
+          await gc.search(last4);
+          await expect(gc.rowLocation(card.id)).toHaveText(soldAt, {
+            timeout: 15_000,
+          });
+          await gc.openCard(last4, card.id);
+          await expect(gc.drawerSoldAt()).toHaveText(soldAt);
+          await expect(gc.drawer()).not.toContainText("Money held by");
+          await gc.closeCard();
+          // A member's own page shows neither caption.
+          await gc.goto(B, "overview");
+          await gc.openCard(last4, card.id);
+          await expect(gc.rowLocation(card.id)).toHaveCount(0);
+          await expect(gc.drawerSoldAt()).toHaveCount(0);
+          await gc.closeCard();
+        }
+
+        // Chain settlement lives on the chain page (moved here from the
+        // standalone TC-2041, which no longer has the report).
+        await gc.gotoChain(gid, "reports");
+        await gc.openReport("settlement");
+        await expect(
+          page.getByTestId("gift-cards-report-settlement")
+        ).toBeVisible({ timeout: 30_000 });
+        const stHint = (await gc.reportHint().innerText()).trim();
+        expect(stHint).not.toBe("");
+        expect(looksLikeKey(stHint), stHint).toBe(false);
 
         // A member location reads the chain's settings, read-only, with a
         // way to the chain's page (this owner controls the chain).
@@ -679,8 +720,18 @@ test.describe(
         const notice = (await gc.chainLevelNotice().innerText()).trim();
         expect(looksLikeKey(notice), notice).toBe(false);
         await expect(gc.openChainSettings()).toBeVisible();
-        for (const key of ["selling", "custom", "cash", "physical"] as const)
-          await expect(gc.settingsSwitch(key)).toBeDisabled();
+        await expect(gc.settingsSwitch("custom")).toBeDisabled();
+        for (const key of ["selling", "cash", "physical"] as const) {
+          if (!ux) {
+            await expect(gc.settingsSwitch(key)).toBeDisabled();
+            continue;
+          }
+          // Set up by RestauNax (all three on in beforeAll): On/Off text,
+          // never a switch, for the owner.
+          await expect(gc.settingsReadonly(key)).toHaveText("On");
+          await expect(gc.settingsSwitch(key)).toHaveCount(0);
+        }
+        if (ux) await expect(gc.platformHint()).toBeVisible();
         await expect(gc.presetInput()).toHaveCount(0);
         await expect(gc.saveButton()).toHaveCount(0);
       } finally {

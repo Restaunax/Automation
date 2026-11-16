@@ -15,7 +15,11 @@ import {
  *   - section tabs: `?section=overview|reports|settings` (push; a manager has
  *     no `settings`, and `?section=settings` falls back to Overview);
  *   - the open card: `?card=<id>` (push) — the detail drawer;
- *   - Reports picker: `?report=activity|rollForward|stock|settlement` (push);
+ *   - Reports picker: `?report=activity|rollForward|stock|settlement` (push;
+ *     settlement only on a chain or chain member page since
+ *     feat/gift-cards-owner-ux, else `?report=settlement` falls back to
+ *     Activity);
+ *   - stock report page: `?stockPage=` (replace, feat/gift-cards-owner-ux);
  *   - finder filters: `?q=`, `?status=`, `?heldHere=`, `?page=` (replace).
  *
  * Selectors are the web UI's own data-testids (GiftCards/**). Where the web
@@ -174,6 +178,11 @@ export const createOwnerGiftCardsPage = (page: Page) => {
       )
     );
   };
+  /** Chain page only: "Sold at <location>" under the drawer's balance. */
+  const drawerSoldAt = (): Locator => page.getByTestId("gift-card-sold-at");
+  /** Chain page only: a finder row's "Sold at <location>" caption. */
+  const rowLocation = (id: string): Locator =>
+    page.getByTestId(`gift-card-row-location-${id}`);
   /** The red freeze banner (reasonText + when). */
   const freezeBanner = (): Locator => page.getByTestId("gift-card-freeze");
   const freezeButton = (): Locator =>
@@ -227,11 +236,23 @@ export const createOwnerGiftCardsPage = (page: Page) => {
   /**
    * A settings switch by its key (selling | custom | cash | physical). The
    * test id lands on the MUI Switch root span: click the input inside it,
-   * never the label (CLAUDE.md "Toggling a switch").
+   * never the label (CLAUDE.md "Toggling a switch"). Since
+   * feat/gift-cards-owner-ux, selling / cash / physical render as switches
+   * only for RestauNax staff (`canEditPlatformFields`); an owner sees
+   * `settingsReadonly(key)` instead.
    */
   const settingsSwitch = (
     key: "selling" | "custom" | "cash" | "physical"
   ): Locator => page.getByTestId(`gift-cards-settings-${key}`).locator("input");
+  /** The "Set up by RestauNax" group (selling, cash, physical). */
+  const platformGroup = (): Locator =>
+    page.getByTestId("gift-cards-settings-platform");
+  /** "RestauNax sets this up for you. Ask us to change it." (owners only). */
+  const platformHint = (): Locator =>
+    page.getByTestId("gift-cards-settings-platform-hint");
+  /** A platform field's read-only On/Off text, shown instead of its switch. */
+  const settingsReadonly = (key: "selling" | "cash" | "physical"): Locator =>
+    page.getByTestId(`gift-cards-settings-${key}-readonly`);
   /** The validation message under the presets (FormHelperText). */
   const presetsError = (): Locator =>
     page
@@ -360,6 +381,8 @@ export const createOwnerGiftCardsPage = (page: Page) => {
     drawerCode,
     drawerStatus,
     closeCard,
+    drawerSoldAt,
+    rowLocation,
     historyLabels,
     freezeBanner,
     freezeButton,
@@ -376,6 +399,9 @@ export const createOwnerGiftCardsPage = (page: Page) => {
     removeAllPresets,
     removeLastPreset,
     settingsSwitch,
+    platformGroup,
+    platformHint,
+    settingsReadonly,
     presetsError,
     saveButton,
     saveSettings,
