@@ -799,8 +799,8 @@ test.describe("Owner — Promotions", () => {
           { id: itemB.id, name: itemB.name, price: itemB.price },
         ]
       );
-      // The deal's queued AI picture job must finish first, or it can overtake
-      // the upload / remove below.
+      // The owner's action wins over the queued AI job; waiting just starts
+      // the UI from a settled picture instead of a spinner.
       await waitForDealPictureSettled(token, { restaurantId }, deal.id);
       await createCouponPromotion(token, restaurantId, {
         name: couponName,

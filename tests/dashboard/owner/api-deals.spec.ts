@@ -3322,6 +3322,38 @@ test.describe("Owner — Deals API contract", () => {
       expect(res.status, JSON.stringify(res.data)).toBe(200);
       expect((await listPicture(deal.id))?.url).toBe(url);
     });
+
+    test("TC-1968: removing the picture right after the create-time AI job was queued keeps it removed", async () => {
+      await allure.description(
+        "Create a deal (queues one AI picture job), upload a picture immediately with no settle wait, then " +
+          "DELETE it. For the next 60 s (20 reads, 3 s apart) the list row's picture stays { url: null, status: null }: " +
+          "the owner's action wins, the AI job never brings a picture back."
+      );
+      const deal = await seedDeal("Picture Race", 12, twoItems());
+      const up = await uploadDealImageApi(token, deal.id, PNG);
+      expect(up.status, JSON.stringify(up.data)).toBe(200);
+      const del = await removeDealImageApi(token, deal.id);
+      expect(del.status, JSON.stringify(del.data)).toBe(200);
+
+      const READS = 20;
+      const seen: Array<unknown> = [];
+      await expect
+        .poll(
+          async () => {
+            seen.push(await listPicture(deal.id));
+            return seen.length;
+          },
+          {
+            message: "the removed picture is read 20 times",
+            timeout: 90_000,
+            intervals: [3_000],
+          }
+        )
+        .toBeGreaterThanOrEqual(READS);
+      seen.forEach((picture, i) =>
+        expect(picture, `read #${i + 1}`).toEqual({ url: null, status: null })
+      );
+    });
   });
 
   test.describe("authorization — another owner (the seed OWNER) against this tenant's deals", () => {
