@@ -4331,7 +4331,7 @@ restaunax `docs/features/back-office/ACCOUNTING_SYNC.md` → _When the add-on en
 
 ## TC-1962 → TC-1967 — Promotion pictures: see, upload or remove a promotion's picture (RestauNax #1189)
 
-**Status:** ⏳ written before RestauNax #1189 reached QA; compiles, lints and lists, not yet run. The AI button ("Make one with AI", `POST /api/deals/:id/regenerate-image`) is never pressed: it spends real Google AI money. Each test seeds its own deals and deletes them.
+**Status:** ⏳ written before RestauNax #1189 reached QA; compiles, lints and lists, not yet run. The tests never press "Make one with AI" (`POST /api/deals/:id/regenerate-image`), which spends real Google AI money. Each seeded Combo / BOGO still triggers one automatic AI picture on create (the backend makes one for every new deal). Each test seeds its own deals and deletes them.
 
 A Combo / BOGO row in Promotions shows a picture thumbnail; coupon rows have none. The thumbnail (or the row menu's "Picture") opens a dialog to upload your own photo, make one with AI, or remove it. The API returns `picture: { url, status } | null` on each row of `GET /api/promotions/restaurant/:id`.
 

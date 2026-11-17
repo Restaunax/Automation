@@ -408,9 +408,10 @@ export function deletePromotionRaw(
 /**
  * Waits until a deal's AI picture job is no longer running (its list-row
  * `picture.status` is not "pending" / "generating"). Creating a deal queues
- * one AI picture job, and an upload or remove made while that job runs can be
- * overtaken by it (the job lands afterwards and brings a picture back). Call
- * after seeding a deal and before any upload / remove step.
+ * one AI picture job. A remove made while that create-time job (or its retry)
+ * runs can be overtaken by it: the job lands afterwards and brings a picture
+ * back. An upload can't be (the job only replaces the picture it started
+ * from). Call after seeding a deal and before any upload / remove step.
  */
 export async function waitForDealPictureSettled(
   accessToken: string,
