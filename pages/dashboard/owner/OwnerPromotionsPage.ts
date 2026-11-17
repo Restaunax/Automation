@@ -33,6 +33,7 @@ export type PromotionRowAction =
   | "Edit"
   | "Send to customers"
   | "Duplicate"
+  | "Picture"
   | "Pause"
   | "Turn on"
   | "Delete";
@@ -171,6 +172,79 @@ export const createOwnerPromotionsPage = (page: Page) => {
     await expect(dialog).toBeHidden();
   };
 
+  // ── Promotion pictures (restaunax #1189) ───────────────────────────────────
+  // A deal row (Combo / BOGO...) carries a 48px picture button; a coupon row
+  // has none. It opens the "Promotion picture" dialog (upload, make with AI,
+  // remove). Remove asks first in a SECOND dialog; nothing here presses that
+  // confirm for the test — the spec does what the owner does.
+
+  /** The row's picture button (test id promotion-thumb-<id>); count 0 on a coupon row. */
+  const thumbnail = (name: string): Locator =>
+    row(name).locator('[data-testid^="promotion-thumb-"]');
+
+  /** The thumbnail shows a picture (an <img>), not the placeholder icon. */
+  const expectThumbnailPicture = async (name: string) => {
+    await expect(thumbnail(name)).toBeVisible();
+    await expect(thumbnail(name).locator("img")).toBeVisible();
+  };
+
+  /** The thumbnail shows the placeholder (no <img>). */
+  const expectThumbnailPlaceholder = async (name: string) => {
+    await expect(thumbnail(name)).toBeVisible();
+    await expect(thumbnail(name).locator("img")).toHaveCount(0);
+  };
+
+  const pictureDialog = () => page.getByTestId("promotion-picture-dialog");
+  const pictureUploadButton = () =>
+    page.getByTestId("promotion-picture-upload");
+  const pictureAiButton = () => page.getByTestId("promotion-picture-ai");
+  const pictureRemoveButton = () =>
+    page.getByTestId("promotion-picture-remove");
+  const pictureFileInput = () =>
+    page.getByTestId("promotion-picture-file-input");
+
+  /** Clicks the row's thumbnail and waits for the picture dialog. */
+  const openPicture = async (name: string) => {
+    await thumbnail(name).click();
+    await expect(pictureDialog()).toBeVisible();
+  };
+
+  /** Row "⋮" menu → Picture, and waits for the picture dialog. */
+  const openPictureFromMenu = async (name: string) => {
+    await openRowAction(name, "Picture");
+    await expect(pictureDialog()).toBeVisible();
+  };
+
+  /**
+   * "Upload your own photo": clicks the button, answers the browser's file
+   * chooser with `filePath`, and resolves with the upload's response
+   * (POST /api/deals/:id/image).
+   */
+  const uploadPicture = async (
+    filePath: string
+  ): Promise<{ status: number }> => {
+    const chooser = page.waitForEvent("filechooser");
+    const response = page.waitForResponse(
+      (r) =>
+        /\/api\/deals\/[^/]+\/image$/.test(new URL(r.url()).pathname) &&
+        r.request().method() === "POST"
+    );
+    await pictureUploadButton().click();
+    await (await chooser).setFiles(filePath);
+    const res = await response;
+    return { status: res.status() };
+  };
+
+  /** The "Remove the picture?" confirmation (a second dialog over the picture one). */
+  const removeConfirm = () =>
+    page.getByRole("dialog").filter({ hasText: "Remove the picture?" });
+
+  /** Closes the picture dialog with its Close button. */
+  const closePicture = async () => {
+    await pictureDialog().getByRole("button", { name: "Close" }).click();
+    await expect(pictureDialog()).toBeHidden();
+  };
+
   const expectRow = (name: string) => expect(row(name)).toBeVisible();
   const expectNoRow = (name: string) => expect(row(name)).toHaveCount(0);
 
@@ -276,6 +350,19 @@ export const createOwnerPromotionsPage = (page: Page) => {
     cancelDialog,
     expectRow,
     expectNoRow,
+    thumbnail,
+    expectThumbnailPicture,
+    expectThumbnailPlaceholder,
+    pictureDialog,
+    pictureUploadButton,
+    pictureAiButton,
+    pictureRemoveButton,
+    pictureFileInput,
+    openPicture,
+    openPictureFromMenu,
+    uploadPicture,
+    removeConfirm,
+    closePicture,
     expectRowStatus,
     expectRowUses,
     expectRowSavings,

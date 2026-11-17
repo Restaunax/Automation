@@ -37,11 +37,14 @@
  */
 
 import * as allure from "allure-js-commons";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { test, expect } from "../../../fixtures/base";
 import {
   readSharedState,
   generateRunId,
   generateSeedPhone,
+  generateCouponCode,
 } from "../../../utils/testData";
 import { requireScheduling } from "../../../utils/dealScheduleGate";
 import {
@@ -97,6 +100,8 @@ import {
   quoteOrderRaw,
   createCouponRaw,
   deleteCouponApi,
+  uploadDealImageApi,
+  removeDealImageApi,
   createSecondOwner,
   deleteTestRestaurant,
   ensureTaxRate,
@@ -104,6 +109,11 @@ import {
   type BusinessHoursRow,
   type ApiMenuItem,
 } from "../../../utils/apiHelper";
+import {
+  createCouponPromotion,
+  listPromotions,
+  waitForDealPictureSettled,
+} from "../../../utils/promotionsApi";
 
 const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
@@ -3153,6 +3163,197 @@ test.describe("Owner — Deals API contract", () => {
     const still = await getDealApi(token, deal.id);
     expect(still.name).toBe(deal.name);
     expect(still.status).toBe("ACTIVE");
+  });
+
+  test.describe("promotion pictures (restaunax #1189)", () => {
+    const PNG = {
+      buffer: readFileSync(
+        resolve(__dirname, "../../../fixtures/assets/menu-item.png")
+      ),
+      filename: "menu-item.png",
+      mimeType: "image/png",
+    };
+    /** A tiny, well-formed-enough PDF — the type check refuses it by mime. */
+    const PDF = {
+      buffer: Buffer.from(
+        "%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n"
+      ),
+      filename: "menu.pdf",
+      mimeType: "application/pdf",
+    };
+
+    test.beforeEach(async () => {
+      await allure.label("feature", "Promotions");
+    });
+
+    /** The deal's picture exactly as the owner's Promotions list serves it. */
+    const listPicture = async (dealId: string) =>
+      (await listPromotions(token, restaurantId)).find((r) => r.id === dealId)
+        ?.picture;
+
+    test("TC-1962: uploading a PNG replaces the picture; the old file is deleted from storage", async () => {
+      await allure.description(
+        "POST /api/deals/:id/image (multipart `file`, PNG) → 200 { imageUrl, imageStatus: completed } and the " +
+          "Promotions list row's picture.url is that URL. A second upload changes picture.url, and the FIRST " +
+          "url answers 404 or 403 within 10 s (the old file is removed after the new one is saved)."
+      );
+      const deal = await seedDeal("Picture Upload", 12, twoItems());
+      await waitForDealPictureSettled(token, { restaurantId }, deal.id);
+
+      const first = await uploadDealImageApi(token, deal.id, PNG);
+      expect(first.status, JSON.stringify(first.data)).toBe(200);
+      expect(first.data.success).toBe(true);
+      const firstUrl = first.data.data?.imageUrl;
+      expect(firstUrl).toBeTruthy();
+      expect(first.data.data?.imageStatus).toBe("completed");
+      expect((await listPicture(deal.id))?.url).toBe(firstUrl);
+      // The first picture is really served before it gets replaced.
+      expect((await fetch(firstUrl!)).status).toBe(200);
+
+      const second = await uploadDealImageApi(token, deal.id, PNG);
+      expect(second.status, JSON.stringify(second.data)).toBe(200);
+      const secondUrl = second.data.data?.imageUrl;
+      expect(secondUrl).toBeTruthy();
+      expect(secondUrl).not.toBe(firstUrl);
+      expect((await listPicture(deal.id))?.url).toBe(secondUrl);
+
+      await expect
+        .poll(
+          async () => [403, 404].includes((await fetch(firstUrl!)).status),
+          {
+            message: "the replaced picture is deleted from storage",
+            timeout: 10_000,
+          }
+        )
+        .toBe(true);
+      // The new one is still there.
+      expect((await fetch(secondUrl!)).status).toBe(200);
+    });
+
+    test("TC-1963: uploading a PDF is refused (400) and the picture stays", async () => {
+      await allure.description(
+        "Only jpeg/png/webp/gif are accepted. A PDF → 400 { success: false, error } and the list row's " +
+          "picture.url is exactly what it was before."
+      );
+      const deal = await seedDeal("Picture Pdf", 12, twoItems());
+      await waitForDealPictureSettled(token, { restaurantId }, deal.id);
+      const ok = await uploadDealImageApi(token, deal.id, PNG);
+      expect(ok.status, JSON.stringify(ok.data)).toBe(200);
+      const before = await listPicture(deal.id);
+      expect(before?.url).toBe(ok.data.data?.imageUrl);
+
+      const res = await uploadDealImageApi(token, deal.id, PDF);
+      expect(res.status, JSON.stringify(res.data)).toBe(400);
+      expect(res.data.success).toBe(false);
+      expect(typeof res.data.error).toBe("string");
+      expect(await listPicture(deal.id)).toEqual(before);
+    });
+
+    test("TC-1964: removing the picture leaves { url: null, status: null }, and removing again is still 200", async () => {
+      await allure.description(
+        "DELETE /api/deals/:id/image → 200 { data: { imageUrl: null, imageStatus: null } }; the list row's " +
+          "picture is { url: null, status: null }; a second DELETE with no picture is also 200."
+      );
+      const deal = await seedDeal("Picture Remove", 12, twoItems());
+      await waitForDealPictureSettled(token, { restaurantId }, deal.id);
+      const up = await uploadDealImageApi(token, deal.id, PNG);
+      expect(up.status, JSON.stringify(up.data)).toBe(200);
+
+      const del = await removeDealImageApi(token, deal.id);
+      expect(del.status, JSON.stringify(del.data)).toBe(200);
+      expect(del.data.success).toBe(true);
+      expect(del.data.data).toEqual({ imageUrl: null, imageStatus: null });
+      expect(await listPicture(deal.id)).toEqual({ url: null, status: null });
+
+      const again = await removeDealImageApi(token, deal.id);
+      expect(again.status).toBe(200);
+      expect(again.data.data).toEqual({ imageUrl: null, imageStatus: null });
+    });
+
+    test("TC-1965: coupon rows have picture null; deal rows carry { url, status }", async () => {
+      await allure.description(
+        "In GET /api/promotions/restaurant/:id a coupon row's `picture` is null (a coupon has no picture slot) " +
+          "while a deal row's is an object with url and status."
+      );
+      const deal = await seedDeal("Picture Shape", 12, twoItems());
+      const coupon = await createCouponPromotion(token, restaurantId, {
+        name: `AUTO Picture Coupon ${runId}`,
+        code: generateCouponCode(),
+        type: "FIXED_AMOUNT",
+        value: 2,
+      });
+      try {
+        const rows = await listPromotions(token, restaurantId);
+        const couponRow = rows.find((r) => r.id === coupon.id);
+        expect(couponRow?.source).toBe("COUPON");
+        expect(couponRow?.picture).toBeNull();
+        const dealRow = rows.find((r) => r.id === deal.id);
+        expect(dealRow?.source).toBe("DEAL");
+        // url and status may both be null (no picture yet); the shape is what counts.
+        expect(dealRow?.picture).not.toBeNull();
+        expect(dealRow?.picture).toHaveProperty("url");
+        expect(dealRow?.picture).toHaveProperty("status");
+      } finally {
+        await deleteCouponApi(token, coupon.id).catch(() => {});
+      }
+    });
+
+    test("TC-1966: editing a deal's items keeps its picture URL", async () => {
+      await allure.description(
+        "PUT /api/deals/:id with different items (A + Drink instead of A + Fries) → 200 and the list row's " +
+          "picture.url is the same URL as before the edit."
+      );
+      const deal = await seedDeal("Picture Edit", 12, twoItems());
+      await waitForDealPictureSettled(token, { restaurantId }, deal.id);
+      const up = await uploadDealImageApi(token, deal.id, PNG);
+      expect(up.status, JSON.stringify(up.data)).toBe(200);
+      const url = up.data.data?.imageUrl;
+      expect(url).toBeTruthy();
+
+      const res = await updateDealRaw(token, deal.id, {
+        dealPrice: 11,
+        items: [itemA, itemC].map((i) => ({
+          menuItemId: i.id,
+          quantity: 1,
+          itemName: i.name,
+          itemPrice: i.price,
+        })),
+      });
+      expect(res.status, JSON.stringify(res.data)).toBe(200);
+      expect((await listPicture(deal.id))?.url).toBe(url);
+    });
+
+    test("TC-1968: removing the picture right after the create-time AI job was queued keeps it removed", async () => {
+      await allure.description(
+        "Create a deal (queues one AI picture job), upload a picture immediately with no settle wait, then " +
+          "DELETE it. For the next 60 s (20 reads, 3 s apart) the list row's picture stays { url: null, status: null }: " +
+          "the owner's action wins, the AI job never brings a picture back."
+      );
+      const deal = await seedDeal("Picture Race", 12, twoItems());
+      const up = await uploadDealImageApi(token, deal.id, PNG);
+      expect(up.status, JSON.stringify(up.data)).toBe(200);
+      const del = await removeDealImageApi(token, deal.id);
+      expect(del.status, JSON.stringify(del.data)).toBe(200);
+
+      const READS = 20;
+      const seen: Array<unknown> = [];
+      await expect
+        .poll(
+          async () => {
+            seen.push(await listPicture(deal.id));
+            return seen.length;
+          },
+          {
+            message: "the removed picture is read 20 times",
+            timeout: 90_000,
+            intervals: [3_000],
+          }
+        )
+        .toBeGreaterThanOrEqual(READS);
+      seen.forEach((picture, i) =>
+        expect(picture, `read #${i + 1}`).toEqual({ url: null, status: null })
+      );
+    });
   });
 
   test.describe("authorization — another owner (the seed OWNER) against this tenant's deals", () => {

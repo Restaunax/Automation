@@ -20,12 +20,14 @@
  */
 
 import * as allure from "allure-js-commons";
+import { resolve } from "node:path";
 import { test, expect } from "../../../fixtures/base";
 import { createOwnerPromotionsPage } from "../../../pages/dashboard/owner/OwnerPromotionsPage";
 import { createOwnerCreatePromotionPage } from "../../../pages/dashboard/owner/OwnerCreatePromotionPage";
 import { createOwnerPromotionResultsPage } from "../../../pages/dashboard/owner/OwnerPromotionResultsPage";
 import {
   apiLogin,
+  createDealApiCapSafe,
   createMenuGroupNamed,
   createMenuItemFull,
   deleteMenuGroupRaw,
@@ -42,6 +44,7 @@ import {
   createCouponPromotion,
   deletePromotionRaw,
   listPromotions,
+  waitForDealPictureSettled,
   type PromotionListRow,
 } from "../../../utils/promotionsApi";
 import { publicMenuItem } from "../../../utils/promotionFixtures";
@@ -770,6 +773,140 @@ test.describe("Owner — Promotions", () => {
       expect(await serverRow(name)).toBeUndefined();
     } finally {
       await cleanup(name);
+    }
+  });
+
+  test("TC-1967: a combo's picture — upload your own photo, Remove asks first, closing shows the final state; coupon rows have no picture", async ({
+    ownerPage,
+  }) => {
+    // The seed deal waits for a free slot under the 10-active cap.
+    test.setTimeout(DEAL_SLOT_TEST_TIMEOUT_MS);
+    await allure.description(
+      "Combo row: thumbnail opens the Promotion picture dialog. Upload your own photo -> the dialog and (after Close) the thumbnail show the server's picture. Remove picture asks first: Cancel keeps it, Remove clears it (dialog says No picture yet; after Close the thumbnail is the placeholder). The row menu's Picture item opens the same dialog and Escape closes it. A coupon row has no thumbnail. AI is never triggered (it costs money)."
+    );
+    const dealName = promoName("Picture");
+    const couponName = promoName("Picture Coupon");
+    const photo = resolve(__dirname, "../../../fixtures/assets/menu-item.png");
+    const list = createOwnerPromotionsPage(ownerPage);
+    try {
+      const deal = await createDealApiCapSafe(
+        token,
+        restaurantId,
+        dealName,
+        18,
+        [
+          { id: itemA.id, name: itemA.name, price: itemA.price },
+          { id: itemB.id, name: itemB.name, price: itemB.price },
+        ]
+      );
+      // The owner's action wins over the queued AI job; waiting just starts
+      // the UI from a settled picture instead of a spinner.
+      await waitForDealPictureSettled(token, { restaurantId }, deal.id);
+      await createCouponPromotion(token, restaurantId, {
+        name: couponName,
+        code: generateCouponCode(),
+        type: "FIXED_AMOUNT",
+        value: 2,
+      });
+      await list.goto(restaurantId);
+
+      await allure.step("A coupon row has no picture button", async () => {
+        await list.expectRow(couponName);
+        await expect(list.thumbnail(couponName)).toHaveCount(0);
+      });
+
+      await allure.step("Open the dialog from the thumbnail", async () => {
+        await expect(list.thumbnail(dealName)).toBeVisible();
+        await list.openPicture(dealName);
+        await expect(list.pictureUploadButton()).toHaveText(
+          "Upload your own photo"
+        );
+        await expect(list.pictureAiButton()).toHaveText("Make one with AI");
+      });
+
+      let url = "";
+      await allure.step("Upload your own photo", async () => {
+        const res = await list.uploadPicture(photo);
+        expect(res.status).toBe(200);
+        await expect(list.pictureRemoveButton()).toHaveText("Remove picture");
+        const picture = (await listPromotions(token, restaurantId)).find(
+          (r) => r.id === deal.id
+        )?.picture;
+        expect(picture?.status).toBe("completed");
+        url = picture?.url ?? "";
+        expect(url).toBeTruthy();
+        await expect(list.pictureDialog().locator("img")).toHaveAttribute(
+          "src",
+          url
+        );
+      });
+
+      await allure.step(
+        "Close: the thumbnail shows the new picture",
+        async () => {
+          await list.closePicture();
+          await list.expectThumbnailPicture(dealName);
+          await expect(list.thumbnail(dealName).locator("img")).toHaveAttribute(
+            "src",
+            url
+          );
+        }
+      );
+
+      await allure.step(
+        "Remove asks first; Cancel keeps the picture",
+        async () => {
+          await list.openPicture(dealName);
+          await list.pictureRemoveButton().click();
+          await expect(list.removeConfirm()).toBeVisible();
+          await list
+            .removeConfirm()
+            .getByRole("button", { name: "Cancel" })
+            .click();
+          await expect(list.removeConfirm()).toBeHidden();
+          await expect(list.pictureRemoveButton()).toBeVisible();
+          const kept = (await listPromotions(token, restaurantId)).find(
+            (r) => r.id === deal.id
+          )?.picture;
+          expect(kept?.url).toBe(url);
+        }
+      );
+
+      await allure.step("Confirm Remove clears it", async () => {
+        await list.pictureRemoveButton().click();
+        await expect(list.removeConfirm()).toBeVisible();
+        await list
+          .removeConfirm()
+          .getByRole("button", { name: "Remove", exact: true })
+          .click();
+        await expect(list.removeConfirm()).toBeHidden();
+        await expect(
+          list.pictureDialog().getByText("No picture yet")
+        ).toBeVisible();
+        await expect(list.pictureRemoveButton()).toHaveCount(0);
+        const gone = (await listPromotions(token, restaurantId)).find(
+          (r) => r.id === deal.id
+        )?.picture;
+        expect(gone).toEqual({ url: null, status: null });
+      });
+
+      await allure.step("Close: the thumbnail is the placeholder", async () => {
+        await list.closePicture();
+        await list.expectThumbnailPlaceholder(dealName);
+      });
+
+      await allure.step(
+        "The row menu's Picture item opens it; Escape closes it",
+        async () => {
+          await list.openPictureFromMenu(dealName);
+          await ownerPage.keyboard.press("Escape");
+          await expect(list.pictureDialog()).toBeHidden();
+          await list.expectThumbnailPlaceholder(dealName);
+        }
+      );
+    } finally {
+      await cleanup(dealName);
+      await cleanup(couponName);
     }
   });
 
