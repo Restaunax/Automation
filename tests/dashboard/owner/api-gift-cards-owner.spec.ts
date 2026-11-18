@@ -16,7 +16,10 @@
  * seller.
  *
  * The $50 card bought on the website (emailed) is bought at the shared SEED
- * restaurant S (`seedRestaurantForCardSales`): only a restaurant whose Stripe
+ * restaurant S (`seedRestaurantForCardSales`), signed out: the backend takes
+ * a sale's channel from the buyer's credentials, never the request, so this
+ * one is filed under UNKNOWN (WEBSITE needs a signed-in rewards customer) and
+ * counts in the activity report's "other" sales. Only a restaurant whose Stripe
  * setup is finished may sell a card by card, and the seed is the one QA
  * restaurant that has. S is shared, so its cases use the seed owner's token
  * and assert deltas or this run's card by id, never S's totals; its config is
@@ -138,7 +141,7 @@ test.describe(
     let ownerS = "";
     let restoreSeed: () => Promise<void> = async () => {};
     let seedTz = "America/New_York";
-    /** S's website sales today before this run's purchase. */
+    /** S's "other" sales (signed-out web) today before this run's purchase. */
     let seedSoldBefore = { amount: 0, count: 0 };
     let batchId = "";
     let batchLabel = "";
@@ -171,11 +174,12 @@ test.describe(
         body,
         lang
       );
-    const seedWebsiteSold = async () => {
+    const seedSignedOutSold = async () => {
       const today = localToday(seedTz);
       const r = await asS("GET", `/reports/activity?from=${today}&to=${today}`);
       expect(r.status, JSON.stringify(r.data)).toBe(200);
-      const w = (dataOf(r.data).sold as Rec).website as Rec;
+      // A signed-out purchase has channel UNKNOWN: the "other" bucket.
+      const w = (dataOf(r.data).sold as Rec).other as Rec;
       return { amount: Number(w.amount), count: Number(w.count) };
     };
     const summary = async () => {
@@ -232,7 +236,7 @@ test.describe(
       ownerS = seed.ownerToken;
       restoreSeed = seed.restore;
       seedTz = (await getRestaurantTimeZonePublic(S)) || seedTz;
-      seedSoldBefore = await seedWebsiteSold();
+      seedSoldBefore = await seedSignedOutSold();
       const pk = String(
         (await stripeConfigRaw()).data.data?.publishableKey ?? ""
       );
@@ -307,7 +311,9 @@ test.describe(
       expect(ids).toEqual([imported.id]);
 
       // The web card, at the seed restaurant: found by its last 4 among S's
-      // cards (others may share them), masked, sold on the website by card.
+      // cards (others may share them), masked, sold by card. Bought signed
+      // out, so its channel is UNKNOWN (WEBSITE needs a rewards customer's
+      // token; the channel is never taken from the request).
       const webLast4 = web.code.replace(/[^A-Za-z0-9]/g, "").slice(-4);
       const atS = await asS("GET", `/cards?search=${webLast4}`);
       expect(atS.status, JSON.stringify(atS.data)).toBe(200);
@@ -325,7 +331,7 @@ test.describe(
       expect(first, JSON.stringify(card.history)).toBeTruthy();
       expect(first).toMatchObject({
         kind: "SOLD",
-        channel: "WEBSITE",
+        channel: "UNKNOWN",
         tender: "CARD",
         amount: 50,
         balanceAfter: 50,
@@ -619,9 +625,10 @@ test.describe(
       const a = dataOf(r.data);
       // An import is not a sale: A sold nothing.
       expect(a.sold.total).toMatchObject({ amount: 0, count: 0 });
-      // The $50 web sale counts at the seed. S is shared (other runs sell
-      // there too), so its website sales grew by AT LEAST this one.
-      const seedNow = await seedWebsiteSold();
+      // The $50 web sale counts at the seed, under "other" (bought signed
+      // out). S is shared (other runs sell there too), so that bucket grew
+      // by AT LEAST this one.
+      const seedNow = await seedSignedOutSold();
       expect(seedNow.amount - seedSoldBefore.amount).toBeGreaterThanOrEqual(50);
       expect(seedNow.count - seedSoldBefore.count).toBeGreaterThanOrEqual(1);
       expect(a.spent.total.amount).toBe(0);

@@ -334,7 +334,7 @@ test.describe("Books exports — Simple accounts, QuickBooks / Xero files, sales
     expect(tooLong.status).toBe(400);
   });
 
-  test("TC-1336: the sales summary CSV — a row per day, a total row and the 'Ties to journal' column", async () => {
+  test("TC-1336: the sales summary CSV — a row per day with its status, a total row and the 'Ties to journal' column", async () => {
     const csv = await downloadRaw(
       ownerToken,
       `/api/accounting/${restaurantId}/sales-summary.csv${range()}`,
@@ -345,14 +345,18 @@ test.describe("Books exports — Simple accounts, QuickBooks / Xero files, sales
     const [header = "", first = "", total = ""] = rows;
     expect(
       header.startsWith(
-        "Business date,Orders,Gross sales,Comps,Discounts,Refunds,Net sales,"
+        "Business date,Status,Orders,Gross sales,Comps,Discounts,Refunds,Net sales,"
       )
     ).toBe(true);
     expect(header.endsWith(",Ties to journal")).toBe(true);
+    // One closed day and nothing changed after: no "Adjustment to" rows.
     expect(rows).toHaveLength(3);
     expect(first.startsWith(`${day},`)).toBe(true);
+    // The day's place in the books: closed, or booked once the month is.
+    expect(first.split(",")[1]).toMatch(/^(Closed|Booked)$/);
     expect(first.endsWith(",Yes")).toBe(true);
-    expect(total.startsWith("Total,")).toBe(true);
+    // The total row has no status of its own.
+    expect(total.startsWith("Total,,")).toBe(true);
   });
 
   test("TC-1337: the sales-by-day CSV — net sales after refunds, with refunds and the old figure beside it", async () => {
