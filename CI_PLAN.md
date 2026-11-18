@@ -1,8 +1,10 @@
 # CI Pipeline Plan — GitHub Actions
 
-> Status: **LIVE.** Two workflows: `static.yml` (typecheck/lint/format on every
+> Status: **LIVE.** Two test workflows: `static.yml` (typecheck/lint/format on every
 > PR + push — no secrets, ~1 min) and `e2e.yml` (the Playwright suite against QA
-> — nightly, after each QA/storefront deploy, or manual). `e2e-email-weekly.yml`
+> — nightly, after each QA/storefront deploy, or manual). A third,
+> `sim-daily.yml` (2026-11-13), runs no tests: it posts the QA simulator's daily
+> self-check summary. `e2e-email-weekly.yml`
 > was folded into `e2e.yml` on 2026-07-19: it existed only to keep `@email` tests
 > out of the main suite under the old Mailtrap 500/mo cap, which self-hosted
 > Mailpit removed. Reporting **Phase 2 (Allure on GitHub

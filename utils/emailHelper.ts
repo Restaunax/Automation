@@ -254,6 +254,54 @@ export async function waitForEmail(
   );
 }
 
+/**
+ * Ids of the messages to `toEmail` (optionally matching `subjectPattern`)
+ * received since `notBefore` (same clock-skew slack as waitForEmail), newest
+ * first. For "no SECOND email" checks: take the ids, cause the would-be
+ * duplicate, wait, and assert no id appeared that wasn't there before.
+ */
+export async function listEmailIds(
+  toEmail: string,
+  options: { subjectPattern?: RegExp; notBefore?: Date | string | number } = {}
+): Promise<string[]> {
+  const cfg = mailpitConfig();
+  const baselineMs =
+    toMs(options.notBefore ?? PROCESS_START_MS) - CLOCK_SKEW_TOLERANCE_MS;
+  const messages = await listSince(cfg, baselineMs);
+  return messages
+    .filter(
+      (m) =>
+        !!matchRecipient(m, toEmail) &&
+        (options.subjectPattern ? options.subjectPattern.test(m.Subject) : true)
+    )
+    .map((m) => m.ID);
+}
+
+/**
+ * The raw headers of one message (`GET /api/v1/message/{ID}/headers`), keyed
+ * by header name with every value Mailpit saw. Header names are matched
+ * case-insensitively by `emailHeader` below — use that for assertions.
+ */
+export async function getEmailHeaders(
+  messageId: string
+): Promise<Record<string, string[]>> {
+  return mailpitGet<Record<string, string[]>>(
+    mailpitConfig(),
+    `/api/v1/message/${messageId}/headers`
+  );
+}
+
+/** Values of header `name` (case-insensitive), [] when absent. */
+export function emailHeader(
+  headers: Record<string, string[]>,
+  name: string
+): string[] {
+  const wanted = name.toLowerCase();
+  return Object.entries(headers)
+    .filter(([key]) => key.toLowerCase() === wanted)
+    .flatMap(([, values]) => values);
+}
+
 /** Recipient summary for the timeout message — on a shared inbox this is the debug. */
 function describeRecipients(items: MailpitListItem[]): string {
   if (!items.length) return "";

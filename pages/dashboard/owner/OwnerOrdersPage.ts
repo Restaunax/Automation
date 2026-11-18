@@ -268,8 +268,9 @@ export const createOwnerOrdersPage = (page: Page) => {
   // default) or a literal range — locate it by its calendar icon + position:
   // it's the button that opens the "Select Date Range" popover.
   const dateRangeButton = () =>
+    // Not the sidebar's "Today" item, which carries data-tour.
     page
-      .getByRole("button")
+      .locator("button:not([data-tour])")
       .filter({ hasText: /Last \d+ days|Today|Yesterday|month|year|\d{4}/ })
       .first();
   const dateRangePopover = () =>
@@ -482,12 +483,19 @@ export const createOwnerOrdersPage = (page: Page) => {
     return response.json() as Promise<Record<string, unknown>>;
   };
 
-  const waitForStatsResponse = async (trigger: () => Promise<unknown>) => {
+  // `startDate`: the answer for that range, not a refresh of the one on screen
+  // landing first (the page refetches when orders arrive).
+  const waitForStatsResponse = async (
+    trigger: () => Promise<unknown>,
+    startDate?: string
+  ) => {
     const [response] = await Promise.all([
       page.waitForResponse(
         (r) =>
           /\/api\/order\/statistics\/restaurantId\//.test(r.url()) &&
-          r.request().method() === "GET"
+          r.request().method() === "GET" &&
+          (!startDate ||
+            new URL(r.url()).searchParams.get("startDate") === startDate)
       ),
       trigger(),
     ]);

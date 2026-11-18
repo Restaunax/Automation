@@ -22,6 +22,7 @@ import {
   OWNER_AUTH_FILE,
   ADMIN_AUTH_FILE,
   EMPLOYEE_AUTH_FILE,
+  AFFILIATE_AUTH_FILE,
   FRONTEND_URL,
 } from "../utils/testData";
 import { armStaleBundleRecovery } from "../utils/staleBundleRecovery";
@@ -29,7 +30,19 @@ import { armStaleBundleRecovery } from "../utils/staleBundleRecovery";
 // Roles that share the dashboard restaurant-management screens. Used by the
 // access-control matrix to verify who-can-reach-what without re-running the
 // full feature flow per role. See TEST_PLAN.md → "Shared capabilities".
-export type DashboardRole = "owner" | "admin" | "employee";
+//
+// "affiliate" is an ordinary USER whose account has an Affiliate row (the
+// persistent "auto-attribution" affiliate, AFFILIATE_EMAIL/PASSWORD). It never
+// reaches the restaurant-management screens; it exists for the affiliate
+// portal (/affiliate/dashboard).
+export type DashboardRole = "owner" | "admin" | "employee" | "affiliate";
+
+const AUTH_FILE_FOR_ROLE: Record<DashboardRole, string> = {
+  owner: OWNER_AUTH_FILE,
+  admin: ADMIN_AUTH_FILE,
+  employee: EMPLOYEE_AUTH_FILE,
+  affiliate: AFFILIATE_AUTH_FILE,
+};
 export type PageForRole = (role: DashboardRole) => Promise<Page>;
 
 export type Fixtures = {
@@ -44,6 +57,10 @@ export type Fixtures = {
   adminPage: Page;
   employeeContext: BrowserContext;
   employeePage: Page;
+  // affiliateContext / affiliatePage: the affiliate actor (AFFILIATE_EMAIL /
+  // AFFILIATE_PASSWORD). Specs guard with test.skip when the pair is unset.
+  affiliateContext: BrowserContext;
+  affiliatePage: Page;
   // pageForRole(role): an authenticated page for any dashboard role — for the
   // access-control matrix. Contexts it opens are closed at test end.
   //
@@ -150,15 +167,20 @@ export const test = base.extend<Fixtures>({
     await page.close();
   },
 
+  affiliateContext: async ({ browser }, use) => {
+    await loadAuthContext(browser, AFFILIATE_AUTH_FILE, "AFFILIATE", use);
+  },
+
+  affiliatePage: async ({ affiliateContext }, use) => {
+    const page = await affiliateContext.newPage();
+    await use(page);
+    await page.close();
+  },
+
   pageForRole: async ({ browser }, use) => {
     const opened: BrowserContext[] = [];
     const resolve: PageForRole = async (role) => {
-      const authFile =
-        role === "admin"
-          ? ADMIN_AUTH_FILE
-          : role === "owner"
-            ? OWNER_AUTH_FILE
-            : EMPLOYEE_AUTH_FILE;
+      const authFile = AUTH_FILE_FOR_ROLE[role];
       if (!fs.existsSync(authFile)) {
         throw new Error(
           `${path.basename(authFile)} not found for role "${role}". ` +

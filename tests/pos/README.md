@@ -113,6 +113,14 @@ The POS uses a different auth model from the dashboard:
   first check; refusals; unseat; seating over a PAID table), the floor's
   server strip, the waitlist quote, and the owner's turn insights. Opens a
   register for the whole file (cash pays create the turns).
+- **`13-app-release-gating.spec.ts` (TC-972..977)** — mobile release gating
+  (restaunax `docs/features/MOBILE_RELEASE_GATING.md`), API level, no token:
+  the public app check-in (`POST /api/app/check-in` → 204; a non-UUID
+  installation id → 400) and the feature-gate lookup
+  (`GET /api/app/features` → a `features` array; `platform=web` → 400). Its
+  only write is one check-in row under a fresh random installation id with
+  `deviceModel: "automation"`, so QA dashboard rows from this suite are
+  recognizable.
 
 Every file 04–10 runs on its own per-run throwaway tenant
 (`createSecondOwner`), mirroring 03's pattern — none of this mutates the
@@ -147,6 +155,15 @@ Helpers live in `utils/apiHelper.ts`: `createSeededOrder`,
   outside its schedule is refused with `DEAL_NOT_AVAILABLE_AT_TIME` on the restaurant's clock.
   TC-712: a ticket whose deal pick isn't one of the deal's items
   (or leaves a slot empty) is refused by the pricing floor with the web checkout's sentence.
+
+- **`19-shift-checkout.spec.ts` (TC-1500..1506)** — shift checkout at clock-out (restaunax
+  W0:MF-1) on a per-run tenant with TIP_MANAGEMENT: clock-out still answers what an older POS
+  reads plus a 15-minute `checkoutToken`; `GET /api/tablet/staff/shift-checkout` with
+  `X-Shift-Checkout` returns sales, tips, tip-outs, net tips and cash owed to the house with
+  labels in the request language and the estimate note; no/forged/other-device tokens are 401;
+  a signed-in `X-Staff-Session` reads the latest shift; Restaunax Staff's
+  `/restaurants/:id/shift-checkout` returns the same figures. Fails (never skips) without admin
+  credentials.
 
 ## Gotchas worth knowing before adding more coverage here
 
@@ -189,6 +206,34 @@ closed: false}` before it even generates candidate slots from the period —
   OPEN **and CLOSE**, staff sessions, and the drawer-exclusivity lock are now
   covered by the 03 + 08 harnesses; tablet-initiated cancel is covered by
   TC-383 — https://github.com/Restaunax/Automation/issues/15 can close.)
+
+- **`20-courier-contact.spec.ts` (TC-1804..1806)** — no courier PIN, contact number
+  or Uber help block on any customer view of an order, and `replace-courier` refused
+  across tenants and on a kiosk. The customer check is only real against a LOCAL
+  backend with `COURIER_SEED_DATABASE_URL` set; see the file header.
+
+- **`24-app-version-force-update.spec.ts` (TC-1951..1953)** — the public app-version
+  lookup: the owner, staff and customer apps never get `forceUpdate` true (it would
+  block people already up to date); an enabled POS row always does (the POS enforces
+  its minimum only then). Read-only.
+
+- **`25-gift-card-care.spec.ts` (TC-2024..2033, TC-2050)** — the register finds a
+  gift card and cashes a balance out (RestauNax `feat/owner-gift-cards`; gated by
+  `RELEASED_ON_QA.ownerGiftCards`, so it skips with the gate's reason until the
+  backend is on QA). Own throwaway tenant (`createSecondOwner`, Stripe TEST, gift
+  cards on with cash + physical activation) + a REGISTER device
+  (`tabletStaffSignIn` → `X-Staff-Session`) + four people: the owner (MANAGER), a
+  cashier, a cashier without `SELL_GIFT_CARDS`, and a shift lead granted
+  `MANAGE_GIFT_CARDS`; a $25 cash-sold, a $40 web and a $15 imported card, plus a
+  stranger tenant's card. Proves: any staff finds a card, unknown and foreign
+  codes answer the same 404; the old lookup still answers; a cashier who may not
+  sell is stopped before money moves; freeze needs MANAGE_GIFT_CARDS; resend
+  needs selling rights; which balances can be cashed out; cash-out pays the whole
+  balance once and a retry replays the original (checked before the drawer and
+  eligibility); the drawer expects the cash that left; the day close lists gift
+  cards sold and cashed out apart from sales; cash-out needs an open drawer.
+  Cleanup in `afterAll`: the device is deactivated, seeded cards recorded for
+  cleanup, the tenants deleted. Not yet run against a live backend.
 
 ## 09-dual-pricing.spec.ts
 

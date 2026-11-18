@@ -59,12 +59,13 @@ test.describe("Owner — Owner Settings Tab", () => {
     );
   });
 
-  test("TC-140: the Notifications sub-tab shows the coming-soon placeholder", async ({
+  test("TC-140: the Notifications sub-tab shows the Messages from RestauNax preferences", async ({
     ownerPage,
   }) => {
     await allure.description(
-      "Selecting the Notifications sub-tab shows the 'launching soon' placeholder — documenting that " +
-        "this surface is not yet functional, so no test should assert real notification settings there."
+      "Selecting the Notifications sub-tab shows the 'Messages from RestauNax' notice preferences " +
+        "(Product updates / Training & how-tos). Read-only: the switches save on change to the shared " +
+        "QA owner account, so none is flipped."
     );
 
     const { restaurantId } = readSharedState();
@@ -82,9 +83,9 @@ test.describe("Owner — Owner Settings Tab", () => {
     });
 
     await allure.step(
-      "Verify the coming-soon placeholder is shown",
+      "Verify the Messages from RestauNax preferences are shown (read-only)",
       async () => {
-        await settingsPage.assertNotificationsComingSoon();
+        await settingsPage.assertNoticePreferencesRendered();
       }
     );
   });

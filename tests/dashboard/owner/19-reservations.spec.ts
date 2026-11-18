@@ -33,6 +33,7 @@ import {
   deleteFeatureOverrideAdminRaw,
   getReservationSettingsOwnerRaw,
   createReservationTurnTimeOwnerRaw,
+  createTableOwnerRaw,
   listReservationDateOverridesOwnerRaw,
 } from "../../../utils/apiHelper";
 
@@ -141,6 +142,18 @@ test.describe("Owner — Reservations", () => {
         `[reservations] could not seed the turn-time band: ${msg(seedTurnTime.data)}`
       );
 
+    // One table with a seat count: since the reservations audit fixes, the
+    // online-booking switch (TC-442) also needs a bookable table with a
+    // capacity (RESERVATION_TABLES_REQUIRED). Harmless on an older build.
+    const seedTable = await createTableOwnerRaw(ownerToken, restaurantId, {
+      name: `Four Top ${runId}`,
+      capacity: 4,
+    });
+    if (!seedTable.ok)
+      throw new Error(
+        `[reservations] could not seed a table: ${msg(seedTable.data)}`
+      );
+
     session = await loginViaUi(browser, ownerEmail, ownerPassword);
     reservationsPage = createOwnerReservationsPage(session.page);
   });
@@ -169,6 +182,9 @@ test.describe("Owner — Reservations", () => {
 
   test("TC-440: settings form — change grace + default duration through ONE save button; saved values survive reload", async () => {
     await reservationsPage.gotoSettingsSubTab(restaurantId);
+    // Grace ("Mark as no-show after this many minutes late") lives in the
+    // collapsed Advanced section since the audit fixes.
+    await reservationsPage.ensureAdvancedOpen();
 
     await reservationsPage.numericSettingInput("graceMinutes").fill("45");
     await reservationsPage
@@ -183,6 +199,8 @@ test.describe("Owner — Reservations", () => {
 
     await session.page.reload({ waitUntil: "domcontentloaded" });
     await reservationsPage.settingsSubTab().click();
+    await reservationsPage.onlineBookingToggle().waitFor({ state: "visible" });
+    await reservationsPage.ensureAdvancedOpen();
     await expect(
       reservationsPage.numericSettingInput("graceMinutes")
     ).toHaveValue("45", { timeout: 10_000 });
@@ -299,9 +317,9 @@ test.describe("Owner — Reservations", () => {
     // "Closed all day" defaults ON — leave it, this IS "close a date".
     const res = await reservationsPage.saveDateOverride();
     expect(res.status()).toBe(201);
-    await expect(reservationsPage.snackbar("Date override saved.")).toBeVisible(
-      { timeout: 5_000 }
-    );
+    await expect(
+      reservationsPage.snackbar(reservationsPage.dateOverrideSavedText)
+    ).toBeVisible({ timeout: 5_000 });
 
     const row = reservationsPage.dateOverrideRow(displayText);
     await expect(row).toBeVisible({ timeout: 10_000 });
@@ -315,7 +333,7 @@ test.describe("Owner — Reservations", () => {
 
     await reservationsPage.rowDeleteButton(row, "Delete").click();
     await reservationsPage
-      .confirmDialog("Delete this date override?")
+      .confirmDialog(reservationsPage.deleteDateOverrideTitle)
       .waitFor({ state: "visible", timeout: 5_000 });
     const [delRes] = await Promise.all([
       session.page.waitForResponse(
@@ -325,7 +343,7 @@ test.describe("Owner — Reservations", () => {
         { timeout: 15_000 }
       ),
       reservationsPage
-        .confirmDialogButton("Delete this date override?", "Delete")
+        .confirmDialogButton(reservationsPage.deleteDateOverrideTitle, "Delete")
         .click(),
     ]);
     expect(delRes.status()).toBe(200);

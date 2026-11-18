@@ -51,11 +51,12 @@ export const createOwnerMenuPage = (page: Page) => {
       name: `Add ${capitalizeFirst(categoryName)} Item`,
     });
 
-  // Click "Add [Category] Item" → navigates to 4-step add-item wizard.
+  // Click "Add [Category] Item" → navigates to 5-step add-item wizard.
   // Step 0: name + price (required) + description (optional) → Next
   // Step 1: Modifiers → Next (skip)
-  // Step 2: Image Upload → Next (skip)
-  // Step 3: Review → Save Item → navigates back to /restaurant/restaurantId/:id
+  // Step 2: Allergens → Next (skip)
+  // Step 3: Image Upload → Next (skip)
+  // Step 4: Review → Save Item → navigates back to /restaurant/restaurantId/:id
   const createMenuItem = async (
     categoryName: string,
     itemName: string,
@@ -88,13 +89,19 @@ export const createOwnerMenuPage = (page: Page) => {
       .waitFor({ state: "visible", timeout: 10_000 });
     await page.getByRole("button", { name: "Next" }).click();
 
-    // Step 2 — Image Upload (skip)
+    // Step 2 — Allergens (skip)
     await page
       .getByRole("button", { name: "Next" })
       .waitFor({ state: "visible", timeout: 10_000 });
     await page.getByRole("button", { name: "Next" }).click();
 
-    // Step 3 — Review. The current build auto-submits on entering Review
+    // Step 3 — Image Upload (skip)
+    await page
+      .getByRole("button", { name: "Next" })
+      .waitFor({ state: "visible", timeout: 10_000 });
+    await page.getByRole("button", { name: "Next" }).click();
+
+    // Step 4 — Review. The current build auto-submits on entering Review
     // (same behavior as the edit wizard): the Save Item button stays disabled
     // and the wizard navigates back to the menu page, firing the success
     // toast. Wait for that; if a future build stops auto-submitting, fall
@@ -240,6 +247,8 @@ export const createOwnerMenuPage = (page: Page) => {
     await priceInput.press("Tab");
 
     const nextBtn = page.getByRole("button", { name: "Next" });
+    await nextBtn.click();
+    await nextBtn.waitFor({ state: "visible", timeout: 10_000 });
     await nextBtn.click();
     await nextBtn.waitFor({ state: "visible", timeout: 10_000 });
     await nextBtn.click();

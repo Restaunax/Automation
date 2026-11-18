@@ -1,21 +1,30 @@
 /**
- * 24-books-gating-ui.spec.ts — Books & taxes follows its add-on in the
- * dashboard: hidden (never shown locked) without it, every section loads
- * with it; Connected apps (the free partner API) is there either way
- * (TC-789..791). A deep link without it says where to get it — since
- * restaunax #998, where to REQUEST it — and the seed owner sends and cancels
- * that request from Billing → Add-ons (TC-897; skipped until #998 is on QA,
- * utils/addonRequestGate.ts).
+ * 24-books-gating-ui.spec.ts — Books & taxes is free for every restaurant
+ * (your numbers, the accountant package, the accountant login); only the
+ * add-on's sections (books posting, monthly send, year end, tax calendar)
+ * follow ACCOUNTING_SYNC. Without it those show as one teaser with the
+ * add-on mark and Ask us, never a refused load; with it every section loads;
+ * Connected apps (the free partner API) is there either way (TC-789..791).
+ * A teaser's Ask us is a REQUEST (restaunax #998) and the seed owner sends
+ * and cancels one from Billing → Add-ons (TC-897; skipped until #998 is on
+ * QA, utils/addonRequestGate.ts).
  *
  * Browser. A per-run throwaway owner logs in through the UI (loginViaUi);
  * the "Books & Taxes" add-on (ACCOUNTING_SYNC) is switched by admin override
  * between steps. Every /api/ response is watched: a screen the owner can see
  * must never answer 401/403 while it loads (feedback: screen loads never 403).
+ * W0:J6 / OB-2 (once `dailyViewsStage6` is deployed, probed per run): Card
+ * deposits, Tax calendar and Year end show only once turned on in Overview →
+ * "Show more in Books & taxes" — TC-790 turns on any that are off, then opens
+ * every section. The month's figures + one ZIP are under "Monthly send" and
+ * the invite under "Your accountant" (the "Send to my accountant" tab went
+ * when Books & taxes became free for every restaurant, 2026-11-13).
  * Serial.
  */
 import * as allure from "allure-js-commons";
 import type { Page, Response as PwResponse } from "@playwright/test";
 import { test, expect } from "../../../fixtures/base";
+import { requireEnv } from "../../../utils/envGate";
 import { generateRunId, readSharedState } from "../../../utils/testData";
 import { loginViaUi, type UiLoginSession } from "../../../utils/auth";
 import {
@@ -29,6 +38,7 @@ import {
   ownerAddonRequestCancelRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
+import { probeDailyViewsStage6 } from "../../../utils/releaseGate";
 import {
   addonRequestsLive,
   requireAddonRequests,
@@ -45,19 +55,35 @@ const SECTIONS = [
   "Year end",
   "Your accountant",
 ];
+/** W0:J6 / OB-2: every tab with the add-on, in page order (the optional
+ *  ones turned on): the overview, the free sections, then the add-on's. */
+const DAILY_SECTIONS = [
+  "Overview",
+  "Package for your accountant",
+  "Sales summary",
+  "Sales tax",
+  "Payouts",
+  "Your accountant",
+  "Books",
+  "Card deposits",
+  "Monthly send",
+  "Year end",
+  "Tax calendar",
+];
+const OPTIONAL_TOGGLES = ["deposits", "calendar", "yearEnd"];
 
 test.describe.configure({ mode: "serial" });
 
-test.describe("Owner — Books & taxes is hidden without its add-on; Connected apps is free (UI)", () => {
-  test.skip(
-    !ADMIN_EMAIL || !ADMIN_PASSWORD,
-    "ADMIN_EMAIL / ADMIN_PASSWORD not set (the file mints its own tenant)"
+test.describe("Owner — Books & taxes is free; its add-on sections are teasers without the add-on (UI)", () => {
+  requireEnv(
+    ["ADMIN_EMAIL", "ADMIN_PASSWORD"],
+    "the file mints its own tenant"
   );
 
   const runId = generateRunId();
   let adminToken = "";
   let restaurantId = "";
-  let live = false;
+  let ownerToken = "";
   let session: UiLoginSession | undefined;
   const refused: string[] = [];
 
@@ -91,7 +117,7 @@ test.describe("Owner — Books & taxes is hidden without its add-on; Connected a
     const tenant = await createSecondOwner(adminToken, runId);
     if (!tenant.restaurantId) throw new Error("[books-ui] no tenant");
     restaurantId = tenant.restaurantId;
-    live = await addonRequestsLive(adminToken);
+    ownerToken = tenant.accessToken;
     session = await loginViaUi(
       browser,
       tenant.email,
@@ -112,7 +138,7 @@ test.describe("Owner — Books & taxes is hidden without its add-on; Connected a
     await allure.label("severity", "critical");
   });
 
-  test("TC-789: without the add-on there is no Books & taxes item at all (not a locked one); Connected apps loads", async () => {
+  test("TC-789: without the add-on Books & taxes is there with its package, the add-on's tabs carry the add-on mark; Connected apps loads", async () => {
     await manage("tab=Store%20Settings&settingsTab=connected-apps");
     await expect(
       page().getByRole("tab", { name: "Connected apps" })
@@ -122,9 +148,19 @@ test.describe("Owner — Books & taxes is hidden without its add-on; Connected a
     await expect(
       page().getByRole("button", { name: "Create API key" }).first()
     ).toBeVisible({ timeout: 20_000 });
-    // The sidebar is there; Books & taxes is simply not in it.
+    // Books & taxes is in the sidebar for every restaurant.
     await expect(sideItem("Store Settings")).toBeVisible();
-    await expect(sideItem(BOOKS)).toHaveCount(0);
+    await expect(sideItem(BOOKS)).toBeVisible();
+    await manage("tab=books-taxes&section=accountantPackage");
+    await expect(page().getByTestId("accountant-package")).toBeVisible({
+      timeout: 20_000,
+    });
+    // The add-on's sections are marked, not hidden.
+    await expect(
+      page()
+        .getByTestId("books-tab-calendar")
+        .getByTestId("add-on-mark-ACCOUNTING_SYNC")
+    ).toBeVisible();
     expect(refused).toEqual([]);
   });
 
@@ -142,13 +178,42 @@ test.describe("Owner — Books & taxes is hidden without its add-on; Connected a
     await expect(item).toBeVisible({ timeout: 20_000 });
     await item.click();
     await expect(page()).toHaveURL(/tab=books-taxes/);
-    for (const name of SECTIONS) {
+    const daily = await probeDailyViewsStage6(ownerToken, restaurantId);
+    if (daily) {
+      // Overview → "Show more": turn on the optional tabs that are off.
+      await expect(page().getByTestId("books-more-tabs")).toBeVisible({
+        timeout: 20_000,
+      });
+      for (const key of OPTIONAL_TOGGLES) {
+        const input = page()
+          .getByTestId(`books-tab-toggle-${key}`)
+          .locator("input");
+        if (!(await input.isChecked())) {
+          // The switch is controlled: it turns on once the preference is
+          // saved, so click and wait (check() demands an instant change).
+          await input.click();
+          await expect(input).toBeChecked({ timeout: 10_000 });
+        }
+      }
+    }
+    for (const name of daily ? DAILY_SECTIONS : SECTIONS) {
       const tab = page().getByRole("tab", { name, exact: true });
       await expect(tab).toBeVisible({ timeout: 20_000 });
       await tab.click();
       await expect(tab).toHaveAttribute("aria-selected", "true");
     }
-    // The accountant section offers the invite; the year end offers the ZIP.
+    if (daily) {
+      // W0:J6: the month's figures and the one-file download are the
+      // Monthly send section.
+      await page().getByTestId("books-tab-monthlySend").click();
+      await expect(page().getByTestId("accountant-bundle")).toBeVisible({
+        timeout: 20_000,
+      });
+      await expect(
+        page().getByTestId("accountant-bundle-download")
+      ).toBeVisible();
+    }
+    // The accountant section offers the invite.
     await page()
       .getByRole("tab", { name: "Your accountant", exact: true })
       .click();
@@ -160,34 +225,35 @@ test.describe("Owner — Books & taxes is hidden without its add-on; Connected a
     expect(refused).toEqual([]);
   });
 
-  test("TC-791: removing the add-on hides it again, and a deep link doesn't open it — it says where to get it", async () => {
+  test("TC-791: removing the add-on turns its sections back into teasers, and a deep link to one says where to ask; the free part stays", async () => {
     await deleteFeatureOverrideAdminRaw(
       adminToken,
       restaurantId,
       "ACCOUNTING_SYNC"
     );
     await manage("tab=books-taxes&section=calendar");
+    // The tax calendar is an add-on section: its teaser with the mark and
+    // the ask, never the old "Not part of this restaurant's plan" lock or a
+    // refused load.
+    const teaser = page().getByTestId("books-addon-calendar");
+    await expect(teaser).toBeVisible({ timeout: 20_000 });
     await expect(
-      page().getByRole("heading", {
-        name: "Not part of this restaurant's plan",
-      })
-    ).toBeVisible({ timeout: 20_000 });
-    // Since restaunax #998 owners request add-ons; before it they added them.
-    await expect(
-      page().getByText(
-        live
-          ? "This is an add-on this restaurant doesn't have yet. You can request it in Billing → Add-ons and we'll set it up."
-          : "This is an add-on this restaurant doesn't have yet. You can add it from Billing → Add-ons."
-      )
+      teaser
+        .getByTestId("add-on-mark-ACCOUNTING_SYNC")
+        .or(teaser.getByText("Add-on", { exact: true }))
     ).toBeVisible();
+    await expect(teaser.getByRole("button", { name: /^Ask us/ })).toBeVisible();
+    await expect(
+      page().getByText("Not part of this restaurant's plan")
+    ).toHaveCount(0);
     await expect(
       page().getByRole("button", { name: "Go to Add-ons" })
-    ).toBeVisible();
-    await expect(page().getByRole("tab", { name: "Tax calendar" })).toHaveCount(
-      0
-    );
-    await expect(sideItem("Store Settings")).toBeVisible();
-    await expect(sideItem(BOOKS)).toHaveCount(0);
+    ).toHaveCount(0);
+    // The rest of the page is free: the package is one tab away.
+    await expect(sideItem(BOOKS)).toBeVisible();
+    await page().getByTestId("books-tab-accountantPackage").click();
+    await expect(page().getByTestId("accountant-package")).toBeVisible();
+    expect(refused).toEqual([]);
   });
 });
 
@@ -195,10 +261,7 @@ test.describe("Owner — Books & taxes is hidden without its add-on; Connected a
 // ("No Subscription Assigned" otherwise), and the seed is the one QA
 // restaurant with one. A request turns nothing on and is cancelled here.
 test.describe("Owner — requests an add-on from Billing → Add-ons (UI)", () => {
-  test.skip(
-    !ADMIN_EMAIL || !ADMIN_PASSWORD,
-    "ADMIN_EMAIL / ADMIN_PASSWORD not set (gate + cleanup use HQ)"
-  );
+  requireEnv(["ADMIN_EMAIL", "ADMIN_PASSWORD"], "gate + cleanup use HQ");
   test.skip(
     !process.env.OWNER_EMAIL || !process.env.OWNER_PASSWORD,
     "OWNER_EMAIL / OWNER_PASSWORD not set (the seed restaurant)"
@@ -218,7 +281,9 @@ test.describe("Owner — requests an add-on from Billing → Add-ons (UI)", () =
     >) {
       const restaurant = x.restaurant as Record<string, LooseJson> | null;
       const addon = x.addon as Record<string, LooseJson> | null;
-      if (restaurant?.id === seedId && addon?.feature === "ACCOUNTING_SYNC")
+      // A request made by product has no catalog row (addon null).
+      const feature = x.feature ?? addon?.feature;
+      if (restaurant?.id === seedId && feature === "ACCOUNTING_SYNC")
         await ownerAddonRequestCancelRaw(seedToken, seedId, String(x.id));
     }
   };
@@ -253,31 +318,34 @@ test.describe("Owner — requests an add-on from Billing → Add-ons (UI)", () =
       "the seed restaurant has Books & Taxes on — no locked tab to start from"
     );
     await ownerPage.goto(
-      `/restaurant/restaurantId/${seedId}/restaurantManagement?tab=books-taxes`,
+      `/restaurant/restaurantId/${seedId}/restaurantManagement?tab=books-taxes&section=books`,
       { waitUntil: "domcontentloaded" }
     );
-    await expect(
-      ownerPage.getByText("You can request it in Billing → Add-ons", {
-        exact: false,
-      })
-    ).toBeVisible({ timeout: 20_000 });
-    await ownerPage.getByRole("button", { name: "Go to Add-ons" }).click();
-    await expect(ownerPage).toHaveURL(/tab=Billing/);
+    // The locked section is a teaser, not a "Go to Add-ons" lock; the
+    // request is made from Billing → Add-ons.
+    await expect(ownerPage.getByTestId("books-addon-books")).toBeVisible({
+      timeout: 20_000,
+    });
+    await ownerPage.goto(
+      `/restaurant/restaurantId/${seedId}/restaurantManagement?tab=Billing&section=addons`,
+      { waitUntil: "domcontentloaded" }
+    );
+    await expect(ownerPage).toHaveURL(/tab=Billing&section=addons/);
 
     const card = ownerPage.locator(".MuiCard-root").filter({
       has: ownerPage.getByRole("heading", {
-        name: "Books & Taxes",
+        name: "RestauNax Books & Taxes",
         exact: true,
       }),
     });
     await expect(card).toHaveCount(1, { timeout: 20_000 });
     // No owner-side "Add" any more: the only action is a request.
     await expect(card.getByRole("button", { name: /^Add$/ })).toHaveCount(0);
-    await card.getByRole("button", { name: "Request this add-on" }).click();
+    await card.getByRole("button", { name: "Ask us to turn it on" }).click();
 
     const dialog = ownerPage.getByRole("dialog");
     await expect(
-      dialog.getByRole("heading", { name: "Request Books & Taxes?" })
+      dialog.getByRole("heading", { name: "Request RestauNax Books & Taxes?" })
     ).toBeVisible();
     await dialog
       .getByLabel("Anything we should know? (optional)")
@@ -285,12 +353,13 @@ test.describe("Owner — requests an add-on from Billing → Add-ons (UI)", () =
     await dialog.getByRole("button", { name: "Send request" }).click();
     await expect(dialog).toBeHidden();
     await expect(
-      ownerPage.getByText(
-        "Request sent. We'll contact you to set it up, usually within one business day."
-      )
+      ownerPage.getByText(/^Request sent\. We'll contact you/)
     ).toBeVisible({ timeout: 20_000 });
+    // The card's sent state (Stage 6 request flow): when it was asked.
     await expect(
-      card.getByText(/^Request sent .+\. We'll contact you\.$/)
+      card.getByText(
+        /^Requested on .+\. We usually reply within 1 business day\.$/
+      )
     ).toBeVisible();
     // A request turns nothing on.
     expect(
@@ -302,7 +371,7 @@ test.describe("Owner — requests an add-on from Billing → Add-ons (UI)", () =
       timeout: 20_000,
     });
     await expect(
-      card.getByRole("button", { name: "Request this add-on" })
+      card.getByRole("button", { name: "Ask us to turn it on" })
     ).toBeVisible();
   });
 });

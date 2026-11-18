@@ -13,7 +13,7 @@
  * (parity with the other two files in this task; register endpoints
  * themselves don't gate on it) → menu item → REGISTER device #1
  * (admin-created) → tablet login → owner POS PIN (MANAGER) → staff sign-in.
- * TC-427 mints a SECOND device and flips it to KITCHEN_DISPLAY via the owner
+ * TC-427 mints a SECOND device and flips it to KITCHEN_DISPLAY via the admin
  * device-mode PATCH (task-3's one new apiHelper wrapper,
  * `updateDeviceModeOwnerRaw`) — the brief's ONE deliberate exception to "one
  * tabletLogin per file."
@@ -315,8 +315,8 @@ test.describe("POS — Register / Cash Drawer", () => {
 
   test("TC-427: DEVICE_NOT_REGISTER — a KITCHEN_DISPLAY device refuses register/open", async () => {
     await allure.description(
-      "A second device, flipped to KITCHEN_DISPLAY by the owner (device-mode " +
-        "PATCH), signs in the SAME manager and calls register/open → 400 " +
+      "A second device, flipped to KITCHEN_DISPLAY by RestauNax (device-mode " +
+        "PATCH; taking a REGISTER out of that mode is admin-only), signs in the SAME manager and calls register/open → 400 " +
         "with error:register.notRegisterDevice ('This device is not a " +
         "register, so it has no cash drawer.'). The ONE deliberate second " +
         "tabletLogin in this task."
@@ -327,7 +327,7 @@ test.describe("POS — Register / Cash Drawer", () => {
       `Automation Register KDS ${runId}`
     );
     const modeChange = await updateDeviceModeOwnerRaw(
-      token,
+      adminToken,
       restaurantId,
       secondDevice.id,
       "KITCHEN_DISPLAY"

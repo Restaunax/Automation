@@ -44,9 +44,10 @@ export const createOwnerAnalyticsPage = (page: Page) => {
     "This year",
     "Last year",
   ];
+  // Not the sidebar's "Today" item, which carries data-tour.
   const dateRangeButton = () =>
-    page.getByRole("button", {
-      name: new RegExp(
+    page.locator("button:not([data-tour])").filter({
+      hasText: new RegExp(
         `^(${DATE_RANGE_PRESET_LABELS.join("|")})$|\\d{1,2},\\s*\\d{4}\\s*-\\s*`
       ),
     });

@@ -11,7 +11,8 @@
 #   dispatch: template-deploy    --project=customer       wind-deploy/
 #   manual (workflow_dispatch)   full suite, or --grep    nightly/
 #
-# The OTHER workflow is static.yml: typecheck/lint/format on every PR and push.
+# The other workflows: static.yml (typecheck/lint/format on every PR and push)
+# and sim-daily.yml (the QA simulator's daily summary; no Playwright).
 # No secrets, no QA access, ~1 min. It is deliberately separate — fast per-PR
 # checks and a 45-minute credentialed suite have different triggers, different
 # secrets, and different failure meanings. See CI_PLAN.md.
@@ -38,9 +39,10 @@ on:
   # deploy (rare). Rationale: Actions minutes — the full suite on every one of
   # 30+ deploys/month cost ~500 min/month and was red on QA drift most of the
   # time; the nightly gives the same signal once a day.
-  # template-deploy: fired by a storefront repo's notify-e2e.yml after its
-  # Dokploy QA deploy settles; client_payload.repo says which storefront, and
-  # the run step narrows to that storefront's customer tests.
+  # template-deploy: fired by a storefront repo's notify-e2e.yml on its qa push;
+  # with client_payload.wait_for_deploy the e2e job first waits for the Dokploy
+  # deploy to settle. client_payload.repo says which storefront, and the run
+  # step narrows to that storefront's customer tests.
   repository_dispatch:
     types: [qa-deploy, template-deploy]
   workflow_dispatch:
@@ -69,7 +71,7 @@ concurrency:
 jobs:
   e2e:
     if: github.repository == 'Restaunax/Automation'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: qa
     outputs:
@@ -93,6 +95,9 @@ jobs:
       ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
       EMPLOYEE_EMAIL: ${{ secrets.EMPLOYEE_EMAIL }}
       EMPLOYEE_PASSWORD: ${{ secrets.EMPLOYEE_PASSWORD }}
+      # The persistent affiliate actor (affiliate portal + attribution suites).
+      AFFILIATE_EMAIL: ${{ secrets.AFFILIATE_EMAIL }}
+      AFFILIATE_PASSWORD: ${{ secrets.AFFILIATE_PASSWORD }}
       # QA's self-hosted Mailpit inbox. The password is a secret so Actions
       # masks it in logs; the URL is not sensitive.
       MAILPIT_BASE_URL: ${{ vars.MAILPIT_BASE_URL }}
@@ -117,6 +122,35 @@ jobs:
       GITHUB_SHA: ${{ github.event.client_payload.sha || github.sha }}
       GITHUB_REF_NAME: ${{ github.event.client_payload.ref || github.ref_name }}
     steps:
+      # A storefront's notify-e2e.yml can dispatch the moment its qa push lands
+      # (payload wait_for_deploy: true) while Dokploy is still building it on
+      # the droplet. The wait happens HERE, not in the storefront repo: this
+      # repo is public, so its runner-minutes are free, and the storefront's are
+      # billed. Same proxy the storefront used to run — no storefront health
+      # endpoint exists and the OLD container keeps serving 200 during the swap
+      # — so sleep through the typical build, then require 3 consecutive 200s.
+      # Never fails the run: if the site never settles, the tests still run and
+      # their failure (plus the Slack alert) is the signal.
+      - name: Wait for the storefront deploy
+        if: github.event.action == 'template-deploy' && github.event.client_payload.wait_for_deploy == true
+        run: |
+          URL="$TEMPLATE_WIND_URL"
+          sleep 240 # typical Dokploy Next.js build ≈ 3-6 min
+          deadline=$(($(date +%s) + 660)) # ~15 min total budget
+          ok=0
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            code=$(curl -s -o /dev/null -m 10 -w '%{http_code}' "$URL") || code=000
+            echo "HTTP $code"
+            if [ "$code" = "200" ]; then
+              ok=$((ok + 1))
+              [ "$ok" -ge 3 ] && { echo "storefront stable"; exit 0; }
+            else
+              ok=0
+            fi
+            sleep 15
+          done
+          echo "::warning::$URL did not serve 3 stable 200s within ~15 min; running the tests anyway"
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
@@ -236,15 +270,60 @@ jobs:
             cp -r gh-pages/last-history gh-pages/nightly/last-history
           fi
 
+      # This step used to be simple-elf/allure-report-action, a Docker action
+      # whose image is built FROM public.ecr.aws/amazoncorretto at the start of
+      # EVERY run (smoke lane included, even though smoke never publishes).
+      # When ECR's anonymous pull limit answered 429, the whole job died before
+      # a single test ran: 21 of 30 failed e2e runs from 2026-10-23 to 10-27.
+      # Same layout as that action's entrypoint.sh (run folders + last-history
+      # + a redirecting index.html, keep_reports cleanup), done with the allure
+      # CLI from devDependencies and the runner's preinstalled Java.
       - name: Build Allure report with history
         if: always() && env.LANE != 'smoke'
-        uses: simple-elf/allure-report-action@master
-        with:
-          allure_results: allure-results
-          gh_pages: gh-pages
-          allure_history: allure-history
-          subfolder: ${{ env.REPORT_SUBFOLDER }}
-          keep_reports: 30
+        env:
+          KEEP_REPORTS: 30
+          RUN_NUM: ${{ github.run_number }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -u
+          SITE="https://restaunax.github.io/Automation/$REPORT_SUBFOLDER"
+          PAGES="gh-pages/$REPORT_SUBFOLDER"
+          HIST="allure-history/$REPORT_SUBFOLDER"
+          mkdir -p gh-pages allure-history allure-results
+          cp -r gh-pages/. allure-history
+          mkdir -p "$HIST"
+
+          # Keep the newest reports only (non-numeric names sort first, which is
+          # why each suite lives in its own subfolder — see above).
+          keep=$((KEEP_REPORTS + 1))
+          if [ "$(find "$HIST" -mindepth 1 -maxdepth 1 | wc -l)" -gt "$keep" ]; then
+            (cd "$HIST" && rm -rf index.html last-history \
+              && find . -mindepth 1 -maxdepth 1 -printf '%f\n' | sort -n \
+                | grep -v CNAME | head -n -$((keep - 2)) | xargs -r rm -rf)
+          fi
+
+          printf '%s\n' \
+            "<!DOCTYPE html><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0; URL=$SITE/$RUN_NUM/index.html\">" \
+            '<meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">' \
+            > "$HIST/index.html"
+
+          jq -n --arg site "$SITE" --arg num "$RUN_NUM" --arg id "$RUN_ID" \
+            --arg build "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" \
+            '{name:"GitHub Actions", type:"github", reportName:"Allure Report with history",
+              url:$site, reportUrl:"\($site)/\($num)", buildUrl:$build,
+              buildName:"GitHub Actions Run #\($id)", buildOrder:$num}' \
+            > allure-results/executor.json
+
+          # Trend widget: carry the previous run's history into this report.
+          if [ -d "$PAGES/last-history" ]; then
+            mkdir -p allure-results/history
+            cp -r "$PAGES/last-history/." allure-results/history
+          fi
+
+          npx allure generate --clean allure-results -o allure-report
+          cp -r allure-report/. "$HIST/$RUN_NUM"
+          mkdir -p "$HIST/last-history"
+          cp -r allure-report/history/. "$HIST/last-history"
 
       # simple-elf runs as root in a container and copies the checked-out gh-pages
       # folder — including its .git — into allure-history. peaceiris then can't

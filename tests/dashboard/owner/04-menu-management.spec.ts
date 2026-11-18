@@ -104,7 +104,7 @@ test.describe("Owner — Menu Management", () => {
       ownerPage,
     }) => {
       await allure.description(
-        "Owner clicks 'Add [Category] Item', completes the 4-step wizard, and verifies the item appears on the menu page."
+        "Owner clicks 'Add [Category] Item', completes the 5-step wizard, and verifies the item appears on the menu page."
       );
 
       await allure.step(

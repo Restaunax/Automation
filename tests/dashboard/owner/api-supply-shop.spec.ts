@@ -27,6 +27,7 @@ import {
   SUPPLY_GIFT_CARD_PRODUCT_SLUG,
   type SupplyOrder,
 } from "../../../utils/apiHelper";
+import { ensureSupplyProductLaunched } from "../../../utils/supplyShopCartApi";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
@@ -61,6 +62,12 @@ test.describe("Owner — Supply shop API contract", () => {
   test.beforeAll(async () => {
     if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return;
     adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
+    // Owners can only order launched products; QA doesn't keep the gift card
+    // launched, so the run launches it (globalTeardown pauses it again).
+    await ensureSupplyProductLaunched(
+      adminToken,
+      SUPPLY_GIFT_CARD_PRODUCT_SLUG
+    );
     const tenant = await createSecondOwner(adminToken, runId);
     if (!tenant.restaurantId)
       throw new Error("[api-supply-shop] could not mint the throwaway tenant");

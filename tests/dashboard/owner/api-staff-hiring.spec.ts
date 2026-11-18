@@ -509,8 +509,9 @@ test.describe("Hiring — invite, claim, job, role, staff app (API)", () => {
         restaurantId,
         restaurantName,
         staffMemberId: cam.staffMemberId,
-        // PAYROLL only: no scheduling requests, no RestauNax Payroll stubs.
-        requests: false,
+        // PAYROLL brings Team (packaging v3), so scheduling requests are
+        // on; no RestauNax Payroll stubs until payroll runs here.
+        requests: true,
         payStubs: false,
       }),
     ]);

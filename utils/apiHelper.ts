@@ -19,6 +19,14 @@ import {
   recordUserForCleanup,
 } from "./testData";
 
+/**
+ * The affiliate agreement version a signup must accept. The backend refuses
+ * POST /api/affiliates/apply without a version it knows. Keep in sync with
+ * AFFILIATE_AGREEMENT_VERSION in restaunax-frontend/src/constants/affiliateAgreement.ts
+ * and restaunax-backend/src/constant/affiliateAgreement.ts.
+ */
+const AFFILIATE_AGREEMENT_VERSION = "2026-11";
+
 export const BACKEND_URL =
   process.env.BACKEND_URL ?? "https://api.qa.restaunax.com";
 
@@ -185,10 +193,19 @@ export async function setPassProcessingFee(
  * ARCHIVED (soft delete, still in the database). Returns which one happened,
  * so a test that must leave nothing behind can assert "purged".
  */
+/**
+ * KEEP_TEST_DATA=true turns the post-run cleanup deletes below into no-ops —
+ * for runs against a developer's LOCAL stack, whose database must never lose
+ * rows (throwaway tenants stay behind there). QA/CI never set it.
+ */
+export const keepTestData = (): boolean =>
+  process.env.KEEP_TEST_DATA === "true";
+
 export async function deleteTestRestaurant(
   adminAccessToken: string,
   restaurantId: string
 ): Promise<"purged" | "archived" | undefined> {
+  if (keepTestData()) return undefined;
   const data = await apiRequest<{ action?: "purged" | "archived" }>(
     "DELETE",
     `/api/admin/restaurants/${restaurantId}`,
@@ -226,6 +243,7 @@ export async function permanentlyDeleteMenuItemApi(
   adminToken: string,
   menuItemId: string
 ): Promise<void> {
+  if (keepTestData()) return;
   await apiRequest<unknown>(
     "DELETE",
     `/menu/menuItemId/${menuItemId}/permanent`,
@@ -241,6 +259,7 @@ export async function deleteTestMenuGroup(
   accessToken: string,
   menuGroupId: string
 ): Promise<void> {
+  if (keepTestData()) return;
   await apiRequest<unknown>(
     "DELETE",
     `/menu/group/${menuGroupId}`,
@@ -1032,6 +1051,53 @@ export function placeOrderRaw(
   );
 }
 
+/**
+ * placeOrderRaw for the simplest guest order there is: PICKUP from the
+ * website, ONE unit of one item, no tip, tax at the restaurant's flat rate.
+ * `scheduledFor` null = "as soon as possible". For the hours-gate specs,
+ * where the answer (201, or 400 + `message` / `errorCode`) is the assertion.
+ * Same caveat as placeOrderRaw: a success leaves an INITIALIZED order, so
+ * throwaway tenants only.
+ */
+export function placeGuestPickupOrderRaw(
+  restaurantId: string,
+  opts: {
+    item: { id: string; name: string; price: number };
+    taxPercent: number;
+    scheduledFor?: string | null;
+    customerEmail: string;
+  }
+): Promise<
+  RawResponse<
+    { id?: string; status?: string; scheduledFor?: string } & ApiErrorBody
+  >
+> {
+  const { item, taxPercent } = opts;
+  const tax = Math.round(item.price * taxPercent) / 100;
+  return apiRequestRaw("POST", `/api/order/new/restaurantId/${restaurantId}`, {
+    restaurantId,
+    orderType: "PICKUP",
+    orderSource: "WEB",
+    scheduledFor: opts.scheduledFor ?? null,
+    subtotal: item.price,
+    tax,
+    tip: 0,
+    total: Math.round((item.price + tax) * 100) / 100,
+    customerEmail: opts.customerEmail,
+    customerPhone: "5555550123",
+    firstName: "Gia",
+    lastName: "Guest",
+    orderItems: [
+      {
+        menuItemId: item.id,
+        menuItemName: item.name,
+        quantity: 1,
+        price: item.price,
+      },
+    ],
+  });
+}
+
 // ── Chains (RestaurantGroup) ─────────────────────────────────────────────────
 //
 // A chain IS a RestaurantGroup; membership is Restaurant.restaurantGroupId.
@@ -1122,13 +1188,24 @@ export async function ensureBusinessHours(
   );
 }
 
-/** A BusinessHours row (times "HH:MM:SS"; closed rows carry nulls). */
+/** One open window of a split day ("HH:MM:SS"). */
+export interface HoursWindowRow {
+  openingTime: string;
+  closingTime: string;
+}
+
+/**
+ * A BusinessHours row (times "HH:MM:SS"; closed rows carry nulls). With
+ * split hours (restaunax SPLIT_HOURS.md) the times are the OUTER SPAN and
+ * `windows` lists the day's windows when it has two or more, else null.
+ */
 export interface BusinessHoursRow {
   day: string;
   openingTime: string | null;
   closingTime: string | null;
   isClosed: boolean;
   is24Hours: boolean;
+  windows?: HoursWindowRow[] | null;
 }
 
 /** GET /restaurant/:id/hours (owner/admin) → {businessHours}. */
@@ -1164,9 +1241,66 @@ export async function setBusinessHoursApi(
         closingTime: r.closingTime,
         isClosed: r.isClosed,
         is24Hours: r.is24Hours,
+        // Only when the caller set it: a day sent with NO `windows` key is
+        // read as an editor from before split hours (it keeps the stored
+        // windows when its times are unchanged).
+        ...(r.windows !== undefined ? { windows: r.windows } : {}),
       })),
     },
     accessToken
+  );
+}
+
+/**
+ * PUT /restaurant/:id/hours, RAW — for the refusals and for days sent
+ * exactly as given (with, without, or with a null `windows` key). Replaces
+ * every row on success; a refused save (400 + `message`) changes nothing.
+ */
+export function putBusinessHoursRaw(
+  accessToken: string,
+  restaurantId: string,
+  days: Record<string, unknown>[]
+): Promise<
+  RawResponse<{ businessHours?: unknown; restaurant?: unknown } & ApiErrorBody>
+> {
+  return apiRequestRaw(
+    "PUT",
+    `/restaurant/${restaurantId}/hours`,
+    { hoursOfOperation: days },
+    accessToken
+  );
+}
+
+/**
+ * Open every day 00:00–23:59 — NOT 24 hours. A day close pauses online
+ * ordering until the next opening; for a 24-hour venue that is "now", so the
+ * pause lifts at once (by design, restaunax nextOpeningAt.test.ts). With
+ * these hours the next opening is tomorrow at midnight, so "closed for the
+ * night" holds while a test checks it. Replaces the restaurant's rows.
+ */
+export async function setOpenAllDayHours(
+  accessToken: string,
+  restaurantId: string
+): Promise<void> {
+  const days = [
+    "MONDAY",
+    "TUESDAY",
+    "WEDNESDAY",
+    "THURSDAY",
+    "FRIDAY",
+    "SATURDAY",
+    "SUNDAY",
+  ];
+  await setBusinessHoursApi(
+    accessToken,
+    restaurantId,
+    days.map((day) => ({
+      day,
+      openingTime: "00:00:00",
+      closingTime: "23:59:00",
+      isClosed: false,
+      is24Hours: false,
+    }))
   );
 }
 
@@ -1914,6 +2048,78 @@ export function updateDealRaw(
   return apiRequestRaw("PUT", `/api/deals/${dealId}`, body, accessToken);
 }
 
+/** A deal's picture as the owner endpoints return it (null/null = none). */
+export interface DealImageResult {
+  success?: boolean;
+  message?: string;
+  error?: string;
+  data?: { imageUrl: string | null; imageStatus: string | null };
+}
+
+/**
+ * POST /api/deals/:dealId/image — multipart field `file` (jpeg/png/webp/gif,
+ * 5 MB max). Raw so a refused type (400 { success:false, message }) is the
+ * assertion. Bypasses apiRequestRaw's JSON body handling, like
+ * uploadMenuItemImageRaw.
+ */
+export async function uploadDealImageApi(
+  accessToken: string | undefined,
+  dealId: string,
+  file: { buffer: Buffer; filename: string; mimeType: string }
+): Promise<RawResponse<DealImageResult>> {
+  const form = new FormData();
+  form.append(
+    "file",
+    new Blob([new Uint8Array(file.buffer)], { type: file.mimeType }),
+    file.filename
+  );
+  const headers: Record<string, string> = {};
+  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+  const res = await fetch(`${BACKEND_URL}/api/deals/${dealId}/image`, {
+    method: "POST",
+    headers,
+    body: form,
+  });
+  const text = await res.text();
+  let data: unknown = text;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    /* leave as text */
+  }
+  return { status: res.status, ok: res.ok, data: data as DealImageResult };
+}
+
+/** DELETE /api/deals/:dealId/image — 200 { data: { imageUrl: null, imageStatus: null } }, even with no picture. */
+export function removeDealImageApi(
+  accessToken: string | undefined,
+  dealId: string
+): Promise<RawResponse<DealImageResult>> {
+  return apiRequestRaw(
+    "DELETE",
+    `/api/deals/${dealId}/image`,
+    undefined,
+    accessToken
+  );
+}
+
+/**
+ * POST /api/deals/:dealId/regenerate-image — starts an AI picture. It spends
+ * real Google AI money: NEVER call it from a test that runs on QA. Here for
+ * completeness only.
+ */
+export function regenerateDealImageApi(
+  accessToken: string | undefined,
+  dealId: string
+): Promise<RawResponse<DealImageResult>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/deals/${dealId}/regenerate-image`,
+    undefined,
+    accessToken
+  );
+}
+
 /** PATCH /api/deals/:dealId/status {status: ACTIVE|INACTIVE}. */
 export function setDealStatusRaw(
   accessToken: string | undefined,
@@ -2138,6 +2344,23 @@ export async function getRestaurantTimeZonePublic(
   return res.ok && typeof res.data?.timeZone === "string"
     ? res.data.timeZone
     : "";
+}
+
+/**
+ * The restaurant's current business day (YYYY-MM-DD) in its own time zone
+ * (getRestaurantTimeZonePublic, else America/New_York), with the day running
+ * from `cutoffHour` (4 am by default) to 4 am the next morning — the day the
+ * backend treats as still open.
+ */
+export async function restaurantBusinessToday(
+  restaurantId: string,
+  cutoffHour = 4
+): Promise<string> {
+  const timeZone =
+    (await getRestaurantTimeZonePublic(restaurantId)) || "America/New_York";
+  return new Intl.DateTimeFormat("en-CA", { timeZone }).format(
+    new Date(Date.now() - cutoffHour * 3_600_000)
+  );
 }
 
 export interface MealPeriod {
@@ -3220,11 +3443,20 @@ export function cancelOrderRaw(
   );
 }
 
-/** POST /api/order/statistics/refund/:orderId — standalone (partial) refund. */
+/**
+ * POST /api/order/statistics/refund/:orderId — standalone (partial) refund.
+ * `items` names the refunded lines: the tax given back is then those lines'
+ * own rates (RestauNax audit W4:M7); without it the refund is prorated over
+ * the sale without its tip.
+ */
 export function refundOrderRaw(
   accessToken: string,
   orderId: string,
-  body: { amount?: number | string; reason?: string } = {}
+  body: {
+    amount?: number | string;
+    reason?: string;
+    items?: { orderItemId: string; quantity: number }[];
+  } = {}
 ): Promise<RawResponse<Record<string, unknown>>> {
   return apiRequestRaw<Record<string, unknown>>(
     "POST",
@@ -3748,7 +3980,9 @@ export function listReservationServicePeriodsOwnerRaw(
 /** GET /restaurant/:rid/reservation-service-periods/suggested — booking
  *  windows suggested from the restaurant's business hours (2026-10-08).
  *  Data: {hasBusinessHours, windows: [{dayOfWeek, startTime, endTime}],
- *  skipped: [{dayOfWeek, reason: "CLOSED"|"OPEN_24_HOURS"|"TOO_SHORT"}]}. */
+ *  skipped: [{dayOfWeek, reason: "CLOSED"|"OPEN_24_HOURS"|"TOO_SHORT"}],
+ *  suggestedMaxPartiesPerSlot, suggestedSlotIntervalMinutes} (the last two
+ *  2026-10-31: max(1, round(sellable tables × 15 / default duration))). */
 export function suggestReservationServicePeriodsOwnerRaw(
   ownerToken: string,
   restaurantId: string
@@ -4046,7 +4280,15 @@ export function deleteFeatureOverrideAdminRaw(
 export async function setOwnerPosPin(
   ownerToken: string,
   restaurantId: string,
-  pin: string
+  pin: string,
+  {
+    clocksIn = false,
+  }: {
+    /** The owner works shifts in this spec: turn "Clocks in" on. A new owner
+     *  row starts with it off (RestauNax #1098), which keeps their hours out
+     *  of timecards, labor and tips by hours. */
+    clocksIn?: boolean;
+  } = {}
 ): Promise<string> {
   const data = await apiRequest<{ data?: { staffMemberId?: string } }>(
     "POST",
@@ -4056,6 +4298,19 @@ export async function setOwnerPosPin(
   );
   const id = data.data?.staffMemberId;
   if (!id) throw new Error("setOwnerPosPin: response missing staffMemberId");
+  if (clocksIn) {
+    const on = await ownerStaffRaw(
+      ownerToken,
+      restaurantId,
+      "PATCH",
+      `/${id}`,
+      {
+        tracksTime: true,
+      }
+    );
+    if (!on.ok)
+      throw new Error(`setOwnerPosPin: Clocks in: ${JSON.stringify(on.data)}`);
+  }
   return id;
 }
 
@@ -4501,7 +4756,11 @@ export function notifyReservationTabletRaw(
 }
 
 /** POST /api/tablet/reservations/:id/status {action: "confirm"|"arrive"|
- *  "partially_seat"|"no_show"|"cancel"|"complete"} — lifecycle transition. */
+ *  "partially_seat"|"seat"|"no_show"|"cancel"|"complete"|"reinstate"} —
+ *  lifecycle transition. `seat` (2026-10-31) is only "the rest of the party
+ *  arrived": PARTIALLY_SEATED → SEATED on the tables they already have (any
+ *  other status → 400 RESERVATION_INVALID_TRANSITION; a first seating goes
+ *  through /seat). */
 export function reservationStatusTabletRaw(
   tabletToken: string,
   staffSession: string,
@@ -4510,9 +4769,11 @@ export function reservationStatusTabletRaw(
     | "confirm"
     | "arrive"
     | "partially_seat"
+    | "seat"
     | "no_show"
     | "cancel"
     | "complete"
+    | "reinstate"
 ): Promise<RawResponse<Record<string, unknown>>> {
   return apiRequestRaw(
     "POST",
@@ -4525,7 +4786,9 @@ export function reservationStatusTabletRaw(
 
 /** POST /api/tablet/reservations/:id/seat {tableIds, guestCount?,
  *  clientRequestId?} — seat a reservation; response carries
- *  {reservation, prefill} (prefill feeds the create-order screen). */
+ *  {reservation, prefill} (prefill feeds the create-order screen).
+ *  `guestCount` below the party size → PARTIALLY_SEATED (2026-10-31);
+ *  omitted or the full count → SEATED. */
 export function seatReservationTabletRaw(
   tabletToken: string,
   staffSession: string,
@@ -4568,11 +4831,15 @@ export function holdReservationTablesTabletRaw(
 }
 
 /** PATCH /api/tablet/reservations/:id {guestName?, guestPhone?, partySize?,
- *  scheduledAt?, guestNotes?, internalNotes?} — the host stand edits a
- *  booking that hasn't arrived (BOOKED/CONFIRMED RESERVATION only, else 409
- *  RESERVATION_NOT_EDITABLE). A move into the past → 400
- *  RESERVATION_IN_PAST; moving the time releases a held table (2026-10-12).
- *  Data: the serialized reservation. */
+ *  scheduledAt?, guestNotes?, internalNotes?, quotedWaitMinutes?} — the host
+ *  stand edits a row. What it accepts (2026-10-31, editableFieldsFor): a
+ *  BOOKED/CONFIRMED booking everything; an ARRIVED booking partySize + notes;
+ *  a WAITLIST entry in BOOKED/NOTIFIED name, phone, party, notes and
+ *  quotedWaitMinutes (createdAt kept); anything else 409
+ *  RESERVATION_NOT_EDITABLE. A move into the past → 400 RESERVATION_IN_PAST;
+ *  a bad quote → 400 RESERVATION_QUOTED_WAIT_INVALID; moving the time
+ *  releases a held table. Data: the serialized reservation (+ advisory
+ *  `pacingExceeded` / `tablesExceeded`, present only when true). */
 export function updateReservationTabletRaw(
   tabletToken: string,
   staffSession: string,
@@ -4761,7 +5028,9 @@ export function keepReservationHoldTabletRaw(
 // ── Public reservations (no auth) ────────────────────────────────────────────
 
 /** GET /api/public/restaurants/:rid/reservation-availability?date=&partySize=
- *  — the storefront/booking-widget availability check. */
+ *  — the storefront/booking-widget availability check. Data also carries
+ *  (2026-10-31) `timeZone` (IANA) and `minPartySize` / `maxPartySize` (over
+ *  the active PACED periods; null when none); slots are unique + sorted. */
 export function getPublicAvailabilityRaw(
   restaurantId: string,
   date: string,
@@ -4795,7 +5064,8 @@ export function getPublicAvailabilityDaysRaw(
 
 /** POST /api/public/restaurants/:rid/reservations {guestName, guestPhone,
  *  partySize, scheduledAt, guestEmail?, guestNotes?, clientRequestId?} —
- *  guest self-service booking. */
+ *  guest self-service booking. Caps (2026-10-31): guestName 100, guestNotes
+ *  500, guestEmail 254 + email-shaped — else 400 SYSTEM_VALIDATION_ERROR. */
 export function createPublicReservationRaw(
   restaurantId: string,
   body: Record<string, unknown>
@@ -4808,7 +5078,8 @@ export function createPublicReservationRaw(
 }
 
 /** GET /api/public/reservations/manage/:manageToken — guest self-manage view
- *  (the link sent by the confirmation SMS/email). */
+ *  (the link sent by the confirmation SMS/email). Carries `timeZone` since
+ *  2026-10-31. */
 export function getManagedReservationRaw(
   manageToken: string
 ): Promise<RawResponse<Record<string, unknown>>> {
@@ -5866,6 +6137,11 @@ export interface SupplyOrder {
   designId: string | null;
   designVersionId: string | null;
   design?: { id: string; name: string } | null;
+  /** The basket it was placed in from the cart (RestauNax #1072); null before. */
+  checkoutId?: string | null;
+  checkout?: { id: string; checkoutNumber: string; placedAt: string } | null;
+  /** The one SupplyCharge a finalisation opened for its set (RestauNax #1075). */
+  chargeId?: string | null;
   [key: string]: unknown;
 }
 
@@ -5875,6 +6151,8 @@ export interface SupplyCatalogProduct {
   name: string;
   requiresDesign: boolean;
   estimateSpreadPct: number;
+  /** Lowest list price per piece (cheapest tier), null when unpriced. */
+  fromUnitPrice?: number | null;
   leadDays: number;
   variants: Array<{
     id: string;
@@ -6434,6 +6712,20 @@ export function putGiftCardConfigAdminRaw(
   );
 }
 
+/** The chain's config row (`?restaurantGroupId=`); same body as above. */
+export function putGiftCardGroupConfigAdminRaw(
+  adminToken: string,
+  restaurantGroupId: string,
+  body: Partial<GiftCardConfigFull>
+): Promise<RawResponse<{ success: boolean; data: GiftCardConfigFull }>> {
+  return apiRequestRaw(
+    "PUT",
+    `/api/admin/gift-cards/config?restaurantGroupId=${restaurantGroupId}`,
+    body,
+    adminToken
+  );
+}
+
 export interface GiftCardBatchRow {
   id: string;
   label: string;
@@ -6840,8 +7132,9 @@ export function updateRestaurantSettingsRaw(
 //
 // Helpers for tests/dashboard/owner/api-staff-*.spec.ts. All raw (status +
 // body) so specs can assert refusals as well as successes. Owner routes are
-// gated by TIMECARDS (jobs) and SCHEDULING (shifts, requests) — grant them
-// with setFeatureOverrideAdminRaw first. Staff-app routes use the STAFF
+// gated by TIMECARDS (jobs) and SCHEDULING (shifts, requests) — grant the
+// package that brings them (TEAM_BUNDLE or PAYROLL; packaging v3) with
+// setFeatureOverrideAdminRaw first. Staff-app routes use the STAFF
 // member's own token (their RestauNax account, claimed from the invite).
 
 /** Owner invites a staff member by email (creates the staff row + sends the
@@ -6956,7 +7249,13 @@ export function publishScheduleRaw(
   notifyMode: "CHANGED" | "ALL" | "NONE" = "NONE"
 ): Promise<
   RawResponse<{
-    data?: { published: number; notified: number; publicationId: string };
+    data?: {
+      published: number;
+      notified: number;
+      publicationId: string;
+      /** W3:M5 (Stage 5): predictability pay this publish owes. */
+      premiums?: LooseJson[];
+    };
   }>
 > {
   return apiRequestRaw(
@@ -7213,10 +7512,14 @@ export const zoneAtMidday = (now = new Date(), localHour = 12): string => {
   return `Etc/GMT${offset > 0 ? "-" : "+"}${Math.abs(offset)}`;
 };
 
-/** PUT /restaurant/:rid/basic-info — owner basic info, incl. the `timezone`
- *  override (an IANA zone; null clears it back to the address's zone). */
+/** PUT /restaurant/:rid/basic-info — basic info, incl. the `timezone`
+ *  override (an IANA zone; null clears it back to the address's zone).
+ *  `timezone` and `businessType` are RestauNax setup (SETTINGS_SAFETY.md §4):
+ *  an OWNER token that CHANGES either gets 403 HQ_ONLY_FIELDS (echoing the
+ *  current value is fine), so specs move a tenant's zone with an ADMIN token
+ *  and keep the owner token for everything else. */
 export function restaurantBasicInfoRaw(
-  ownerToken: string,
+  accessToken: string,
   restaurantId: string,
   body: Record<string, unknown>
 ): Promise<RawResponse<{ data?: LooseJson; message?: string }>> {
@@ -7224,7 +7527,7 @@ export function restaurantBasicInfoRaw(
     "PUT",
     `/restaurant/${restaurantId}/basic-info`,
     body,
-    ownerToken
+    accessToken
   );
 }
 
@@ -7529,6 +7832,17 @@ export function accountantRaw<T = { data?: LooseJson; message?: string }>(
   return apiRequestRaw("GET", `/api/accountant${path}`, undefined, token);
 }
 
+/** Any method under `/api/accountant{path}` — the workspace is read-only, so
+ *  every non-GET answers 403 (restaunax W2:A10). */
+export function accountantAnyRaw<T = { data?: LooseJson; message?: string }>(
+  token: string,
+  method: Method,
+  path: string,
+  body?: unknown
+): Promise<RawResponse<T>> {
+  return apiRequestRaw(method, `/api/accountant${path}`, body, token);
+}
+
 /** HQ add-on catalog and billing: `/api/admin/addons{path}` (ADMIN). */
 export function adminAddonsRaw<T = { data?: LooseJson; message?: string }>(
   token: string,
@@ -7586,11 +7900,18 @@ export function ownerAddonRequestCancelRaw(
 }
 
 /** POST `/restaurant/:rid/daily-close` — close the current business day from
- *  the dashboard (fires the partner API's `day.closed`). */
+ *  the dashboard (fires the partner API's `day.closed`). `pauseOrdering`
+ *  (W0:J4-b): absent or true pauses online ordering until the next opening;
+ *  only `false` keeps it open (`data.orderingPaused` says which). */
 export function closeDayWebRaw(
   token: string,
   restaurantId: string,
-  body: { depositAmount: number; note?: string; reclose?: boolean } = {
+  body: {
+    depositAmount: number;
+    note?: string;
+    reclose?: boolean;
+    pauseOrdering?: boolean;
+  } = {
     depositAmount: 0,
   }
 ): Promise<RawResponse<{ data?: LooseJson; message?: string }>> {
@@ -7638,6 +7959,343 @@ export function adminSearchRestaurantsRaw(
     "GET",
     `/api/admin/restaurants?search=${encodeURIComponent(search)}&limit=10`,
     undefined,
+    adminToken
+  );
+}
+
+// ── Restaurant attribution ("Brought in by") ─────────────────────────────────
+// HQ API under /api/admin/attribution (ADMIN only). Spec in the RestauNax repo:
+// docs/features/RESTAURANT_ATTRIBUTION.md.
+
+export const AUTOMATION_ATTRIBUTION_AFFILIATE_TAG = "auto-attribution";
+export const AUTOMATION_ATTRIBUTION_CARD_CODE = "auto-attribution";
+export const AUTOMATION_ATTRIBUTION_CARD_NAME = "AUTO Attribution Card";
+
+export interface AttributionApiView {
+  data: {
+    via: "DEMO" | "QUOTE" | "CHAIN" | "MANUAL";
+    lockedAt: string | null;
+    payee: { kind: "AFFILIATE" | "EMPLOYEE"; id: string; name: string };
+  } | null;
+  activatedAt: string | null;
+}
+
+/**
+ * Login for the affiliate actor: the ONE persistent affiliate
+ * ("auto-attribution") that the attribution suite links restaurants to and
+ * the affiliate-portal suite signs in as. AFFILIATE_EMAIL / AFFILIATE_PASSWORD
+ * when set (`fromEnv: true`); otherwise the historical fixture login, which
+ * still serves the API-only attribution suite but no browser session is saved
+ * for it (portal tests skip). On QA the env pair must name the user that
+ * already owns the `auto-attribution` tag: a different user cannot apply for
+ * it (the tag is taken) and ensureAttributionAffiliate says so.
+ */
+export function affiliateActorCredentials(): {
+  email: string;
+  password: string;
+  fromEnv: boolean;
+} {
+  const envEmail = process.env.AFFILIATE_EMAIL ?? "";
+  const envPassword = process.env.AFFILIATE_PASSWORD ?? "";
+  if (envEmail && envPassword) {
+    return { email: envEmail, password: envPassword, fromEnv: true };
+  }
+  const domain = process.env.TEST_EMAIL_DOMAIN ?? "demomailtrap.co";
+  return {
+    email: `auto-attribution-affiliate@${domain}`,
+    password: "Automation!Attribution-1",
+    fromEnv: false,
+  };
+}
+
+export const AFFILIATE_ACTOR_FIRST_NAME = "Auto";
+export const AFFILIATE_ACTOR_LAST_NAME = "Attribution Partner";
+
+/**
+ * Creates the affiliate actor's USER account when it does not exist yet
+ * (globalSetup calls this before saving the affiliate session). Creates the
+ * user only; the Affiliate row comes from ensureAttributionAffiliate.
+ */
+export async function ensureAffiliateActorUser(
+  adminToken: string
+): Promise<{ email: string; password: string }> {
+  const { email, password } = affiliateActorCredentials();
+  if (!(await findUserIdByEmail(adminToken, email))) {
+    await adminCreateUser(adminToken, {
+      firstName: AFFILIATE_ACTOR_FIRST_NAME,
+      lastName: AFFILIATE_ACTOR_LAST_NAME,
+      email,
+      password,
+      role: "USER",
+    });
+  }
+  return { email, password };
+}
+
+/** The plan the persistent affiliate is (re)approved with on every run. */
+export const AFFILIATE_ACTOR_PLAN = {
+  sharePct: 20,
+  windowMonths: 12,
+  afterWindowPct: null,
+  bountyAmount: 150,
+  chainRule: "ACCOUNT_WINDOW",
+  expansionPct: null,
+  hardwareRule: "EXCLUDED",
+} as const;
+
+/**
+ * The ONE persistent affiliate the attribution suite links restaurants to,
+ * and the affiliate actor the portal suite signs in as (login from
+ * affiliateActorCredentials, i.e. AFFILIATE_EMAIL / AFFILIATE_PASSWORD).
+ * Persistent on purpose: a user who has an Affiliate row can never be deleted
+ * or anonymized (Affiliate.userId is a required FK), so a per-run affiliate
+ * would pile up on QA forever. Created on first use (admin creates the user,
+ * the user applies through POST /api/affiliates/apply), and set back to
+ * ACTIVE on every run through the admin status endpoint, since only an ACTIVE
+ * affiliate can be linked (and the portal suite expects it ACTIVE).
+ */
+export async function ensureAttributionAffiliate(adminToken: string): Promise<{
+  affiliateId: string;
+  displayName: string;
+}> {
+  const { email, password } = await ensureAffiliateActorUser(adminToken);
+  const firstName = AFFILIATE_ACTOR_FIRST_NAME;
+  const lastName = AFFILIATE_ACTOR_LAST_NAME;
+  const login = await apiLogin(email, password);
+  type ProfileBody = {
+    affiliate?: { id: string };
+    data?: { id?: string; affiliate?: { id: string } };
+  };
+  const pick = (b: ProfileBody | undefined) =>
+    b?.affiliate?.id ?? b?.data?.affiliate?.id ?? b?.data?.id;
+  let affiliateId = pick(
+    (
+      await apiRequestRaw<ProfileBody>(
+        "GET",
+        "/api/affiliates/profile",
+        undefined,
+        login.accessToken
+      )
+    ).data
+  );
+  if (!affiliateId) {
+    const applied = await apiRequestRaw<ProfileBody>(
+      "POST",
+      "/api/affiliates/apply",
+      {
+        referralTag: AUTOMATION_ATTRIBUTION_AFFILIATE_TAG,
+        bio: "Automation fixture for the attribution suite",
+        agreedToTerms: true,
+        agreementVersion: AFFILIATE_AGREEMENT_VERSION,
+      },
+      login.accessToken
+    );
+    affiliateId = pick(applied.data);
+    if (!affiliateId) {
+      throw new Error(
+        `Affiliate apply failed for ${email}: ${applied.status} ${JSON.stringify(applied.data)}. ` +
+          `If the tag "${AUTOMATION_ATTRIBUTION_AFFILIATE_TAG}" is already taken, AFFILIATE_EMAIL ` +
+          "must be the user that owns it (the existing fixture affiliate)."
+      );
+    }
+  }
+  await apiRequest<unknown>(
+    "PUT",
+    `/api/affiliates/admin/affiliates/${affiliateId}/status`,
+    // Approval needs a commission plan (the program defaults); the flat
+    // commissionRate is gone.
+    { status: "ACTIVE", plan: AFFILIATE_ACTOR_PLAN },
+    adminToken
+  );
+  return { affiliateId, displayName: `${firstName} ${lastName}` };
+}
+
+/** The commission plan shape the HQ status endpoint takes (affiliate commission). */
+export type CommissionPlanTerms = {
+  sharePct: number;
+  windowMonths: number;
+  afterWindowPct: number | null;
+  bountyAmount: number;
+  chainRule: string;
+  expansionPct: number | null;
+  hardwareRule: string;
+};
+
+/**
+ * A fresh PENDING affiliate for the commission suite: a new user who applies
+ * with the current agreement version. One per run on purpose: the suite
+ * terminates it, and TERMINATED is final (and an affiliate's user can never
+ * be deleted), so it cannot be a reused fixture.
+ */
+export async function createPendingAffiliate(
+  adminToken: string,
+  runId: string
+): Promise<{ affiliateId: string; referralTag: string; name: string }> {
+  const domain = process.env.TEST_EMAIL_DOMAIN ?? "demomailtrap.co";
+  const referralTag = `auto-commission-${runId}`.toLowerCase();
+  const email = `${referralTag}@${domain}`;
+  const password = "Automation!Commission-1";
+  await adminCreateUser(adminToken, {
+    firstName: "Auto",
+    lastName: `Commission ${runId}`,
+    email,
+    password,
+    role: "USER",
+  });
+  const login = await apiLogin(email, password);
+  const applied = await apiRequestRaw<{ affiliate?: { id: string } }>(
+    "POST",
+    "/api/affiliates/apply",
+    {
+      referralTag,
+      bio: "Automation fixture for the affiliate commission suite",
+      agreedToTerms: true,
+      agreementVersion: AFFILIATE_AGREEMENT_VERSION,
+    },
+    login.accessToken
+  );
+  const affiliateId = applied.data?.affiliate?.id;
+  if (!affiliateId) {
+    throw new Error(
+      `Affiliate apply failed: ${applied.status} ${JSON.stringify(applied.data)}`
+    );
+  }
+  return { affiliateId, referralTag, name: `Auto Commission ${runId}` };
+}
+
+export function getProgramDefaultsRaw(
+  adminToken: string
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "GET",
+    "/api/affiliates/admin/program-defaults",
+    undefined,
+    adminToken
+  );
+}
+
+export function putProgramDefaultsRaw(
+  adminToken: string,
+  terms: CommissionPlanTerms
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "PUT",
+    "/api/affiliates/admin/program-defaults",
+    terms,
+    adminToken
+  );
+}
+
+export function getAffiliatePlanRaw(
+  adminToken: string,
+  affiliateId: string
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "GET",
+    `/api/affiliates/admin/affiliates/${affiliateId}/plan`,
+    undefined,
+    adminToken
+  );
+}
+
+export function getAffiliateDetailsRaw(
+  adminToken: string,
+  affiliateId: string
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "GET",
+    `/api/affiliates/admin/affiliates/${affiliateId}`,
+    undefined,
+    adminToken
+  );
+}
+
+export function setAffiliateStatusRaw(
+  adminToken: string,
+  affiliateId: string,
+  body: Record<string, unknown>
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "PUT",
+    `/api/affiliates/admin/affiliates/${affiliateId}/status`,
+    body,
+    adminToken
+  );
+}
+
+/**
+ * The ONE persistent employee business card (owned by the admin user) the
+ * leaderboard case looks for. Cards cannot be deleted, only disabled, so a
+ * per-run card would accumulate; this one is created once and re-enabled when
+ * a run finds it disabled.
+ */
+export async function ensureAttributionCard(
+  adminToken: string,
+  adminUserId: string
+): Promise<{ cardId: string; fullName: string }> {
+  const list = await apiRequest<{
+    data: { cards: { id: string; code: string; disabledAt: string | null }[] };
+  }>(
+    "GET",
+    `/api/admin/business-cards?search=${encodeURIComponent(AUTOMATION_ATTRIBUTION_CARD_CODE)}&limit=50`,
+    undefined,
+    adminToken
+  );
+  const found = list.data.cards.find(
+    (c) => c.code === AUTOMATION_ATTRIBUTION_CARD_CODE
+  );
+  if (found) {
+    if (found.disabledAt) {
+      await apiRequest<unknown>(
+        "PATCH",
+        `/api/admin/business-cards/${found.id}`,
+        { disabled: false },
+        adminToken
+      );
+    }
+    return { cardId: found.id, fullName: AUTOMATION_ATTRIBUTION_CARD_NAME };
+  }
+  const created = await apiRequest<{ data: { id: string } }>(
+    "POST",
+    "/api/admin/business-cards",
+    {
+      ownerType: "EMPLOYEE",
+      userId: adminUserId,
+      fullName: AUTOMATION_ATTRIBUTION_CARD_NAME,
+      jobTitle: "Automation",
+      code: AUTOMATION_ATTRIBUTION_CARD_CODE,
+    },
+    adminToken
+  );
+  return {
+    cardId: created.data.id,
+    fullName: AUTOMATION_ATTRIBUTION_CARD_NAME,
+  };
+}
+
+/** GET /api/admin/attribution/restaurants/:id — the source and activation. */
+export function getRestaurantAttributionApi(
+  adminToken: string,
+  restaurantId: string
+): Promise<AttributionApiView> {
+  return apiRequest<AttributionApiView>(
+    "GET",
+    `/api/admin/attribution/restaurants/${restaurantId}`,
+    undefined,
+    adminToken
+  );
+}
+
+/** PUT /api/admin/attribution/restaurants/:id — link to an affiliate (raw). */
+export function setRestaurantAttributionRaw(
+  adminToken: string,
+  restaurantId: string,
+  body: { affiliateId?: string; businessCardId?: string; reason: string }
+): Promise<RawResponse> {
+  return apiRequestRaw(
+    "PUT",
+    `/api/admin/attribution/restaurants/${restaurantId}`,
+    body,
     adminToken
   );
 }

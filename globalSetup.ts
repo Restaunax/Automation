@@ -5,6 +5,7 @@
  *   1. API-login as owner → create seed test restaurant
  *   2. Browser-login as owner → save owner-auth.tmp.json (storageState)
  *   3. Browser-login as admin → save admin-auth.tmp.json (storageState)
+ *      (+ employee, and the affiliate actor when AFFILIATE_EMAIL/PASSWORD set)
  *   4. Write shared-state.tmp.json with all data specs need
  *
  * Sends NO email. It used to submit a demo request here on EVERY run; the demo
@@ -27,16 +28,19 @@ import {
   createTestMenuItem,
   ensureAutomationChain,
   ensureOrderingSlug,
+  ensureAffiliateActorUser,
   BACKEND_URL,
 } from "./utils/apiHelper";
 import { readProcessStartedAt } from "./utils/deployGuard";
 import { restoreLeftoverPublishes } from "./utils/publishBackstop";
+import { pauseProductsThisRunLaunched } from "./utils/supplyShopCartApi";
 import { assertSafeTargets } from "./utils/targetGuard";
 import {
   STATE_FILE,
   OWNER_AUTH_FILE,
   ADMIN_AUTH_FILE,
   EMPLOYEE_AUTH_FILE,
+  AFFILIATE_AUTH_FILE,
   FRONTEND_URL,
   TEMPLATE_WIND_URL,
   writeSharedState,
@@ -50,6 +54,8 @@ const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 const EMPLOYEE_EMAIL = process.env.EMPLOYEE_EMAIL ?? "";
 const EMPLOYEE_PASSWORD = process.env.EMPLOYEE_PASSWORD ?? "";
+const AFFILIATE_EMAIL = process.env.AFFILIATE_EMAIL ?? "";
+const AFFILIATE_PASSWORD = process.env.AFFILIATE_PASSWORD ?? "";
 
 // ── Shared browser lifecycle ──────────────────────────────────────────────────
 async function withBrowser<T>(
@@ -166,6 +172,9 @@ export default async function globalSetup(): Promise<void> {
   }
   const optionalGaps = [
     ...(!EMPLOYEE_EMAIL || !EMPLOYEE_PASSWORD ? ["employee suite"] : []),
+    ...(!AFFILIATE_EMAIL || !AFFILIATE_PASSWORD
+      ? ["affiliate portal suite"]
+      : []),
     ...(!process.env.MAILPIT_BASE_URL ? ["email-journey tests"] : []),
   ];
   if (optionalGaps.length) {
@@ -187,6 +196,7 @@ export default async function globalSetup(): Promise<void> {
     OWNER_AUTH_FILE,
     ADMIN_AUTH_FILE,
     EMPLOYEE_AUTH_FILE,
+    AFFILIATE_AUTH_FILE,
   ]) {
     if (fs.existsSync(f)) fs.unlinkSync(f);
   }
@@ -266,8 +276,13 @@ export default async function globalSetup(): Promise<void> {
           : undefined;
       // A previous run that never reached teardown may have left a fixture
       // location published (utils/publishBackstop): restore it first.
-      if (adminAccessToken)
+      if (adminAccessToken) {
         await restoreLeftoverPublishes(adminAccessToken, "globalSetup");
+        // …and pause any Print Shop product it launched for itself.
+        await pauseProductsThisRunLaunched(adminAccessToken).catch((err) =>
+          console.warn("[globalSetup] Could not pause leftover launches:", err)
+        );
+      }
       chain = await ensureAutomationChain(
         accessToken,
         ownerUserId,
@@ -319,6 +334,38 @@ export default async function globalSetup(): Promise<void> {
       : Promise.resolve(
           console.warn(
             "[globalSetup] EMPLOYEE_EMAIL/PASSWORD not set — skipping employee auth"
+          )
+        ),
+    // The affiliate actor is the persistent "auto-attribution" affiliate. Its
+    // USER account is created here when missing (admin API) so the browser
+    // login can succeed; the Affiliate row itself (apply + ACTIVE) is ensured
+    // by the specs through ensureAttributionAffiliate. Never fatal: a failure
+    // leaves no auth file and the portal specs skip with the reason.
+    AFFILIATE_EMAIL && AFFILIATE_PASSWORD
+      ? (async () => {
+          try {
+            const adminToken =
+              adminAccessToken ??
+              (ADMIN_EMAIL && ADMIN_PASSWORD
+                ? (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken
+                : undefined);
+            if (adminToken) await ensureAffiliateActorUser(adminToken);
+            await saveAuthState(
+              AFFILIATE_EMAIL,
+              AFFILIATE_PASSWORD,
+              AFFILIATE_AUTH_FILE,
+              "affiliate"
+            );
+          } catch (err) {
+            console.warn(
+              "[globalSetup] Affiliate session could not be saved — affiliate portal specs will skip:",
+              err
+            );
+          }
+        })()
+      : Promise.resolve(
+          console.warn(
+            "[globalSetup] AFFILIATE_EMAIL/PASSWORD not set — skipping affiliate auth"
           )
         ),
   ]);

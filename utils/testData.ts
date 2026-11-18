@@ -49,6 +49,10 @@ export const EMPLOYEE_AUTH_FILE = path.resolve(
   __dirname,
   "../employee-auth.tmp.json"
 );
+export const AFFILIATE_AUTH_FILE = path.resolve(
+  __dirname,
+  "../affiliate-auth.tmp.json"
+);
 
 // Records users created by the admin user-management suite so globalTeardown
 // (and spec afterAll hooks) can delete them even if a test crashes mid-run.

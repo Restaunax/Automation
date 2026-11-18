@@ -24,12 +24,14 @@ import {
 } from "./utils/apiHelper";
 import { deletePromotionRaw, listChainPromotions } from "./utils/promotionsApi";
 import { restoreLeftoverPublishes } from "./utils/publishBackstop";
+import { pauseProductsThisRunLaunched } from "./utils/supplyShopCartApi";
 import { assertSafeTargets } from "./utils/targetGuard";
 import {
   STATE_FILE,
   OWNER_AUTH_FILE,
   ADMIN_AUTH_FILE,
   EMPLOYEE_AUTH_FILE,
+  AFFILIATE_AUTH_FILE,
   USERS_CLEANUP_FILE,
   GIFT_CARDS_CLEANUP_FILE,
   FRONTEND_URL,
@@ -232,6 +234,19 @@ export default async function globalTeardown(): Promise<void> {
       console.warn("[globalTeardown] Failed to clean up test users:", err);
     }
 
+    // Print Shop products a spec launched for this run go back to paused, so
+    // QA's catalog is as it was (see ensureSupplyProductLaunched).
+    try {
+      const paused = await pauseProductsThisRunLaunched(adminToken);
+      if (paused) {
+        console.log(
+          `[globalTeardown] Paused ${paused} Print Shop product(s) this run launched`
+        );
+      }
+    } catch (err) {
+      console.warn("[globalTeardown] Failed to pause launched products:", err);
+    }
+
     // Gift cards have no delete endpoint and server-generated codes (no AUTO*
     // prefix to sweep by), so freeze is the closest thing to cleanup — tests
     // record every purchased card's id, best-effort freeze each here.
@@ -261,6 +276,7 @@ export default async function globalTeardown(): Promise<void> {
     OWNER_AUTH_FILE,
     ADMIN_AUTH_FILE,
     EMPLOYEE_AUTH_FILE,
+    AFFILIATE_AUTH_FILE,
     USERS_CLEANUP_FILE,
     GIFT_CARDS_CLEANUP_FILE,
   ]) {

@@ -1,6 +1,8 @@
 /**
  * api-accountant-access.spec.ts — the owner's accountant, Books & taxes B5
- * (TC-774..780).
+ * (TC-774..780). The client's books (journal, deposits, accounts, sales
+ * summary, import files) and several clients per accountant: W2:A10,
+ * api-accountant-multi-client.spec.ts (TC-1338..1343).
  *
  * restaunax docs/features/back-office/BOOKS_B5_ACCOUNTANT_AND_YEAR_END.md
  * (#943). Two throwaway restaurants with the Books & Taxes add-on
@@ -12,6 +14,8 @@
  *
  * TC-777 is the one browser step: the accountant signs in and opens the
  * read-only workspace (/accountant), with no 403 on any screen load.
+ * TC-1961: the accountant's package route refuses a range of only today
+ * ("Nothing to include yet…", EN and ES).
  *
  * Skips without MAILPIT_BASE_URL (CI has it; see TEST_PLAN → Test execution
  * strategy). Serial: every step builds on the claimed account.
@@ -24,14 +28,17 @@ import { waitForEmail, extractInviteToken } from "../../../utils/emailHelper";
 import { loginViaUi } from "../../../utils/auth";
 import {
   apiLogin,
+  apiRequestRaw,
   createSecondOwner,
   deleteTestRestaurant,
   setFeatureOverrideAdminRaw,
   deleteFeatureOverrideAdminRaw,
   registerWithInvite,
+  restaurantBusinessToday,
   getOwnerRestaurants,
   booksRaw,
   accountantRaw,
+  accountantAnyRaw,
   accountingRaw,
   partnerAccessRaw,
   taxRaw,
@@ -50,6 +57,19 @@ type Rec = Record<string, LooseJson>;
 const list = (v: unknown) => (Array.isArray(v) ? (v as Rec[]) : []);
 const YEAR = new Date().getUTCFullYear() - 1;
 const today = () => new Date().toISOString().slice(0, 10);
+/** Last month, whole: a range every free accountant read accepts. */
+const MONTH_START = (() => {
+  const d = new Date();
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, 1))
+    .toISOString()
+    .slice(0, 10);
+})();
+const MONTH_END = (() => {
+  const d = new Date();
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 0))
+    .toISOString()
+    .slice(0, 10);
+})();
 
 test.describe.configure({ mode: "serial" });
 
@@ -287,6 +307,44 @@ test.describe("Accountant access — invite, read-only, other clients invisible,
     expect(zip.headers.get("content-type")).toContain("application/zip");
   });
 
+  test('TC-1961: the accountant\'s package for only today is refused with "Nothing to include yet", in EN and ES', async () => {
+    // The restaurant's open business day (its time zone, 4 am cutoff).
+    const day = await restaurantBusinessToday(a.id);
+    const path = (extra: string) =>
+      `/api/accountant/clients/${a.id}/accountant-package?startDate=${day}&endDate=${day}&format=pdf${extra}`;
+    const cases = [
+      {
+        name: "EN",
+        extra: "&lang=en",
+        headers: { "Accept-Language": "en" },
+        want: "Nothing to include yet: the most recent days are added once they're closed or over.",
+      },
+      {
+        name: "ES by Accept-Language",
+        extra: "",
+        headers: { "Accept-Language": "es" },
+        want: "Todavía no hay nada que incluir: los días más recientes se agregan cuando se cierran o terminan.",
+      },
+      {
+        name: "ES by lang=",
+        extra: "&lang=es",
+        headers: { "Accept-Language": "en" },
+        want: "Todavía no hay nada que incluir: los días más recientes se agregan cuando se cierran o terminan.",
+      },
+    ];
+    for (const c of cases) {
+      const res = await apiRequestRaw<{ success?: boolean; message?: string }>(
+        "GET",
+        path(c.extra),
+        undefined,
+        accountant.token,
+        c.headers
+      );
+      expect(res.status, `${c.name}: ${JSON.stringify(res.data)}`).toBe(400);
+      expect(res.data.message, c.name).toBe(c.want);
+    }
+  });
+
   test("TC-779: every write is refused for the accountant; the owner's own books routes are closed to them", async () => {
     const t = accountant.token;
     const attempts: [string, Promise<{ status: number }>][] = [
@@ -336,6 +394,25 @@ test.describe("Accountant access — invite, read-only, other clients invisible,
         }),
       ],
       ["daily close", closeDayWebRaw(t, a.id)],
+      // W2:A10: the accountant's books are read-only too.
+      [
+        "accounting: simple preset",
+        accountingRaw(t, a.id, "POST", "/mapping/preset", { preset: "SIMPLE" }),
+      ],
+      [
+        "accountant: post a day",
+        accountantAnyRaw(
+          t,
+          "POST",
+          `/clients/${a.id}/books/days/${today()}/post`
+        ),
+      ],
+      [
+        "accountant: save mapping",
+        accountantAnyRaw(t, "PUT", `/clients/${a.id}/books/mapping`, {
+          mapping: {},
+        }),
+      ],
     ];
     for (const [what, call] of attempts) {
       const r = await call;
@@ -346,7 +423,7 @@ test.describe("Accountant access — invite, read-only, other clients invisible,
     expect(list(owners.data.data).map((x) => x.status)).toEqual(["ACTIVE"]);
   });
 
-  test("TC-780: another restaurant is invisible (404, same as a made-up id); add-on off keeps the list, closes the numbers; revoke ends access at once", async () => {
+  test("TC-780: another restaurant is invisible (404, same as a made-up id); add-on off keeps the free reads open and closes only the add-on ones; revoke ends access at once", async () => {
     const t = accountant.token;
     const other = await accountantRaw(t, `/clients/${b.id}`);
     expect(other.status).toBe(404);
@@ -366,20 +443,52 @@ test.describe("Accountant access — invite, read-only, other clients invisible,
       ).toBe(404);
     }
 
-    // Add-on off: the client list still loads (marked unavailable) — the
-    // screen never 403s — and the numbers are closed with a reason.
+    // Add-on off: the screen never 403s. The accountant's overview, sales
+    // tax, tips, sales summary, payouts and package are free for an active
+    // accountant; only the books day reads, deposits, year end and the
+    // monthly package files stay with the add-on. `available` is always true.
     await deleteFeatureOverrideAdminRaw(adminToken, a.id, "ACCOUNTING_SYNC");
     try {
       const clients = await accountantRaw(t, "/clients");
       expect(clients.status).toBe(200);
       expect(list(clients.data.data)).toMatchObject([
-        { restaurantId: a.id, available: false },
+        { restaurantId: a.id, available: true },
       ]);
-      const closed = await accountantRaw(t, `/clients/${a.id}`);
-      expect(closed.status).toBe(403);
-      expect(closed.data.message).toBe(
-        "This restaurant's Books & Taxes add-on is off, so its numbers can't be opened right now."
+      const range = `startDate=${MONTH_START}&endDate=${MONTH_END}`;
+      // One free read answers 200...
+      const free = await accountantRaw(t, `/clients/${a.id}`);
+      expect(free.status, JSON.stringify(free.data)).toBe(200);
+      for (const path of [
+        `sales-tax?${range}`,
+        `books/sales-summary?${range}`,
+        `tips?${range}`,
+        `payouts?${range}`,
+      ]) {
+        const r = await accountantRaw(t, `/clients/${a.id}/${path}`);
+        expect(r.status, path).toBe(200);
+      }
+      // The package for a range of up to 93 days is the file itself.
+      const file = await downloadRaw(
+        t,
+        `/api/accountant/clients/${a.id}/accountant-package?${range}&format=pdf`
       );
+      expect(file.status).toBe(200);
+      expect(file.headers.get("content-type")).toMatch(/application\/pdf/);
+      // ...and an add-on read answers 403 (no screen loads it unasked).
+      const closed = await accountantRaw(
+        t,
+        `/clients/${a.id}/books/days?${range}`
+      );
+      expect(closed.status).toBe(403);
+      for (const path of [
+        `year-end?year=${YEAR}`,
+        "accountant-package/files",
+      ]) {
+        expect(
+          (await accountantRaw(t, `/clients/${a.id}/${path}`)).status,
+          path
+        ).toBe(403);
+      }
     } finally {
       await setFeatureOverrideAdminRaw(
         adminToken,

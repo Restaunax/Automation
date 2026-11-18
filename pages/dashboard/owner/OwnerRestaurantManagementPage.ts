@@ -23,6 +23,10 @@ export const createOwnerRestaurantManagementPage = (page: Page) => {
   // a field is dirty, and saving PUTs /api/restaurantId/:id/settings.
   const navigateToStoreSettings = async () => {
     await clickSidebarItem("Store Settings");
+    // Ordering & hours opens on Taking orders; prep lives in the next section.
+    await page
+      .getByRole("tab", { name: "Prep time & delivery area", exact: true })
+      .click();
     await deliveryPrepTimeInput().waitFor({
       state: "visible",
       timeout: 10_000,

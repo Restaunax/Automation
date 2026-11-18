@@ -39,6 +39,8 @@ const STATUSES = [
   "FAILED",
   "NEEDS_REVIEW",
   "STALE",
+  // RestauNax #1088: returned by the bank and paid again in a later deposit.
+  "RETURNED",
 ];
 
 test.describe.configure({ mode: "serial" });

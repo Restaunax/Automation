@@ -1,7 +1,13 @@
 /**
  * api-books-taxes.spec.ts — Books & taxes B5 tax calendar and year-end
  * package, and the B2 card-deposit surface on a restaurant with no books
- * connection (TC-763..771).
+ * connection (TC-763..771), and the closed-period lock (W2:A3) on that
+ * CSV-only tenant (TC-1300..1302), and the Stage 7 year-end additions (W4:L5:
+ * fees paid to RestauNax, gift card liability at year end; with owner gift
+ * cards the row reads "Cards whose money you hold" and no "Older cards held by
+ * RestauNax" row appears for a fresh tenant) (TC-1612), and
+ * books offboarding (TC-1954..1955): Disconnect is RestauNax staff only, and
+ * the past entries stay downloadable once the add-on is off.
  *
  * restaunax docs/features/back-office/BOOKS_B5_ACCOUNTANT_AND_YEAR_END.md and
  * ACCOUNTING_SYNC.md → B2 (#943). No browser. One throwaway restaurant; the
@@ -18,6 +24,14 @@ import { test, expect } from "../../../fixtures/base";
 import { generateRunId } from "../../../utils/testData";
 import { readZip, type ZipEntry } from "../../../utils/zipReader";
 import { pdfText } from "../../../utils/pdfText";
+import { settingChangesRaw } from "../../../utils/backOfficeApi";
+import {
+  probeBooksOffboarding,
+  probeTaxDepthStage7,
+  probeOwnerGiftCards,
+  releasePresent,
+  requireRelease,
+} from "../../../utils/releaseGate";
 import {
   apiLogin,
   createSecondOwner,
@@ -38,6 +52,10 @@ type Rec = Record<string, LooseJson>;
 const list = (v: unknown) => (Array.isArray(v) ? (v as Rec[]) : []);
 const DISCLAIMER = "worksheets for your accountant, not a tax filing";
 const YEAR = new Date().getUTCFullYear() - 1;
+/** A day that has surely ended in every US zone (W2:A3 lock tests). */
+const LOCK_DAY = new Date(Date.now() - 3 * 86_400_000)
+  .toISOString()
+  .slice(0, 10);
 const CSV_FILES = [
   "01-sales-by-month.csv",
   "02-sales-by-category.csv",
@@ -48,6 +66,16 @@ const CSV_FILES = [
   "07-1099-k-tie-out.csv",
   "08-form-8846-fica-tip-credit-worksheet.csv",
   "09-form-8027-tip-report-worksheet.csv",
+];
+/** Spreadsheets later stages added, in package order: Stage 5 (W-2
+ *  worksheet, 8027 by pay period) and Stage 7 (W4:L5). A stack without a
+ *  stage simply lacks its files; TC-1612 proves the Stage 7 pair once
+ *  released. */
+const LATER_CSV_FILES = [
+  "10-w2-qualified-tips-and-overtime.csv",
+  "11-form-8027-allocation-by-pay-period.csv",
+  "12-fees-paid-to-restaunax.csv",
+  "13-gift-card-liability-at-year-end.csv",
 ];
 
 test.describe.configure({ mode: "serial" });
@@ -61,6 +89,7 @@ test.describe("Books & taxes — tax calendar, year-end package, card deposits (
   const runId = generateRunId();
   let adminToken = "";
   let ownerToken = "";
+  let giftCardsPresent = false;
   let restaurantId = "";
   let zip: ZipEntry[] = [];
 
@@ -72,6 +101,7 @@ test.describe("Books & taxes — tax calendar, year-end package, card deposits (
     if (!tenant.restaurantId) throw new Error("[api-books-taxes] no tenant");
     restaurantId = tenant.restaurantId;
     ownerToken = tenant.accessToken;
+    giftCardsPresent = await probeOwnerGiftCards(ownerToken, restaurantId);
   });
 
   test.afterAll(async () => {
@@ -84,7 +114,7 @@ test.describe("Books & taxes — tax calendar, year-end package, card deposits (
     await allure.label("severity", "critical");
   });
 
-  test("TC-763: without the Books & Taxes add-on every books route refuses; with it every screen load answers 200", async () => {
+  test("TC-763: without the Books & Taxes add-on the add-on routes refuse (the accountant list is free); with it every screen load answers 200", async () => {
     const features = await getRestaurantFeaturesRaw(ownerToken, restaurantId);
     expect(features.data.data?.features ?? []).not.toContain("ACCOUNTING_SYNC");
     const loads = async () => ({
@@ -111,7 +141,8 @@ test.describe("Books & taxes — tax calendar, year-end package, card deposits (
     expect(await loads()).toEqual({
       calendar: 403,
       yearEnd: 403,
-      accountants: 403,
+      // Read-only accountant access is free.
+      accountants: 200,
       books: 403,
       deposits: 403,
     });
@@ -313,7 +344,7 @@ test.describe("Books & taxes — tax calendar, year-end package, card deposits (
     }
   });
 
-  test("TC-767: the year-end ZIP — README, the PDF and the 9 spreadsheets; README and PDF say 'worksheets, not a tax filing'", async () => {
+  test("TC-767: the year-end ZIP — README, the PDF and the spreadsheets (9, plus later stages' in order); README and PDF say 'worksheets, not a tax filing'", async () => {
     const res = await downloadRaw(
       ownerToken,
       `/api/books/${restaurantId}/year-end/${YEAR}/package.zip`
@@ -324,11 +355,14 @@ test.describe("Books & taxes — tax calendar, year-end package, card deposits (
       new RegExp(`attachment; filename="year-end-${YEAR}-.+\\.zip"`)
     );
     zip = readZip(res.body);
-    expect(zip.map((e) => e.name)).toEqual([
+    const names = zip.map((e) => e.name);
+    expect(names.slice(0, 2 + CSV_FILES.length)).toEqual([
       "README.txt",
       `year-end-${YEAR}.pdf`,
       ...CSV_FILES,
     ]);
+    const later = names.slice(2 + CSV_FILES.length);
+    expect(later).toEqual(LATER_CSV_FILES.filter((f) => later.includes(f)));
 
     const readme = zip[0]!.data.toString("utf8");
     expect(readme).toContain(`Year-end package ${YEAR}`);
@@ -405,6 +439,66 @@ test.describe("Books & taxes — tax calendar, year-end package, card deposits (
     expect(bad.status).toBe(400);
     expect(JSON.parse(bad.body.toString()).message).toBe(
       "That part of the package doesn't exist."
+    );
+  });
+
+  test("TC-1612: the year-end package adds fees paid to RestauNax and the gift card balances at year end (W4:L5) @tax-depth", async () => {
+    requireRelease(
+      "taxDepthStage7",
+      await probeTaxDepthStage7(ownerToken, restaurantId)
+    );
+    const names = zip.map((e) => e.name);
+    expect(names).toContain("12-fees-paid-to-restaunax.csv");
+    expect(names).toContain("13-gift-card-liability-at-year-end.csv");
+    const fees = await downloadRaw(
+      ownerToken,
+      `/api/books/${restaurantId}/year-end/${YEAR}/restaunax-fees.csv`
+    );
+    expect(fees.status).toBe(200);
+    expect(fees.headers.get("content-disposition")).toContain(
+      "12-fees-paid-to-restaunax.csv"
+    );
+    const feeRows = fees.body
+      .toString("utf8")
+      .replace(/^\uFEFF/, "")
+      .split(/\r?\n/);
+    expect(feeRows[0]).toBe("Fee,Amount");
+    // A fresh tenant paid nothing last year: every line is 0.00, total too.
+    for (const label of [
+      "Subscription",
+      "Add-ons",
+      "Hardware",
+      "Supply shop",
+      "Total",
+    ]) {
+      expect(feeRows).toContain(`${label},0.00`);
+    }
+    expect(fees.body.toString("utf8").toLowerCase()).toContain(
+      "not a tax filing"
+    );
+    const cards = await downloadRaw(
+      ownerToken,
+      `/api/books/${restaurantId}/year-end/${YEAR}/gift-card-liability.csv`
+    );
+    expect(cards.status).toBe(200);
+    const cardText = cards.body.toString("utf8");
+    // feat/owner-gift-cards renames the row (Plan A Task 11) and adds a line
+    // for cards RestauNax still holds, which a fresh tenant doesn't have.
+    // With the backend present the renamed row is required.
+    if (giftCardsPresent)
+      expect(cardText).toContain("Cards whose money you hold,0,0.00");
+    const renamed = releasePresent(
+      "ownerGiftCards",
+      cardText.includes("Cards whose money you hold,0,0.00")
+    );
+    if (renamed) {
+      expect(cardText).not.toContain("This restaurant's gift cards");
+      expect(cardText).not.toContain("Older cards held by RestauNax");
+    } else {
+      expect(cardText).toContain("This restaurant's gift cards,0,0.00");
+    }
+    expect(cardText).toContain(
+      `Unredeemed balances at the end of ${YEAR}-12-31`
     );
   });
 
@@ -487,5 +581,251 @@ test.describe("Books & taxes — tax calendar, year-end package, card deposits (
     expect((overview.data.data as Rec).deposits).toMatchObject({
       state: "SETTING_UP",
     });
+  });
+
+  // W2:A7 — a wider tolerance only turned red days green: at most $5.00 a
+  // day now, and books settings and account mapping changes are in the
+  // settings change history (who, from what, to what).
+  test("TC-1154: the rounding tolerance is capped at $5.00; tolerance and mapping changes are in Recent changes", async () => {
+    const tooHigh = await accountingRaw(
+      ownerToken,
+      restaurantId,
+      "PATCH",
+      "/settings",
+      { toleranceCents: 501 }
+    );
+    expect(tooHigh.status).toBe(400);
+    expect(String(tooHigh.data.message)).toBe(
+      "The rounding tolerance can be at most $5.00 a day."
+    );
+    const ok = await accountingRaw(
+      ownerToken,
+      restaurantId,
+      "PATCH",
+      "/settings",
+      {
+        toleranceCents: 300,
+      }
+    );
+    expect(ok.status, JSON.stringify(ok.data)).toBe(200);
+    const mapped = await accountingRaw(
+      ownerToken,
+      restaurantId,
+      "PUT",
+      "/mapping",
+      { mapping: { tips: { name: "Tips Payable", code: "2150" } } }
+    );
+    expect(mapped.status, JSON.stringify(mapped.data)).toBe(200);
+
+    const r = await settingChangesRaw(ownerToken, restaurantId, {
+      area: "books",
+    });
+    expect(r.status, JSON.stringify(r.data)).toBe(200);
+    const items = r.data.data?.items ?? [];
+    expect(
+      items.find((i) => i.field === "accountingToleranceCents"),
+      JSON.stringify(items)
+    ).toMatchObject({ area: "books", actorType: "OWNER", newValue: 300 });
+    expect(
+      items.find((i) => i.field === "accountMapping"),
+      JSON.stringify(items)
+    ).toMatchObject({ area: "books", newValue: "2150 Tips Payable" });
+  });
+
+  // W2:A3 — "books closed through": after it, a change to a day never edits
+  // the entry already in the books; it goes in as an adjusting entry on the
+  // first open day. Set, moved and cleared by the owner; logged.
+  test("TC-1300: books closed through — refused on a day that hasn't ended, saved for yesterday, logged, then reopened", async () => {
+    const empty = await accountingRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      "/books-closed"
+    );
+    expect(empty.status, JSON.stringify(empty.data)).toBe(200);
+    expect(empty.data.data).toMatchObject({
+      booksClosedThrough: null,
+      providerClosedThrough: null,
+      effectiveClosedThrough: null,
+    });
+    const tomorrow = new Date(Date.now() + 2 * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const future = await accountingRaw(
+      ownerToken,
+      restaurantId,
+      "PUT",
+      "/books-closed",
+      { closedThrough: tomorrow }
+    );
+    expect(future.status).toBe(400);
+    expect(String(future.data.message)).toBe(
+      "Books can only be closed through a day that has ended."
+    );
+    const bad = await accountingRaw(
+      ownerToken,
+      restaurantId,
+      "PUT",
+      "/books-closed",
+      { closedThrough: "last week" }
+    );
+    expect(bad.status).toBe(400);
+
+    const saved = await accountingRaw(
+      ownerToken,
+      restaurantId,
+      "PUT",
+      "/books-closed",
+      { closedThrough: LOCK_DAY }
+    );
+    expect(saved.status, JSON.stringify(saved.data)).toBe(200);
+    expect(saved.data.data).toMatchObject({
+      booksClosedThrough: LOCK_DAY,
+      effectiveClosedThrough: LOCK_DAY,
+    });
+    const overview = await accountingRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      "/overview"
+    );
+    expect(overview.data.data?.setup?.booksClosedThrough).toBe(LOCK_DAY);
+    expect(overview.data.data?.week).toMatchObject({
+      provisional: 0,
+      adjustments: 0,
+    });
+    const r = await settingChangesRaw(ownerToken, restaurantId, {
+      area: "books",
+    });
+    expect(
+      (r.data.data?.items ?? []).find((i) => i.field === "booksClosedThrough"),
+      JSON.stringify(r.data)
+    ).toMatchObject({ area: "books", actorType: "OWNER", newValue: LOCK_DAY });
+  });
+
+  test("TC-1301: a day the books are closed through — Re-send is refused (an adjustment instead); its history says locked", async () => {
+    const resend = await accountingRaw(
+      ownerToken,
+      restaurantId,
+      "POST",
+      `/days/${LOCK_DAY}/resend`
+    );
+    expect(resend.status).toBe(400);
+    expect(String(resend.data.message)).toContain("adjusting entry");
+    const history = await accountingRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      `/days/${LOCK_DAY}/history`
+    );
+    expect(history.status, JSON.stringify(history.data)).toBe(200);
+    expect(history.data.data).toMatchObject({
+      businessDate: LOCK_DAY,
+      locked: true,
+    });
+    expect(Array.isArray(history.data.data?.versions)).toBe(true);
+    expect(Array.isArray(history.data.data?.adjustments)).toBe(true);
+
+    const reopened = await accountingRaw(
+      ownerToken,
+      restaurantId,
+      "PUT",
+      "/books-closed",
+      { closedThrough: null }
+    );
+    expect(reopened.status, JSON.stringify(reopened.data)).toBe(200);
+    expect(reopened.data.data?.booksClosedThrough).toBeNull();
+  });
+
+  // W2:A1, A2a, A4a, A5 — the new journal lines are mappable, in words.
+  test("TC-1302: the accounts list has the Stage 4 lines (cash paid out, tips paid in cash, comps…) in words", async () => {
+    const r = await accountingRaw(ownerToken, restaurantId, "GET", "/lines");
+    expect(r.status, JSON.stringify(r.data)).toBe(200);
+    const byKey = new Map(
+      list(r.data.data).map((l) => [String(l.key), String(l.label)])
+    );
+    expect(byKey.get("paid_out")).toBe("Cash paid out");
+    expect(byKey.get("paid_in")).toBe("Cash paid in");
+    expect(byKey.get("tips_paid_cash")).toBe("Tips paid out in cash");
+    expect(byKey.get("tips_card_fee")).toBe("Card fee withheld from tips");
+    expect(byKey.get("comps")).toBe("Comps");
+    expect(byKey.get("unpaid_collected")).toBe("Unpaid orders collected");
+  });
+
+  // Books offboarding (RestauNax feat/books-offboarding, 2026-11-10). This
+  // tenant has no books connection, so even a wrongly allowed Disconnect has
+  // nothing to cut.
+  test("TC-1954: an owner can't disconnect books or Avalara; RestauNax staff can @books-offboarding", async () => {
+    requireRelease(
+      "booksOffboarding",
+      await probeBooksOffboarding(ownerToken, restaurantId)
+    );
+    // With the add-on on, the owner's 403 is the staff-only wall, not the
+    // add-on gate. Granted here too so the test runs on its own.
+    const on = await setFeatureOverrideAdminRaw(
+      adminToken,
+      restaurantId,
+      "ACCOUNTING_SYNC",
+      true,
+      "TC-1954: the add-on is on"
+    );
+    expect(on.status, JSON.stringify(on.data)).toBeLessThan(300);
+    for (const path of ["/disconnect", "/avalara/disconnect"]) {
+      const owner = await accountingRaw(
+        ownerToken,
+        restaurantId,
+        "POST",
+        path,
+        {}
+      );
+      expect(owner.status, `${path} ${JSON.stringify(owner.data)}`).toBe(403);
+      const staff = await accountingRaw(
+        adminToken,
+        restaurantId,
+        "POST",
+        path,
+        {}
+      );
+      expect(staff.status, `${path} ${JSON.stringify(staff.data)}`).toBe(200);
+    }
+  });
+
+  test("TC-1955: without the add-on the past entries still answer, and a range downloads as CSV @books-offboarding", async () => {
+    requireRelease(
+      "booksOffboarding",
+      await probeBooksOffboarding(ownerToken, restaurantId)
+    );
+    const off = await setFeatureOverrideAdminRaw(
+      adminToken,
+      restaurantId,
+      "ACCOUNTING_SYNC",
+      false,
+      "TC-1955: the add-on ended"
+    );
+    expect(off.status, JSON.stringify(off.data)).toBeLessThan(300);
+    // Every other books screen is closed again…
+    const overview = await accountingRaw(
+      ownerToken,
+      restaurantId,
+      "GET",
+      "/overview"
+    );
+    expect(overview.status).toBe(403);
+    // …but the restaurant's own past is still theirs.
+    const past = await accountingRaw<{
+      data?: {
+        days?: number;
+        ranges?: { startDate: string; endDate: string }[];
+      };
+    }>(ownerToken, restaurantId, "GET", "/past");
+    expect(past.status, JSON.stringify(past.data)).toBe(200);
+    expect(typeof past.data.data?.days).toBe("number");
+    expect(Array.isArray(past.data.data?.ranges)).toBe(true);
+    const csv = await downloadRaw(
+      ownerToken,
+      `/api/accounting/${restaurantId}/past/export.csv?startDate=${LOCK_DAY}&endDate=${LOCK_DAY}&format=restaunax`
+    );
+    expect(csv.status, csv.body.toString().slice(0, 300)).toBe(200);
+    expect(csv.headers.get("content-type") ?? "").toContain("text/csv");
   });
 });

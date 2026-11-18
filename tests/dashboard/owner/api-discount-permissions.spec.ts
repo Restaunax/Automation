@@ -13,7 +13,10 @@
  *   - comps need APPROVE_COMP; a required reason is enforced;
  *   - custom items: ANYONE vs a manager first;
  *   - giving the Staff ROLE the permission (S3) lets Kim discount;
- *   - the exceptions summary counts it all by employee.
+ *   - the exceptions summary counts it all by employee;
+ *   - W0:J8 (TC-1735, gated by `RELEASED_ON_QA.dailyViewsStage6`): a
+ *     coupon on an order is in the summary by type (discountsByType.COUPON)
+ *     and on its person, not only line discounts / comps / voids.
  * Serial.
  */
 import * as allure from "allure-js-commons";
@@ -38,6 +41,12 @@ import {
   approvalLogSummaryRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
+import { createCouponPromotion } from "../../../utils/promotionsApi";
+import {
+  probeDailyViewsStage6,
+  requireRelease,
+} from "../../../utils/releaseGate";
+import { generateCouponCode } from "../../../utils/testData";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
@@ -363,5 +372,60 @@ test.describe("Discount, comp and custom-item permissions on the POS (API)", () 
     );
     expect(approver).toMatchObject({ count: 1 });
     expect(Number(approver?.amount)).toBeCloseTo(3, 2);
+  });
+
+  test("TC-1735: W0:J8 a coupon order is in the exceptions summary by type @daily-views", async () => {
+    requireRelease(
+      "dailyViewsStage6",
+      await probeDailyViewsStage6(ownerToken, restaurantId)
+    );
+    const coupon = await createCouponPromotion(ownerToken, restaurantId, {
+      name: `AUTO perms coupon ${runId}`,
+      code: generateCouponCode(),
+      type: "FIXED_AMOUNT",
+      value: 2,
+      minOrderAmount: 1,
+      applyMode: "CODE",
+    });
+    table += 1;
+    const res = await createTabletOrderRaw(tabletToken, kim.session, {
+      restaurantId,
+      orderType: "PICKUP",
+      subtotal: 20,
+      discountAmount: 2,
+      couponId: coupon.id,
+      tax: 0,
+      tip: 0,
+      total: 18,
+      customerPhone: "",
+      orderItems: [
+        {
+          menuItemId: item.id,
+          menuItemName: item.name,
+          quantity: 2,
+          price: 10,
+        },
+      ],
+      openCheck: true,
+      tableName: `P${table}`,
+      guestCount: 2,
+    });
+    expect(res.status, JSON.stringify(res.data)).toBe(201);
+    const day = (n: number) =>
+      new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+    const sum = await approvalLogSummaryRaw(
+      ownerToken,
+      restaurantId,
+      day(-1),
+      day(1)
+    );
+    expect(sum.status, JSON.stringify(sum.data)).toBe(200);
+    const data = sum.data.data as Rec;
+    expect(data.discountsByType?.COUPON).toMatchObject({ count: 1 });
+    expect(Number(data.discountsByType?.COUPON?.amount)).toBeCloseTo(2, 2);
+    for (const type of ["DEAL", "POINTS", "CASH_DISCOUNT"])
+      expect(data.discountsByType?.[type], type).toBeTruthy();
+    const kims = list(data.byEmployee).find((e) => e.staffMemberId === kim.id);
+    expect(Number(kims?.discountsByType?.COUPON?.amount)).toBeCloseTo(2, 2);
   });
 });

@@ -6,7 +6,8 @@ import { type Page, expect } from "@playwright/test";
  * OwnerSettings view with two sub-tabs:
  *   - "Automated Reports" — BusinessReportSettingsTab (loads from
  *     GET api/owner-settings/reports/:restaurantId; toggles AUTO-SAVE via PUT)
- *   - "Notifications" — a "launching soon" placeholder
+ *   - "Notifications" — NoticePreferencesTab, "Messages from RestauNax":
+ *     the "Product updates" / "Training & how-tos" switches (AUTO-SAVE too)
  *
  * These tests are intentionally READ-ONLY: the report toggles persist to the
  * shared QA owner account (and can trigger real summary emails), so we assert
@@ -59,10 +60,12 @@ export const createOwnerSettingsPage = (page: Page) => {
     await expect(automatedReportsHeading()).toBeVisible({ timeout: 15_000 });
   };
 
-  // ── Notifications sub-tab (placeholder) ──────────────────────────────────────
-  const assertNotificationsComingSoon = () =>
+  // ── Notifications sub-tab ────────────────────────────────────────────────────
+  // "Messages from RestauNax" — <Typography variant="h6" component="h2">. The
+  // switches under it save on change, so the tests only read the heading.
+  const assertNoticePreferencesRendered = () =>
     expect(
-      page.getByText("Notification settings — launching soon")
+      page.getByRole("heading", { name: "Messages from RestauNax", level: 2 })
     ).toBeVisible({ timeout: 10_000 });
 
   return {
@@ -74,6 +77,6 @@ export const createOwnerSettingsPage = (page: Page) => {
     saveButton,
     assertLoaded,
     assertReportsSettingsRendered,
-    assertNotificationsComingSoon,
+    assertNoticePreferencesRendered,
   };
 };

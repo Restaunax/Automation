@@ -13,6 +13,7 @@ import {
   toggleAutomationApi,
 } from "../../../utils/apiHelper";
 import { waitForEmail } from "../../../utils/emailHelper";
+import { requireRelease } from "../../../utils/releaseGate";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
@@ -213,6 +214,64 @@ test.describe("Admin — Marketing automations", () => {
     // Draft-only change — cancel, nothing persists.
     await marketing.cancelDialog();
   });
+
+  test(
+    "TC-1098: clicking a switch's label text does not flip it — only the switch does",
+    {
+      tag: "@switch-click",
+    },
+    async ({ adminPage }) => {
+      await allure.description(
+        "Dashboard-wide rule (theme-level, every FormControlLabel around a Switch): a click on the label text, " +
+          "description or row never toggles the setting; only the switch does. Checked on the SMS channel " +
+          "switch: click the 'SMS' text → unchanged; click the switch → flipped exactly once. Dialog is " +
+          "cancelled — nothing persists."
+      );
+      const marketing = createAdminMarketingPage(adminPage);
+      await marketing.gotoCampaignScheduler();
+      await marketing.openAutomationsSubTab();
+      await marketing.openEditDialog("Win-Back");
+
+      const smsSwitch = marketing
+        .dialog()
+        .getByRole("switch", { name: "SMS", exact: true });
+      await expect(smsSwitch).toBeVisible();
+      // The label is "SMS" + an info icon in one span — click the label part,
+      // not the switch.
+      const smsLabelText = marketing
+        .dialog()
+        .locator(".MuiFormControlLabel-root", {
+          has: adminPage.getByRole("switch", { name: "SMS", exact: true }),
+        })
+        .locator(".MuiFormControlLabel-label");
+      const wasOn = await smsSwitch.isChecked();
+
+      await allure.step(
+        "Click the label text — the switch does not move",
+        async () => {
+          await smsLabelText.click();
+          const labelToggled = (await smsSwitch.isChecked()) !== wasOn;
+          if (labelToggled) await marketing.cancelDialog();
+          requireRelease(
+            "switchClickTarget",
+            !labelToggled,
+            "clicking the 'SMS' label text still flips the switch"
+          );
+          await expect(smsSwitch).toBeChecked({ checked: wasOn });
+        }
+      );
+
+      // If the label click had toggled it, this click would put it back, so the
+      // final state proves the label click was a no-op.
+      await allure.step("Click the switch — it flips", async () => {
+        await smsSwitch.click();
+        await expect(smsSwitch).toBeChecked({ checked: !wasOn });
+      });
+
+      // Draft-only change — cancel, nothing persists.
+      await marketing.cancelDialog();
+    }
+  );
 
   test("TC-204: templateId cannot be reassigned through the API (view-only lock)", async () => {
     await allure.description(
