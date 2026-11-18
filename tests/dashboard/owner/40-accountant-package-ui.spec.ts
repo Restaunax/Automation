@@ -12,19 +12,22 @@
  * Browser. A per-run throwaway owner with NO add-on logs in through the UI
  * (loginViaUi). Every /api/ response is watched: a screen the owner can see
  * must never answer 401/403 while it loads (feedback: screen loads never 403).
+ * TC-1960 is the seed owner on the seed restaurant instead: the Products list
+ * is on Billing, which needs a subscription, and a minted tenant has none.
  * Serial. Run against a production build of the dashboard.
  */
 import * as allure from "allure-js-commons";
 import type { Page, Response as PwResponse } from "@playwright/test";
 import { test, expect } from "../../../fixtures/base";
 import { requireEnv } from "../../../utils/envGate";
-import { generateRunId } from "../../../utils/testData";
+import { generateRunId, readSharedState } from "../../../utils/testData";
 import { loginViaUi, type UiLoginSession } from "../../../utils/auth";
 import {
   apiLogin,
   apiRequestRaw,
   createSecondOwner,
   deleteTestRestaurant,
+  getRestaurantFeaturesRaw,
   restaurantBusinessToday,
 } from "../../../utils/apiHelper";
 
@@ -242,16 +245,54 @@ test.describe("Owner — accountant package and Daily Report without the add-on 
       expect(res.data.message, c.name).toBe(c.want);
     }
   });
+});
 
-  test('TC-1960: Products → Books & Taxes "See it in action" opens the add-on\'s first section', async () => {
-    await manage("tab=Billing&section=addons");
-    const card = page().getByTestId("product-card-ACCOUNTING_SYNC");
+// TC-1960 runs on the SEED restaurant: Billing → Add-ons needs a subscription
+// ("No Subscription Assigned" otherwise), and the seed is the one QA
+// restaurant with one. Read-only: nothing is asked for.
+test.describe("Owner — Products → Books & Taxes opens the add-on's first section (UI)", () => {
+  test.skip(
+    !process.env.OWNER_EMAIL || !process.env.OWNER_PASSWORD,
+    "OWNER_EMAIL / OWNER_PASSWORD not set (the seed restaurant)"
+  );
+
+  test('TC-1960: Products → Books & Taxes "See it in action" opens the add-on\'s first section', async ({
+    ownerPage,
+  }) => {
+    await allure.label("feature", "Books & taxes (dashboard)");
+    await allure.label("severity", "critical");
+    const seedId = readSharedState().restaurantId;
+    const seedToken = (
+      await apiLogin(process.env.OWNER_EMAIL!, process.env.OWNER_PASSWORD!)
+    ).accessToken;
+    // The Products list offers only what the restaurant lacks.
+    const features =
+      (await getRestaurantFeaturesRaw(seedToken, seedId)).data.data?.features ??
+      [];
+    test.skip(
+      features.includes("ACCOUNTING_SYNC"),
+      "the seed restaurant has Books & Taxes on — no product card to start from"
+    );
+    const refused: string[] = [];
+    ownerPage.on("response", (res: PwResponse) => {
+      if (
+        /\/api\/|\/restaurant\//.test(res.url()) &&
+        [401, 403].includes(res.status())
+      )
+        refused.push(`${res.status()} ${res.request().method()} ${res.url()}`);
+    });
+
+    await ownerPage.goto(
+      `/restaurant/restaurantId/${seedId}/restaurantManagement?tab=Billing&section=addons`,
+      { waitUntil: "domcontentloaded" }
+    );
+    const card = ownerPage.getByTestId("product-card-ACCOUNTING_SYNC");
     await expect(card).toBeVisible({ timeout: 30_000 });
     await card.getByRole("button", { name: "See it in action" }).click();
-    await expect(page()).toHaveURL(/[?&]tab=books-taxes(&|$)/);
-    await expect(page()).toHaveURL(/[?&]section=books(&|$)/);
+    await expect(ownerPage).toHaveURL(/[?&]tab=books-taxes(&|$)/);
+    await expect(ownerPage).toHaveURL(/[?&]section=books(&|$)/);
     // The add-on's first section says what it does, with the ask; no price.
-    const teaser = page().getByTestId("books-addon-books");
+    const teaser = ownerPage.getByTestId("books-addon-books");
     await expect(teaser).toBeVisible({ timeout: 30_000 });
     await expect(teaser.getByText(/\$\d/)).toHaveCount(0);
     expect(refused).toEqual([]);

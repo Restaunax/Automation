@@ -8,7 +8,9 @@
  * already replied). The fake gives the same locations to EVERY user, so only
  * one restaurant can hold FAKE_PLACE_1 at a time — this file links the OWNER's
  * first restaurant and disconnects in afterAll (and at the start, to clear a
- * leftover from an aborted run).
+ * leftover from an aborted run). On a backend with the REAL Google client (QA
+ * since 2026-11-13) the file skips before that disconnect: there it would
+ * disconnect a real Google account.
  *
  * Needs: OWNER_EMAIL/OWNER_PASSWORD. Optional:
  *   OWNER2_EMAIL/OWNER2_PASSWORD — owner of ANOTHER restaurant (stranger 403)
@@ -52,6 +54,8 @@ test.describe("Google review replies — API", () => {
   let strangerRid = "";
   let strangerToken = "";
   let connected = false;
+  /** The backend runs the fake Google client: cleanup is safe (beforeAll). */
+  let fake = false;
   /** Alert switches as found, restored in afterAll if a test left them flipped. */
   let alertBaseline:
     | Pick<
@@ -91,6 +95,9 @@ test.describe("Google review replies — API", () => {
     rid = owned[0]?.id ?? "";
     test.skip(!rid, "the owner has no restaurant");
     requireRelease("googleReviews", await probeGoogleReviews(token, rid));
+    // Before any cleanup: on the real client it would be a real disconnect.
+    fake = await gb.isFakeGoogleClient();
+    test.skip(!fake, gb.REAL_GOOGLE_CLIENT_SKIP);
 
     const status = await gb.getStatus(token, rid);
     expect(status.status, JSON.stringify(status.data)).toBe(200);
@@ -119,7 +126,7 @@ test.describe("Google review replies — API", () => {
 
   test.afterEach(async () => {
     test.setTimeout(180_000);
-    if (!token || !rid) return;
+    if (!fake || !token || !rid) return;
     for (const id of [...replied]) {
       replied.delete(id);
       try {
@@ -133,7 +140,7 @@ test.describe("Google review replies — API", () => {
 
   test.afterAll(async () => {
     test.setTimeout(120_000);
-    if (!token || !rid) return;
+    if (!fake || !token || !rid) return;
     try {
       // A failed alert-settings test must not leave the switches flipped.
       if (alertBaseline) await gb.putReplySettings(token, rid, alertBaseline);

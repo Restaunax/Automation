@@ -2,11 +2,15 @@
  * googleBusinessApi.ts — typed wrappers over /api/google-business/* (Google
  * review replies, RestauNax feat/google-review-replies).
  *
- * The backend runs a FAKE Google client on QA/local (GOOGLE_BUSINESS_PROVIDER=
- * fake): the consent screen is a backend page that redirects straight back
- * with code=fake, and every user sees the same two locations
- * (FAKE_PLACE_1 / FAKE_PLACE_2). A location can be linked to ONE restaurant at
- * a time, so specs must disconnect/unlink in their teardown.
+ * With GOOGLE_BUSINESS_PROVIDER=fake the backend runs a FAKE Google client
+ * (local; QA until 2026-11-13): the consent screen is a backend page that
+ * redirects straight back with code=fake, and every user sees the same two
+ * locations (FAKE_PLACE_1 / FAKE_PLACE_2). A location can be linked to ONE
+ * restaurant at a time, so specs must disconnect/unlink in their teardown.
+ *
+ * QA now runs the REAL Google client, where a disconnect or a deleted reply
+ * is a real one: a suite written for the fake asks isFakeGoogleClient() first
+ * and skips (REAL_GOOGLE_CLIENT_SKIP) before any cleanup call.
  *
  * Replies are throttled to 10 writes (PUT/DELETE) per rolling minute per
  * restaurant (429 GOOGLE_BUSINESS_REPLY_THROTTLED); putReply/deleteReply wait
@@ -94,6 +98,25 @@ const call = <T>(
   token: string,
   body?: unknown
 ): Res<T> => apiRequestRaw<GbEnvelope<T>>(method, path, body, token);
+
+/** The skip reason of a fake-only suite on a backend with the real client. */
+export const REAL_GOOGLE_CLIENT_SKIP =
+  "QA runs the real Google client; this suite needs GOOGLE_BUSINESS_PROVIDER=fake";
+
+/**
+ * Is the backend on the FAKE Google client? The fake consent page needs no
+ * sign-in: with no state it answers 400 on the fake and 404 on the real
+ * client (getFakeConsent). Read-only. Anything but that 400 (a rate limit, an
+ * outage) counts as "not the fake", so a fake-only suite never cleans up
+ * against real Google on a guess.
+ */
+export async function isFakeGoogleClient(): Promise<boolean> {
+  const res = await fetch(
+    `${BACKEND_URL}/api/google-business-oauth/fake-consent`,
+    { redirect: "manual" }
+  );
+  return res.status === 400;
+}
 
 export const getStatus = (token: string, rid: string) =>
   call<GbStatus>("GET", base(rid), token);
