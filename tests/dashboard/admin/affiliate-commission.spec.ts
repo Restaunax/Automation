@@ -3,7 +3,7 @@
  * (RestauNax feat/sales-attribution, Plan 2; spec
  * docs/features/AFFILIATE_COMMISSION.md).
  *
- * TC-1107..1111. The "Status and commission plan" dialog shows a hint under
+ * TC-1107..1111, TC-2057. The "Status and commission plan" dialog shows a hint under
  * every plan field and a live example that follows the share; an after-window
  * rate not lower than the share is refused on its field; the Program defaults
  * tab saves and pre-fills the next approval; terminating needs a payout
@@ -45,6 +45,7 @@ import {
 import { generateRunId } from "../../../utils/testData";
 import {
   probeAffiliateCommission,
+  probeAffiliateLifecycle,
   requireRelease,
 } from "../../../utils/releaseGate";
 
@@ -73,6 +74,7 @@ test.describe(
 
     let adminToken = "";
     let deployed = false;
+    let lifecycle = false;
     let originalDefaults: CommissionPlanTerms | null = null;
     let affiliate = { affiliateId: "", referralTag: "", name: "" };
     const runId = generateRunId();
@@ -110,6 +112,10 @@ test.describe(
       if (!deployed) return;
       originalDefaults = await readDefaults();
       affiliate = await createPendingAffiliate(adminToken, runId);
+      lifecycle = await probeAffiliateLifecycle(
+        adminToken,
+        affiliate.affiliateId
+      );
     });
 
     test.afterAll(async () => {
@@ -358,5 +364,99 @@ test.describe(
         expect(res.status).toBe(409);
       });
     });
+
+    test(
+      "TC-2057: HQ affiliate details — Payments shows THAT affiliate's money and payouts, with a Forfeited card and no Stripe setup",
+      { tag: "@affiliate-lifecycle" },
+      async ({ adminPage }) => {
+        requireRelease("affiliateLifecycle", lifecycle);
+        const ui = createAdminAffiliatesPage(adminPage);
+
+        const usd = (n: number) =>
+          new Intl.NumberFormat("en-US", {
+            style: "currency",
+            currency: "USD",
+          }).format(n);
+        const res = await getAffiliateDetailsRaw(
+          adminToken,
+          affiliate.affiliateId
+        );
+        expect(res.status).toBe(200);
+        const a = (
+          res.data as {
+            affiliate: {
+              payouts?: unknown[];
+              money: {
+                earned: number;
+                paid: number;
+                legacyPaid: number;
+                pending: number;
+                forfeited?: number;
+              };
+            };
+          }
+        ).affiliate;
+
+        await ui.openDetails(affiliate.referralTag);
+        const dialog = ui.detailsDialog();
+
+        await allure.step(
+          "Payments tab: the cards equal the affiliate's own money",
+          async () => {
+            await dialog.getByRole("tab", { name: "Payments" }).click();
+            await expect(
+              dialog.getByRole("heading", { name: "Payment Dashboard" })
+            ).toBeVisible({ timeout: 15_000 });
+            const amount = (title: string) =>
+              ui.detailsMoneyCard(title).getByRole("heading", { level: 4 });
+            await expect(amount("Earned")).toHaveText(usd(a.money.earned));
+            await expect(amount("Paid")).toHaveText(
+              usd(a.money.paid + a.money.legacyPaid)
+            );
+            await expect(amount("Pending")).toHaveText(usd(a.money.pending));
+            await expect(amount("Forfeited")).toHaveText(
+              usd(a.money.forfeited ?? 0)
+            );
+            await expect(ui.detailsMoneyCard("Next payout")).toBeVisible();
+          }
+        );
+
+        await allure.step(
+          "Payment History lists that affiliate's payouts (not a 404 / empty error); no Stripe setup card for HQ",
+          async () => {
+            await expect(
+              dialog.getByRole("heading", { name: "Payment History" })
+            ).toBeVisible();
+            await expect(dialog.getByRole("alert")).toHaveCount(0);
+            if ((a.payouts?.length ?? 0) === 0) {
+              await expect(
+                dialog.getByText("No Payment History Yet", { exact: true })
+              ).toBeVisible();
+            } else {
+              await expect(
+                dialog.getByText(`${a.payouts?.length} payments`)
+              ).toBeVisible();
+            }
+            await expect(dialog.getByText("Payment Account Setup")).toHaveCount(
+              0
+            );
+          }
+        );
+
+        await allure.step(
+          "The restaurants tab shows the affiliate's restaurants (this one has none)",
+          async () => {
+            await dialog
+              .getByRole("tab", {
+                name: /^(Your restaurants|Active Accounts)$/,
+              })
+              .click();
+            await expect(
+              dialog.getByText("No restaurants yet", { exact: true })
+            ).toBeVisible();
+          }
+        );
+      }
+    );
   }
 );

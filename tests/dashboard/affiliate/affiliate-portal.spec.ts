@@ -3,11 +3,13 @@
  * (RestauNax feat/sales-attribution; spec docs/features/AFFILIATE_COMMISSION.md
  * → "Where HQ and the affiliate see it" → Affiliate portal).
  *
- * TC-1112..1116. A brand-new user applies through the UI (the agreement must
+ * TC-1112..1116, TC-2056. A brand-new user applies through the UI (the agreement must
  * be accepted first) and lands on the dashboard PENDING; the ACTIVE actor
  * sees its tag and referral link; an affiliate with no activity sees the
  * empty referrals list, an empty payment history and the Stripe Connect
- * call to action; a SUSPENDED affiliate sees the payouts-on-hold notice;
+ * call to action (tabs Overview / Your restaurants / Payments; Payment
+ * History always renders); TC-2056: the money cards on Overview and Payments
+ * show the same numbers, equal to the API's `money`; a SUSPENDED affiliate sees the payouts-on-hold notice;
  * a signed-out visitor at /affiliate sees the program page.
  *
  * Actor: `affiliatePage` = the ONE persistent "auto-attribution" affiliate
@@ -26,9 +28,13 @@
  * an Affiliate row can never be deleted. Same cost as the commission suite's
  * createPendingAffiliate.
  *
+ * The rebuilt portal (RestauNax fix/affiliate-lifecycle) is gated by
+ * RELEASED_ON_QA.affiliateLifecycle (tag @affiliate-lifecycle): TC-1114 and
+ * TC-2056 skip until the affiliate details carry `money`.
+ *
  * Not in the portal (so not asserted): an affiliate-level "terms card" with
- * the plan's share / window / bounty (terms are shown per referral in Active
- * Accounts only) and a commission ledger view (HQ only).
+ * the plan's share / window / bounty (terms are shown per restaurant under
+ * Your restaurants only) and a commission ledger view (HQ only).
  */
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
@@ -50,6 +56,7 @@ import {
 import { FRONTEND_URL, generateRunId } from "../../../utils/testData";
 import {
   probeAffiliateCommission,
+  probeAffiliateLifecycle,
   requireRelease,
 } from "../../../utils/releaseGate";
 
@@ -70,6 +77,7 @@ test.describe("Affiliate portal", { tag: "@affiliate-portal" }, () => {
 
   let adminToken = "";
   let deployed = false;
+  let lifecycle = false;
   let actorId = "";
   const runId = generateRunId();
 
@@ -90,6 +98,7 @@ test.describe("Affiliate portal", { tag: "@affiliate-portal" }, () => {
     deployed = await probeAffiliateCommission(adminToken);
     if (!deployed || !HAS_AFFILIATE_LOGIN) return;
     actorId = (await ensureAttributionAffiliate(adminToken)).affiliateId;
+    lifecycle = await probeAffiliateLifecycle(adminToken, actorId);
   });
 
   test.afterAll(async () => {
@@ -228,81 +237,175 @@ test.describe("Affiliate portal", { tag: "@affiliate-portal" }, () => {
     test.info().annotations.push({
       type: "note",
       description:
-        "The portal has no affiliate-level commission terms card (share / window / bounty); terms show per enrolled referral in Active Accounts only, so the plan numbers are not asserted here.",
+        "The portal has no affiliate-level commission terms card (share / window / bounty); terms show per restaurant under Your restaurants only, so the plan numbers are not asserted here.",
     });
   });
 
-  test("TC-1114: no activity → empty referrals and payment history; the Stripe Connect call to action is offered", async ({
-    affiliatePage,
-  }) => {
-    test.skip(!HAS_AFFILIATE_LOGIN, NO_AFFILIATE_REASON);
-    const ui = createAffiliatePortalPage(affiliatePage);
+  test(
+    "TC-1114: no activity → empty restaurants and payment history; the Stripe Connect call to action is offered",
+    { tag: "@affiliate-lifecycle" },
+    async ({ affiliatePage }) => {
+      test.skip(!HAS_AFFILIATE_LOGIN, NO_AFFILIATE_REASON);
+      requireRelease("affiliateLifecycle", lifecycle);
+      const ui = createAffiliatePortalPage(affiliatePage);
 
-    const profile = await getAffiliateDetailsRaw(adminToken, actorId);
-    const a = (
-      profile.data as {
-        affiliate?: {
-          referrals?: unknown[];
-          payouts?: unknown[];
-          stripeAccountStatus?: string | null;
-        };
-      }
-    ).affiliate;
-    test.skip(
-      (a?.referrals?.length ?? 0) > 0 || (a?.payouts?.length ?? 0) > 0,
-      "The affiliate actor has referrals or payouts on this environment; the empty states cannot be shown"
-    );
-    test.skip(
-      a?.stripeAccountStatus === "active",
-      "The affiliate actor finished Stripe onboarding on this environment; no call to action to show"
-    );
+      const profile = await getAffiliateDetailsRaw(adminToken, actorId);
+      const a = (
+        profile.data as {
+          affiliate?: {
+            referrals?: unknown[];
+            payouts?: unknown[];
+            stripeAccountStatus?: string | null;
+          };
+        }
+      ).affiliate;
+      test.skip(
+        (a?.referrals?.length ?? 0) > 0 || (a?.payouts?.length ?? 0) > 0,
+        "The affiliate actor has referrals or payouts on this environment; the empty states cannot be shown"
+      );
+      test.skip(
+        a?.stripeAccountStatus === "active",
+        "The affiliate actor finished Stripe onboarding on this environment; no call to action to show"
+      );
 
-    await ui.gotoDashboard();
+      await ui.gotoDashboard();
 
-    await allure.step("Overview: nothing pending", async () => {
-      await expect(ui.statCard("Pending commission")).toContainText("$0.00");
-      await expect(ui.statCard("Total Earnings")).toContainText("$0.00");
-    });
+      await allure.step(
+        "Tabs: Overview, Your restaurants, Payments (the old tabs are gone)",
+        async () => {
+          await expect(ui.tab("Overview")).toBeVisible();
+          await expect(ui.tab("Your restaurants")).toBeVisible();
+          await expect(ui.tab("Payments")).toBeVisible();
+          await expect(
+            affiliatePage.getByRole("tab", { name: "Active Accounts" })
+          ).toHaveCount(0);
+          await expect(
+            affiliatePage.getByRole("tab", { name: "All Referrals" })
+          ).toHaveCount(0);
+        }
+      );
 
-    await allure.step("Active Accounts: the empty referrals row", async () => {
-      await ui.openTab("Active Accounts");
-      await expect(
-        affiliatePage.getByText("You haven't made any referrals yet")
-      ).toBeVisible();
-      await expect(
-        affiliatePage.getByRole("button", {
-          name: "Share Your Referral Link",
-        })
-      ).toBeEnabled();
-    });
+      await allure.step(
+        "Overview: nothing earned, nothing pending",
+        async () => {
+          await expect(ui.moneyCard("Earned")).toContainText("$0.00");
+          await expect(ui.moneyCard("Paid")).toContainText("$0.00");
+          await expect(ui.moneyCard("Pending")).toContainText("$0.00");
+          await expect(ui.moneyCard("Next payout")).toBeVisible();
+        }
+      );
 
-    await allure.step(
-      "Payments: Stripe Connect call to action, history waits for setup",
-      async () => {
-        await ui.openTab("Payments");
+      await allure.step("Your restaurants: the empty state", async () => {
+        await ui.openTab("Your restaurants");
         await expect(
-          affiliatePage.getByRole("heading", { name: "Payment Dashboard" })
-        ).toBeVisible({ timeout: 15_000 });
-        await expect(ui.stripeSetupCard()).toBeVisible({ timeout: 15_000 });
-        await expect(
-          ui.stripeSetupCard().getByRole("button", {
-            name: /^(Set Up Payment Account|Complete Setup)$/,
-          })
-        ).toBeEnabled({ timeout: 15_000 });
-        await expect(
-          affiliatePage.getByRole("heading", { name: "Payment History" })
+          affiliatePage.getByText("No restaurants yet", { exact: true })
         ).toBeVisible();
-        await expect(
-          affiliatePage.getByText(
-            "Complete your payment account setup above to start receiving commissions and view payment history."
-          )
-        ).toBeVisible();
-        await expect(
-          affiliatePage.getByRole("button", { name: "Download Full Report" })
-        ).toBeDisabled();
-      }
-    );
-  });
+      });
+
+      await allure.step(
+        "Payments: Stripe Connect call to action; Payment History always renders",
+        async () => {
+          await ui.openTab("Payments");
+          await expect(
+            affiliatePage.getByRole("heading", { name: "Payment Dashboard" })
+          ).toBeVisible({ timeout: 15_000 });
+          await expect(ui.stripeSetupCard()).toBeVisible({ timeout: 15_000 });
+          await expect(
+            ui.stripeSetupCard().getByRole("button", {
+              name: /^(Set Up Payment Account|Complete Setup)$/,
+            })
+          ).toBeEnabled({ timeout: 15_000 });
+          await expect(
+            affiliatePage.getByRole("heading", { name: "Payment History" })
+          ).toBeVisible();
+          await expect(
+            affiliatePage.getByText("No Payment History Yet", { exact: true })
+          ).toBeVisible();
+          await expect(
+            affiliatePage.getByText(
+              "Complete your payment account setup above to start receiving payouts."
+            )
+          ).toBeVisible();
+        }
+      );
+    }
+  );
+
+  test(
+    "TC-2056: Overview and Payments show the same money cards, equal to the API's money",
+    { tag: "@affiliate-lifecycle" },
+    async ({ affiliatePage }) => {
+      test.skip(!HAS_AFFILIATE_LOGIN, NO_AFFILIATE_REASON);
+      requireRelease("affiliateLifecycle", lifecycle);
+      const ui = createAffiliatePortalPage(affiliatePage);
+
+      const usd = (n: number) =>
+        new Intl.NumberFormat("en-US", {
+          style: "currency",
+          currency: "USD",
+        }).format(n);
+
+      const res = await getAffiliateDetailsRaw(adminToken, actorId);
+      expect(res.status).toBe(200);
+      const money = (
+        res.data as {
+          affiliate: {
+            money: {
+              earned: number;
+              paid: number;
+              legacyPaid: number;
+              pending: number;
+              payoutBlockedReason?: string | null;
+              payoutBlockedText?: string | null;
+            };
+          };
+        }
+      ).affiliate.money;
+
+      await ui.gotoDashboard();
+      const titles = ["Earned", "Paid", "Pending"] as const;
+      const overview: Record<string, string> = {};
+      await allure.step("Overview: read the money cards", async () => {
+        for (const t of titles) overview[t] = await ui.moneyAmount(t);
+        expect(overview.Earned).toBe(usd(money.earned));
+        expect(overview.Paid).toBe(usd(money.paid + money.legacyPaid));
+        expect(overview.Pending).toBe(usd(money.pending));
+      });
+
+      await allure.step(
+        "Payments: the same cards, the same numbers",
+        async () => {
+          await ui.openTab("Payments");
+          await expect(ui.moneyCard("Earned")).toBeVisible({ timeout: 15_000 });
+          for (const t of titles) {
+            expect(await ui.moneyAmount(t), t).toBe(overview[t]);
+          }
+          // Forfeited is HQ only.
+          await expect(
+            affiliatePage.getByText("Forfeited", { exact: true })
+          ).toHaveCount(0);
+        }
+      );
+
+      await allure.step(
+        "Next payout shows an amount and a date, or the reason it is blocked",
+        async () => {
+          if (money.payoutBlockedReason) {
+            await expect(ui.moneyCard("Next payout")).toContainText(
+              money.payoutBlockedText ?? ""
+            );
+          } else {
+            await expect(ui.moneyCard("Next payout")).toContainText(
+              /Expected [A-Z][a-z]{2} \d{1,2}, \d{4}/
+            );
+          }
+          await expect(
+            ui.moneyCard("Next payout").getByRole("heading", { level: 4 })
+          ).toHaveText(/^-?\$[\d,]+\.\d{2}$/);
+        }
+      );
+    }
+  );
 
   test("TC-1115: a SUSPENDED affiliate sees the payouts-on-hold notice", async ({
     affiliatePage,

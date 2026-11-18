@@ -82,6 +82,29 @@ export const createAdminAffiliatesPage = (page: Page) => {
   const reasonInput = () =>
     dialog().getByRole("textbox", { name: /Reason for Status Change/ });
 
+  // ── Affiliate details dialog (the eye icon) ──────────────────────────────
+  const detailsDialog = () =>
+    page.getByRole("dialog").filter({ hasText: "Affiliate Details" });
+
+  const openDetails = async (referralTag: string) => {
+    await goto();
+    await search(referralTag);
+    await row(referralTag)
+      .getByRole("button", { name: "View Details" })
+      .click();
+    await expect(detailsDialog()).toBeVisible({ timeout: 15_000 });
+    await expect(
+      detailsDialog().getByRole("tab", { name: "Payments" })
+    ).toBeVisible({ timeout: 15_000 });
+  };
+
+  /** A money card inside the details dialog, by its exact title. */
+  const detailsMoneyCard = (title: string) =>
+    detailsDialog()
+      .locator(".MuiCard-root")
+      .filter({ has: page.getByText(title, { exact: true }) })
+      .first();
+
   // ── Program defaults tab ──────────────────────────────────────────────────
   const openProgramDefaults = async () => {
     await goto();
@@ -119,6 +142,9 @@ export const createAdminAffiliatesPage = (page: Page) => {
     submitDialog,
     cancelDialog,
     reasonInput,
+    detailsDialog,
+    openDetails,
+    detailsMoneyCard,
     openProgramDefaults,
     defaultsShareInput,
     saveDefaults,
