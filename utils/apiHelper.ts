@@ -2058,7 +2058,7 @@ export interface DealImageResult {
 
 /**
  * POST /api/deals/:dealId/image — multipart field `file` (jpeg/png/webp/gif,
- * 5 MB max). Raw so a refused type (400 { success:false, error }) is the
+ * 5 MB max). Raw so a refused type (400 { success:false, message }) is the
  * assertion. Bypasses apiRequestRaw's JSON body handling, like
  * uploadMenuItemImageRaw.
  */

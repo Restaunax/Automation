@@ -71,12 +71,12 @@ import {
 } from "../../../utils/releaseGate";
 import {
   apiLogin,
-  apiRequestRaw,
   createSecondOwner,
   deleteTestRestaurant,
   freezeGiftCardApi,
   putGiftCardConfigAdminRaw,
   seedFundedGiftCard,
+  usersRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
 import {
@@ -150,12 +150,25 @@ test.describe(
       )
         refused.push(`${res.status()} ${res.request().method()} ${res.url()}`);
     };
+    /**
+     * The owner's language, as picking it in the top bar leaves it: saved on
+     * the account (PATCH /api/users/me/locale) and in this browser, i.e. the
+     * `i18nextLng` key AND the signed-in user the app keeps in localStorage.
+     * On load the app applies that stored user's locale over `i18nextLng`, so
+     * changing the key alone flips straight back.
+     */
     const setLocale = async (locale: "en" | "es") => {
-      await apiRequestRaw("PATCH", "/users/me/locale", { locale }, owner);
-      await page().evaluate(
-        (lng) => localStorage.setItem("i18nextLng", lng),
-        locale
-      );
+      const saved = await usersRaw(owner, "PATCH", "/me/locale", { locale });
+      expect(saved.status, JSON.stringify(saved.data)).toBe(200);
+      await page().evaluate((lng) => {
+        localStorage.setItem("i18nextLng", lng);
+        const stored = localStorage.getItem("user");
+        if (stored)
+          localStorage.setItem(
+            "user",
+            JSON.stringify({ ...JSON.parse(stored), locale: lng })
+          );
+      }, locale);
     };
 
     test.beforeAll(async ({ browser }) => {
@@ -199,12 +212,9 @@ test.describe(
     test.afterAll(async () => {
       if (session) {
         if (owner)
-          await apiRequestRaw(
-            "PATCH",
-            "/users/me/locale",
-            { locale: "en" },
-            owner
-          ).catch(() => {});
+          await usersRaw(owner, "PATCH", "/me/locale", {
+            locale: "en",
+          }).catch(() => {});
         await session.context.close().catch(() => {});
       }
       if (adminToken && rid)

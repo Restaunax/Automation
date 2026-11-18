@@ -368,14 +368,21 @@ test.describe("Books exports — Simple accounts, QuickBooks / Xero files, sales
     );
     expect(r.status).toBe(200);
     const header = rowsOf(String(r.data).replace(/^\uFEFF/, ""))[0] ?? "";
-    expect(header.split(",").slice(0, 7)).toEqual([
+    // The whole header. No "Data from" columns: they appear only when some
+    // day came from imported history (RestauNax 9905e2f36), and this tenant
+    // has none.
+    expect(header.split(",")).toEqual([
       "Business date",
       "Day",
       "Orders",
       "Net sales",
       "Refunds",
       "Net sales before refunds",
-      "Source",
+      "Compared date",
+      "Compared day",
+      "Compared orders",
+      "Compared net sales",
+      "Change %",
     ]);
   });
 });

@@ -3236,8 +3236,8 @@ test.describe("Owner — Deals API contract", () => {
 
     test("TC-1963: uploading a PDF is refused (400) and the picture stays", async () => {
       await allure.description(
-        "Only jpeg/png/webp/gif are accepted. A PDF → 400 { success: false, error } and the list row's " +
-          "picture.url is exactly what it was before."
+        "Only jpeg/png/webp/gif are accepted. A PDF → 400 { success: false, message } (the reason, as text: " +
+          "what the dashboard shows the owner) and the list row's picture.url is exactly what it was before."
       );
       const deal = await seedDeal("Picture Pdf", 12, twoItems());
       // No wait for the create-time AI picture job: the owner's action wins.
@@ -3249,7 +3249,9 @@ test.describe("Owner — Deals API contract", () => {
       const res = await uploadDealImageApi(token, deal.id, PDF);
       expect(res.status, JSON.stringify(res.data)).toBe(400);
       expect(res.data.success).toBe(false);
-      expect(typeof res.data.error).toBe("string");
+      // The reason is in `message`, which is what the dashboard shows; the
+      // standard refusal carries no `error` text of its own.
+      expect(res.data.message, JSON.stringify(res.data)).toMatch(/\S+ \S+/);
       expect(await listPicture(deal.id)).toEqual(before);
     });
 

@@ -4080,22 +4080,22 @@ Skipped tests fall into three categories: (1) the feature is restricted to a dif
 
 **Status:** ⏳ Written 2026-11-01; fails on QA until the restaunax back-office audit Stage 4 books exports and access track (`bo1031/booksaccess`: W2:S1, A11, A8, A10) is deployed there.
 
-| TC          | Spec                                          | What it checks                                                                                                                                     |
-| ----------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **TC-1330** | `dashboard/owner/api-books-exports`           | Import files, export check and the mapping preset: 403 without the Books & Taxes add-on, 200 with it; the sales summary is free (200 both).        |
-| **TC-1331** | `dashboard/owner/api-books-exports`           | "Simple accounts": the sales entry maps to six named accounts in one click; back to detailed; unknown preset 400; the change is in Recent changes. |
-| **TC-1332** | `dashboard/owner/api-books-exports`           | QuickBooks Online file: Intuit's exact headers, no BOM, MM/DD/YYYY dates; the day then shows `exportFormat: QUICKBOOKS_ONLINE` and `exportedAt`.   |
-| **TC-1333** | `dashboard/owner/api-books-exports`           | Xero manual journal file: exact headers (`*Narration … TrackingOption2`); the export check lists nothing left out; an unknown format is 400.       |
-| **TC-1334** | `dashboard/owner/api-books-exports`           | The RestauNax CSV keeps its headers; card deposits download in the QuickBooks layout.                                                              |
-| **TC-1335** | `dashboard/owner/api-books-exports`           | Sales summary for a closed day: per day and in total, ties to the books; a range over 93 days is 400.                                              |
-| **TC-1336** | `dashboard/owner/api-books-exports`           | Sales summary CSV: day rows with a Status column (Closed / Booked), a Total row, "Ties to journal" column.                                         |
-| **TC-1337** | `dashboard/owner/api-books-exports`           | Sales-by-day CSV: Net sales (after refunds), Refunds, Net sales before refunds.                                                                    |
-| **TC-1338** | `dashboard/owner/api-accountant-multi-client` | Two owners invite one accountant (new account, then sign-in with the second link); `/api/accountant/clients` lists both. `@email`                  |
-| **TC-1339** | `dashboard/owner/api-accountant-multi-client` | For each client: books settings (no tokens), accounts, journal days, a day's balanced entry, deposits, sales summary that ties.                    |
-| **TC-1340** | `dashboard/owner/api-accountant-multi-client` | The accountant downloads the QuickBooks file and the sales summary CSV; the Xero check answers.                                                    |
-| **TC-1341** | `dashboard/owner/api-accountant-multi-client` | Every write refused: 403 "read-only view" under `/api/accountant`, 404 on the owner's `/api/accounting` routes; nothing changed.                   |
-| **TC-1342** | `dashboard/owner/api-accountant-multi-client` | A client they don't serve and a made-up id are 404; B's revoke closes B only.                                                                      |
-| **TC-1343** | `dashboard/owner/api-accountant-multi-client` | Browser: Journal, Deposits, Accounts and Sales summary tabs load with no 401/403; the file download is offered.                                    |
+| TC          | Spec                                          | What it checks                                                                                                                                          |
+| ----------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **TC-1330** | `dashboard/owner/api-books-exports`           | Import files, export check and the mapping preset: 403 without the Books & Taxes add-on, 200 with it; the sales summary is free (200 both).             |
+| **TC-1331** | `dashboard/owner/api-books-exports`           | "Simple accounts": the sales entry maps to six named accounts in one click; back to detailed; unknown preset 400; the change is in Recent changes.      |
+| **TC-1332** | `dashboard/owner/api-books-exports`           | QuickBooks Online file: Intuit's exact headers, no BOM, MM/DD/YYYY dates; the day then shows `exportFormat: QUICKBOOKS_ONLINE` and `exportedAt`.        |
+| **TC-1333** | `dashboard/owner/api-books-exports`           | Xero manual journal file: exact headers (`*Narration … TrackingOption2`); the export check lists nothing left out; an unknown format is 400.            |
+| **TC-1334** | `dashboard/owner/api-books-exports`           | The RestauNax CSV keeps its headers; card deposits download in the QuickBooks layout.                                                                   |
+| **TC-1335** | `dashboard/owner/api-books-exports`           | Sales summary for a closed day: per day and in total, ties to the books; a range over 93 days is 400.                                                   |
+| **TC-1336** | `dashboard/owner/api-books-exports`           | Sales summary CSV: day rows with a Status column (Closed / Booked), a Total row, "Ties to journal" column.                                              |
+| **TC-1337** | `dashboard/owner/api-books-exports`           | Sales-by-day CSV: Net sales (after refunds), Refunds, Net sales before refunds, then the compared day; no "Data from" columns without imported history. |
+| **TC-1338** | `dashboard/owner/api-accountant-multi-client` | Two owners invite one accountant (new account, then sign-in with the second link); `/api/accountant/clients` lists both. `@email`                       |
+| **TC-1339** | `dashboard/owner/api-accountant-multi-client` | For each client: books settings (no tokens), accounts, journal days, a day's balanced entry, deposits, sales summary that ties.                         |
+| **TC-1340** | `dashboard/owner/api-accountant-multi-client` | The accountant downloads the QuickBooks file and the sales summary CSV; the Xero check answers.                                                         |
+| **TC-1341** | `dashboard/owner/api-accountant-multi-client` | Every write refused: 403 "read-only view" under `/api/accountant`, 404 on the owner's `/api/accounting` routes; nothing changed.                        |
+| **TC-1342** | `dashboard/owner/api-accountant-multi-client` | A client they don't serve and a made-up id are 404; B's revoke closes B only.                                                                           |
+| **TC-1343** | `dashboard/owner/api-accountant-multi-client` | Browser: Journal, Deposits, Accounts and Sales summary tabs load with no 401/403; the file download is offered.                                         |
 
 `api-accountant-access` TC-779 also tries the new writes (Simple preset on the owner route, posting a day and saving the mapping under `/api/accountant`).
 
@@ -4340,7 +4340,7 @@ A Combo / BOGO row in Promotions shows a picture thumbnail; coupon rows have non
 | TC          | What it checks                                                                                                                                                                                                         |
 | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **TC-1962** | Upload a PNG: 200 with `imageStatus` "completed", and the list row's `picture.url` is that URL. A second upload changes it, and the first URL answers 403 or 404 within 10 s (the old file is deleted).                |
-| **TC-1963** | Upload a PDF: 400 `{ success: false, error }`, and the list row's picture is exactly what it was.                                                                                                                      |
+| **TC-1963** | Upload a PDF: 400 `{ success: false, message }`, and the list row's picture is exactly what it was.                                                                                                                    |
 | **TC-1964** | Remove: 200 `{ imageUrl: null, imageStatus: null }`, the row's picture is `{ url: null, status: null }`, and removing again with no picture is still 200.                                                              |
 | **TC-1965** | A coupon row's `picture` is null; a deal row's is an object with `url` and `status`.                                                                                                                                   |
 | **TC-1966** | Editing a deal's items (`PUT /api/deals/:id`) keeps the same `picture.url`.                                                                                                                                            |
