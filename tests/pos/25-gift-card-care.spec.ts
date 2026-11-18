@@ -72,7 +72,6 @@ import {
   ensureBusinessHours,
   getRestaurantTimeZonePublic,
   openRegisterSessionPos,
-  ownerStaffRaw,
   putGiftCardConfigAdminRaw,
   seedFundedGiftCard,
   setOwnerPosPin,
@@ -308,21 +307,21 @@ test.describe(
       const ownerMember = await setOwnerPosPin(ownerToken, rid, owner.pin);
       owner.id = ownerMember;
       owner.session = await tabletStaffSignIn(tablet, ownerMember, owner.pin);
-      // The owner's staff row, for the name card history shows (TC-2024).
-      const staff = await ownerStaffRaw(ownerToken, rid, "GET");
-      const row = (
-        (staff.data.data ?? []) as {
-          id: string;
-          firstName?: string;
-          lastName?: string;
-        }[]
-      ).find((s) => s.id === ownerMember);
-      if (!row?.firstName)
+      // The name card history shows for the owner's sales (TC-2024). The
+      // owner's POS staff row is created by the PIN route above with the
+      // account's own first and last name (RestauNax setOwnPin), and history
+      // names staff "First L." (giftCardOwnerView staffLabel). Read from the
+      // account: the owner's staff list does not carry the owner's own row.
+      const me = await apiRequestRaw<{
+        user?: { firstName?: string; lastName?: string };
+      }>("GET", "/api/auth/me", undefined, ownerToken);
+      const first = me.data.user?.firstName?.trim();
+      if (!first)
         throw new Error(
-          `[gc-care] owner staff row: ${JSON.stringify(staff.data)}`
+          `[gc-care] owner account name: ${me.status} ${JSON.stringify(me.data)}`
         );
-      const last = row.lastName?.trim();
-      owner.label = last ? `${row.firstName} ${last[0]}.` : row.firstName;
+      const last = me.data.user?.lastName?.trim();
+      owner.label = last ? `${first} ${last[0]}.` : first;
 
       Object.assign(dee, await mint("Dee", dee.pin, { staffRole: "STAFF" }));
       Object.assign(
