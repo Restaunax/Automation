@@ -11,7 +11,8 @@
  * ("AUTO Close-out Tablet", serial AUTO-CLOSEOUT-1), reused every run — the
  * spec assigns it FREE (no Stripe charge) to a throwaway restaurant, and
  * cleanup marks it returned and back IN_STOCK, so runs never pile hardware
- * rows up on QA.
+ * rows up on QA. A run that died before that cleanup is healed by the next
+ * one: ensureCloseOutDevice returns the unit's leftover assignment first.
  */
 import { apiRequestRaw, type RawResponse } from "./apiHelper";
 
@@ -95,12 +96,42 @@ export async function ensureCloseOutDevice(adminToken: string): Promise<{
   );
   const unit = inventory.items.find((i) => i.serialNumber === CLOSEOUT_SERIAL);
   if (unit) {
-    if (unit.status !== "IN_STOCK" && unit.status !== "ASSIGNED") {
-      await apiRequestRaw(
-        "PUT",
+    // A run that died before its cleanup leaves the unit ASSIGNED, and the
+    // next assignment is then refused: return whatever still holds it (so no
+    // active assignment row is orphaned), then put it back IN_STOCK.
+    const detail = must(
+      await apiRequestRaw<
+        Envelope<{ assignments?: Array<{ id: string; isActive: boolean }> }>
+      >(
+        "GET",
         `/api/admin/equipment/inventory/${unit.id}`,
-        { status: "IN_STOCK" },
+        undefined,
         adminToken
+      ),
+      "GET inventory item"
+    );
+    const held = (detail.assignments ?? []).filter((a) => a.isActive);
+    for (const a of held) {
+      must(
+        await apiRequestRaw<Envelope<unknown>>(
+          "PUT",
+          `/api/admin/equipment/assignments/${a.id}/return`,
+          { reason: "Automation cleanup (leftover run)", condition: "USED" },
+          adminToken
+        ),
+        "PUT assignment return"
+      );
+    }
+    // A return leaves the unit RETURNED.
+    if (held.length > 0 || unit.status !== "IN_STOCK") {
+      must(
+        await apiRequestRaw<Envelope<unknown>>(
+          "PUT",
+          `/api/admin/equipment/inventory/${unit.id}`,
+          { status: "IN_STOCK" },
+          adminToken
+        ),
+        "PUT inventory IN_STOCK"
       );
     }
     return { catalogItemId, inventoryItemId: unit.id };

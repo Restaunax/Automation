@@ -236,6 +236,13 @@ test.describe(
       S = stray.restaurantId;
       stranger = stray.accessToken;
 
+      // The founding store needs a menu (POST /api/admin/chains refuses one
+      // without): this group becomes the chain's shared menu when the chain
+      // is founded. It stays empty; each location's own "Food" group and
+      // Burger are made after, in setUpLocation.
+      await createMenuGroupNamed(owner, `Chain menu ${runId}`, {
+        restaurantId: A,
+      });
       const made = await adminCreateChain(
         adminToken,
         A,

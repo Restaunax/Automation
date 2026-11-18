@@ -18,7 +18,9 @@
  * (TC-2044), edits settings (TC-2040) and compares totals, all of which need
  * an owner and a restaurant of its own. A card sold online is covered at the
  * seed in api-gift-cards-owner.spec.ts (TC-2000, TC-2004, TC-2007). Every /api/gift-cards/ response is watched: the screen must never
- * answer 401/403 while it loads.
+ * answer 401/403 while it loads. TC-2043 alone reads the seed restaurant as
+ * the seed owner: Payout History is on Billing, which needs a subscription
+ * ("No Subscription Assigned" otherwise), and a throwaway tenant has none.
  *
  * Gated behind RELEASED_ON_QA.ownerGiftCards: skips with the gate's reason
  * until the owner routes are on the stack; nothing is bought before that.
@@ -47,6 +49,7 @@ import type { Page, Response as PwResponse } from "@playwright/test";
 import { test, expect } from "../../../fixtures/base";
 import {
   generateRunId,
+  readSharedState,
   recordGiftCardForCleanup,
 } from "../../../utils/testData";
 import { parseCsv } from "../../../utils/csvHelper";
@@ -68,12 +71,12 @@ import {
 } from "../../../utils/releaseGate";
 import {
   apiLogin,
-  apiRequestRaw,
   createSecondOwner,
   deleteTestRestaurant,
   freezeGiftCardApi,
   putGiftCardConfigAdminRaw,
   seedFundedGiftCard,
+  usersRaw,
   type LooseJson,
 } from "../../../utils/apiHelper";
 import {
@@ -147,12 +150,25 @@ test.describe(
       )
         refused.push(`${res.status()} ${res.request().method()} ${res.url()}`);
     };
+    /**
+     * The owner's language, as picking it in the top bar leaves it: saved on
+     * the account (PATCH /api/users/me/locale) and in this browser, i.e. the
+     * `i18nextLng` key AND the signed-in user the app keeps in localStorage.
+     * On load the app applies that stored user's locale over `i18nextLng`, so
+     * changing the key alone flips straight back.
+     */
     const setLocale = async (locale: "en" | "es") => {
-      await apiRequestRaw("PATCH", "/users/me/locale", { locale }, owner);
-      await page().evaluate(
-        (lng) => localStorage.setItem("i18nextLng", lng),
-        locale
-      );
+      const saved = await usersRaw(owner, "PATCH", "/me/locale", { locale });
+      expect(saved.status, JSON.stringify(saved.data)).toBe(200);
+      await page().evaluate((lng) => {
+        localStorage.setItem("i18nextLng", lng);
+        const stored = localStorage.getItem("user");
+        if (stored)
+          localStorage.setItem(
+            "user",
+            JSON.stringify({ ...JSON.parse(stored), locale: lng })
+          );
+      }, locale);
     };
 
     test.beforeAll(async ({ browser }) => {
@@ -196,12 +212,9 @@ test.describe(
     test.afterAll(async () => {
       if (session) {
         if (owner)
-          await apiRequestRaw(
-            "PATCH",
-            "/users/me/locale",
-            { locale: "en" },
-            owner
-          ).catch(() => {});
+          await usersRaw(owner, "PATCH", "/me/locale", {
+            locale: "en",
+          }).catch(() => {});
         await session.context.close().catch(() => {});
       }
       if (adminToken && rid)
@@ -442,35 +455,51 @@ test.describe(
       await expect(gc().sectionPanel("overview")).toBeVisible();
     });
 
-    test("TC-2043: Payouts no longer carries gift card blocks", async () => {
+    // On the SEED restaurant (the seed owner's own session): Payout History
+    // only renders with a subscription, and the throwaway tenant has none.
+    test("TC-2043: Payouts no longer carries gift card blocks", async ({
+      ownerPage,
+    }) => {
       gate();
-      const loaded = page().waitForResponse(
+      test.skip(
+        !process.env.OWNER_EMAIL || !process.env.OWNER_PASSWORD,
+        "OWNER_EMAIL / OWNER_PASSWORD not set (the seed restaurant)"
+      );
+      const seedId = readSharedState().restaurantId;
+      const loaded = ownerPage.waitForResponse(
         (r) =>
-          r.url().includes(`/api/subscriptions/restaurants/${rid}/payouts`) &&
+          r
+            .url()
+            .includes(`/api/subscriptions/restaurants/${seedId}/payouts`) &&
           r.request().method() === "GET",
         { timeout: 30_000 }
       );
-      await page().goto(
-        `/restaurant/restaurantId/${rid}/subscription?section=payoutHistory`,
+      await ownerPage.goto(
+        `/restaurant/restaurantId/${seedId}/subscription?section=payoutHistory`,
         { waitUntil: "domcontentloaded" }
       );
+      // The heading alone is also on the "No Subscription Assigned" screen,
+      // which has no Payout History at all: the selected tab is the proof.
       await expect(
-        page().getByRole("heading", { name: "Subscription Management" })
+        ownerPage.getByRole("heading", { name: "Subscription Management" })
       ).toBeVisible({ timeout: 30_000 });
       await expect(
-        page().getByRole("tab", { name: "Payout History", selected: true })
-      ).toBeVisible();
+        ownerPage.getByRole("heading", { name: "No Subscription Assigned" })
+      ).toHaveCount(0);
+      await expect(
+        ownerPage.getByRole("tab", { name: "Payout History", selected: true })
+      ).toBeVisible({ timeout: 30_000 });
       await loaded;
       await expect(
-        page().getByText("Outstanding gift card balances")
+        ownerPage.getByText("Outstanding gift card balances")
       ).toHaveCount(0);
-      await expect(page().getByText(/Gift card settlement:/)).toHaveCount(0);
+      await expect(ownerPage.getByText(/Gift card settlement:/)).toHaveCount(0);
       await expect(
-        page().getByText(/This money is yours.*cards you sold/)
+        ownerPage.getByText(/This money is yours.*cards you sold/)
       ).toHaveCount(0);
-      await expect(page().getByTestId("gift-cards-export")).toHaveCount(0);
+      await expect(ownerPage.getByTestId("gift-cards-export")).toHaveCount(0);
       await expect(
-        page().getByRole("button", { name: "Download every card" })
+        ownerPage.getByRole("button", { name: "Download every card" })
       ).toHaveCount(0);
     });
 

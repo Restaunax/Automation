@@ -358,11 +358,14 @@ test.describe("Journey 6 — the books (partner restaurants, read-only)", () => 
         year: "numeric",
         timeZone: "UTC",
       }).format(new Date(`${String(first.arrivalDate)}T12:00:00Z`));
-      const amount = `$${(Number(first.amountCents) / 100).toFixed(2)}`;
+      // The page formats money with Intl ("$4,016.84"), so the test does too.
+      const amount = (Number(first.amountCents) / 100)
+        .toLocaleString("en-US", { style: "currency", currency: "USD" })
+        .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       await expect(
         page().getByRole("row", {
           name: new RegExp(
-            `^${bankDate} \\${amount} \\d+ orders? · \\$[\\d.]+ in fees Posted`
+            `^${bankDate} ${amount} \\d+ orders? · \\$[\\d.,]+ in fees Posted`
           ),
         })
       ).not.toHaveCount(0, { timeout: 20_000 });

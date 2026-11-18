@@ -1,6 +1,7 @@
 /**
  * 34-sales-tax-ui.spec.ts — Store Settings → Sales tax and the service fee,
- * the way an owner sets them up, and the sales tax report agreeing with a
+ * the way an owner sets them up, and the sales tax report (Books & taxes →
+ * Sales tax report, reached from the Sales tax tab's link) agreeing with a
  * real order (docs/COVERAGE_MAP.md G11) (TC-1074..1079).
  *
  * The server's tax rules are TC-619..624 (api-sales-tax-reports) and the
@@ -94,6 +95,19 @@ test.describe("Sales tax and service fee (UI)", () => {
       waitUntil: "domcontentloaded",
     });
     await expect(page().getByRole("button", { name: "Add rate" })).toBeVisible({
+      timeout: 25_000,
+    });
+  };
+  /** The report left Store Settings for Books & taxes (RestauNax 2026-11-13):
+   *  the Sales tax tab shows a link in its place, and this follows it. */
+  const openSalesTaxReport = async () => {
+    await openSalesTax();
+    await page()
+      .getByTestId("sales-tax-report-link")
+      .getByRole("button", { name: "Open the report in Books & taxes" })
+      .click();
+    await expect(page()).toHaveURL(/[?&]section=salesTax(&|$)/);
+    await expect(page().getByRole("textbox", { name: "From" })).toBeVisible({
       timeout: 25_000,
     });
   };
@@ -336,7 +350,7 @@ test.describe("Sales tax and service fee (UI)", () => {
   });
 
   test("TC-1079: the sales tax report for today agrees with the order, rate by rate", async () => {
-    await openSalesTax();
+    await openSalesTaxReport();
     const today = new Intl.DateTimeFormat("en-CA", {
       timeZone: "America/New_York",
     }).format(new Date());

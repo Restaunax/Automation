@@ -703,7 +703,7 @@ test.describe("Owner — Reservations phase 4 UI @reservations-phase4", () => {
     } finally {
       await apiRequestRaw(
         "PATCH",
-        "/users/me/locale",
+        "/api/users/me/locale",
         { locale: "en" },
         t.token
       );

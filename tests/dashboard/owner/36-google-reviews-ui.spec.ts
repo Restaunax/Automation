@@ -23,7 +23,9 @@
  * already replied). Only ONE restaurant can hold FAKE_PLACE_1, so the file
  * disconnects at the start and in afterAll. The API helpers (googleBusinessApi)
  * do all cleanup — Google throttles reply writes to 10/min, which the helpers
- * wait out.
+ * wait out. On a backend with the REAL Google client (QA since 2026-11-13)
+ * the file skips before any of that cleanup: there it would delete real
+ * replies and disconnect a real Google account.
  *
  * Needs OWNER_EMAIL / OWNER_PASSWORD; logs in through the UI itself (no
  * globalSetup storageState). Gated by RELEASED_ON_QA.googleReviews.
@@ -61,6 +63,8 @@ test.describe(
 
     let token = "";
     let rid = "";
+    /** The backend runs the fake Google client: cleanup is safe (beforeAll). */
+    let fake = false;
     let context: BrowserContext | undefined;
     let page: Page;
     let reviews: ReviewsPage;
@@ -69,7 +73,7 @@ test.describe(
 
     const disconnectQuietly = async () => {
       try {
-        if (token && rid) await gb.disconnect(token, rid);
+        if (fake && token && rid) await gb.disconnect(token, rid);
       } catch {
         /* best effort */
       }
@@ -77,7 +81,7 @@ test.describe(
 
     /** Delete every reply on reviews we replied to (never the seeded one). */
     const clearOurReplies = async () => {
-      if (!token || !rid) return;
+      if (!fake || !token || !rid) return;
       try {
         const res = await gb.listReviews(token, rid, {
           filter: "replied",
@@ -99,6 +103,9 @@ test.describe(
       rid = owned[0]?.id ?? "";
       test.skip(!rid, "the owner has no restaurant");
       requireRelease("googleReviews", await probeGoogleReviews(token, rid));
+      // Before any cleanup: on the real client it would be a real disconnect.
+      fake = await gb.isFakeGoogleClient();
+      test.skip(!fake, gb.REAL_GOOGLE_CLIENT_SKIP);
 
       const status = await gb.getStatus(token, rid);
       expect(status.status, JSON.stringify(status.data)).toBe(200);
@@ -127,7 +134,7 @@ test.describe(
       test.setTimeout(180_000);
       try {
         await clearOurReplies();
-        if (baselineSettings && token && rid) {
+        if (fake && baselineSettings && token && rid) {
           await gb.putReplySettings(token, rid, {
             tone: baselineSettings.tone,
             signOff: baselineSettings.signOff,

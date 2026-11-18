@@ -3,7 +3,7 @@
  * depth, the way an owner uses it (TC-1613..1617): checking the rate (W4:H2),
  * scheduling a rate change, a rate's business class (M3), exemption
  * certificates (M4) and the report's business-day / calendar-date choice
- * (M5).
+ * (M5; the report itself is in Books & taxes, reached from the tab's link).
  *
  * The rules themselves are TC-1600..1611 (api-tax-depth); this is the
  * browser. Labels follow the dashboard's EN locale (restaunax
@@ -69,6 +69,19 @@ test.describe("Sales tax depth (UI) @tax-depth", () => {
       { waitUntil: "domcontentloaded" }
     );
     await expect(page().getByRole("button", { name: "Add rate" })).toBeVisible({
+      timeout: 25_000,
+    });
+  };
+  /** The report left Store Settings for Books & taxes (RestauNax 2026-11-13):
+   *  the Sales tax tab shows a link in its place, and this follows it. */
+  const openSalesTaxReport = async () => {
+    await openSalesTax();
+    await page()
+      .getByTestId("sales-tax-report-link")
+      .getByRole("button", { name: "Open the report in Books & taxes" })
+      .click();
+    await expect(page()).toHaveURL(/[?&]section=salesTax(&|$)/);
+    await expect(page().getByRole("textbox", { name: "From" })).toBeVisible({
       timeout: 25_000,
     });
   };
@@ -187,7 +200,7 @@ test.describe("Sales tax depth (UI) @tax-depth", () => {
   });
 
   test("TC-1617: the report covers business days or calendar dates, and says which", async () => {
-    await openSalesTax();
+    await openSalesTaxReport();
     const dates = page().getByRole("group", { name: "Dates" });
     await dates.getByRole("button", { name: "Calendar dates" }).click();
     await expect(

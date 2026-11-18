@@ -112,7 +112,6 @@ import {
 import {
   createCouponPromotion,
   listPromotions,
-  waitForDealPictureSettled,
 } from "../../../utils/promotionsApi";
 
 const OWNER_EMAIL = process.env.OWNER_EMAIL ?? "";
@@ -3186,6 +3185,11 @@ test.describe("Owner — Deals API contract", () => {
       await allure.label("feature", "Promotions");
     });
 
+    // None of these waits for the AI picture job a new deal queues. The
+    // deals this file made and deleted leave their jobs on the one-at-a-time
+    // queue, so the new deal's can stay "pending" for many minutes; an upload
+    // or a remove wins over a queued job either way (TC-1968 pins that).
+
     /** The deal's picture exactly as the owner's Promotions list serves it. */
     const listPicture = async (dealId: string) =>
       (await listPromotions(token, restaurantId)).find((r) => r.id === dealId)
@@ -3198,7 +3202,7 @@ test.describe("Owner — Deals API contract", () => {
           "url answers 404 or 403 within 10 s (the old file is removed after the new one is saved)."
       );
       const deal = await seedDeal("Picture Upload", 12, twoItems());
-      await waitForDealPictureSettled(token, { restaurantId }, deal.id);
+      // No wait for the create-time AI picture job: the owner's action wins.
 
       const first = await uploadDealImageApi(token, deal.id, PNG);
       expect(first.status, JSON.stringify(first.data)).toBe(200);
@@ -3232,11 +3236,11 @@ test.describe("Owner — Deals API contract", () => {
 
     test("TC-1963: uploading a PDF is refused (400) and the picture stays", async () => {
       await allure.description(
-        "Only jpeg/png/webp/gif are accepted. A PDF → 400 { success: false, error } and the list row's " +
-          "picture.url is exactly what it was before."
+        "Only jpeg/png/webp/gif are accepted. A PDF → 400 { success: false, message } (the reason, as text: " +
+          "what the dashboard shows the owner) and the list row's picture.url is exactly what it was before."
       );
       const deal = await seedDeal("Picture Pdf", 12, twoItems());
-      await waitForDealPictureSettled(token, { restaurantId }, deal.id);
+      // No wait for the create-time AI picture job: the owner's action wins.
       const ok = await uploadDealImageApi(token, deal.id, PNG);
       expect(ok.status, JSON.stringify(ok.data)).toBe(200);
       const before = await listPicture(deal.id);
@@ -3245,7 +3249,9 @@ test.describe("Owner — Deals API contract", () => {
       const res = await uploadDealImageApi(token, deal.id, PDF);
       expect(res.status, JSON.stringify(res.data)).toBe(400);
       expect(res.data.success).toBe(false);
-      expect(typeof res.data.error).toBe("string");
+      // The reason is in `message`, which is what the dashboard shows; the
+      // standard refusal carries no `error` text of its own.
+      expect(res.data.message, JSON.stringify(res.data)).toMatch(/\S+ \S+/);
       expect(await listPicture(deal.id)).toEqual(before);
     });
 
@@ -3255,7 +3261,7 @@ test.describe("Owner — Deals API contract", () => {
           "picture is { url: null, status: null }; a second DELETE with no picture is also 200."
       );
       const deal = await seedDeal("Picture Remove", 12, twoItems());
-      await waitForDealPictureSettled(token, { restaurantId }, deal.id);
+      // No wait for the create-time AI picture job: the owner's action wins.
       const up = await uploadDealImageApi(token, deal.id, PNG);
       expect(up.status, JSON.stringify(up.data)).toBe(200);
 
@@ -3304,7 +3310,7 @@ test.describe("Owner — Deals API contract", () => {
           "picture.url is the same URL as before the edit."
       );
       const deal = await seedDeal("Picture Edit", 12, twoItems());
-      await waitForDealPictureSettled(token, { restaurantId }, deal.id);
+      // No wait for the create-time AI picture job: the owner's action wins.
       const up = await uploadDealImageApi(token, deal.id, PNG);
       expect(up.status, JSON.stringify(up.data)).toBe(200);
       const url = up.data.data?.imageUrl;

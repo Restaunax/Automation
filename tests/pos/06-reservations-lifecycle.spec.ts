@@ -155,6 +155,26 @@ test.describe("POS — Reservation Lifecycle (tablet host stand)", () => {
   // Unique 15-minute-grid slot per test, ~48h out — never reused, so no test
   // accidentally collides with another's pacing/seat state. TC-412
   // deliberately books the SAME slot twice on purpose.
+  //
+  // Never 23:45 restaurant-local: the beforeAll periods run 00:00-23:45 and a
+  // period covers [start, end), so that one slot of the day has no period and
+  // no pacing cap (TC-412 then gets no pacingExceeded, correctly). nextSlot
+  // skips it; slots are distinct, not necessarily 15 minutes apart.
+  const PERIOD_END_MINUTES = 23 * 60 + 45;
+  /** The restaurant's zone (beforeAll); the default is a new tenant's. */
+  let slotTz = "America/New_York";
+  const localMinutes = (ms: number): number => {
+    const [h, m] = new Intl.DateTimeFormat("en-GB", {
+      timeZone: slotTz,
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    })
+      .format(new Date(ms))
+      .split(":")
+      .map(Number);
+    return (h ?? 0) * 60 + (m ?? 0);
+  };
   const GRID_MS = 15 * 60 * 1000;
   const baseSlot = (() => {
     const d = new Date(Date.now() + 48 * 3600 * 1000);
@@ -164,6 +184,8 @@ test.describe("POS — Reservation Lifecycle (tablet host stand)", () => {
   let slotStep = 0;
   const nextSlot = (): string => {
     slotStep += 1;
+    if (localMinutes(baseSlot + slotStep * GRID_MS) >= PERIOD_END_MINUTES)
+      slotStep += 1;
     return new Date(baseSlot + slotStep * GRID_MS).toISOString();
   };
 
@@ -218,6 +240,7 @@ test.describe("POS — Reservation Lifecycle (tablet host stand)", () => {
       );
     token = tenant.accessToken;
     restaurantId = tenant.restaurantId;
+    slotTz = (await getRestaurantTimeZonePublic(restaurantId)) || slotTz;
     ownerEmail = process.env.OWNER2_EMAIL || tenant.email;
     ownerPassword = process.env.OWNER2_PASSWORD || "Automation!Owner2-" + runId;
 
@@ -294,7 +317,8 @@ test.describe("POS — Reservation Lifecycle (tablet host stand)", () => {
     // 00:00-23:45 coverage — gives TC-412's overbook test a cap to exceed
     // regardless of which calendar day its ~48h-out slot lands on, while
     // every other test's distinct slot is entirely unaffected (each books a
-    // DIFFERENT exact instant, and the cap gates per-exact-instant).
+    // DIFFERENT exact instant, and the cap gates per-exact-instant). The
+    // period is [00:00, 23:45): nextSlot never hands out 23:45 itself.
     for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
       const period = await createReservationServicePeriodOwnerRaw(
         token,

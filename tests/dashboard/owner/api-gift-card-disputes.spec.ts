@@ -27,6 +27,12 @@
  * Gated behind RELEASED_ON_QA.ownerGiftCards: skips with the gate's reason
  * until the owner routes are on the stack, and nothing is bought before that.
  *
+ * FIXME (whole file, see NEEDS_REWRITE): since RestauNax 2d680a23d
+ * (2026-11-14) a payment that is already disputed loads no card, so the
+ * `tok_createDispute` purchase above is refused and no card exists to
+ * attribute the dispute to. Nothing is bought and the seed is not touched
+ * while the file is marked.
+ *
  *   TC-2047 a stolen-card gift card purchase lands on the restaurant that holds the card.
  *   TC-2048 the disputed money is on hold, not owed, and only RestauNax lifts it.
  *   TC-2049 the owner's Disputes screen shows the gift card and opens it.
@@ -71,6 +77,21 @@ const OWNER_PASSWORD = process.env.OWNER_PASSWORD ?? "";
 
 type Rec = Record<string, LooseJson>;
 
+/**
+ * Why the file is test.fixme. RestauNax 2d680a23d (2026-11-14,
+ * giftCardFunding.ts) refuses to load a gift card from a payment that is
+ * already disputed (400 "paymentDisputed"). `tok_createDispute` disputes the
+ * charge the moment it succeeds, i.e. before POST /purchase runs, so the card
+ * these cases need is never minted. A rewrite must mint the card BEFORE the
+ * dispute lands: e.g. the POS card path with a held (requires_capture)
+ * intent, loading the card first and capturing after.
+ */
+const NEEDS_REWRITE =
+  "RestauNax 2d680a23d (2026-11-14): a payment that is already disputed cannot load a gift card " +
+  "(400 paymentDisputed), and tok_createDispute disputes the charge before /purchase runs, so no card " +
+  "is minted. Rewrite so the card is minted before the dispute lands (e.g. a held requires_capture " +
+  "intent on the POS card path).";
+
 const POLL_MS = 5_000;
 const POLL_LIMIT_MS = 120_000;
 const FALLBACK_LIMIT_MS = 30_000;
@@ -85,6 +106,7 @@ test.describe(
       !ADMIN_EMAIL || !ADMIN_PASSWORD || !OWNER_EMAIL || !OWNER_PASSWORD,
       "ADMIN_* / OWNER_* not set (the card is sold at the seed restaurant)"
     );
+    test.fixme(true, NEEDS_REWRITE);
 
     let adminToken = "";
     let owner = "";
@@ -149,6 +171,8 @@ test.describe(
 
     test.beforeAll(async () => {
       test.setTimeout(360_000);
+      // Marked fixme: buy nothing, and leave the seed's config alone.
+      if (NEEDS_REWRITE) return;
       if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return;
       adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
 
