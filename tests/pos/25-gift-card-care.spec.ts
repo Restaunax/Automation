@@ -11,6 +11,13 @@
  * card emailed to a recipient and a $15 imported card. A stranger tenant
  * holds one seeded card.
  *
+ * The drawer is the owner's: opening it assigns it to whoever is signed in,
+ * and a drawer only takes cash for the person it belongs to (RestauNax
+ * `assertDrawerOperableBy`; a manager's PIN is no substitute). So every cash
+ * sale that goes through is the owner's, and a cashier who MAY sell proves it
+ * by getting past the permission check to that drawer refusal (403
+ * STAFF_DRAWER_OWNER_PIN_REQUIRED) with no money moved (TC-2026).
+ *
  * Nothing here is sold BY CARD. The tenant has only the QA dummy Stripe
  * onboarding (charges not enabled), and since RestauNax
  * feat/gift-cards-owner-ux such a restaurant may not sell a card by card:
@@ -26,7 +33,8 @@
  *   TC-2024 any signed-in staff member finds a card; unknown and foreign codes answer the same 404.
  *   TC-2025 the old lookup still answers what old registers read, plus `freeze`.
  *   TC-2026 a cashier who may not sell is stopped before any money moves; an
- *           unfinished Stripe setup refuses a card sale (409).
+ *           unfinished Stripe setup refuses a card sale (409); one who may sell
+ *           is stopped only by the drawer not being theirs.
  *   TC-2027 freezing needs MANAGE_GIFT_CARDS; a shift lead with the grant may.
  *   TC-2028 resend needs selling rights; changing the recipient needs managing rights.
  *   TC-2029 which balances can be cashed out now.
@@ -64,6 +72,7 @@ import {
   ensureBusinessHours,
   getRestaurantTimeZonePublic,
   openRegisterSessionPos,
+  ownerStaffRaw,
   putGiftCardConfigAdminRaw,
   seedFundedGiftCard,
   setOwnerPosPin,
@@ -165,7 +174,8 @@ test.describe(
     let tz = "America/New_York";
     /** Owner routes exist on this stack (probed once, in beforeAll). */
     let present = false;
-    const owner = { id: "", pin: "8462", session: "" };
+    /** `label` is the owner as card history names staff ("First L."). */
+    const owner = { id: "", pin: "8462", session: "", label: "" };
     const dee = { id: "", pin: "4826", session: "" };
     const rae = { id: "", pin: "5938", session: "" };
     const sam = { id: "", pin: "7261", session: "" };
@@ -298,6 +308,21 @@ test.describe(
       const ownerMember = await setOwnerPosPin(ownerToken, rid, owner.pin);
       owner.id = ownerMember;
       owner.session = await tabletStaffSignIn(tablet, ownerMember, owner.pin);
+      // The owner's staff row, for the name card history shows (TC-2024).
+      const staff = await ownerStaffRaw(ownerToken, rid, "GET");
+      const row = (
+        (staff.data.data ?? []) as {
+          id: string;
+          firstName?: string;
+          lastName?: string;
+        }[]
+      ).find((s) => s.id === ownerMember);
+      if (!row?.firstName)
+        throw new Error(
+          `[gc-care] owner staff row: ${JSON.stringify(staff.data)}`
+        );
+      const last = row.lastName?.trim();
+      owner.label = last ? `${row.firstName} ${last[0]}.` : row.firstName;
 
       Object.assign(dee, await mint("Dee", dee.pin, { staffRole: "STAFF" }));
       Object.assign(
@@ -314,16 +339,17 @@ test.describe(
           capabilityGrants: ["MANAGE_GIFT_CARDS"],
         })
       );
+      // The drawer is the owner's from here on (see the header).
       sessionId = await openRegisterSessionPos(tablet, owner.session, 100);
 
-      // cashCard: Dee sells $25 cash, print-only.
-      const sold = await sellCash(dee.session, 25);
+      // cashCard: the owner sells $25 cash, print-only.
+      const sold = await sellCash(owner.session, 25);
       expect(sold.status, JSON.stringify(sold.data)).toBe(201);
       cashCard = { id: sold.data.data.giftCardId, code: sold.data.data.code };
       recordGiftCardForCleanup(cashCard.id);
 
-      // emailCard: Dee sells $40 cash, emailed to a recipient.
-      const emailed = await sellCash(dee.session, 40, {
+      // emailCard: the owner sells $40 cash, emailed to a recipient.
+      const emailed = await sellCash(owner.session, 40, {
         deliveryMethod: "EMAIL",
         recipientEmail: emailRecipient,
       });
@@ -373,7 +399,7 @@ test.describe(
       expect(d.heldHere).toBe(true);
       expect(d.history[0]).toMatchObject({
         kind: "SOLD",
-        performedBy: "Dee S.",
+        performedBy: owner.label,
       });
       expect(looksLikeKey(d.statusText)).toBe(false);
       expect(looksLikeKey(d.history[0]?.label)).toBe(false);
@@ -418,7 +444,7 @@ test.describe(
       expect(JSON.stringify(r.data)).not.toContain(cashCard.code);
     });
 
-    test("TC-2026: a cashier who may not sell is stopped before any money moves", async () => {
+    test("TC-2026: a cashier who may not sell is stopped before any money moves; one who may is stopped only by the drawer not being theirs", async () => {
       gate();
       const loadsBefore = await loads();
       const expectedBefore = (await drawer()).expectedCash;
@@ -506,13 +532,34 @@ test.describe(
       );
       expectIntent(kiosk);
 
-      // Rae with a manager's PIN sells; Dee's default STAFF rights unchanged.
-      const approved = await sellCash(rae.session, 20, approval());
-      expect(approved.status, JSON.stringify(approved.data)).toBe(201);
-      recordGiftCardForCleanup(approved.data.data.giftCardId);
-      const byDee = await sellCash(dee.session, 20);
-      expect(byDee.status, JSON.stringify(byDee.data)).toBe(201);
-      recordGiftCardForCleanup(byDee.data.data.giftCardId);
+      // Rae with a manager's PIN, and Dee on her default STAFF rights, MAY
+      // sell: both get past the permission check. What stops their cash sale
+      // is the drawer, which is the owner's (a drawer only takes cash for the
+      // person it belongs to, and a manager's PIN is no substitute). Card is
+      // refused for this tenant (above), so that refusal is the proof.
+      for (const [who, attempt] of [
+        [
+          "Rae with a manager's PIN",
+          () => sellCash(rae.session, 20, approval()),
+        ],
+        ["Dee", () => sellCash(dee.session, 20)],
+      ] as const) {
+        const r = await attempt();
+        expect(r.status, `${who}: ${JSON.stringify(r.data)}`).toBe(403);
+        const body = r.data as unknown as Refusal;
+        expect(body.errorCode, who).toBe("STAFF_DRAWER_OWNER_PIN_REQUIRED");
+        expect(body.capability, who).toBeUndefined();
+      }
+      // Refused before any money moved.
+      expect(await loads()).toEqual(loadsBefore);
+      expect((await drawer()).expectedCash).toBe(expectedBefore);
+
+      // The owner, whose drawer it is, makes those two $20 sales.
+      for (let i = 0; i < 2; i += 1) {
+        const sold = await sellCash(owner.session, 20);
+        expect(sold.status, JSON.stringify(sold.data)).toBe(201);
+        recordGiftCardForCleanup(sold.data.data.giftCardId);
+      }
     });
 
     test("TC-2027: freezing needs MANAGE_GIFT_CARDS; a shift lead with the grant may", async () => {
@@ -717,8 +764,9 @@ test.describe(
 
     test("TC-2031: the drawer expects the cash that left", async () => {
       gate();
-      // Cash sales: Dee 25, Dee 40 (emailed), Rae (manager PIN) 20, Dee 20;
-      // cash-out 25.
+      // Cash sales, all by the owner (it is the owner's drawer): 25, 40
+      // (emailed), 20 and 20; cash-out 25. Rae's and Dee's refused attempts
+      // added nothing.
       const live = await drawer();
       expect(live.expectedCash).toBe(180);
 
