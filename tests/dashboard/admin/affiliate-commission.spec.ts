@@ -434,7 +434,9 @@ test.describe(
               ).toBeVisible();
             } else {
               await expect(
-                dialog.getByText(`${a.payouts?.length} payments`)
+                dialog.getByText(`${a.payouts?.length} payments`, {
+                  exact: true,
+                })
               ).toBeVisible();
             }
             await expect(dialog.getByText("Payment Account Setup")).toHaveCount(
@@ -448,7 +450,7 @@ test.describe(
           async () => {
             await dialog
               .getByRole("tab", {
-                name: /^(Your restaurants|Active Accounts)$/,
+                name: /^Restaurants$/,
               })
               .click();
             await expect(
