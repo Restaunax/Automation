@@ -1,0 +1,135 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: dashboard/owner/api-deals.spec.ts >> Owner — Deals API contract >> promotion pictures (restaunax #1189) >> TC-1966: editing a deal's items keeps its picture URL
+- Location: tests/dashboard/owner/api-deals.spec.ts:3301:9
+
+# Error details
+
+```
+Error: the deal's AI picture job finishes
+
+the deal's AI picture job finishes
+
+expect(received).not.toMatch(expected)
+
+Expected pattern: not /^(pending|generating)$/
+Received string:      "pending"
+
+Call Log:
+- Test timeout of 90000ms exceeded
+```
+
+# Test source
+
+```ts
+  334 |   const q = res.data.quote;
+  335 |   return {
+  336 |     amountToCharge: q.amountToCharge,
+  337 |     subtotal: q.subtotal,
+  338 |     appliedPromotion: q.appliedPromotion ?? null,
+  339 |     codeOutcome: q.codeOutcome ?? null,
+  340 |     codeOutcomeMessage: q.codeOutcomeMessage ?? null,
+  341 |     freeItemOffer: q.freeItemOffer ?? null,
+  342 |     deals: q.deals ?? [],
+  343 |     issues: res.data.issues,
+  344 |     codeIssue: codeIssueOf(res.data.issues),
+  345 |     raw: { status: res.status, body: res.data },
+  346 |   };
+  347 | }
+  348 | 
+  349 | /**
+  350 |  * POST /api/tablet/orders/price-preview (device token). The /quote engine on
+  351 |  * the in-store surface; body = same engine shape + {priceTier?, customerId?}.
+  352 |  * `staffSession` is sent as X-Staff-Session when given (not required by the
+  353 |  * route today).
+  354 |  */
+  355 | export async function tabletPricePreview(
+  356 |   tabletToken: string,
+  357 |   staffSession: string | null,
+  358 |   body: unknown
+  359 | ): Promise<{ status: number; body: unknown }> {
+  360 |   const res = await apiRequestRaw(
+  361 |     "POST",
+  362 |     "/api/tablet/orders/price-preview",
+  363 |     body,
+  364 |     tabletToken,
+  365 |     staffSession ? { "X-Staff-Session": staffSession } : undefined
+  366 |   );
+  367 |   return { status: res.status, body: res.data };
+  368 | }
+  369 | 
+  370 | /**
+  371 |  * Coupons: PUT /api/coupons/:id {status}. Deals: PATCH /api/deals/:id/status
+  372 |  * {status} (the same call as setDealStatusRaw). Throws on a refusal.
+  373 |  */
+  374 | export async function setPromotionStatus(
+  375 |   token: string,
+  376 |   source: "COUPON" | "DEAL",
+  377 |   id: string,
+  378 |   status: "ACTIVE" | "INACTIVE"
+  379 | ): Promise<void> {
+  380 |   const res =
+  381 |     source === "COUPON"
+  382 |       ? await apiRequestRaw("PUT", `/api/coupons/${id}`, { status }, token)
+  383 |       : await apiRequestRaw(
+  384 |           "PATCH",
+  385 |           `/api/deals/${id}/status`,
+  386 |           { status },
+  387 |           token
+  388 |         );
+  389 |   if (!res.ok) throw failure(`setPromotionStatus(${source})`, res);
+  390 | }
+  391 | 
+  392 | /**
+  393 |  * DELETE a promotions-list row through its own source's endpoint (coupon or
+  394 |  * deal). Raw: callers decide whether a refusal fails or is logged.
+  395 |  */
+  396 | export function deletePromotionRaw(
+  397 |   token: string,
+  398 |   row: Pick<PromotionListRow, "id" | "source">
+  399 | ): Promise<RawResponse> {
+  400 |   return apiRequestRaw(
+  401 |     "DELETE",
+  402 |     row.source === "COUPON" ? `/api/coupons/${row.id}` : `/api/deals/${row.id}`,
+  403 |     undefined,
+  404 |     token
+  405 |   );
+  406 | }
+  407 | 
+  408 | /**
+  409 |  * Waits until a deal's AI picture job is no longer running (its list-row
+  410 |  * `picture.status` is not "pending" / "generating"). Creating a deal queues
+  411 |  * one AI picture job. The owner's upload or remove always wins over that job
+  412 |  * (it saves only while the status still says it is being made), so the wait
+  413 |  * is not needed for correctness; it makes a UI test start from a settled
+  414 |  * picture rather than a spinner. Call after seeding a deal and before any
+  415 |  * upload / remove step that renders the picture.
+  416 |  */
+  417 | export async function waitForDealPictureSettled(
+  418 |   accessToken: string,
+  419 |   scope: { restaurantId: string },
+  420 |   dealId: string
+  421 | ): Promise<void> {
+  422 |   await expect
+  423 |     .poll(
+  424 |       async () =>
+  425 |         (await listPromotions(accessToken, scope.restaurantId)).find(
+  426 |           (r) => r.id === dealId
+  427 |         )?.picture?.status ?? "none",
+  428 |       {
+  429 |         message: "the deal's AI picture job finishes",
+  430 |         timeout: 90_000,
+  431 |         intervals: [3_000],
+  432 |       }
+  433 |     )
+> 434 |     .not.toMatch(/^(pending|generating)$/);
+      |          ^ Error: the deal's AI picture job finishes
+  435 | }
+  436 | 
+```

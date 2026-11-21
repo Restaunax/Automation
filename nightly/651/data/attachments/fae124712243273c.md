@@ -1,0 +1,442 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: dashboard/owner/37-sales-tax-depth-ui.spec.ts >> Sales tax depth (UI) @tax-depth >> TC-1617: the report covers business days or calendar dates, and says which
+- Location: tests/dashboard/owner/37-sales-tax-depth-ui.spec.ts:189:7
+
+# Error details
+
+```
+TimeoutError: locator.click: Timeout 15000ms exceeded.
+Call log:
+  - waiting for getByRole('group', { name: 'Dates' }).getByRole('button', { name: 'Calendar dates' })
+
+```
+
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - generic [ref=e4]:
+    - banner [ref=e5]:
+      - generic [ref=e7]:
+        - generic [ref=e8]:
+          - generic [ref=e9]:
+            - img [ref=e10]
+            - generic [ref=e12]: LOCATION
+          - generic "Automation Owner2 Store 2ba43918 — Miami — Store Settings" [ref=e13]
+        - generic [ref=e15]:
+          - generic [ref=e17]:
+            - img [ref=e18]
+            - generic [ref=e20]:
+              - paragraph [ref=e21]: Automation Owner2 Store 2ba43918
+              - generic [ref=e22]: Miami, FL
+          - button "Account settings" [ref=e24] [cursor=pointer]:
+            - generic [ref=e25]: A
+          - button "Select Language" [ref=e27] [cursor=pointer]:
+            - img [ref=e29]
+            - text: EN
+          - button [ref=e35] [cursor=pointer]:
+            - img [ref=e36]
+    - navigation "mailbox folders" [ref=e38]:
+      - generic [ref=e40]:
+        - button "Collapse sidebar" [ref=e42] [cursor=pointer]:
+          - img [ref=e43]
+        - generic [ref=e46]:
+          - button "Today" [ref=e47] [cursor=pointer]:
+            - img [ref=e49]
+            - paragraph [ref=e51]: Today
+          - button "Analytics" [ref=e52] [cursor=pointer]:
+            - img [ref=e54]
+            - paragraph [ref=e56]: Analytics
+          - button "Orders" [ref=e57] [cursor=pointer]:
+            - img [ref=e59]
+            - paragraph [ref=e61]: Orders
+          - button "Menu" [ref=e62] [cursor=pointer]:
+            - img [ref=e64]
+            - paragraph [ref=e66]: Menu
+          - button "Customers" [ref=e67] [cursor=pointer]:
+            - img [ref=e69]
+            - paragraph [ref=e71]: Customers
+          - button "Billing" [ref=e72] [cursor=pointer]:
+            - img [ref=e74]
+            - paragraph [ref=e76]: Billing
+          - button "Image Library" [ref=e77] [cursor=pointer]:
+            - img [ref=e79]
+            - paragraph [ref=e81]: Image Library
+          - button "Store Settings" [ref=e82] [cursor=pointer]:
+            - img [ref=e84]
+            - paragraph [ref=e86]: Store Settings
+          - button "Store Operations" [ref=e88] [cursor=pointer]:
+            - img [ref=e90]
+            - paragraph [ref=e92]: Store Operations
+            - img [ref=e94]
+          - button "Job Applications" [ref=e96] [cursor=pointer]:
+            - img [ref=e98]
+            - paragraph [ref=e100]: Job Applications
+          - 'button "Menu TVs Add-on: TV menu boards from your menu" [ref=e101] [cursor=pointer]':
+            - img [ref=e103]
+            - paragraph [ref=e105]: Menu TVs
+            - 'img "Add-on: TV menu boards from your menu" [ref=e107]':
+              - img [ref=e108]
+          - button "Restaurant Staff" [ref=e110] [cursor=pointer]:
+            - img [ref=e112]
+            - paragraph [ref=e114]: Restaurant Staff
+          - button "Books & taxes" [ref=e115] [cursor=pointer]:
+            - img [ref=e117]
+            - paragraph [ref=e119]: Books & taxes
+          - 'button "RestauNax Voice Add-on: AI answers your phone" [ref=e120] [cursor=pointer]':
+            - img [ref=e122]
+            - paragraph [ref=e125]: RestauNax Voice
+            - 'img "Add-on: AI answers your phone" [ref=e127]':
+              - img [ref=e128]
+          - button "Google reviews" [ref=e130] [cursor=pointer]:
+            - img [ref=e132]
+            - paragraph [ref=e134]: Google reviews
+          - button "Promotions" [ref=e136] [cursor=pointer]:
+            - img [ref=e138]
+            - paragraph [ref=e140]: Promotions
+            - img [ref=e142]
+          - button "Gift cards" [ref=e144] [cursor=pointer]:
+            - img [ref=e146]
+            - paragraph [ref=e148]: Gift cards
+          - button "Supply Shop" [ref=e149] [cursor=pointer]:
+            - img [ref=e151]
+            - paragraph [ref=e153]: Supply Shop
+          - button "Social Media" [ref=e155] [cursor=pointer]:
+            - img [ref=e157]
+            - paragraph [ref=e159]: Social Media
+            - img [ref=e161]
+          - button "RestauNax Products" [ref=e163] [cursor=pointer]:
+            - img [ref=e165]
+            - paragraph [ref=e167]: RestauNax Products
+        - button "Owner Settings" [ref=e170] [cursor=pointer]:
+          - img [ref=e172]
+          - paragraph [ref=e175]: Owner Settings
+    - main [ref=e176]:
+      - generic [ref=e178]:
+        - img [ref=e179]
+        - paragraph [ref=e181]:
+          - generic [ref=e182]: "Managing:"
+          - text: Automation Owner2 Store 2ba43918
+      - generic [ref=e184]:
+        - generic [ref=e185]:
+          - img [ref=e186]
+          - heading "Restaurant Settings" [level=1] [ref=e188]
+        - tablist [ref=e192]:
+          - tab "Ordering & hours" [ref=e193] [cursor=pointer]:
+            - img [ref=e194]
+            - text: Ordering & hours
+          - tab "Fees & tips" [ref=e196] [cursor=pointer]:
+            - img [ref=e197]
+            - text: Fees & tips
+          - tab "Dine-in" [ref=e199] [cursor=pointer]:
+            - img [ref=e200]
+            - text: Dine-in
+          - tab "Sales tax" [selected] [ref=e202] [cursor=pointer]:
+            - img [ref=e203]
+            - text: Sales tax
+          - tab "Connections" [ref=e206] [cursor=pointer]:
+            - img [ref=e207]
+            - text: Connections
+        - generic [ref=e209]:
+          - generic [ref=e211]:
+            - generic [ref=e212]:
+              - heading "Tax rates" [level=6] [ref=e213]
+              - button "Add rate" [ref=e214] [cursor=pointer]
+            - paragraph [ref=e215]: Your combined sales tax rate is the default for everything. Add another rate only where your state or city taxes something differently, for example alcohol or liquor by the drink. Changing a rate never changes past orders.
+            - table [ref=e216]:
+              - rowgroup [ref=e217]:
+                - row "Name Rate (%)" [ref=e218]:
+                  - columnheader "Name" [ref=e219]
+                  - columnheader "Rate (%)" [ref=e220]
+                  - columnheader [ref=e221]
+              - rowgroup [ref=e222]:
+                - row "Sales tax Default 8% Edit rate Split by jurisdiction" [ref=e223]:
+                  - cell "Sales tax Default" [ref=e224]:
+                    - text: Sales tax
+                    - generic [ref=e226]: Default
+                  - cell "8%" [ref=e227]
+                  - cell "Edit rate Split by jurisdiction" [ref=e228]:
+                    - button "Edit rate" [ref=e229] [cursor=pointer]:
+                      - img [ref=e230]
+                    - button "Split by jurisdiction" [ref=e232] [cursor=pointer]:
+                      - img [ref=e233]
+                - row "Packaged beer Class 017 8% Edit rate Split by jurisdiction Remove rate" [ref=e235]:
+                  - cell "Packaged beer Class 017" [ref=e236]:
+                    - text: Packaged beer
+                    - generic [ref=e238]: Class 017
+                  - cell "8%" [ref=e239]
+                  - cell "Edit rate Split by jurisdiction Remove rate" [ref=e240]:
+                    - button "Edit rate" [ref=e241] [cursor=pointer]:
+                      - img [ref=e242]
+                    - button "Split by jurisdiction" [ref=e244] [cursor=pointer]:
+                      - img [ref=e245]
+                    - button "Remove rate" [ref=e247] [cursor=pointer]:
+                      - img [ref=e248]
+          - generic [ref=e251]:
+            - heading "Check your rate" [level=2] [ref=e252]
+            - paragraph [ref=e253]: We compare your default rate with our reference file and, if Avalara is connected, Avalara's rate for your address. Nothing here changes your rate.
+            - generic [ref=e254]:
+              - paragraph [ref=e255]: "You charge 8%. Our file has 7% for FL (Not confirmed yet: check it with your state)."
+              - alert [ref=e256]:
+                - img [ref=e258]
+                - generic [ref=e260]: Your default rate is 8%; the FL rate on our file is 7%. Check it with your state before relying on either.
+              - generic [ref=e261]:
+                - button "My rates are right" [ref=e262] [cursor=pointer]
+                - generic [ref=e263]: Last checked Nov 18, 2026
+            - generic [ref=e264]:
+              - generic [ref=e265]:
+                - heading "Scheduled rate changes" [level=3] [ref=e266]
+                - button "Schedule a change" [ref=e267] [cursor=pointer]
+              - paragraph [ref=e268]: When your state announces a new rate, schedule it here. It starts at midnight of that day; earlier orders keep the old rate.
+              - paragraph [ref=e269]: No changes scheduled.
+          - generic [ref=e271]:
+            - generic [ref=e272]:
+              - heading "Tax by category and item" [level=6] [ref=e273]
+              - button "Save" [disabled]
+            - paragraph [ref=e274]: Everything is taxed at Sales tax unless you choose otherwise. Set a category, or open it to set single items.
+            - paragraph [ref=e275]: "\"Price includes tax\" applies only while the newer tax math is on (Tax math card below)."
+          - generic [ref=e277]:
+            - heading "Delivery fee" [level=6] [ref=e278]
+            - paragraph [ref=e279]: Whether sales tax is charged on your delivery fee. You can keep the default or choose for yourself.
+            - generic [ref=e280]:
+              - alert [ref=e281]:
+                - img [ref=e283]
+                - generic [ref=e285]: "Please answer: should your delivery fees be taxed? Check with your accountant, then confirm the suggested rule or choose below. Until you answer, checkout keeps doing what it does today."
+              - generic [ref=e286]:
+                - generic [ref=e287]:
+                  - generic [ref=e288]:
+                    - heading "Your state's rule" [level=6] [ref=e289]
+                    - generic [ref=e291]: "Not confirmed yet: check it before relying on it"
+                  - paragraph [ref=e292]: Not taxable when listed separately and the customer could have picked up instead.
+                  - generic [ref=e293]:
+                    - text: "Source: State (FL), checked Oct 31, 2026."
+                    - link "Read the source" [ref=e294] [cursor=pointer]:
+                      - /url: https://floridarevenue.com/faq/Pages/FAQDetails.aspx?FAQID=1277
+                  - generic [ref=e295]: This is a suggestion that no accountant has confirmed yet. Nothing changes at checkout until you confirm it.
+                - button "Confirm this rule" [ref=e297] [cursor=pointer]
+              - alert [ref=e298]:
+                - img [ref=e300]
+                - paragraph [ref=e303]: "Nobody has confirmed your state's delivery-fee rule yet, so checkout keeps doing what it does today: your delivery fees are not taxed. Check with your accountant, then confirm the suggested rule or choose \"Always taxed\" below."
+              - generic [ref=e304]:
+                - generic [ref=e305]: Delivery fee is taxable
+                - generic [ref=e306]:
+                  - combobox "Use the current default (not taxed)" [ref=e307] [cursor=pointer]
+                  - textbox: STATE
+                  - img
+                  - group
+              - generic [ref=e310]: Delivery fees are not taxed
+              - generic [ref=e311]:
+                - button "Save" [disabled]
+          - generic [ref=e313]:
+            - heading "Tax math" [level=6] [ref=e314]
+            - paragraph [ref=e315]: "Use the newer tax math: each item in a combo is taxed at its own rate, taxable fees (delivery, service fee, auto-gratuity) are spread across your rates, and items you mark \"Price includes tax\" sell at their menu price with the tax inside."
+            - paragraph [ref=e316]: Online ordering changes as soon as you turn this on. Registers change only after their latest update; until then they keep the old math and their sales are never refused for it.
+            - generic [ref=e318]:
+              - switch "Use the newer tax math" [ref=e321] [cursor=pointer]
+              - generic [ref=e324]: Use the newer tax math
+          - generic [ref=e326]:
+            - heading "Register tax check" [level=6] [ref=e327]
+            - paragraph [ref=e328]: The server checks the tax each register charges. By default a sale with the wrong tax is still accepted and recorded. You can let the register refuse it instead, once every register is ready.
+            - generic [ref=e329]:
+              - generic [ref=e331]: Wrong-tax sales are accepted and recorded
+              - generic [ref=e332]:
+                - switch "Refuse a sale whose tax is wrong" [ref=e335] [cursor=pointer]
+                - generic [ref=e338]: Refuse a sale whose tax is wrong
+              - alert [ref=e339]:
+                - img [ref=e341]
+                - generic [ref=e343]:
+                  - paragraph [ref=e344]: "It turns on by itself when these are fixed:"
+                  - paragraph [ref=e345]: • No register has made a sale in the last 14 days.
+              - generic [ref=e346]: A sale on an older register, or one already paid by card, is never refused.
+          - generic [ref=e348]:
+            - heading "Sales tax report" [level=6] [ref=e349]
+            - paragraph [ref=e350]: The sales tax report is in Books & taxes, next to the package for your accountant.
+            - button "Open the report in Books & taxes" [ref=e351] [cursor=pointer]
+          - generic [ref=e353]:
+            - generic [ref=e354]:
+              - heading "Exemption certificates" [level=2] [ref=e355]
+              - button "Add certificate" [ref=e356] [cursor=pointer]
+            - paragraph [ref=e357]: Keep each tax-exempt buyer's certificate here. The register can pick one for an exempt sale, and your sales tax report lists who bought tax-free and why.
+            - table [ref=e358]:
+              - rowgroup [ref=e359]:
+                - row "Buyer Reason Certificate number Expiry date" [ref=e360]:
+                  - columnheader "Buyer" [ref=e361]
+                  - columnheader "Reason" [ref=e362]
+                  - columnheader "Certificate number" [ref=e363]
+                  - columnheader "Expiry date" [ref=e364]
+                  - columnheader [ref=e365]
+              - rowgroup [ref=e366]:
+                - row "City Schools 43918 expired Government GOV-a43918 Nov 12, 2026 Upload a photo or PDF Edit certificate Remove" [ref=e367]:
+                  - cell "City Schools 43918 expired" [ref=e368]:
+                    - text: City Schools 43918
+                    - generic [ref=e370]: expired
+                  - cell "Government" [ref=e371]
+                  - cell "GOV-a43918" [ref=e372]
+                  - cell "Nov 12, 2026" [ref=e373]
+                  - cell "Upload a photo or PDF Edit certificate Remove" [ref=e374]:
+                    - button "Upload a photo or PDF" [ref=e375] [cursor=pointer]:
+                      - img [ref=e376]
+                    - button "Edit certificate" [ref=e378] [cursor=pointer]:
+                      - img [ref=e379]
+                    - button "Remove" [ref=e381] [cursor=pointer]:
+                      - img [ref=e382]
+          - generic [ref=e384]:
+            - 'img "Add-on: daily sales sent to your books" [ref=e385]':
+              - img [ref=e386]
+            - paragraph [ref=e388]: Your books update themselves after every closed day.
+            - button "See what RestauNax Books & Taxes does" [ref=e389] [cursor=pointer]
+        - generic [ref=e391]:
+          - img [ref=e392]
+          - paragraph [ref=e397]: "RestauNax setup: your day closes at 4 AM, time zone From the address. Set by RestauNax."
+          - generic [ref=e398]:
+            - button "Show all" [ref=e399] [cursor=pointer]
+            - link "Contact support" [ref=e400] [cursor=pointer]:
+              - /url: mailto:support@restaunax.com
+        - generic [ref=e401]:
+          - generic [ref=e402]:
+            - generic [ref=e403]:
+              - img [ref=e404]
+              - generic [ref=e406]:
+                - heading "Recent changes" [level=6] [ref=e407]
+                - paragraph [ref=e408]: Who changed which setting, and when.
+            - generic [ref=e409]:
+              - generic [ref=e410]: Area
+              - generic [ref=e411]:
+                - combobox "Sales tax" [ref=e412] [cursor=pointer]
+                - textbox: salesTax
+                - img
+                - group
+          - list [ref=e413]:
+            - listitem [ref=e414]:
+              - generic [ref=e415]:
+                - generic [ref=e418]: Auto SecondOwner (owner) added sales tax rate Packaged beer (8%)
+                - paragraph [ref=e419]: 1:27 AM · Sales tax
+            - listitem [ref=e420]:
+              - generic [ref=e421]:
+                - generic [ref=e424]: Auto SecondOwner (owner) added sales tax rate Sales tax (8%)
+                - paragraph [ref=e425]: 1:26 AM · Sales tax
+  - button "Open chat" [ref=e426] [cursor=pointer]:
+    - img [ref=e427]
+```
+
+# Test source
+
+```ts
+  92  |       name: "Sales tax",
+  93  |       percent: 8,
+  94  |       isDefault: true,
+  95  |     });
+  96  |     if (rate.status !== 201)
+  97  |       throw new Error(
+  98  |         `[sales-tax-depth-ui] rate: ${JSON.stringify(rate.data)}`
+  99  |       );
+  100 |     session = await loginViaUi(browser, tenant.email, tenant.password);
+  101 |   });
+  102 | 
+  103 |   test.afterAll(async () => {
+  104 |     if (adminToken && restaurantId)
+  105 |       await deleteTestRestaurant(adminToken, restaurantId).catch(() => {});
+  106 |     if (session) await session.context.close().catch(() => {});
+  107 |   });
+  108 | 
+  109 |   test.beforeEach(async () => {
+  110 |     await allure.label("feature", "Sales tax depth");
+  111 |     await allure.label("severity", "normal");
+  112 |     requireRelease(
+  113 |       "taxDepthStage7",
+  114 |       await probeTaxDepthStage7(ownerToken, restaurantId)
+  115 |     );
+  116 |     await page().setViewportSize(DESKTOP);
+  117 |   });
+  118 | 
+  119 |   test("TC-1613: Check your rate — the default rate next to the reference, and 'My rates are right' records the check", async () => {
+  120 |     await openSalesTax();
+  121 |     const card = section("Check your rate");
+  122 |     await expect(card).toBeVisible();
+  123 |     await expect(card).toContainText("8%");
+  124 |     await card.getByRole("button", { name: "My rates are right" }).click();
+  125 |     await expectSeenByUser(
+  126 |       page().getByText("Thanks. Your rates are marked as checked."),
+  127 |       '"Thanks. Your rates are marked as checked."'
+  128 |     );
+  129 |     const check = await taxRaw(ownerToken, restaurantId, "GET", "/rate-check");
+  130 |     expect(
+  131 |       ((check.data.data as Rec).defaultRate as Rec).confirmedAt
+  132 |     ).toBeTruthy();
+  133 |   });
+  134 | 
+  135 |   test("TC-1614: schedule a new rate for a date — listed under Scheduled rate changes, the rate itself unchanged; cancel removes it", async () => {
+  136 |     await openSalesTax();
+  137 |     const changes = section("Scheduled rate changes");
+  138 |     await changes.getByRole("button", { name: "Schedule a change" }).click();
+  139 |     const dialog = activeDialog(page());
+  140 |     await dialog.getByRole("spinbutton", { name: "New rate (%)" }).fill("8.5");
+  141 |     await dialog.getByLabel("Starts on").fill(localDay(45));
+  142 |     await dialog.getByRole("button", { name: "Schedule" }).click();
+  143 |     await expect(dialog).toBeHidden();
+  144 |     await expect(changes).toContainText("8.5%");
+  145 |     // Still 8% today: the rates table's row (the scheduled change is a
+  146 |     // "Sales tax 8% → 8.5% …" row of its own) still says Default 8%.
+  147 |     await expect(
+  148 |       page().getByRole("row", { name: /^Sales tax\b.*Default/ })
+  149 |     ).toContainText("8%");
+  150 |     await changes.getByRole("button", { name: "Cancel change" }).click();
+  151 |     await expect(changes).not.toContainText("8.5%");
+  152 |   });
+  153 | 
+  154 |   test("TC-1615: a rate's business class — 'Packaged beer' filed as 017 shows its class in the rates list", async () => {
+  155 |     await openSalesTax();
+  156 |     await page().getByRole("button", { name: "Add rate" }).click();
+  157 |     const dialog = activeDialog(page());
+  158 |     await dialog.getByRole("textbox", { name: "Name" }).fill("Packaged beer");
+  159 |     await dialog.getByRole("spinbutton", { name: "Rate (%)" }).fill("8");
+  160 |     await dialog.getByRole("textbox", { name: "Business class" }).fill("017");
+  161 |     await dialog.getByRole("button", { name: "Save" }).click();
+  162 |     await expect(dialog).toBeHidden();
+  163 |     await expect(
+  164 |       page().getByRole("row", { name: /^Packaged beer\b/ })
+  165 |     ).toContainText("017");
+  166 |   });
+  167 | 
+  168 |   test("TC-1616: exemption certificates — add a buyer's certificate; an expired one is flagged", async () => {
+  169 |     await openSalesTax();
+  170 |     const certs = section("Exemption certificates");
+  171 |     await certs.getByRole("button", { name: "Add certificate" }).click();
+  172 |     const dialog = activeDialog(page());
+  173 |     await dialog.getByRole("textbox", { name: "Buyer" }).fill(buyer);
+  174 |     // The Reason select's FormLabel points at the select's div, which a
+  175 |     // label can't name: the combobox is named by its value. Open it by id.
+  176 |     await dialog.locator("#tax-cert-reason").click();
+  177 |     await page().getByRole("option", { name: "Government" }).click();
+  178 |     await dialog
+  179 |       .getByRole("textbox", { name: "Certificate number" })
+  180 |       .fill(`GOV-${runId.slice(-6)}`);
+  181 |     await dialog.getByLabel("Expiry date").fill(localDay(-5));
+  182 |     await dialog.getByRole("button", { name: "Save" }).click();
+  183 |     await expect(dialog).toBeHidden();
+  184 |     const row = certs.getByRole("row", { name: new RegExp(buyer) });
+  185 |     await expect(row).toContainText("Government");
+  186 |     await expect(row).toContainText(/expired/i);
+  187 |   });
+  188 | 
+  189 |   test("TC-1617: the report covers business days or calendar dates, and says which", async () => {
+  190 |     await openSalesTax();
+  191 |     const dates = page().getByRole("group", { name: "Dates" });
+> 192 |     await dates.getByRole("button", { name: "Calendar dates" }).click();
+      |                                                                 ^ TimeoutError: locator.click: Timeout 15000ms exceeded.
+  193 |     await expect(
+  194 |       page().getByText("Dates are calendar days, midnight to midnight.")
+  195 |     ).toBeVisible();
+  196 |     await dates.getByRole("button", { name: "Business days" }).click();
+  197 |     await expect(page().getByText(/Dates are business days/)).toBeVisible();
+  198 |   });
+  199 | });
+  200 | 
+```

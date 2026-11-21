@@ -1,0 +1,1 @@
+[apiHelper] transient failure on GET /api/books/bd7a31ca-491b-4264-8f46-be8c362cb6ad/year-end?year=2025 — retry 1/2 in 1000ms
