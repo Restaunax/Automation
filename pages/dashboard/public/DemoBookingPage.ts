@@ -47,6 +47,20 @@ export const createDemoBookingPage = (page: Page) => {
     await page.goto("/demo", { waitUntil: "domcontentloaded" });
     await expect(page).toHaveURL(FORM_PATH, { timeout: 30_000 });
     await els.firstNameInput.waitFor({ state: "visible", timeout: 15_000 });
+    // The prerendered HTML already holds a copy of the form (the page's
+    // Suspense fallback, restaunax-web 7486695), which React throws away for
+    // the live one once its JS loads: anything typed into the copy is lost.
+    // Wait for the field React owns before a test fills it.
+    await page.waitForFunction(
+      () => {
+        const el = document.querySelector('input[name="firstName"]');
+        return (
+          !!el && Object.keys(el).some((k) => k.startsWith("__reactProps$"))
+        );
+      },
+      undefined,
+      { timeout: 30_000 }
+    );
   };
 
   const fillForm = async (data: DemoFormData): Promise<void> => {

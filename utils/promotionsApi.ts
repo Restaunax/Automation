@@ -5,6 +5,7 @@
  * server's (quote / redeem responses), never computed here.
  */
 
+import { expect } from "@playwright/test";
 import { apiRequestRaw, type RawResponse } from "./apiHelper";
 
 export type ApplyMode = "AUTOMATIC" | "CODE" | "BOTH";
@@ -129,6 +130,8 @@ export interface PromotionListRow {
   type: string;
   /** The server's own "this deal takes one of the active-deal slots" flag. */
   holdsDealSlot?: boolean;
+  /** Deal rows: { url, status } (status "completed" | "pending" | "failed" | null); coupon rows: null. */
+  picture?: { url: string | null; status: string | null } | null;
 }
 
 const DAY_MS = 86_400_000;
@@ -193,6 +196,7 @@ interface PromotionRowWire {
   code: string | null;
   statusActive: boolean;
   holdsDealSlot?: boolean;
+  picture?: { url: string | null; status: string | null } | null;
 }
 
 const toListRow = (r: PromotionRowWire): PromotionListRow => ({
@@ -203,6 +207,7 @@ const toListRow = (r: PromotionRowWire): PromotionListRow => ({
   status: r.statusActive ? "ACTIVE" : "INACTIVE",
   type: r.type,
   holdsDealSlot: r.holdsDealSlot,
+  picture: r.picture,
 });
 
 /** GET /api/promotions/restaurant/:id (owner token), normalised. */
@@ -398,4 +403,33 @@ export function deletePromotionRaw(
     undefined,
     token
   );
+}
+
+/**
+ * Waits until a deal's AI picture job is no longer running (its list-row
+ * `picture.status` is not "pending" / "generating"). Creating a deal queues
+ * one AI picture job. The owner's upload or remove always wins over that job
+ * (it saves only while the status still says it is being made), so the wait
+ * is not needed for correctness; it makes a UI test start from a settled
+ * picture rather than a spinner. Call after seeding a deal and before any
+ * upload / remove step that renders the picture.
+ */
+export async function waitForDealPictureSettled(
+  accessToken: string,
+  scope: { restaurantId: string },
+  dealId: string
+): Promise<void> {
+  await expect
+    .poll(
+      async () =>
+        (await listPromotions(accessToken, scope.restaurantId)).find(
+          (r) => r.id === dealId
+        )?.picture?.status ?? "none",
+      {
+        message: "the deal's AI picture job finishes",
+        timeout: 90_000,
+        intervals: [3_000],
+      }
+    )
+    .not.toMatch(/^(pending|generating)$/);
 }
