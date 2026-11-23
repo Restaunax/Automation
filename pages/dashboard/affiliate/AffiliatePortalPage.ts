@@ -6,7 +6,8 @@ import { type Page, expect } from "@playwright/test";
 //     call to action, signed in it carries the 4-step application form and
 //     the agreement modal.
 //   /affiliate/dashboard           — header (tag + status chip), tabs
-//     Overview / Active Accounts / Payments / All Referrals.
+//     Overview / Your restaurants / Payments (the money cards on Overview and
+//     Payments both read `affiliate.money`).
 // No data-testids in this feature; locators are role/text-based.
 /** The one address the fake Places library offers (see stubGooglePlaces). */
 export const FAKE_PLACE = {
@@ -189,12 +190,9 @@ export const createAffiliatePortalPage = (page: Page) => {
   const statusChip = (status: string) =>
     header().locator(".MuiChip-root").filter({ hasText: status });
 
-  const tab = (
-    name: "Overview" | "Active Accounts" | "Payments" | "All Referrals"
-  ) => page.getByRole("tab", { name });
-  const openTab = async (
-    name: "Overview" | "Active Accounts" | "Payments" | "All Referrals"
-  ) => {
+  type TabName = "Overview" | "Your restaurants" | "Payments";
+  const tab = (name: TabName) => page.getByRole("tab", { name });
+  const openTab = async (name: TabName) => {
     await tab(name).click();
     await expect(tab(name)).toHaveAttribute("aria-selected", "true");
   };
@@ -213,12 +211,31 @@ export const createAffiliatePortalPage = (page: Page) => {
       .getByRole("alert")
       .filter({ hasText: "Your payouts are on hold since" });
 
-  /** Overview: one of the stat cards, by its title. */
-  const statCard = (title: string) =>
+  /**
+   * A money card on Overview or Payments, by its title (Earned, Paid,
+   * Pending, Owed back, Next payout; HQ also Forfeited). Money cards are the
+   * only MUI Cards that hold the title as an exact text.
+   */
+  const moneyCard = (
+    title:
+      | "Earned"
+      | "Paid"
+      | "Pending"
+      | "Owed back"
+      | "Next payout"
+      | "Forfeited"
+  ) =>
     page
-      .locator(".MuiCard-root, .MuiPaper-root")
+      .locator(".MuiCard-root")
       .filter({ has: page.getByText(title, { exact: true }) })
-      .last();
+      .first();
+  /** The big figure on a money card (its h4). */
+  const moneyAmount = async (
+    title: Parameters<typeof moneyCard>[0]
+  ): Promise<string> =>
+    (
+      await moneyCard(title).getByRole("heading", { level: 4 }).innerText()
+    ).trim();
 
   /** Payments: the Stripe Connect card. */
   const stripeSetupCard = () =>
@@ -248,7 +265,8 @@ export const createAffiliatePortalPage = (page: Page) => {
     referralLinkCard,
     referralLinkField,
     holdNotice,
-    statCard,
+    moneyCard,
+    moneyAmount,
     stripeSetupCard,
   };
 };

@@ -17,6 +17,7 @@
  \* `--grep @growth-a`, `--grep @reservations-audit`,
  \* `--grep @reservations-phase4`,
  * `--grep @attribution`, `--grep @affiliate-commission`,
+ * `--grep @affiliate-lifecycle`,
  * `--grep @books-offboarding`, `--grep @hq-notices`, `--grep @split-hours`,
  * `--grep @owner-gift-cards`.
  */
@@ -49,6 +50,11 @@ export const RELEASED_ON_QA = {
   /** RestauNax branch feat/sales-attribution (Plan 2) — affiliate commission
    *  plan, program defaults, termination outcome. */
   affiliateCommission: true,
+  /** RestauNax branch fix/affiliate-lifecycle — the rebuilt affiliate portal
+   *  (Overview / Your restaurants / Payments, one `money` summary) and HQ
+   *  affiliate details (that affiliate's payouts, Forfeited card). The
+   *  affiliate details API carries `money`. Not on QA yet; flip once it is. */
+  affiliateLifecycle: false,
   /** RestauNax back-office audit, Stage 1 paywall (branch bo1031/paywall,
    *  docs/features/back-office/audit-2026-10/W5_PAYWALL_TASKS.md): Menu TVs,
    *  Social Media and Voice AI gated; 404 before the add-on check (L2);
@@ -211,6 +217,8 @@ const REASON: Record<ReleasePart, string> = {
     "Restaurant attribution (RestauNax feat/sales-attribution) is not on this environment yet — /api/admin/attribution answers 404",
   affiliateCommission:
     "Affiliate commission (RestauNax feat/sales-attribution) is not on this environment yet — /api/affiliates/admin/program-defaults answers 404",
+  affiliateLifecycle:
+    "The affiliate lifecycle rebuild (RestauNax fix/affiliate-lifecycle) is not on this environment yet — the affiliate details carry no money summary",
   reservationsAudit:
     "The reservations audit fixes (RestauNax fix/reservations-audit) are not on this environment yet — the booking-hours suggestion carries no suggestedMaxPartiesPerSlot",
   reservationsPhase4:
@@ -408,6 +416,23 @@ export async function probeAffiliateCommission(
     adminToken
   );
   return res.status !== 404;
+}
+
+/**
+ * Is the affiliate lifecycle rebuild deployed? The admin affiliate details
+ * carry the one `money` summary only once it is. Read-only.
+ */
+export async function probeAffiliateLifecycle(
+  adminToken: string,
+  affiliateId: string
+): Promise<boolean> {
+  const res = await apiRequestRaw<{ affiliate?: { money?: unknown } }>(
+    "GET",
+    `/api/affiliates/admin/affiliates/${affiliateId}`,
+    undefined,
+    adminToken
+  );
+  return res.status === 200 && res.data?.affiliate?.money !== undefined;
 }
 
 /**
