@@ -254,6 +254,16 @@ closed: false}` before it even generates candidate slots from the period —
   `dashboard/owner/order-receipt-download.spec.ts` (TC-2076). Run with
   `playwright.local.config.ts` (no global setup).
 
+- **`27-receipt-storefront.spec.ts` (TC-2078..2081)** — the receipt link opens on the
+  restaurant's own storefront (RestauNax `feat/send-receipt` addendum). API: `GET
+/api/public/receipts/:token` (200 shape without customer contact; unknown and malformed
+  tokens answer the same 404), the emailed View receipt link host (storefront
+  `/receipt/<token>` vs the API host's `/r/<token>`, PDF always on the API host), and the
+  template-wind and template-lima receipt pages (Receipt # once, total, Download PDF;
+  unknown token "couldn't find"). Gated by `RELEASED_ON_QA.receiptStorefront`, `@receipt-storefront`.
+  Token from `E2E_LOCAL_DATABASE_URL` or the Mailpit email. Lima's slug path needs the
+  built `server.ts` locally (see TEST_CASES.md). Run with `playwright.local.config.ts`.
+
 ## 09-dual-pricing.spec.ts
 
 Dual pricing v2 (per-item cash tier) at the API level, on its OWN throwaway

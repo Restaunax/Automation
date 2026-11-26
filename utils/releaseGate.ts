@@ -19,7 +19,8 @@
  * `--grep @attribution`, `--grep @affiliate-commission`,
  * `--grep @affiliate-lifecycle`,
  * `--grep @books-offboarding`, `--grep @hq-notices`, `--grep @split-hours`,
- * `--grep @owner-gift-cards`, `--grep @send-receipt`.
+ * `--grep @owner-gift-cards`, `--grep @send-receipt`,
+ * `--grep @receipt-storefront`.
  */
 import { test, expect } from "../fixtures/base";
 import { apiRequestRaw } from "./apiHelper";
@@ -150,6 +151,12 @@ export const RELEASED_ON_QA = {
   /** RestauNax feat/send-receipt (dashboard): Order details offers
    *  "Download receipt" and "Send receipt". Flip once it is on QA. */
   sendReceiptDashboard: false,
+  /** RestauNax feat/send-receipt (GET /api/public/receipts/:token, receipt
+   *  links on the restaurant's storefront) plus template-wind and
+   *  template-lima `/receipt/:token` pages. Gates the storefront PAGE tests
+   *  and the link-host test; flip once the backend and BOTH storefronts are
+   *  on QA. */
+  receiptStorefront: false,
   /** RestauNax feat/gift-cards-owner-ux (backend): GET config carries
    *  `canEditPlatformFields`; an owner PUT silently drops `isEnabled`,
    *  `allowCashFunding` and `allowPhysicalActivation` (RestauNax staff still
@@ -258,6 +265,8 @@ const REASON: Record<ReleasePart, string> = {
     "Send any receipt (RestauNax feat/send-receipt) is not on this environment yet: /api/order/statistics/:id/receipt-sends answers 404",
   sendReceiptDashboard:
     "The send-receipt dialog (RestauNax feat/send-receipt) is not on this dashboard yet: locales/en/orders.json has no sendReceipt block",
+  receiptStorefront:
+    "The receipt page on the storefront (RestauNax feat/send-receipt, template-wind and template-lima /receipt/:token) is not on this environment yet: GET /api/public/receipts/:token answers no JSON 404 or a storefront has no receipt page",
   ownerGiftCards:
     "Owner gift cards (RestauNax feat/owner-gift-cards) are not on this environment yet — /api/gift-cards/restaurants/:id/reports/summary answers 404",
   giftCardsOwnerUx:
@@ -813,6 +822,26 @@ export async function probeSendReceiptDashboard(): Promise<boolean> {
     if (!res.ok) return false;
     const json = (await res.json()) as { sendReceipt?: { send?: unknown } };
     return typeof json.sendReceipt?.send === "string";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Is the public receipt endpoint deployed? A well-formed unknown token answers
+ * the endpoint's own JSON 404 `{success:false}`; before the change the route
+ * does not exist and the answer is the app's HTML 404. Read-only, no auth.
+ */
+export async function probeReceiptEndpoint(
+  backendUrl: string
+): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${backendUrl.replace(/\/+$/, "")}/api/public/receipts/${"A".repeat(22)}`
+    );
+    if (res.status !== 404) return false;
+    const json = (await res.json()) as { success?: unknown };
+    return json.success === false;
   } catch {
     return false;
   }
