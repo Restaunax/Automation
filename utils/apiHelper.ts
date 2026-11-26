@@ -8357,18 +8357,23 @@ export async function getReceiptPdfOwnerRaw(
   contentType: string;
   disposition: string;
   bytes: Buffer;
+  /** A refusal's JSON body ({ success, message }); null on a PDF. */
+  data: { success?: boolean; message?: string } | null;
 }> {
   const res = await fetch(
     `${BACKEND_URL}/api/order/statistics/${orderId}/receipt.pdf`,
     { headers: { Authorization: `Bearer ${ownerToken}` } }
   );
+  const contentType = res.headers.get("content-type") ?? "";
+  const ok = res.status === 200;
   return {
     status: res.status,
-    contentType: res.headers.get("content-type") ?? "",
+    contentType,
     disposition: res.headers.get("content-disposition") ?? "",
-    bytes:
-      res.status === 200
-        ? Buffer.from(await res.arrayBuffer())
-        : Buffer.alloc(0),
+    bytes: ok ? Buffer.from(await res.arrayBuffer()) : Buffer.alloc(0),
+    data:
+      !ok && contentType.includes("application/json")
+        ? ((await res.json()) as { success?: boolean; message?: string })
+        : null,
   };
 }

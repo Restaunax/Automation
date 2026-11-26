@@ -28,6 +28,12 @@
  *   TC-2073 another restaurant's owner gets 403 on send, history and PDF.
  *   TC-2074 the PDF is application/pdf and shows no Stripe fee or "Net to you".
  *   TC-2075 owner search by card last 4 and by amount finds the walk-in order.
+ *   TC-2077 the owner's receipt.pdf of an open check is refused (400, notPaid).
+ *
+ * Not here on purpose: the hourly caps per restaurant (60 a channel) and per
+ * recipient (10, any restaurant) answer RATE_LIMITED (429). They are unit-tested
+ * in the backend (sendReceiptForOrder.test.ts); an e2e would have to send 60
+ * real receipts.
  */
 import { execFileSync } from "child_process";
 import * as allure from "allure-js-commons";
@@ -440,6 +446,15 @@ test.describe("Send any receipt (API)", { tag: ["@send-receipt"] }, () => {
       expect(text).not.toMatch(/stripe/i);
       expect(text).not.toMatch(/net to you/i);
     }
+  });
+
+  test("TC-2077: the owner's receipt.pdf of an open check is refused (400, notPaid)", async () => {
+    gate();
+    const id = await openCheck();
+    const pdf = await getReceiptPdfOwnerRaw(ownerToken, id);
+    expect(pdf.status, JSON.stringify(pdf.data)).toBe(400);
+    expect(pdf.contentType).not.toContain("application/pdf");
+    expect(pdf.data?.message).toBe(NOT_PAID);
   });
 
   test("TC-2075: owner search by card last 4 and by amount finds the walk-in order", async () => {

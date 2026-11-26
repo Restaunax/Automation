@@ -243,8 +243,9 @@ closed: false}` before it even generates candidate slots from the period —
   the kiosk's 24h limit and a register's missing staff session (401 `sessionRequired`),
   a refunded order and its `/r/` page, an open check refused, the 4th send in an hour
   (429), another restaurant's owner (403 on send, history, PDF), the PDF (content type,
-  `%PDF-`, no Stripe fee or "Net to you", text checked with `pdftotext` when on PATH), and owner search by
-  card last 4 and by amount. Runs on QA and locally (gated by
+  `%PDF-`, no Stripe fee or "Net to you", text checked with `pdftotext` when on PATH), the PDF
+  of an open check refused (400, TC-2077), and owner search by card last 4 and by amount. The
+  hourly per-restaurant and per-recipient caps (`RATE_LIMITED`) are backend unit tests only. Runs on QA and locally (gated by
   `RELEASED_ON_QA.sendReceipt`). Only the backdated order, the refund row (TC-2070,
   skips) and `cardLast4` use `localSql` and are skipped without
   `E2E_LOCAL_DATABASE_URL`; the rest needs no database or Stripe. The email is checked
