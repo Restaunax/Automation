@@ -1,34 +1,41 @@
 /**
  * 26-send-receipt.spec.ts — staff and owners send the receipt of any paid
  * order, download a clean customer PDF, and find a walk-in by card or amount
- * (TC-2058..TC-2065). The portal half is
- * tests/dashboard/owner/order-receipt-download.spec.ts (TC-2066).
+ * (TC-2068..TC-2075). The portal half is
+ * tests/dashboard/owner/order-receipt-download.spec.ts (TC-2076).
  *
  * RestauNax feat/send-receipt (docs/features/RECEIPTS.md). No browser: the POS
  * is played through its own API. A per-run throwaway restaurant with a
  * REGISTER device (the owner signed in with a PIN, drawer open) and a KIOSK
  * device; a second restaurant's owner is the stranger.
  *
- * Local-stack only: backdating an order and setting its card last 4 go through
- * the local database (E2E_LOCAL_DATABASE_URL, localhost only), and the sent
- * email is read from the local Mailpit. Both are absent on QA, so the file
- * skips there. SMS is off locally (no Twilio), so it is asserted only where it
- * is refused (bad number); every success path uses email.
+ * Runs on QA and locally (gated by RELEASED_ON_QA.sendReceipt). Orders are
+ * paid in cash at the register, so no Stripe is needed. Three things reach
+ * into the LOCAL database (E2E_LOCAL_DATABASE_URL, localhost only, never a
+ * delete) and are done only when it is set: backdating an order (TC-2068's
+ * "30 days old", TC-2069's 24h refusal), the refund row (TC-2070, which skips
+ * without it: the owner refund route needs a Stripe payment) and a card last 4
+ * (TC-2075's card half). Without the database those tests still run their
+ * other halves on a fresh order. The sent email is read from Mailpit when
+ * MAILPIT_BASE_URL is set. SMS is not sent in tests (Twilio is off locally and
+ * real on QA); a text is asserted only where it is refused (bad number).
  *
- *   TC-2058 staff on a register email the receipt of a 30-day-old paid order; the history row is masked.
- *   TC-2059 a kiosk may send a fresh order but not one older than 24h; a register without a staff session gets 401.
- *   TC-2060 a refunded order still sends, and its /r/ page shows the refund.
- *   TC-2061 an open check is refused (400, notPaid).
- *   TC-2062 the 4th send of one receipt on one channel in an hour answers 429.
- *   TC-2063 another restaurant's owner gets 403 on send, history and PDF.
- *   TC-2064 the PDF is application/pdf and shows no Stripe fee or "Net to you".
- *   TC-2065 owner search by card last 4 and by amount finds the walk-in order.
+ *   TC-2068 staff on a register email the receipt of a paid order (30 days old where the database is reachable); the history row is masked.
+ *   TC-2069 a kiosk may send a fresh order but not one older than 24h; a register without a staff session gets 401.
+ *   TC-2070 a refunded order still sends, and its /r/ page shows the refund.
+ *   TC-2071 an open check is refused (400, notPaid).
+ *   TC-2072 the 4th send of one receipt on one channel in an hour answers 429.
+ *   TC-2073 another restaurant's owner gets 403 on send, history and PDF.
+ *   TC-2074 the PDF is application/pdf and shows no Stripe fee or "Net to you".
+ *   TC-2075 owner search by card last 4 and by amount finds the walk-in order.
  */
 import { execFileSync } from "child_process";
 import * as allure from "allure-js-commons";
 import { test, expect } from "../../fixtures/base";
 import { generateRunId } from "../../utils/testData";
 import { localDbReady, localSql } from "../../utils/reservationPhase4Api";
+import { probeSendReceipt, requireRelease } from "../../utils/releaseGate";
+import { waitForEmail } from "../../utils/emailHelper";
 import {
   apiLogin,
   createMenuGroupNamed,
@@ -58,7 +65,6 @@ import {
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 const EMAIL_DOMAIN = process.env.TEST_EMAIL_DOMAIN ?? "demomailtrap.co";
-const MAILPIT = process.env.MAILPIT_LOCAL_URL ?? "http://localhost:8025";
 
 /** A price no other order in the throwaway tenant shares, so an amount search finds one. */
 const PRICE = 13.37;
@@ -68,8 +74,8 @@ test.describe.configure({ mode: "serial" });
 
 test.describe("Send any receipt (API)", { tag: ["@send-receipt"] }, () => {
   test.skip(
-    !ADMIN_EMAIL || !ADMIN_PASSWORD || !localDbReady(),
-    "needs ADMIN_* and E2E_LOCAL_DATABASE_URL (local stack only)"
+    !ADMIN_EMAIL || !ADMIN_PASSWORD,
+    "ADMIN_EMAIL / ADMIN_PASSWORD not set (the file mints its own tenants)"
   );
 
   const runId = generateRunId();
@@ -85,6 +91,10 @@ test.describe("Send any receipt (API)", { tag: ["@send-receipt"] }, () => {
   let kiosk = "";
   let staffSession = "";
   let mailSeq = 0;
+  /** The send-receipt routes exist on this stack (probed once in beforeAll). */
+  let present = false;
+  const gate = () => requireRelease("sendReceipt", present);
+  const localOnly = localDbReady();
 
   const mail = () => `auto-receipt-${runId}-${++mailSeq}@${EMAIL_DOMAIN}`;
   const body = (extra: Record<string, unknown> = {}) => ({
@@ -139,17 +149,16 @@ test.describe("Send any receipt (API)", { tag: ["@send-receipt"] }, () => {
     localSql(
       `update "Order" set "createdAt" = now() - interval '${interval}' where id = '${orderId}'`
     );
-  /** True once Mailpit holds a message to `to`. */
-  const mailArrived = async (to: string) => {
-    for (let i = 0; i < 15; i++) {
-      const r = await fetch(
-        `${MAILPIT}/api/v1/search?query=${encodeURIComponent(`to:${to}`)}`
-      );
-      const j = (await r.json()) as { messages_count?: number };
-      if ((j.messages_count ?? 0) > 0) return true;
-      await new Promise((res) => setTimeout(res, 500));
+  /** The email reached Mailpit (only checked when MAILPIT_BASE_URL is set;
+   *  the history row's `succeeded` is the proof otherwise). */
+  const mailArrived = async (to: string): Promise<boolean> => {
+    if (!process.env.MAILPIT_BASE_URL) return true;
+    try {
+      await waitForEmail(to, { timeoutMs: 30_000 });
+      return true;
+    } catch {
+      return false;
     }
-    return false;
   };
   const sends = async (orderId: string) => {
     const r = await getReceiptSendsOwnerRaw(ownerToken, orderId);
@@ -208,6 +217,7 @@ test.describe("Send any receipt (API)", { tag: ["@send-receipt"] }, () => {
     const member = await setOwnerPosPin(ownerToken, rid, PIN);
     staffSession = await tabletStaffSignIn(register, member, PIN);
     await openRegisterSessionPos(register, staffSession, 100);
+    present = await probeSendReceipt(ownerToken, await paidOrder());
   });
 
   test.afterAll(async () => {
@@ -223,9 +233,12 @@ test.describe("Send any receipt (API)", { tag: ["@send-receipt"] }, () => {
     await allure.label("severity", "critical");
   });
 
-  test("TC-2058: staff on a register email the receipt of a 30-day-old paid order; the history row is masked", async () => {
+  test("TC-2068: staff on a register email the receipt of a paid order (30 days old when the local database is reachable); the history row is masked", async () => {
+    gate();
     const id = await paidOrder();
-    age(id, "30 days");
+    // QA has no database reach: there the order is fresh (the POS door has no
+    // age limit either way; the 30 days only proves it).
+    if (localOnly) age(id, "30 days");
     const to = mail();
     const r = await sendReceiptTabletRaw(register, staffSession, id, {
       channel: "email",
@@ -252,7 +265,8 @@ test.describe("Send any receipt (API)", { tag: ["@send-receipt"] }, () => {
     expect(bad.status, JSON.stringify(bad.data)).toBe(400);
   });
 
-  test("TC-2059: a kiosk may send a fresh order but not one older than 24h; a register without a staff session gets 401", async () => {
+  test("TC-2069: a kiosk may send a fresh order but not one older than 24h; a register without a staff session gets 401", async () => {
+    gate();
     const fresh = await paidOrder();
     const ok = await sendReceiptTabletRaw(kiosk, undefined, fresh, {
       channel: "email",
@@ -261,20 +275,23 @@ test.describe("Send any receipt (API)", { tag: ["@send-receipt"] }, () => {
     expect(ok.status, JSON.stringify(ok.data)).toBe(200);
     expect(ok.data.send).toMatchObject({ source: "KIOSK", succeeded: true });
 
-    const old = await paidOrder();
-    age(old, "25 hours");
-    const refused = await sendReceiptTabletRaw(kiosk, undefined, old, {
-      channel: "email",
-      to: mail(),
-    });
-    expect(refused.status, JSON.stringify(refused.data)).toBe(400);
-    expect(refused.data.success).toBe(false);
-    // The same order, from the register with a staff session, has no age limit.
-    const staff = await sendReceiptTabletRaw(register, staffSession, old, {
-      channel: "email",
-      to: mail(),
-    });
-    expect(staff.status, JSON.stringify(staff.data)).toBe(200);
+    // The 24h refusal needs an old order: only where the database is reachable.
+    if (localOnly) {
+      const old = await paidOrder();
+      age(old, "25 hours");
+      const refused = await sendReceiptTabletRaw(kiosk, undefined, old, {
+        channel: "email",
+        to: mail(),
+      });
+      expect(refused.status, JSON.stringify(refused.data)).toBe(400);
+      expect(refused.data.success).toBe(false);
+      // The same order, from the register with a staff session, has no age limit.
+      const staff = await sendReceiptTabletRaw(register, staffSession, old, {
+        channel: "email",
+        to: mail(),
+      });
+      expect(staff.status, JSON.stringify(staff.data)).toBe(200);
+    }
 
     const noSession = await sendReceiptTabletRaw(register, undefined, fresh, {
       channel: "email",
@@ -284,7 +301,12 @@ test.describe("Send any receipt (API)", { tag: ["@send-receipt"] }, () => {
     expect(noSession.data.errorCode).toBe("sessionRequired");
   });
 
-  test("TC-2060: a refunded order still sends, and its /r/ page shows the refund", async () => {
+  test("TC-2070: a refunded order still sends, and its /r/ page shows the refund", async () => {
+    gate();
+    test.skip(
+      !localOnly,
+      "the refund row is written to the local database: the owner refund route needs a Stripe payment, which a cash order has none of"
+    );
     const id = await paidOrder();
     // The owner refund route needs a Stripe payment (a cash order answers
     // PAYMENT_NOT_FOUND), and Stripe is not reachable locally, so the refund
@@ -324,7 +346,8 @@ test.describe("Send any receipt (API)", { tag: ["@send-receipt"] }, () => {
     expect(await plainPage.text()).not.toMatch(/refund/i);
   });
 
-  test("TC-2061: an open check is refused: a receipt needs money taken (400)", async () => {
+  test("TC-2071: an open check is refused: a receipt needs money taken (400)", async () => {
+    gate();
     const id = await openCheck();
     const to = mail();
     const r = await sendReceiptTabletRaw(register, staffSession, id, {
@@ -341,7 +364,8 @@ test.describe("Send any receipt (API)", { tag: ["@send-receipt"] }, () => {
     expect(await sends(id)).toHaveLength(0);
   });
 
-  test("TC-2062: the 4th send of one receipt on one channel within an hour answers 429", async () => {
+  test("TC-2072: the 4th send of one receipt on one channel within an hour answers 429", async () => {
+    gate();
     const id = await paidOrder();
     for (let i = 0; i < 3; i++) {
       const r = await sendReceiptTabletRaw(register, staffSession, id, {
@@ -358,7 +382,8 @@ test.describe("Send any receipt (API)", { tag: ["@send-receipt"] }, () => {
     expect(await sends(id)).toHaveLength(3);
   });
 
-  test("TC-2063: another restaurant's owner gets 403 on send, history and PDF", async () => {
+  test("TC-2073: another restaurant's owner gets 403 on send, history and PDF", async () => {
+    gate();
     const id = await paidOrder();
     const send = await sendReceiptOwnerRaw(strangerToken, id, {
       channel: "email",
@@ -372,7 +397,8 @@ test.describe("Send any receipt (API)", { tag: ["@send-receipt"] }, () => {
     expect(await sends(id)).toHaveLength(0);
   });
 
-  test("TC-2064: the PDF is application/pdf and shows no Stripe fee or 'Net to you'", async () => {
+  test("TC-2074: the PDF is application/pdf and shows no Stripe fee or 'Net to you'", async () => {
+    gate();
     const id = await paidOrder();
     const pdf = await getReceiptPdfOwnerRaw(ownerToken, id);
     expect(pdf.status).toBe(200);
@@ -389,13 +415,20 @@ test.describe("Send any receipt (API)", { tag: ["@send-receipt"] }, () => {
     expect(text).not.toMatch(/net to you/i);
   });
 
-  test("TC-2065: owner search by card last 4 and by amount finds the walk-in order", async () => {
+  test("TC-2075: owner search by card last 4 and by amount finds the walk-in order", async () => {
+    gate();
     const id = await paidOrder();
-    const last4 = String(1000 + (Date.now() % 8999));
-    localSql(`update "Order" set "cardLast4" = '${last4}' where id = '${id}'`);
-    const byCard = await listOrdersRaw(ownerToken, rid, { search: last4 });
-    expect(byCard.status, JSON.stringify(byCard.data)).toBe(200);
-    expect(byCard.data.orders.map((o) => o.id)).toContain(id);
+    // The card half needs an order with a card: a cash walk-in has none, so
+    // the last 4 is written locally (no card order exists on QA from here).
+    if (localOnly) {
+      const last4 = String(1000 + (Date.now() % 8999));
+      localSql(
+        `update "Order" set "cardLast4" = '${last4}' where id = '${id}'`
+      );
+      const byCard = await listOrdersRaw(ownerToken, rid, { search: last4 });
+      expect(byCard.status, JSON.stringify(byCard.data)).toBe(200);
+      expect(byCard.data.orders.map((o) => o.id)).toContain(id);
+    }
     const byAmount = await listOrdersRaw(ownerToken, rid, {
       search: `$${PRICE}`,
     });

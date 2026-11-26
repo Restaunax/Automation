@@ -235,7 +235,7 @@ closed: false}` before it even generates candidate slots from the period —
   Cleanup in `afterAll`: the device is deactivated, seeded cards recorded for
   cleanup, the tenants deleted. Not yet run against a live backend.
 
-- **`26-send-receipt.spec.ts` (TC-2058..2065)** — staff, owners and a kiosk send the
+- **`26-send-receipt.spec.ts` (TC-2068..2065)** — staff, owners and a kiosk send the
   receipt of any paid order (RestauNax `feat/send-receipt`,
   `docs/features/RECEIPTS.md`). Own throwaway tenant + a stranger tenant, a REGISTER
   device (owner PIN session, open drawer) and a KIOSK device. Orders are paid in cash
@@ -244,11 +244,8 @@ closed: false}` before it even generates candidate slots from the period —
   a refunded order and its `/r/` page, an open check refused, the 4th send in an hour
   (429), another restaurant's owner (403 on send, history, PDF), the PDF (content type,
   `%PDF-`, no Stripe fee or "Net to you", read with `pdftotext`), and owner search by
-  card last 4 and by amount. **Local stack only** (skips without
-  `E2E_LOCAL_DATABASE_URL`): ages orders, sets `cardLast4` and writes the refund row
-  through `localSql`, and reads the email from the local Mailpit. SMS is off locally, so
-  a text is asserted only where it is refused. The portal half is
-  `dashboard/owner/order-receipt-download.spec.ts` (TC-2066). Run with
+  card last 4 and by amount. Runs on QA and locally (gated by `RELEASED_ON_QA.sendReceipt`). Only the backdated order, the refund row (TC-2070, skips) and `cardLast4` use `localSql` and are skipped without `E2E_LOCAL_DATABASE_URL`; the rest needs no database or Stripe. The email is checked in Mailpit when `MAILPIT_BASE_URL` is set. SMS is asserted only on refusal. The portal half is
+  `dashboard/owner/order-receipt-download.spec.ts` (TC-2076). Run with
   `playwright.local.config.ts` (no global setup).
 
 ## 09-dual-pricing.spec.ts

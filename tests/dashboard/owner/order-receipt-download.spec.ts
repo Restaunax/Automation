@@ -1,13 +1,14 @@
 /**
  * order-receipt-download.spec.ts — the owner downloads a clean customer PDF and
- * sends the receipt of a paid walk-in order from the portal (TC-2066).
+ * sends the receipt of a paid walk-in order from the portal (TC-2076).
  *
  * RestauNax feat/send-receipt (docs/features/RECEIPTS.md). Browser. A per-run
  * throwaway restaurant with one walk-in order paid in cash at a register.
- * Local-stack only: the sent email is read from the local Mailpit, and the file
- * skips without E2E_LOCAL_DATABASE_URL (the marker of a local run).
+ * Runs on QA and locally (gated by RELEASED_ON_QA.sendReceiptDashboard + the
+ * backend gate). The order is paid in cash, so no Stripe or database is needed;
+ * the sent email is read from Mailpit when MAILPIT_BASE_URL is set.
  *
- *   TC-2066 Order details offers "Download receipt" (saves receipt-<n>.pdf, a
+ *   TC-2076 Order details offers "Download receipt" (saves receipt-<n>.pdf, a
  *           real PDF) and "Send receipt": an email goes out, "Receipt sent."
  *           shows and the history lists "Email to a•••@…" for the order.
  */
@@ -16,7 +17,12 @@ import * as allure from "allure-js-commons";
 import { test, expect } from "../../../fixtures/base";
 import { generateRunId } from "../../../utils/testData";
 import { loginViaUi, type UiLoginSession } from "../../../utils/auth";
-import { localDbReady } from "../../../utils/reservationPhase4Api";
+import {
+  probeSendReceipt,
+  probeSendReceiptDashboard,
+  requireRelease,
+} from "../../../utils/releaseGate";
+import { waitForEmail } from "../../../utils/emailHelper";
 import { activeDialog, DESKTOP } from "../../../utils/humanQa";
 import {
   apiLogin,
@@ -40,7 +46,6 @@ import {
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
 const EMAIL_DOMAIN = process.env.TEST_EMAIL_DOMAIN ?? "demomailtrap.co";
-const MAILPIT = process.env.MAILPIT_LOCAL_URL ?? "http://localhost:8025";
 const PRICE = 13.37;
 const PIN = "8462";
 
@@ -48,8 +53,8 @@ test.describe.configure({ mode: "serial" });
 
 test.describe("Order receipt download and send (UI)", () => {
   test.skip(
-    !ADMIN_EMAIL || !ADMIN_PASSWORD || !localDbReady(),
-    "needs ADMIN_* and E2E_LOCAL_DATABASE_URL (local stack only)"
+    !ADMIN_EMAIL || !ADMIN_PASSWORD,
+    "ADMIN_EMAIL / ADMIN_PASSWORD not set (the file mints its own tenant)"
   );
 
   const runId = generateRunId();
@@ -57,6 +62,8 @@ test.describe("Order receipt download and send (UI)", () => {
   let rid = "";
   let deviceId = "";
   let receiptNumber = "";
+  let present = false;
+  let dashboardPresent = false;
   let session: UiLoginSession | undefined;
   const to = `auto-receipt-ui-${runId}@${EMAIL_DOMAIN}`;
 
@@ -124,6 +131,9 @@ test.describe("Order receipt download and send (UI)", () => {
       idempotencyKey: `rcpt-ui-${runId}`,
     });
     expect(paid.status, JSON.stringify(paid.data)).toBe(200);
+    present = await probeSendReceipt(ownerToken, opened.data.id!);
+    dashboardPresent = await probeSendReceiptDashboard();
+    if (!present || !dashboardPresent) return;
     session = await loginViaUi(browser, tenant.email, tenant.password);
     await session.page.setViewportSize(DESKTOP);
   });
@@ -136,7 +146,9 @@ test.describe("Order receipt download and send (UI)", () => {
     if (rid) await deleteTestRestaurant(adminToken, rid).catch(() => {});
   });
 
-  test("TC-2066: Order details downloads the customer PDF and sends the receipt by email, with the history row", async () => {
+  test("TC-2076: Order details downloads the customer PDF and sends the receipt by email, with the history row", async () => {
+    requireRelease("sendReceipt", present);
+    requireRelease("sendReceiptDashboard", dashboardPresent);
     await allure.label("feature", "Send any receipt");
     await page().goto(
       `/restaurant/restaurantId/${rid}/restaurantManagement?tab=Orders`,
@@ -177,16 +189,10 @@ test.describe("Order receipt download and send (UI)", () => {
     await expect(dialog.getByText(/Email to a•••@/)).toBeVisible();
     await expect(dialog.getByText("Not sent yet.")).toHaveCount(0);
 
-    let arrived = false;
-    for (let i = 0; i < 15 && !arrived; i++) {
-      const r = await fetch(
-        `${MAILPIT}/api/v1/search?query=${encodeURIComponent(`to:${to}`)}`
-      );
-      arrived = ((await r.json()) as { messages_count?: number }).messages_count
-        ? true
-        : false;
-      if (!arrived) await new Promise((res) => setTimeout(res, 500));
-    }
-    expect(arrived, "the email reached Mailpit").toBe(true);
+    if (process.env.MAILPIT_BASE_URL)
+      await expect(
+        waitForEmail(to, { timeoutMs: 30_000 }),
+        "the email reached Mailpit"
+      ).resolves.toBeTruthy();
   });
 });
