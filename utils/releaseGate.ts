@@ -147,16 +147,16 @@ export const RELEASED_ON_QA = {
   /** RestauNax feat/send-receipt (backend): POST /api/tablet/orders/:id/send-receipt,
    *  the owner send-receipt / receipt-sends / receipt.pdf routes and the
    *  order search by card last 4 or amount. Flip once it is on QA. */
-  sendReceipt: false,
+  sendReceipt: true,
   /** RestauNax feat/send-receipt (dashboard): Order details offers
    *  "Download receipt" and "Send receipt". Flip once it is on QA. */
-  sendReceiptDashboard: false,
+  sendReceiptDashboard: true,
   /** RestauNax feat/send-receipt (GET /api/public/receipts/:token, receipt
    *  links on the restaurant's storefront) plus template-wind and
    *  template-lima `/receipt/:token` pages. Gates the storefront PAGE tests
    *  and the link-host test; flip once the backend and BOTH storefronts are
    *  on QA. */
-  receiptStorefront: false,
+  receiptStorefront: true,
   /** RestauNax feat/gift-cards-owner-ux (backend): GET config carries
    *  `canEditPlatformFields`; an owner PUT silently drops `isEnabled`,
    *  `allowCashFunding` and `allowPhysicalActivation` (RestauNax staff still
