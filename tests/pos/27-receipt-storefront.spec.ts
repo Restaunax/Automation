@@ -30,7 +30,7 @@ import { generateRunId } from "../../utils/testData";
 import { localDbReady, localSql } from "../../utils/reservationPhase4Api";
 import { probeReceiptEndpoint, requireRelease } from "../../utils/releaseGate";
 import { waitForEmail } from "../../utils/emailHelper";
-import { TEMPLATE_WIND_URL, readRestaurantSlug } from "../../utils/testData";
+import { TEMPLATE_WIND_URL } from "../../utils/testData";
 import {
   apiLogin,
   createMenuGroupNamed,
@@ -85,12 +85,16 @@ test.describe(
     let register = "";
     let staffSession = "";
     let orderId = "";
-    let present = false;
+    // Whether the backend serves the endpoint: written once in beforeAll and
+    // only read after. A test's own "is the page deployed" answer stays local
+    // to that test, so one storefront missing never skips the other's test.
+    let endpointPresent = false;
     let mailSeq = 0;
     const localOnly = localDbReady();
     const haveMail = !!process.env.MAILPIT_BASE_URL;
     const mail = () => `auto-rcptsf-${runId}-${++mailSeq}@${EMAIL_DOMAIN}`;
-    const gate = () => requireRelease("receiptStorefront", present);
+    const gate = (present = endpointPresent) =>
+      requireRelease("receiptStorefront", present);
 
     /** Send the order's receipt by email; the links in that email. */
     const emailedLinks = async (): Promise<string[]> => {
@@ -106,10 +110,13 @@ test.describe(
       return [...new Set(text.match(LINK) ?? [])];
     };
     /** The order's receipt token: the database when reachable, else Mailpit. */
+    // Email budget: the backend takes 3 receipt EMAILS per order per hour
+    // (RECEIPTS_PER_HOUR, TC-2072), and this whole file uses ONE order. It
+    // sends exactly 3: one to mint the token (read once, cached, reused by
+    // TC-2078/2080/2081) and two in TC-2079 (no storefront, then storefront).
+    // A fourth send anywhere in this file answers 429 TOO_MANY.
     let cachedToken = "";
     const receiptToken = async (): Promise<string> => {
-      // One send mints it; a receipt takes only 3 emails an hour (TC-2072), and
-      // this file also sends in TC-2079, so the token is read once and reused.
       if (!cachedToken) cachedToken = await mintReceiptToken();
       return cachedToken;
     };
@@ -199,7 +206,7 @@ test.describe(
         idempotencyKey: `rsf-${runId}`,
       });
       expect(s.status, JSON.stringify(s.data)).toBe(200);
-      present = await probeReceiptEndpoint(BACKEND_URL);
+      endpointPresent = await probeReceiptEndpoint(BACKEND_URL);
     });
 
     test.afterAll(async () => {
@@ -264,19 +271,31 @@ test.describe(
         "giving the restaurant a storefront writes Restaurant.website in the local database"
       );
       const site = `https://rcpt-${runId.toLowerCase()}.example.test`;
+      const before =
+        localSql<{ website: string | null }>(
+          `select website from "Restaurant" where id = '${rid}'`
+        )[0]?.website ?? null;
       localSql(
         `update "Restaurant" set website = '${site}' where id = '${rid}'`
       );
-      const withSite = await emailedLinks();
-      const v = view(withSite)!;
-      expect(v, withSite.join(", ")).toMatch(
-        new RegExp(`^${site}/receipt/[A-Za-z0-9_-]{22}$`)
-      );
-      // The same permanent token, and the PDF stays on the API host.
-      expect(v.split("/").pop()).toBe(view(bare)!.split("/").pop());
-      expect(pdf(withSite), withSite.join(", ")).toMatch(/\/r\/[^/]+\/pdf$/);
-      expect(pdf(withSite)).not.toContain(site);
-      localSql(`update "Restaurant" set website = null where id = '${rid}'`);
+      try {
+        const withSite = await emailedLinks();
+        const v = view(withSite)!;
+        expect(v, withSite.join(", ")).toMatch(
+          new RegExp(`^${site}/receipt/[A-Za-z0-9_-]{22}$`)
+        );
+        // The same permanent token, and the PDF stays on the API host.
+        expect(v.split("/").pop()).toBe(view(bare)!.split("/").pop());
+        expect(pdf(withSite), withSite.join(", ")).toMatch(/\/r\/[^/]+\/pdf$/);
+        expect(pdf(withSite)).not.toContain(site);
+      } finally {
+        // Put back what was there, pass or fail.
+        localSql(
+          `update "Restaurant" set website = ${
+            before === null ? "null" : `'${before.replace(/'/g, "''")}'`
+          } where id = '${rid}'`
+        );
+      }
     });
 
     const expectReceiptPage = async (
@@ -293,8 +312,7 @@ test.describe(
         .waitFor({ timeout: 20_000 })
         .then(() => true)
         .catch(() => false);
-      present = present && deployed;
-      gate();
+      gate(endpointPresent && deployed);
       await expect(page.getByText(NOT_FOUND).first()).toBeVisible();
 
       const token = await receiptToken();
@@ -330,14 +348,18 @@ test.describe(
       page,
     }) => {
       gate();
-      const slug =
-        (await ensureOrderingSlug(
-          adminToken,
-          "restaurant",
-          rid,
-          `rsf-${runId}`
-        )) || readRestaurantSlug();
-      test.skip(!slug, "no ordering slug for the throwaway restaurant");
+      // The throwaway tenant's OWN slug (claimed here), never the seed's: the
+      // page must brand THIS restaurant, and nothing here touches the seed.
+      const slug = await ensureOrderingSlug(
+        adminToken,
+        "restaurant",
+        rid,
+        `rsf-${runId.toLowerCase()}`
+      );
+      test.skip(
+        !slug,
+        "could not claim an ordering slug for the throwaway restaurant"
+      );
       await expectReceiptPage(page, `${LIMA_URL}/${slug}`);
     });
   }
