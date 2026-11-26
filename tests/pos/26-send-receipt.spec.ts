@@ -46,6 +46,7 @@ import {
   deactivateTabletDevice,
   deleteTestRestaurant,
   ensureBusinessHours,
+  getOrderDetailRaw,
   getReceiptPdfOwnerRaw,
   getReceiptSendsOwnerRaw,
   listOrdersRaw,
@@ -69,6 +70,11 @@ const EMAIL_DOMAIN = process.env.TEST_EMAIL_DOMAIN ?? "demomailtrap.co";
 /** A price no other order in the throwaway tenant shares, so an amount search finds one. */
 const PRICE = 13.37;
 const PIN = "8462";
+/** restaunax-backend src/locales/en/error.json `receipt.*`. A refused send
+ *  carries no errorCode (only LINK_UNAVAILABLE does), so the exact text is the
+ *  contract asserted here. */
+const NOT_PAID = "A receipt can only be sent for a paid order.";
+const TOO_OLD = "This receipt is too old to send from a device.";
 
 test.describe.configure({ mode: "serial" });
 
@@ -158,6 +164,18 @@ test.describe("Send any receipt (API)", { tag: ["@send-receipt"] }, () => {
       return true;
     } catch {
       return false;
+    }
+  };
+  /** The PDF's text, or null when pdftotext is not on PATH. */
+  const pdfText = (bytes: Buffer): string | null => {
+    try {
+      return execFileSync("pdftotext", ["-layout", "-", "-"], {
+        input: bytes,
+        encoding: "utf8",
+      });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw err;
     }
   };
   const sends = async (orderId: string) => {
@@ -285,6 +303,7 @@ test.describe("Send any receipt (API)", { tag: ["@send-receipt"] }, () => {
       });
       expect(refused.status, JSON.stringify(refused.data)).toBe(400);
       expect(refused.data.success).toBe(false);
+      expect(refused.data.message).toBe(TOO_OLD);
       // The same order, from the register with a staff session, has no age limit.
       const staff = await sendReceiptTabletRaw(register, staffSession, old, {
         channel: "email",
@@ -355,12 +374,13 @@ test.describe("Send any receipt (API)", { tag: ["@send-receipt"] }, () => {
       to,
     });
     expect(r.status, JSON.stringify(r.data)).toBe(400);
-    expect(r.data.message).toMatch(/paid order/i);
+    expect(r.data.message).toBe(NOT_PAID);
     const o = await sendReceiptOwnerRaw(ownerToken, id, {
       channel: "email",
       to,
     });
     expect(o.status).toBe(400);
+    expect(o.data.message).toBe(NOT_PAID);
     expect(await sends(id)).toHaveLength(0);
   });
 
@@ -405,14 +425,21 @@ test.describe("Send any receipt (API)", { tag: ["@send-receipt"] }, () => {
     expect(pdf.contentType).toContain("application/pdf");
     expect(pdf.disposition).toMatch(/attachment; filename="receipt-.+\.pdf"/);
     expect(pdf.bytes.subarray(0, 5).toString()).toBe("%PDF-");
-    const text = execFileSync("pdftotext", ["-layout", "-", "-"], {
-      input: pdf.bytes,
-      encoding: "utf8",
-    });
-    expect(text).toContain(item.name);
-    expect(text).toContain("13.37");
-    expect(text).not.toMatch(/stripe/i);
-    expect(text).not.toMatch(/net to you/i);
+    // No JS PDF text extractor is in the dependencies (and none is added), so
+    // the content checks use the pdftotext binary when it is on PATH.
+    const text = pdfText(pdf.bytes);
+    if (text === null) {
+      test.info().annotations.push({
+        type: "skipped-check",
+        description:
+          "pdftotext is not on PATH: the PDF's text (item, price, no Stripe, no Net to you) was not checked; content type, filename and %PDF- were.",
+      });
+    } else {
+      expect(text).toContain(item.name);
+      expect(text).toContain("13.37");
+      expect(text).not.toMatch(/stripe/i);
+      expect(text).not.toMatch(/net to you/i);
+    }
   });
 
   test("TC-2075: owner search by card last 4 and by amount finds the walk-in order", async () => {
@@ -434,8 +461,18 @@ test.describe("Send any receipt (API)", { tag: ["@send-receipt"] }, () => {
     });
     expect(byAmount.status).toBe(200);
     expect(byAmount.data.orders.map((o) => o.id)).toContain(id);
-    // A bare integer is a receipt/order number, never an amount.
-    const bare = await listOrdersRaw(ownerToken, rid, { search: "13" });
+    // A bare integer is a receipt/order number, never an amount. Pick one
+    // that is neither this order's daily number nor inside its receipt number
+    // (receipt search is a "contains"), so a hit could only be an amount match.
+    const detail = await getOrderDetailRaw(ownerToken, id);
+    expect(detail.status, JSON.stringify(detail.data)).toBe(200);
+    const receiptNo = String(detail.data.receiptNumber ?? "");
+    const dailyNo = String(detail.data.orderNumber ?? "");
+    const bareTerm = ["13", "14", "17", "19", "23", "29", "31", "37"].find(
+      (n) => !receiptNo.includes(n) && dailyNo !== n
+    )!;
+    const bare = await listOrdersRaw(ownerToken, rid, { search: bareTerm });
+    expect(bare.status).toBe(200);
     expect(bare.data.orders.map((o) => o.id)).not.toContain(id);
   });
 });
