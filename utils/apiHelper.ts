@@ -8299,3 +8299,76 @@ export function setRestaurantAttributionRaw(
     adminToken
   );
 }
+
+// ── Send any receipt (RestauNax feat/send-receipt) ──────────────────────────
+
+/** POST /api/tablet/orders/:orderId/send-receipt — the POS / kiosk door. A
+ *  kiosk device needs no staff session; a register or handheld does. */
+export function sendReceiptTabletRaw(
+  tabletToken: string,
+  staffSession: string | undefined,
+  orderId: string,
+  body: { channel: string; to: string }
+): Promise<RawResponse<LooseJson>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/tablet/orders/${orderId}/send-receipt`,
+    body,
+    tabletToken,
+    staffSession ? staffHeaders(staffSession) : undefined
+  );
+}
+
+/** POST /api/order/statistics/:orderId/send-receipt — the owner door. */
+export function sendReceiptOwnerRaw(
+  ownerToken: string,
+  orderId: string,
+  body: { channel: string; to: string; source?: "PORTAL" | "OWNER_APP" }
+): Promise<RawResponse<LooseJson>> {
+  return apiRequestRaw(
+    "POST",
+    `/api/order/statistics/${orderId}/send-receipt`,
+    body,
+    ownerToken
+  );
+}
+
+/** GET /api/order/statistics/:orderId/receipt-sends — masked history + prefill. */
+export function getReceiptSendsOwnerRaw(
+  ownerToken: string,
+  orderId: string
+): Promise<RawResponse<LooseJson>> {
+  return apiRequestRaw(
+    "GET",
+    `/api/order/statistics/${orderId}/receipt-sends`,
+    undefined,
+    ownerToken
+  );
+}
+
+/** GET /api/order/statistics/:orderId/receipt.pdf — binary, so it bypasses
+ *  apiRequestRaw (which reads every body as text). `bytes` is empty on a
+ *  non-200. */
+export async function getReceiptPdfOwnerRaw(
+  ownerToken: string,
+  orderId: string
+): Promise<{
+  status: number;
+  contentType: string;
+  disposition: string;
+  bytes: Buffer;
+}> {
+  const res = await fetch(
+    `${BACKEND_URL}/api/order/statistics/${orderId}/receipt.pdf`,
+    { headers: { Authorization: `Bearer ${ownerToken}` } }
+  );
+  return {
+    status: res.status,
+    contentType: res.headers.get("content-type") ?? "",
+    disposition: res.headers.get("content-disposition") ?? "",
+    bytes:
+      res.status === 200
+        ? Buffer.from(await res.arrayBuffer())
+        : Buffer.alloc(0),
+  };
+}

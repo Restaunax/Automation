@@ -235,6 +235,22 @@ closed: false}` before it even generates candidate slots from the period —
   Cleanup in `afterAll`: the device is deactivated, seeded cards recorded for
   cleanup, the tenants deleted. Not yet run against a live backend.
 
+- **`26-send-receipt.spec.ts` (TC-2058..2065)** — staff, owners and a kiosk send the
+  receipt of any paid order (RestauNax `feat/send-receipt`,
+  `docs/features/RECEIPTS.md`). Own throwaway tenant + a stranger tenant, a REGISTER
+  device (owner PIN session, open drawer) and a KIOSK device. Orders are paid in cash
+  through an open check and `settle-cash`. Covers: a 30-day-old order emails (POS door),
+  the kiosk's 24h limit and a register's missing staff session (401 `sessionRequired`),
+  a refunded order and its `/r/` page, an open check refused, the 4th send in an hour
+  (429), another restaurant's owner (403 on send, history, PDF), the PDF (content type,
+  `%PDF-`, no Stripe fee or "Net to you", read with `pdftotext`), and owner search by
+  card last 4 and by amount. **Local stack only** (skips without
+  `E2E_LOCAL_DATABASE_URL`): ages orders, sets `cardLast4` and writes the refund row
+  through `localSql`, and reads the email from the local Mailpit. SMS is off locally, so
+  a text is asserted only where it is refused. The portal half is
+  `dashboard/owner/order-receipt-download.spec.ts` (TC-2066). Run with
+  `playwright.local.config.ts` (no global setup).
+
 ## 09-dual-pricing.spec.ts
 
 Dual pricing v2 (per-item cash tier) at the API level, on its OWN throwaway
