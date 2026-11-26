@@ -235,6 +235,35 @@ closed: false}` before it even generates candidate slots from the period —
   Cleanup in `afterAll`: the device is deactivated, seeded cards recorded for
   cleanup, the tenants deleted. Not yet run against a live backend.
 
+- **`26-send-receipt.spec.ts` (TC-2068..2075)** — staff, owners and a kiosk send the
+  receipt of any paid order (RestauNax `feat/send-receipt`,
+  `docs/features/RECEIPTS.md`). Own throwaway tenant + a stranger tenant, a REGISTER
+  device (owner PIN session, open drawer) and a KIOSK device. Orders are paid in cash
+  through an open check and `settle-cash`. Covers: a 30-day-old order emails (POS door),
+  the kiosk's 24h limit and a register's missing staff session (401 `sessionRequired`),
+  a refunded order and its `/r/` page, an open check refused, the 4th send in an hour
+  (429), another restaurant's owner (403 on send, history, PDF), the PDF (content type,
+  `%PDF-`, no Stripe fee or "Net to you", text checked with `pdftotext` when on PATH), the PDF
+  of an open check refused (400, TC-2077), and owner search by card last 4 and by amount. The
+  hourly per-restaurant and per-recipient caps (`RATE_LIMITED`) are backend unit tests only. Runs on QA and locally (gated by
+  `RELEASED_ON_QA.sendReceipt`). Only the backdated order, the refund row (TC-2070,
+  skips) and `cardLast4` use `localSql` and are skipped without
+  `E2E_LOCAL_DATABASE_URL`; the rest needs no database or Stripe. The email is checked
+  in Mailpit when `MAILPIT_BASE_URL` is set. SMS is asserted only on refusal. The
+  portal half is
+  `dashboard/owner/order-receipt-download.spec.ts` (TC-2076). Run with
+  `playwright.local.config.ts` (no global setup).
+
+- **`27-receipt-storefront.spec.ts` (TC-2078..2081)** — the receipt link opens on the
+  restaurant's own storefront (RestauNax `feat/send-receipt` addendum). API: `GET
+/api/public/receipts/:token` (200 shape without customer contact; unknown and malformed
+  tokens answer the same 404), the emailed View receipt link host (storefront
+  `/receipt/<token>` vs the API host's `/r/<token>`, PDF always on the API host), and the
+  template-wind and template-lima receipt pages (Receipt # once, total, Download PDF;
+  unknown token "couldn't find"). Gated by `RELEASED_ON_QA.receiptStorefront`, `@receipt-storefront`.
+  Token from `E2E_LOCAL_DATABASE_URL` or the Mailpit email. Lima's slug path needs the
+  built `server.ts` locally (see TEST_CASES.md). Run with `playwright.local.config.ts`.
+
 ## 09-dual-pricing.spec.ts
 
 Dual pricing v2 (per-item cash tier) at the API level, on its OWN throwaway
