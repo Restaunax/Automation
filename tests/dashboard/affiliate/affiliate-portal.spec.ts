@@ -316,7 +316,10 @@ test.describe("Affiliate portal", { tag: "@affiliate-portal" }, () => {
             })
           ).toBeEnabled({ timeout: 15_000 });
           await expect(
-            affiliatePage.getByRole("heading", { name: "Payment History" })
+            affiliatePage.getByRole("heading", {
+              name: "Payment History",
+              exact: true,
+            })
           ).toBeVisible();
           await expect(
             affiliatePage.getByText("No Payment History Yet", { exact: true })
