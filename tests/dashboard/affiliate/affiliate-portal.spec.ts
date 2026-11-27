@@ -156,7 +156,12 @@ test.describe("Affiliate portal", { tag: "@affiliate-portal" }, () => {
           await expect(ui.submitButton()).toBeVisible();
           await expect(ui.submitButton()).toBeDisabled();
           await expect(ui.agreeCheckbox()).not.toBeChecked();
-          await ui.acceptAgreementInModal();
+          // The standard terms and the worked example (agreement 2026-11-27).
+          await ui.acceptAgreementInModal([
+            /5\.8 Standard Terms/,
+            /twenty percent \(20%\) of each paid plan/,
+            /paid with the\s+January 1 payment/,
+          ]);
           await expect(ui.agreeCheckbox()).toBeChecked();
           await expect(ui.submitButton()).toBeEnabled();
         }
@@ -185,7 +190,7 @@ test.describe("Affiliate portal", { tag: "@affiliate-portal" }, () => {
       });
 
       await allure.step(
-        "The API records PENDING with agreement version 2026-11",
+        "The API records PENDING with agreement version 2026-11-27",
         async () => {
           const login = await apiLogin(email, password);
           const profile = await apiRequestRaw<{
@@ -197,7 +202,7 @@ test.describe("Affiliate portal", { tag: "@affiliate-portal" }, () => {
           }>("GET", "/api/affiliates/profile", undefined, login.accessToken);
           expect(profile.status).toBe(200);
           expect(profile.data.affiliate?.status).toBe("PENDING");
-          expect(profile.data.affiliate?.agreementVersion).toBe("2026-11");
+          expect(profile.data.affiliate?.agreementVersion).toBe("2026-11-27");
         }
       );
     } finally {
@@ -360,6 +365,8 @@ test.describe("Affiliate portal", { tag: "@affiliate-portal" }, () => {
               pending: number;
               payoutBlockedReason?: string | null;
               payoutBlockedText?: string | null;
+              payableNext?: number;
+              expectedPayout?: { date: string; amount: number } | null;
             };
           };
         }
@@ -393,7 +400,16 @@ test.describe("Affiliate portal", { tag: "@affiliate-portal" }, () => {
       await allure.step(
         "Next payout shows an amount and a date, or the reason it is blocked",
         async () => {
-          if (money.payoutBlockedReason) {
+          // Nothing sendable on the next run but money still in the hold:
+          // the card shows that money and its later payout date, not $0.
+          if (!money.payableNext && money.expectedPayout) {
+            await expect(ui.moneyCard("Next payout")).toContainText(
+              /Expected [A-Z][a-z]{2} \d{1,2}, \d{4}, after the 30-day hold, if there are no refunds/
+            );
+            await expect(
+              ui.moneyCard("Next payout").getByRole("heading", { level: 4 })
+            ).not.toHaveText("$0.00");
+          } else if (money.payoutBlockedReason) {
             await expect(ui.moneyCard("Next payout")).toContainText(
               money.payoutBlockedText ?? ""
             );

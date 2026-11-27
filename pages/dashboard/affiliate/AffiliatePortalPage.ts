@@ -151,9 +151,14 @@ export const createAffiliatePortalPage = (page: Page) => {
   };
 
   /** Opens the agreement, scrolls it to the end, and accepts it. */
-  const acceptAgreementInModal = async () => {
+  /** Opens the agreement, checks each of `mustSay` is in it, scrolls to the
+   * end and accepts. */
+  const acceptAgreementInModal = async (mustSay: RegExp[] = []) => {
     await viewAgreementButton().click();
     await expect(agreementDialog()).toBeVisible({ timeout: 10_000 });
+    for (const text of mustSay) {
+      await expect(agreementDialog().getByText(text)).toHaveCount(1);
+    }
     await expect(agreeButton()).toBeDisabled();
     await expect(
       agreementDialog().getByText(
