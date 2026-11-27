@@ -58,7 +58,7 @@ const HINTS = [
   "Percent of what the restaurant pays us for its plan and add-ons, taken from each paid invoice.",
   "How many months after the owner activates the restaurant this share is paid.",
   "Optional lower percent paid after the window ends",
-  "Paid once, when the restaurant's first invoice is paid. Set to 0 for no bounty.",
+  "Paid once, when the restaurant's first invoice is paid. Set to 0 for no bonus.",
   "Not paid on. Equipment sales and rentals are left out of the share.",
 ];
 
