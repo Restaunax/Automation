@@ -54,8 +54,8 @@ export const RELEASED_ON_QA = {
   /** RestauNax branch fix/affiliate-lifecycle — the rebuilt affiliate portal
    *  (Overview / Your restaurants / Payments, one `money` summary) and HQ
    *  affiliate details (that affiliate's payouts, Forfeited card). The
-   *  affiliate details API carries `money`. Not on QA yet; flip once it is. */
-  affiliateLifecycle: false,
+   *  affiliate details API carries `money`. On QA since 2026-11-23 (#1197). */
+  affiliateLifecycle: true,
   /** RestauNax back-office audit, Stage 1 paywall (branch bo1031/paywall,
    *  docs/features/back-office/audit-2026-10/W5_PAYWALL_TASKS.md): Menu TVs,
    *  Social Media and Voice AI gated; 404 before the add-on check (L2);

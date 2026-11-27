@@ -94,7 +94,7 @@ export const createAdminAffiliatesPage = (page: Page) => {
       .click();
     await expect(detailsDialog()).toBeVisible({ timeout: 15_000 });
     await expect(
-      detailsDialog().getByRole("tab", { name: "Payments" })
+      detailsDialog().getByRole("tab", { name: "Payments", exact: true })
     ).toBeVisible({ timeout: 15_000 });
   };
 

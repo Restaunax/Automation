@@ -403,7 +403,9 @@ test.describe(
         await allure.step(
           "Payments tab: the cards equal the affiliate's own money",
           async () => {
-            await dialog.getByRole("tab", { name: "Payments" }).click();
+            await dialog
+              .getByRole("tab", { name: "Payments", exact: true })
+              .click();
             await expect(
               dialog.getByRole("heading", { name: "Payment Dashboard" })
             ).toBeVisible({ timeout: 15_000 });
@@ -425,7 +427,10 @@ test.describe(
           "Payment History lists that affiliate's payouts (not a 404 / empty error); no Stripe setup card for HQ",
           async () => {
             await expect(
-              dialog.getByRole("heading", { name: "Payment History" })
+              dialog.getByRole("heading", {
+                name: "Payment History",
+                exact: true,
+              })
             ).toBeVisible();
             await expect(dialog.getByRole("alert")).toHaveCount(0);
             if ((a.payouts?.length ?? 0) === 0) {
