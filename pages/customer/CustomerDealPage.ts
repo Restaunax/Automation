@@ -58,6 +58,18 @@ import { TEMPLATE_WIND_URL } from "../../utils/testData";
  *   has "Edit" (data-testid="cart-deal-edit", aria-label "Edit <deal
  *   name>"); the proceed button turns into "Complete Deals to Continue"
  *   while a (legacy, saved-cart) deal is incomplete.
+ * - Deal copies (template-wind feat/deal-copies-late-promotions, gated
+ *   RELEASED_ON_QA.dealCopiesWind): every Add is a NEW cart entry; after it
+ *   the bar offers data-testid="deal-add-another" ("Add another", a fresh
+ *   builder for the same deal; disabled at the deal's limit). The cart's
+ *   Edit opens THAT entry (/deals/<id>?entry=<cartId>) and its Add replaces
+ *   only that copy. A deal with a limit shows "deal-limit-per-order" ("Limit
+ *   N per order") under the intro, and "deal-limit-reached" (role=status,
+ *   "You've reached the limit of N per order.") in the bar once the cart
+ *   holds N; the cart drawer says "cart-deal-limit". Each copy in the
+ *   checkout summary has its own "Remove deal" (aria-label). Checkout shows
+ *   "deal-suggestion" ("Your cart qualifies for <deal>. Save $X.") with
+ *   "deal-suggestion-apply" (Apply) when the quote carries dealSuggestions.
  */
 export const createCustomerDealPage = (page: Page) => {
   // Same ?restaurantId= QA override as every other customer route.
@@ -389,6 +401,29 @@ export const createCustomerDealPage = (page: Page) => {
       .getByTestId("cart-deal-edit")
       .and(page.getByLabel(`Edit ${dealName}`, { exact: true }));
 
+  // ── Deal copies (feat/deal-copies-late-promotions) ────────────────────────
+  /** After the Add: "Add another" — a fresh builder for the same deal. */
+  const addAnotherButton = (): Locator => page.getByTestId("deal-add-another");
+  /** "You've reached the limit of N per order." in the bar. */
+  const limitReachedMessage = (): Locator =>
+    page.getByTestId("deal-limit-reached");
+  /** "Limit N per order" under the builder's intro. */
+  const limitPerOrderNote = (): Locator =>
+    page.getByTestId("deal-limit-per-order");
+  /** "Limit N per order" on a cart-drawer deal at its limit. */
+  const cartDealLimitNote = (): Locator => page.getByTestId("cart-deal-limit");
+  /** Every deal entry's "Remove deal" in the checkout summary. */
+  const removeDealButtons = (): Locator =>
+    page.getByRole("button", { name: "Remove deal", exact: true });
+  /** "Your cart qualifies for <deal>. Save $X." banners at checkout. */
+  const dealSuggestions = (): Locator => page.getByTestId("deal-suggestion");
+  const dealSuggestion = (dealName: string): Locator =>
+    dealSuggestions().filter({
+      hasText: `Your cart qualifies for ${dealName}.`,
+    });
+  const dealSuggestionApply = (dealName: string): Locator =>
+    dealSuggestion(dealName).getByTestId("deal-suggestion-apply");
+
   // ── Checkout OrderSummary ──────────────────────────────────────────────────
   const partOfDealLabels = () =>
     page.getByText("Part of deal", { exact: true });
@@ -500,6 +535,14 @@ export const createCustomerDealPage = (page: Page) => {
     viewCartButton,
     progressDealPrice,
     cartDealEditButton,
+    addAnotherButton,
+    limitReachedMessage,
+    limitPerOrderNote,
+    cartDealLimitNote,
+    removeDealButtons,
+    dealSuggestions,
+    dealSuggestion,
+    dealSuggestionApply,
     partOfDealLabels,
     dealSummaryRow,
     youAreSavingRow,

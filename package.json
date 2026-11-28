@@ -19,6 +19,7 @@
     "test:hq-notices": "playwright test --grep @hq-notices",
     "test:settings-safety": "playwright test --grep @settings-safety",
     "test:split-hours": "playwright test --grep @split-hours",
+    "test:deal-copies": "playwright test --grep @deal-copies",
     "test:print-builders": "playwright test --grep @print-builders",
     "test:reservations-audit": "playwright test --grep @reservations-audit",
     "test:unit": "playwright test -c playwright.unit.config.ts",

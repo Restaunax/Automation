@@ -20,7 +20,7 @@
  * `--grep @affiliate-lifecycle`,
  * `--grep @books-offboarding`, `--grep @hq-notices`, `--grep @split-hours`,
  * `--grep @owner-gift-cards`, `--grep @send-receipt`,
- * `--grep @receipt-storefront`.
+ * `--grep @receipt-storefront`, `--grep @deal-copies`.
  */
 import { test, expect } from "../fixtures/base";
 import { apiRequestRaw } from "./apiHelper";
@@ -211,6 +211,27 @@ export const RELEASED_ON_QA = {
    *  TC-1236 accepts the old 403 too; flip it once the backend is on QA and
    *  the 403 becomes a failure. */
   waitlistStatusWithoutAddon: false,
+  /** RestauNax feat/deal-copies-late-promotions (backend,
+   *  docs/features/DEAL_COPIES_AND_LATE_PROMOTIONS.md): `Deal.maxPerOrder`
+   *  (owner CRUD, public /active, the deal_max_per_order refusal), the
+   *  quote's `dealSuggestions`, the POS late-promotion window (apply-coupon
+   *  on READY / picked-up orders of the open business day,
+   *  LATE_PROMOTION_* refusals) and `applicable-deals` / `apply-deal`.
+   *  Flip once the backend is on QA and api-deal-copies.spec.ts +
+   *  pos/26-late-promotions.spec.ts are green there. */
+  dealCopies: false,
+  /** The dashboard half of feat/deal-copies-late-promotions: "Limit per
+   *  order (optional)" in the promotion form's Limits card (deal-backed
+   *  promotions). Deployed separately from the backend. Flip after
+   *  42-deal-limit-per-order-ui.spec.ts is green on QA. */
+  dealCopiesDashboard: false,
+  /** Template-wind feat/deal-copies-late-promotions: every Add is a new
+   *  cart entry, "Add another" (deal-add-another), Edit opens THAT entry
+   *  (?entry=), the per-order limit (deal-limit-per-order /
+   *  deal-limit-reached) and the checkout's "Your cart qualifies for …"
+   *  (deal-suggestion). Deployed separately from the backend. Flip after
+   *  customer/16-deal-copies.spec.ts is green on QA. */
+  dealCopiesWind: false,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;
@@ -287,6 +308,12 @@ const REASON: Record<ReleasePart, string> = {
     "The public waitlist status still answers 403 without the reservations add-on (RestauNax feat/split-hours b09705706 is not on this environment yet)",
   splitHoursWind:
     "Split hours (Template-wind feat/split-hours) are not on this website yet — checkout has no order-time-notice in the break",
+  dealCopies:
+    "Deal copies and late promotions (RestauNax feat/deal-copies-late-promotions) are not on this environment yet — the owner's deal read carries no maxPerOrder",
+  dealCopiesDashboard:
+    "The deal 'Limit per order' field (RestauNax feat/deal-copies-late-promotions) is not on this dashboard yet — locales/en/promotions.json has no rules.card.limits.perOrder",
+  dealCopiesWind:
+    "Deal copies (Template-wind feat/deal-copies-late-promotions) are not on this website yet — the deal builder has no deal-add-another after an Add",
 };
 
 /** Skip (flag off) or fail (flag on) when `present` is false. */
@@ -842,6 +869,46 @@ export async function probeReceiptEndpoint(
     if (res.status !== 404) return false;
     const json = (await res.json()) as { success?: unknown };
     return json.success === false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Are deal copies / late promotions deployed on the backend? The owner's
+ * deal read (`GET /api/deals/:id`, every column of the row) carries
+ * `maxPerOrder` (null by default) only once the column exists. Read-only.
+ */
+export async function probeDealCopies(
+  accessToken: string,
+  dealId: string
+): Promise<boolean> {
+  const res = await apiRequestRaw<{ deal?: Record<string, unknown> }>(
+    "GET",
+    `/api/deals/${dealId}`,
+    undefined,
+    accessToken
+  );
+  return (
+    res.status === 200 && !!res.data?.deal && "maxPerOrder" in res.data.deal
+  );
+}
+
+/**
+ * Is the dashboard's "Limit per order" field deployed? Its
+ * `locales/en/promotions.json` has `rules.card.limits.perOrder.label` only
+ * with the change. Read-only, no auth.
+ */
+export async function probeDealCopiesDashboard(): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${FRONTEND_URL.replace(/\/+$/, "")}/locales/en/promotions.json`
+    );
+    if (!res.ok) return false;
+    const json = (await res.json()) as {
+      rules?: { card?: { limits?: { perOrder?: { label?: unknown } } } };
+    };
+    return typeof json.rules?.card?.limits?.perOrder?.label === "string";
   } catch {
     return false;
   }
