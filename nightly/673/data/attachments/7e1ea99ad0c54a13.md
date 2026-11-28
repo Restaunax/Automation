@@ -1,0 +1,514 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: dashboard/journey/06-the-books.spec.ts >> Journey 6 — the books (partner restaurants, read-only) >> TC-1028: my 2 store — Overview says each connection is working, in words
+- Location: tests/dashboard/journey/06-the-books.spec.ts:177:7
+
+# Error details
+
+```
+Error: expect(locator).toHaveCount(expected) failed
+
+Locator:  getByText(/failed|refused|disconnected/i)
+Expected: 0
+Received: 1
+Timeout:  10000ms
+
+Call log:
+  - Expect "toHaveCount" with timeout 10000ms
+  - waiting for getByText(/failed|refused|disconnected/i)
+    24 × locator resolved to 1 element
+       - unexpected value "1"
+
+```
+
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - generic [ref=e4]:
+    - banner [ref=e5]:
+      - generic [ref=e7]:
+        - generic [ref=e8]:
+          - generic [ref=e9]:
+            - img [ref=e10]
+            - generic [ref=e12]: LOCATION
+          - generic "Books & taxes" [ref=e13]
+        - generic [ref=e15]:
+          - generic [ref=e18]:
+            - combobox [ref=e19] [cursor=pointer]:
+              - generic [ref=e20]:
+                - img [ref=e21]
+                - paragraph [ref=e23]: my 2 store — North Port, Florida
+            - textbox: 1f5d8402-18ef-419c-9203-1a5a02ad541c
+            - img
+            - group
+          - button "Account settings" [ref=e25] [cursor=pointer]:
+            - generic [ref=e26]: R
+          - button "Select Language" [ref=e28] [cursor=pointer]:
+            - img [ref=e30]
+            - text: EN
+          - button [ref=e36] [cursor=pointer]:
+            - img [ref=e37]
+    - navigation "mailbox folders" [ref=e39]:
+      - generic [ref=e41]:
+        - button "Collapse sidebar" [ref=e43] [cursor=pointer]:
+          - img [ref=e44]
+        - generic [ref=e47]:
+          - button "Today" [ref=e48] [cursor=pointer]:
+            - img [ref=e50]
+            - paragraph [ref=e52]: Today
+          - button "Analytics" [ref=e53] [cursor=pointer]:
+            - img [ref=e55]
+            - paragraph [ref=e57]: Analytics
+          - button "Orders" [ref=e58] [cursor=pointer]:
+            - img [ref=e60]
+            - paragraph [ref=e62]: Orders
+          - button "Menu" [ref=e63] [cursor=pointer]:
+            - img [ref=e65]
+            - paragraph [ref=e67]: Menu
+          - button "Customers" [ref=e68] [cursor=pointer]:
+            - img [ref=e70]
+            - paragraph [ref=e72]: Customers
+          - button "Billing" [ref=e73] [cursor=pointer]:
+            - img [ref=e75]
+            - paragraph [ref=e77]: Billing
+          - button "Image Library" [ref=e78] [cursor=pointer]:
+            - img [ref=e80]
+            - paragraph [ref=e82]: Image Library
+          - button "Store Settings" [ref=e83] [cursor=pointer]:
+            - img [ref=e85]
+            - paragraph [ref=e87]: Store Settings
+          - button "Store Operations" [ref=e89] [cursor=pointer]:
+            - img [ref=e91]
+            - paragraph [ref=e93]: Store Operations
+            - img [ref=e95]
+          - button "Job Applications" [ref=e97] [cursor=pointer]:
+            - img [ref=e99]
+            - paragraph [ref=e101]: Job Applications
+          - 'button "Menu TVs Add-on: TV menu boards from your menu" [ref=e102] [cursor=pointer]':
+            - img [ref=e104]
+            - paragraph [ref=e106]: Menu TVs
+            - 'img "Add-on: TV menu boards from your menu" [ref=e108]':
+              - img [ref=e109]
+          - button "Restaurant Staff" [ref=e111] [cursor=pointer]:
+            - img [ref=e113]
+            - paragraph [ref=e115]: Restaurant Staff
+          - button "Books & taxes" [ref=e116] [cursor=pointer]:
+            - img [ref=e118]
+            - paragraph [ref=e120]: Books & taxes
+          - 'button "RestauNax Voice Add-on: AI answers your phone" [ref=e121] [cursor=pointer]':
+            - img [ref=e123]
+            - paragraph [ref=e126]: RestauNax Voice
+            - 'img "Add-on: AI answers your phone" [ref=e128]':
+              - img [ref=e129]
+          - button "Google reviews" [ref=e131] [cursor=pointer]:
+            - img [ref=e133]
+            - paragraph [ref=e135]: Google reviews
+          - button "Promotions" [ref=e137] [cursor=pointer]:
+            - img [ref=e139]
+            - paragraph [ref=e141]: Promotions
+            - img [ref=e143]
+          - button "Gift cards" [ref=e145] [cursor=pointer]:
+            - img [ref=e147]
+            - paragraph [ref=e149]: Gift cards
+          - button "Supply Shop" [ref=e150] [cursor=pointer]:
+            - img [ref=e152]
+            - paragraph [ref=e154]: Supply Shop
+          - button "Social Media" [ref=e156] [cursor=pointer]:
+            - img [ref=e158]
+            - paragraph [ref=e160]: Social Media
+            - img [ref=e162]
+          - button "RestauNax Products" [ref=e164] [cursor=pointer]:
+            - img [ref=e166]
+            - paragraph [ref=e168]: RestauNax Products
+        - button "Owner Settings" [ref=e171] [cursor=pointer]:
+          - img [ref=e173]
+          - paragraph [ref=e176]: Owner Settings
+    - main [ref=e177]:
+      - generic [ref=e179]:
+        - img [ref=e180]
+        - paragraph [ref=e182]:
+          - generic [ref=e183]: "Managing:"
+          - text: my 2 store
+      - generic [ref=e185]:
+        - heading "Books & taxes" [level=5] [ref=e186]
+        - paragraph [ref=e187]: Your daily sales go to your books by themselves. We tell you only when something needs you.
+        - generic [ref=e188]:
+          - generic:
+            - img
+          - tablist [ref=e191]:
+            - tab "Overview" [selected] [ref=e192] [cursor=pointer]:
+              - img [ref=e193]
+              - text: Overview
+            - tab "Package for your accountant" [ref=e195] [cursor=pointer]:
+              - img [ref=e196]
+              - text: Package for your accountant
+            - tab "Sales summary" [ref=e198] [cursor=pointer]:
+              - img [ref=e199]
+              - text: Sales summary
+            - tab "Sales tax" [ref=e201] [cursor=pointer]:
+              - img [ref=e202]
+              - text: Sales tax
+            - tab "Payouts" [ref=e205] [cursor=pointer]:
+              - img [ref=e206]
+              - text: Payouts
+            - tab "Your accountant" [ref=e208] [cursor=pointer]:
+              - img [ref=e209]
+              - text: Your accountant
+            - tab "Books" [ref=e211] [cursor=pointer]:
+              - img [ref=e212]
+              - text: Books
+            - tab "Card deposits" [ref=e214] [cursor=pointer]:
+              - img [ref=e215]
+              - text: Card deposits
+            - tab "Monthly send" [ref=e217] [cursor=pointer]:
+              - img [ref=e218]
+              - text: Monthly send
+            - tab "Year end" [ref=e220] [cursor=pointer]:
+              - img [ref=e221]
+              - text: Year end
+            - tab "Tax calendar" [ref=e224] [cursor=pointer]:
+              - img [ref=e225]
+              - text: Tax calendar
+          - img [ref=e228] [cursor=pointer]
+        - generic [ref=e230]:
+          - generic [ref=e231]:
+            - generic [ref=e235]:
+              - generic [ref=e236]:
+                - generic [ref=e237]:
+                  - img [ref=e238]
+                  - heading "Books" [level=6] [ref=e240]
+                - generic [ref=e243]: Needs you
+              - paragraph [ref=e244]: Posted through Thursday, Nov 26 to Sandbox Company US 9add.
+              - alert [ref=e245]:
+                - img [ref=e247]
+                - generic [ref=e249]:
+                  - paragraph [ref=e250]: Sunday, Nov 22 isn't closed
+                  - paragraph [ref=e251]: Nothing posts until the day is closed. Close Sunday, Nov 22 from the Daily Report.
+              - generic [ref=e252]:
+                - generic [ref=e253]: Last worked 7 hours ago
+                - generic [ref=e254]: "Next: After the day is closed (a day nobody closes posts as provisional the next afternoon)"
+              - button "Close Sunday, Nov 22" [ref=e256] [cursor=pointer]
+            - generic [ref=e260]:
+              - generic [ref=e261]:
+                - generic [ref=e262]:
+                  - img [ref=e263]
+                  - heading "Card deposits" [level=6] [ref=e265]
+                - generic [ref=e268]: Working
+              - paragraph [ref=e269]: Deposits matched through Friday, Nov 27.
+              - generic [ref=e271]: Last worked a day ago
+            - generic [ref=e275]:
+              - generic [ref=e276]:
+                - generic [ref=e277]:
+                  - img [ref=e278]
+                  - heading "Sales tax" [level=6] [ref=e281]
+                - generic [ref=e284]: Needs you
+              - paragraph [ref=e285]: Days are in Avalara (RestauNax) through Tuesday, Nov 24.
+              - alert [ref=e286]:
+                - img [ref=e288]
+                - generic [ref=e290]:
+                  - paragraph [ref=e291]: Avalara refused Wednesday, Nov 25
+                  - paragraph [ref=e292]: "Avalara said: \"Avalara answered HTTP 429\". Fix that in Avalara (or in RestauNax), then press Send again on the day."
+              - generic [ref=e294]: Last worked 2 days ago
+              - button "Review Wednesday, Nov 25" [ref=e296] [cursor=pointer]
+            - generic [ref=e300]:
+              - generic [ref=e301]:
+                - generic [ref=e302]:
+                  - img [ref=e303]
+                  - heading "Payroll" [level=6] [ref=e305]
+                - generic [ref=e308]: Working
+              - paragraph [ref=e309]: RestauNax Payroll is running.
+          - generic [ref=e311]:
+            - heading "This week" [level=6] [ref=e312]
+            - generic [ref=e313]:
+              - generic [ref=e314]:
+                - heading "6" [level=5] [ref=e315]
+                - text: days closed
+              - generic [ref=e316]:
+                - heading "7" [level=5] [ref=e317]
+                - text: days posted
+              - generic [ref=e318]:
+                - heading "0" [level=5] [ref=e319]
+                - text: days waiting
+              - generic [ref=e320]:
+                - heading "4" [level=5] [ref=e321]
+                - text: deposits matched
+          - generic [ref=e323]:
+            - generic [ref=e324]:
+              - heading "Coming up" [level=6] [ref=e325]
+              - button "Set up the tax calendar" [ref=e326] [cursor=pointer]
+            - list [ref=e327]:
+              - listitem [ref=e328]:
+                - generic [ref=e329]:
+                  - generic [ref=e330]: Year-end package for 2026 is ready
+                  - paragraph [ref=e331]: Jan 11, 2027
+                - generic [ref=e333]: RestauNax
+              - listitem [ref=e334]:
+                - generic [ref=e335]:
+                  - generic [ref=e336]: Estimated tax payment 4 for 2026
+                  - paragraph [ref=e337]: Jan 15, 2027
+                - generic [ref=e339]: You
+              - listitem [ref=e340]:
+                - generic [ref=e341]:
+                  - generic [ref=e342]: Your 1099-K for 2026 is available
+                  - paragraph [ref=e343]: Feb 1, 2027
+                - generic [ref=e345]: RestauNax, through Stripe
+          - generic [ref=e347]:
+            - generic [ref=e348]:
+              - heading "What happens by itself" [level=6] [ref=e349]
+              - button "Change answers" [ref=e351] [cursor=pointer]
+            - list [ref=e352]:
+              - listitem [ref=e353]:
+                - img [ref=e355]
+                - generic [ref=e358]: Each day posts to QuickBooks (Sandbox Company US 9add) after it's closed.
+              - listitem [ref=e359]:
+                - img [ref=e361]
+                - generic [ref=e364]: A day that doesn't add up waits for you instead of posting wrong numbers.
+              - listitem [ref=e365]:
+                - img [ref=e367]
+                - generic [ref=e370]: Each card deposit is posted to QuickBooks with its fees, so it matches your bank line in one click.
+              - listitem [ref=e371]:
+                - img [ref=e373]
+                - generic [ref=e376]: Each closed day is sent to Avalara (RestauNax) with the tax you collected. Avalara Returns, bought from Avalara, files and pays it.
+              - listitem [ref=e377]:
+                - img [ref=e379]
+                - generic [ref=e382]: RestauNax Payroll pays your team, and Gusto files your payroll taxes.
+              - listitem [ref=e383]:
+                - img [ref=e385]
+                - generic [ref=e388]: If something needs you, we send one email and one notification, never one per retry.
+            - text: RestauNax never files a tax return and never holds tax money. Your filing service, your accountant or you do that.
+          - generic [ref=e390]:
+            - heading "Show more in Books & taxes" [level=6] [ref=e391]
+            - paragraph [ref=e392]: Turn on the parts you use. They appear as their own tabs.
+            - generic [ref=e393]:
+              - generic [ref=e394]:
+                - switch "Card deposits Each card deposit with its fees, posted to your books." [checked] [ref=e397] [cursor=pointer]
+                - generic [ref=e401]:
+                  - text: Card deposits
+                  - generic [ref=e402]: Each card deposit with its fees, posted to your books.
+              - generic [ref=e403]:
+                - switch "Tax calendar Filing dates and reminders before each one." [checked] [ref=e406] [cursor=pointer]
+                - generic [ref=e410]:
+                  - text: Tax calendar
+                  - generic [ref=e411]: Filing dates and reminders before each one.
+              - generic [ref=e412]:
+                - switch "Year-end package The year's figures for your tax return, in one download." [checked] [ref=e415] [cursor=pointer]
+                - generic [ref=e419]:
+                  - text: Year-end package
+                  - generic [ref=e420]: The year's figures for your tax return, in one download.
+  - button "Open chat" [ref=e421] [cursor=pointer]:
+    - img [ref=e422]
+```
+
+# Test source
+
+```ts
+  114 |   /** A posted day: one balanced entry, numbered RNX-yymmdd-<rid start>. */
+  115 |   const expectPosted = async (
+  116 |     id: string,
+  117 |     date: string,
+  118 |     provider: string
+  119 |   ): Promise<Rec> => {
+  120 |     const day = await dayEntry(id, date);
+  121 |     // W2:A3: a day posted under the older journal rules that changed since
+  122 |     // waits for the owner (STALE, rulesChanged) instead of being re-posted
+  123 |     // behind their back; it is still in the books.
+  124 |     if (day.status === "STALE" && day.rulesChanged === true) {
+  125 |       test.info().annotations.push({
+  126 |         type: "note",
+  127 |         description: `${date} posted under older journal rules; waits for a re-send`,
+  128 |       });
+  129 |     } else {
+  130 |       expect(day.status, `${date}: ${JSON.stringify(day.error)}`).toBe(
+  131 |         "POSTED"
+  132 |       );
+  133 |     }
+  134 |     expect(day.provider).toBe(provider);
+  135 |     expect(day.externalId, `${date} has no id in the books`).toBeTruthy();
+  136 |     expect(String(day.docNumber)).toBe(
+  137 |       `RNX-${date.slice(2, 4)}${date.slice(5, 7)}${date.slice(8, 10)}-${id.slice(0, 4)}`
+  138 |     );
+  139 |     const entry = day.entry as Rec;
+  140 |     expect(entry.balanced, date).toBe(true);
+  141 |     expect(entry.debitCents, date).toBe(entry.creditCents);
+  142 |     expect(entry.leftoverCents, date).toBe(0);
+  143 |     const lines = list(entry.lines);
+  144 |     const side = (s: string) =>
+  145 |       lines
+  146 |         .filter((l) => l.side === s)
+  147 |         .reduce((sum, l) => sum + Number(l.cents), 0);
+  148 |     expect(side("DEBIT"), date).toBe(Number(entry.debitCents));
+  149 |     expect(side("CREDIT"), date).toBe(Number(entry.creditCents));
+  150 |     // Lines come with words, never keys.
+  151 |     for (const l of lines) expect(String(l.label)).not.toMatch(/^[a-z_]+:/);
+  152 |     return entry;
+  153 |   };
+  154 | 
+  155 |   test.beforeAll(async ({ browser }) => {
+  156 |     test.setTimeout(120_000);
+  157 |     if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return;
+  158 |     adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
+  159 |     for (const name of ["my 2 store", "New Restaurant", "Sally's Pizza"]) {
+  160 |       const found = await adminSearchRestaurantsRaw(adminToken, name);
+  161 |       ids[name] =
+  162 |         (found.data.restaurants ?? []).find((r) => r.name === name)?.id ?? "";
+  163 |     }
+  164 |     session = await loginViaUi(browser, ADMIN_EMAIL, ADMIN_PASSWORD);
+  165 |   });
+  166 | 
+  167 |   test.afterAll(async () => {
+  168 |     if (session) await session.context.close().catch(() => {});
+  169 |   });
+  170 | 
+  171 |   test.beforeEach(async () => {
+  172 |     await allure.label("feature", "Journey — the books (partners)");
+  173 |     await allure.label("severity", "normal");
+  174 |     await page().setViewportSize(DESKTOP);
+  175 |   });
+  176 | 
+  177 |   test(
+  178 |     "TC-1028: my 2 store — Overview says each connection is working, in words",
+  179 |     PARTNER,
+  180 |     async () => {
+  181 |       const { id, integration } = await books("my 2 store");
+  182 |       test.skip(
+  183 |         integration.provider !== "QUICKBOOKS" || integration.connected !== true,
+  184 |         `my 2 store is no longer connected to QuickBooks (${String(integration.provider)})`
+  185 |       );
+  186 |       const company = String(integration.companyName);
+  187 |       await openBooks(id);
+  188 |       await expect(
+  189 |         page().getByText(
+  190 |           new RegExp(
+  191 |             `^Posted through [A-Z][a-z]+, [A-Z][a-z]{2} \\d{1,2} to ${company}\\.$`
+  192 |           )
+  193 |         )
+  194 |       ).toBeVisible({ timeout: 20_000 });
+  195 |       await expect(
+  196 |         page().getByText(
+  197 |           /^Deposits matched through [A-Z][a-z]+, [A-Z][a-z]{2} \d{1,2}\.$/
+  198 |         )
+  199 |       ).toBeVisible();
+  200 |       const tax = await accountingRaw(adminToken, id, "GET", "/avalara");
+  201 |       const last = String((tax.data.data as Rec).lastSentDate ?? "");
+  202 |       if (last)
+  203 |         await expect(
+  204 |           page().getByText(
+  205 |             `Days are in Avalara (RestauNax) through ${longDay(last)}.`
+  206 |           )
+  207 |         ).toBeVisible();
+  208 |       await expect(
+  209 |         page().getByText("RestauNax Payroll is running.")
+  210 |       ).toBeVisible();
+  211 |       // Nothing on the page asks for help.
+  212 |       await expect(
+  213 |         page().getByText(/failed|refused|disconnected/i)
+> 214 |       ).toHaveCount(0);
+      |         ^ Error: expect(locator).toHaveCount(expected) failed
+  215 |       await expectHumanText(page().getByRole("main"), "Books & taxes");
+  216 |     }
+  217 |   );
+  218 | 
+  219 |   test(
+  220 |     "TC-1303: my 2 store — every posted day keeps what was posted as a version (history drawer)",
+  221 |     PARTNER,
+  222 |     async () => {
+  223 |       const { id, integration } = await books("my 2 store");
+  224 |       test.skip(integration.connected !== true, "my 2 store is not connected");
+  225 |       const days = (await recentDays(id)).filter((d) => d.status === "POSTED");
+  226 |       test.skip(days.length === 0, "no posted day two or more days back");
+  227 |       for (const d of days) {
+  228 |         const date = String(d.businessDate ?? d.date);
+  229 |         const r = await accountingRaw(
+  230 |           adminToken,
+  231 |           id,
+  232 |           "GET",
+  233 |           `/days/${date}/history`
+  234 |         );
+  235 |         expect(r.status, JSON.stringify(r.data)).toBe(200);
+  236 |         const h = r.data.data as Rec;
+  237 |         expect(h.businessDate).toBe(date);
+  238 |         // Backfilled for days posted before versions existed (W2:A3).
+  239 |         expect(list(h.versions).length, date).toBeGreaterThanOrEqual(1);
+  240 |         for (const v of list(h.versions)) {
+  241 |           for (const l of list(v.lines))
+  242 |             expect(String(l.label)).not.toMatch(/^[a-z_]+:/);
+  243 |         }
+  244 |       }
+  245 |     }
+  246 |   );
+  247 | 
+  248 |   test(
+  249 |     "TC-1029: my 2 store — each recent day is posted to QuickBooks as one balanced entry",
+  250 |     PARTNER,
+  251 |     async () => {
+  252 |       const { id, integration } = await books("my 2 store");
+  253 |       test.skip(integration.connected !== true, "my 2 store is not connected");
+  254 |       const days = await recentDays(id);
+  255 |       test.skip(days.length === 0, "no closed day two or more days back");
+  256 |       for (const d of days)
+  257 |         await expectPosted(id, String(d.businessDate ?? d.date), "QUICKBOOKS");
+  258 |     }
+  259 |   );
+  260 | 
+  261 |   /** Avalara's sent days (two or more days back) beside their entries. */
+  262 |   const taxDays = async () => {
+  263 |     const { id } = await books("my 2 store");
+  264 |     const r = await accountingRaw(adminToken, id, "GET", "/avalara");
+  265 |     expect(r.status).toBe(200);
+  266 |     const av = r.data.data as Rec;
+  267 |     test.skip(!av.connection, "my 2 store is not connected to Avalara");
+  268 |     expect((av.health as Rec).state, JSON.stringify(av.health)).toBe("OK");
+  269 |     const out: { date: string; avalara: Rec; entry: Rec; refunds: boolean }[] =
+  270 |       [];
+  271 |     for (const d of list(av.days)
+  272 |       .filter((d) => d.status === "SENT" && String(d.date) <= cutoff)
+  273 |       .slice(0, 7)) {
+  274 |       const entry = (await dayEntry(id, String(d.date))).entry as Rec;
+  275 |       out.push({
+  276 |         date: String(d.date),
+  277 |         avalara: d,
+  278 |         entry,
+  279 |         refunds: list(entry.lines).some((l) => l.key === "refunds"),
+  280 |       });
+  281 |     }
+  282 |     return out;
+  283 |   };
+  284 |   const expectSameTax = (day: { date: string; avalara: Rec; entry: Rec }) => {
+  285 |     expect(day.avalara.statusLabel).toBe("In Avalara");
+  286 |     expect(day.avalara.error).toBeNull();
+  287 |     // Collected minus given back, per the books' sales tax lines.
+  288 |     const bookTax = list(day.entry.lines)
+  289 |       .filter((l) => String(l.key).startsWith("tax:"))
+  290 |       .reduce(
+  291 |         (s, l) => s + (l.side === "CREDIT" ? 1 : -1) * Number(l.cents),
+  292 |         0
+  293 |       );
+  294 |     expect(day.avalara.taxCents, `${day.date}: Avalara vs the books`).toBe(
+  295 |       bookTax
+  296 |     );
+  297 |     expect(day.avalara.orders, `${day.date}: orders`).toBe(
+  298 |       day.entry.orderCount
+  299 |     );
+  300 |   };
+  301 | 
+  302 |   test(
+  303 |     "TC-1030: my 2 store — on days without refunds Avalara has the same tax as the books, for the same orders",
+  304 |     PARTNER,
+  305 |     async () => {
+  306 |       const days = (await taxDays()).filter((d) => !d.refunds);
+  307 |       test.skip(days.length === 0, "no day in Avalara without refunds");
+  308 |       for (const d of days.slice(0, 3)) expectSameTax(d);
+  309 |     }
+  310 |   );
+  311 | 
+  312 |   test(
+  313 |     "TC-1030b: my 2 store — on a day with refunds the books owe the same tax as Avalara",
+  314 |     PARTNER,
+```

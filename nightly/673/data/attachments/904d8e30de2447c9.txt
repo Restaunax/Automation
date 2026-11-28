@@ -1,0 +1,2 @@
+[apiHelper] transient failure on POST /restaurant/89824b36-45c3-4e99-8aa4-e79cd268fdf3/table-qr-cards/cart — retry 1/2 in 1000ms
+[apiHelper] transient failure on POST /restaurant/89824b36-45c3-4e99-8aa4-e79cd268fdf3/table-qr-cards/cart — retry 2/2 in 3000ms

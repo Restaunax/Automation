@@ -1,0 +1,1 @@
+[apiHelper] transient failure on POST /api/admin/notices/13965f62-14e7-4fcd-b512-68a5c0db2863/send — retry 1/2 in 1000ms

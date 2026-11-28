@@ -1,0 +1,1 @@
+[gc-chain] chain group left on QA (no admin delete; members established): "Auto GC chain 187c9a4b" (df112a8d-5a8f-4bfe-b640-91ac8d0b58d3)

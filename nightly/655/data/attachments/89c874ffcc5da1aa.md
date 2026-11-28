@@ -1,0 +1,228 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: pos/25-gift-card-care.spec.ts >> POS gift card care (API) >> TC-2024: any signed-in staff member finds a card, and an unknown or foreign code answers the same 404
+- Location: tests/pos/25-gift-card-care.spec.ts:367:9
+
+# Error details
+
+```
+Error: {"success":false,"message":"This drawer belongs to another cashier. Swap the till to take the terminal, or take card instead.","errorCode":"STAFF_DRAWER_OWNER_PIN_REQUIRED","errorId":"fdfd4e95-0d9f-48aa-9c52-292cc7516275"}
+
+expect(received).toBe(expected) // Object.is equality
+
+Expected: 201
+Received: 403
+```
+
+# Test source
+
+```ts
+  221 |       return mine!.session!;
+  222 |     };
+  223 |     const sellCash = (session: string, amount: number, extra = {}) =>
+  224 |       gc<{ data: { giftCardId: string; code: string } }>(
+  225 |         session,
+  226 |         "POST",
+  227 |         "/sell",
+  228 |         {
+  229 |           amount,
+  230 |           tender: "CASH",
+  231 |           deliveryMethod: "PHYSICAL",
+  232 |           idempotencyKey: randomUUID(),
+  233 |           ...extra,
+  234 |         }
+  235 |       );
+  236 |     const details = (session: string, code: string) =>
+  237 |       gc<{ data: TabletDetails }>(session, "POST", "/details", { code });
+  238 |     const refusal = (r: { data: unknown }) => {
+  239 |       const body = r.data as Refusal;
+  240 |       expect(looksLikeKey(body.error), `error text: ${body.error}`).toBe(false);
+  241 |       return body;
+  242 |     };
+  243 |     const mint = async (
+  244 |       firstName: string,
+  245 |       pin: string,
+  246 |       body: Record<string, unknown>
+  247 |     ) => {
+  248 |       const r = await createPinStaffTabletRaw(tablet, owner.session, {
+  249 |         firstName,
+  250 |         lastName: "Server",
+  251 |         pin,
+  252 |         ...body,
+  253 |       });
+  254 |       expect(r.status, JSON.stringify(r.data)).toBe(201);
+  255 |       const id = String((r.data.data as { id: string }).id);
+  256 |       return { id, session: await tabletStaffSignIn(tablet, id, pin) };
+  257 |     };
+  258 |     const approval = () => ({
+  259 |       managerPin: owner.pin,
+  260 |       approverStaffMemberId: owner.id,
+  261 |     });
+  262 | 
+  263 |     test.beforeAll(async () => {
+  264 |       test.setTimeout(240_000);
+  265 |       if (!ADMIN_EMAIL || !ADMIN_PASSWORD) return;
+  266 |       adminToken = (await apiLogin(ADMIN_EMAIL, ADMIN_PASSWORD)).accessToken;
+  267 |       const tenant = await createSecondOwner(adminToken, runId, {
+  268 |         alwaysFresh: true,
+  269 |       });
+  270 |       if (!tenant.restaurantId) throw new Error("[gc-care] no tenant");
+  271 |       rid = tenant.restaurantId;
+  272 |       ownerToken = tenant.accessToken;
+  273 |       // Probe before spending anything: no owner routes, nothing to seed.
+  274 |       present = await probeOwnerGiftCards(ownerToken, rid);
+  275 |       if (!present) return;
+  276 | 
+  277 |       await setRestaurantPublishedApi(adminToken, rid, true);
+  278 |       await ensureBusinessHours(ownerToken, rid);
+  279 |       const onboard = await stripeTestOnboardingRaw(ownerToken, rid);
+  280 |       if (onboard.status !== 200)
+  281 |         throw new Error(`[gc-care] stripe: ${JSON.stringify(onboard.data)}`);
+  282 |       const cfg = await putGiftCardConfigAdminRaw(adminToken, rid, {
+  283 |         isEnabled: true,
+  284 |         allowPhysicalActivation: true,
+  285 |         allowCashFunding: true,
+  286 |       });
+  287 |       if (!cfg.ok)
+  288 |         throw new Error(`[gc-care] config: ${JSON.stringify(cfg.data)}`);
+  289 |       tz = (await getRestaurantTimeZonePublic(rid)) || tz;
+  290 | 
+  291 |       const device = await createTabletDevice(
+  292 |         adminToken,
+  293 |         rid,
+  294 |         `auto-gc-care-${runId}`
+  295 |       );
+  296 |       deviceId = device.id;
+  297 |       tablet = await tabletLogin(device.name, device.code);
+  298 |       const ownerMember = await setOwnerPosPin(ownerToken, rid, owner.pin);
+  299 |       owner.id = ownerMember;
+  300 |       owner.session = await tabletStaffSignIn(tablet, ownerMember, owner.pin);
+  301 | 
+  302 |       Object.assign(dee, await mint("Dee", dee.pin, { staffRole: "STAFF" }));
+  303 |       Object.assign(
+  304 |         rae,
+  305 |         await mint("Rae", rae.pin, {
+  306 |           staffRole: "STAFF",
+  307 |           capabilityRevokes: ["SELL_GIFT_CARDS"],
+  308 |         })
+  309 |       );
+  310 |       Object.assign(
+  311 |         sam,
+  312 |         await mint("Sam", sam.pin, {
+  313 |           staffRole: "SHIFT_LEAD",
+  314 |           capabilityGrants: ["MANAGE_GIFT_CARDS"],
+  315 |         })
+  316 |       );
+  317 |       sessionId = await openRegisterSessionPos(tablet, owner.session, 100);
+  318 | 
+  319 |       // cashCard: Dee sells $25 cash, print-only.
+  320 |       const sold = await sellCash(dee.session, 25);
+> 321 |       expect(sold.status, JSON.stringify(sold.data)).toBe(201);
+      |                                                      ^ Error: {"success":false,"message":"This drawer belongs to another cashier. Swap the till to take the terminal, or take card instead.","errorCode":"STAFF_DRAWER_OWNER_PIN_REQUIRED","errorId":"fdfd4e95-0d9f-48aa-9c52-292cc7516275"}
+  322 |       cashCard = { id: sold.data.data.giftCardId, code: sold.data.data.code };
+  323 |       recordGiftCardForCleanup(cashCard.id);
+  324 | 
+  325 |       // emailCard: Dee sells $40 cash, emailed to a recipient.
+  326 |       const emailed = await sellCash(dee.session, 40, {
+  327 |         deliveryMethod: "EMAIL",
+  328 |         recipientEmail: emailRecipient,
+  329 |       });
+  330 |       expect(emailed.status, JSON.stringify(emailed.data)).toBe(201);
+  331 |       emailCard = {
+  332 |         id: emailed.data.data.giftCardId,
+  333 |         code: emailed.data.data.code,
+  334 |       };
+  335 |       recordGiftCardForCleanup(emailCard.id);
+  336 | 
+  337 |       // importedCard: opening balance from a migration.
+  338 |       const imported = await seedFundedGiftCard(adminToken, rid, 15);
+  339 |       importedCard = { id: imported.id, code: imported.code };
+  340 |       recordGiftCardForCleanup(importedCard.id);
+  341 | 
+  342 |       // The stranger tenant and its one card.
+  343 |       const stranger = await createSecondOwner(adminToken, `${runId}t`, {
+  344 |         alwaysFresh: true,
+  345 |       });
+  346 |       if (!stranger.restaurantId) throw new Error("[gc-care] no stranger");
+  347 |       strangerRid = stranger.restaurantId;
+  348 |       const foreign = await seedFundedGiftCard(adminToken, strangerRid, 10);
+  349 |       strangerCode = foreign.code;
+  350 |       recordGiftCardForCleanup(foreign.id);
+  351 |     });
+  352 | 
+  353 |     test.afterAll(async () => {
+  354 |       if (!adminToken) return;
+  355 |       if (rid && deviceId)
+  356 |         await deactivateTabletDevice(adminToken, rid, deviceId).catch(() => {});
+  357 |       for (const id of [rid, strangerRid]) {
+  358 |         if (id) await deleteTestRestaurant(adminToken, id).catch(() => {});
+  359 |       }
+  360 |     });
+  361 | 
+  362 |     test.beforeEach(async () => {
+  363 |       await allure.label("feature", "POS gift card care");
+  364 |       await allure.label("severity", "critical");
+  365 |     });
+  366 | 
+  367 |     test("TC-2024: any signed-in staff member finds a card, and an unknown or foreign code answers the same 404", async () => {
+  368 |       gate();
+  369 |       const r = await details(dee.session, cashCard.code);
+  370 |       expect(r.status, JSON.stringify(r.data)).toBe(200);
+  371 |       const d = r.data.data;
+  372 |       expect(isMaskedCode(d.displayCode)).toBe(true);
+  373 |       expect(d.heldHere).toBe(true);
+  374 |       expect(d.history[0]).toMatchObject({
+  375 |         kind: "SOLD",
+  376 |         performedBy: "Dee S.",
+  377 |       });
+  378 |       expect(looksLikeKey(d.statusText)).toBe(false);
+  379 |       expect(looksLikeKey(d.history[0]?.label)).toBe(false);
+  380 |       expect(JSON.stringify(r.data)).not.toContain(cashCard.code);
+  381 | 
+  382 |       const web = await details(dee.session, emailCard.code);
+  383 |       expect(web.status, JSON.stringify(web.data)).toBe(200);
+  384 |       expect(web.data.data.recipient?.emailMasked).toMatch(MASKED_EMAIL);
+  385 |       expect(JSON.stringify(web.data)).not.toContain(emailRecipient);
+  386 | 
+  387 |       const foreign = await details(dee.session, strangerCode);
+  388 |       const randomCode = Array.from(
+  389 |         { length: 16 },
+  390 |         () => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Math.floor(Math.random() * 32)]
+  391 |       ).join("");
+  392 |       const unknown = await details(dee.session, randomCode);
+  393 |       expect(foreign.status, JSON.stringify(foreign.data)).toBe(404);
+  394 |       expect(unknown.status, JSON.stringify(unknown.data)).toBe(404);
+  395 |       expect(refusal(foreign)).toMatchObject({
+  396 |         code: "NOT_FOUND",
+  397 |         errorCode: "NOT_FOUND",
+  398 |       });
+  399 |       expect(foreign.data).toEqual(unknown.data);
+  400 |     });
+  401 | 
+  402 |     test("TC-2025: lookup still answers what old registers read, plus freeze", async () => {
+  403 |       gate();
+  404 |       const r = await gc<{
+  405 |         data: Record<string, unknown> & { freeze: unknown };
+  406 |       }>(dee.session, "POST", "/lookup", { code: cashCard.code });
+  407 |       expect(r.status, JSON.stringify(r.data)).toBe(200);
+  408 |       const d = r.data.data;
+  409 |       for (const key of [
+  410 |         "usableHere",
+  411 |         "activatable",
+  412 |         "reloadable",
+  413 |         "cashCapRemaining",
+  414 |         "presetDenominations",
+  415 |       ])
+  416 |         expect(d, `lookup keeps ${key}`).toHaveProperty(key);
+  417 |       expect(d.freeze).toBeNull();
+  418 |       expect(JSON.stringify(r.data)).not.toContain(cashCard.code);
+  419 |     });
+  420 | 
+  421 |     test("TC-2026: a cashier who may not sell is stopped before any money moves", async () => {
+```
