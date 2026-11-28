@@ -41,6 +41,9 @@
  *   TC-2111 apply-coupon is now accepted on a READY paid order (cash back).
  *   TC-2112 limit per order: a deal whose limit is used up on the order is
  *           not offered and is refused (DEAL_MAX_PER_ORDER).
+ *   TC-2119 approval: staff without the refund permission are refused on a
+ *           paid order ("A manager PIN is required.", APPROVE_REFUND) and
+ *           nothing changes; with a manager's PIN the deal goes on.
  *   TC-2113 after the day is closed: apply-coupon and apply-deal on that
  *           day's order answer LATE_PROMOTION_DAY_CLOSED with guidance, and
  *           applicable-deals reports the window closed (DAY_CLOSED).
@@ -131,6 +134,10 @@ test.describe("POS — late promotions: apply a deal or coupon to a placed order
   let deviceId = "";
   let tablet = "";
   let session = "";
+  /** The owner's staff record (PIN 8462): approves for staff below. */
+  let ownerMemberId = "";
+  /** A server with no approval capabilities. */
+  const dee = { id: "", pin: "4826", session: "" };
   let pk = "";
   let released = false;
   const burger = { id: "", name: `Burger ${runId}`, price: BURGER };
@@ -314,6 +321,18 @@ test.describe("POS — late promotions: apply a deal or coupon to a placed order
     tablet = await tabletLogin(device.name, device.code);
     const ownerMember = await setOwnerPosPin(ownerToken, restaurantId, "8462");
     session = await tabletStaffSignIn(tablet, ownerMember, "8462");
+    ownerMemberId = ownerMember;
+    const added = await tabletRaw<Rec>(
+      tablet,
+      "POST",
+      "/staff/manage",
+      { firstName: "Dee", lastName: "Server", pin: dee.pin },
+      session
+    );
+    if (added.status !== 201)
+      throw new Error(`[late-promos] staff: ${JSON.stringify(added.data)}`);
+    dee.id = String((added.data.data as Rec).id);
+    dee.session = await tabletStaffSignIn(tablet, dee.id, dee.pin);
     await openRegisterSessionPos(tablet, session, 100);
     released = await probeDealCopies(ownerToken, combo.id);
   });
@@ -449,6 +468,15 @@ test.describe("POS — late promotions: apply a deal or coupon to a placed order
     });
     expect(order.total).toBe(subtotal);
     paidToday.push(order.id);
+    // The order is paid once Stripe's payment_intent.succeeded webhook lands
+    // (confirm-payment leaves that to the webhook): wait for it before the
+    // apply-deal decides between a card refund and cash owed.
+    await expect
+      .poll(async () => (await readOrder(order.id)).paymentStatus, {
+        timeout: 60_000,
+        intervals: [1_000, 2_000, 5_000],
+      })
+      .toBe("COMPLETED");
     await advanceTo(order.id, "PICKED_UP");
     const before = await readOrder(order.id);
     expect(before.paymentStatus).toBe("COMPLETED");
@@ -668,6 +696,41 @@ test.describe("POS — late promotions: apply a deal or coupon to a placed order
     expect(refused.data.message).toBe(
       "This order has more of this deal than it allows. Remove a copy to continue."
     );
+  });
+
+  test("TC-2119: staff without the refund permission need a manager's PIN to apply a deal to a paid order", async () => {
+    const orderId = await ringCashPaid([{ item: burger }, { item: fries }]);
+    const before = await readOrder(orderId);
+    const picks = comboPicks(before, combo);
+
+    const asDee = await applyDealRaw(tablet, dee.session, orderId, {
+      dealId: combo.id,
+      picks,
+    });
+    expect(asDee.status, JSON.stringify(asDee.data)).toBe(400);
+    expect(msg(asDee.data)).toBe("A manager PIN is required.");
+    expect(JSON.stringify(asDee.data)).toContain("APPROVE_REFUND");
+    expect(Number((await readOrder(orderId)).total)).toBe(BURGER + FRIES);
+
+    const approved = await applyDealRaw(tablet, dee.session, orderId, {
+      dealId: combo.id,
+      picks,
+      managerPin: "8462",
+      approverStaffMemberId: ownerMemberId,
+    });
+    expect(approved.status, JSON.stringify(approved.data)).toBe(200);
+    expect(approved.data.delta).toBeCloseTo(-COMBO_SAVES, 2);
+    expect(approved.data.order?.total).toBeCloseTo(COMBO, 2);
+
+    // The cash goes back from the drawer (its holder), so the day can close.
+    const handed = await tabletRaw<Rec>(
+      tablet,
+      "POST",
+      `/orders/${orderId}/record-cash-refund`,
+      {},
+      session
+    );
+    expect(handed.status, msg(handed.data)).toBe(200);
   });
 
   test("TC-2113: after the day is closed, apply-coupon and apply-deal on that day's order are refused (LATE_PROMOTION_DAY_CLOSED) with guidance, and applicable-deals says the window is closed", async () => {

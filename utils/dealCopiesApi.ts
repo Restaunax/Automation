@@ -159,6 +159,9 @@ export function applyDealRaw(
     picks: { orderItemId: string; dealItemId: string }[];
     replaceCoupon?: boolean;
     voidReason?: string;
+    /** A manager's approval for staff without the capability (the POS PIN pad). */
+    managerPin?: string;
+    approverStaffMemberId?: string;
   }
 ): Promise<RawResponse<LatePromotionResult>> {
   return tabletRaw<LatePromotionResult>(

@@ -219,19 +219,19 @@ export const RELEASED_ON_QA = {
    *  LATE_PROMOTION_* refusals) and `applicable-deals` / `apply-deal`.
    *  Flip once the backend is on QA and api-deal-copies.spec.ts +
    *  pos/26-late-promotions.spec.ts are green there. */
-  dealCopies: false,
+  dealCopies: true,
   /** The dashboard half of feat/deal-copies-late-promotions: "Limit per
    *  order (optional)" in the promotion form's Limits card (deal-backed
    *  promotions). Deployed separately from the backend. Flip after
    *  42-deal-limit-per-order-ui.spec.ts is green on QA. */
-  dealCopiesDashboard: false,
+  dealCopiesDashboard: true,
   /** Template-wind feat/deal-copies-late-promotions: every Add is a new
    *  cart entry, "Add another" (deal-add-another), Edit opens THAT entry
    *  (?entry=), the per-order limit (deal-limit-per-order /
    *  deal-limit-reached) and the checkout's "Your cart qualifies for …"
    *  (deal-suggestion). Deployed separately from the backend. Flip after
    *  customer/16-deal-copies.spec.ts is green on QA. */
-  dealCopiesWind: false,
+  dealCopiesWind: true,
 };
 
 export type ReleasePart = keyof typeof RELEASED_ON_QA;

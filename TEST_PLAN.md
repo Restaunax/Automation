@@ -192,8 +192,8 @@ Automation/
 │   │   │   ├── api-google-reviews.spec.ts     # ⏳ Google review replies, API contract (13 tests); gated on googleReviews
 │   │   │   ├── 41-split-hours-ui.spec.ts      # ⏳ Split hours, browser (TC-2010 → TC-2012): Add hours, lunch + dinner saved and kept after a reload, overlap named + Save disabled, remove; gated on splitHours + splitHoursDashboard
 │   │   │   ├── api-split-hours.spec.ts        # ⏳ Split hours, API contract (TC-2000 → TC-2007): outer span + windows, refusals, old-editor rule, preview, ordering status, order gate, special hours, public reads; gated on splitHours
-│   │   │   ├── api-deal-copies.spec.ts        # ⏳ Deal copies, API (TC-2100 → TC-2104): two copies with different picks → two OrderDeal rows, limit per order (deal_max_per_order), quote dealSuggestions; gated on dealCopies
-│   │   │   ├── 42-deal-limit-per-order-ui.spec.ts # ⏳ "Limit per order" in the promotion form saves, reloads, clears (TC-2118); gated on dealCopies + dealCopiesDashboard
+│   │   │   ├── api-deal-copies.spec.ts        # ✅ Deal copies, API (TC-2100 → TC-2104): two copies with different picks → two OrderDeal rows, limit per order (deal_max_per_order), quote dealSuggestions; gated on dealCopies
+│   │   │   ├── 42-deal-limit-per-order-ui.spec.ts # ✅ "Limit per order" in the promotion form saves, reloads, clears (TC-2118); gated on dealCopies + dealCopiesDashboard
 │   │   │   ├── 08-payment-settings.spec.ts   # ✅ real (route mocks Stripe status/create for pre-connection + failure states)
 │   │   │   ├── 09-uber-settings.spec.ts      # ✅ real — Uber Eats delivery settings (owner-reachable, unlike publish/tax/loyalty)
 │   │   │   ├── 10-subscription.spec.ts       # ✅ real — Subscription/Billing page (permission-gated, not role-gated)
@@ -232,7 +232,7 @@ Automation/
 │   │   ├── 10-promotions.spec.ts             # ✅ real — storefront promotions: sale on the menu, BOGO options, order code + Pay = /quote, bundle code + ?promo=, free item, CODE-only combo, Keep shopping, upgrade build-up, PAID code order, incomplete deal never reaches the cart (TC-836..844, TC-891)
 │   │   ├── 11-deal-item-choices.spec.ts      # ✅ real — the choices made inside a deal (size, nested sauce, dip) reach /quote and the paid order (TC-906, @deal-item-choices; fails on QA until the fix deploys)
 │   │   ├── 12-3ds-bank-check.spec.ts         # ✅ real — 3D Secure card (4000 0027 6000 3184): Complete / Fail in the page AND as a real full-page redirect to /checkout/return — confirmed + paid once + cart empty, or the error + nothing charged (TC-914..917, @3ds)
-│   │   ├── 16-deal-copies.spec.ts            # ⏳ wind deal copies (TC-2114 → TC-2117): Add another → two entries, Edit/Remove one copy, limit per order, "Your cart qualifies for …"; gated on dealCopiesWind (+ dealCopies)
+│   │   ├── 16-deal-copies.spec.ts            # ✅ wind deal copies (TC-2114 → TC-2117): Add another → two entries, Edit/Remove one copy, limit per order, "Your cart qualifies for …"; gated on dealCopiesWind (+ dealCopies)
 │   │   └── 15-split-hours.spec.ts            # ⏳ wind on a split day (TC-2020 → TC-2023): hero + hours table in the break, checkout offers only dinner, ASAP inside a window, leaves ASAP when the window closes; gated on splitHours + splitHoursWind
 │   └── customer-lima/                        # PROJECT: customer-lima (embedded template-lima storefront)
 │       ├── 13-deals.spec.ts                  # ✅ real — Lima deals render/build/checkout payload + later-today, "2 × <item>" step with per-unit Customize rows (TC-L60..L63, TC-893)
@@ -752,19 +752,18 @@ exact wire is its "Backend contract (as built)").
 
 - **Specs (serial, tag `@deal-copies`, `npm run test:deal-copies`):**
   `dashboard/owner/api-deal-copies.spec.ts` (TC-2100 → TC-2104, always-fresh
-  tenant), `pos/26-late-promotions.spec.ts` (TC-2105 → TC-2113, always-fresh
+  tenant), `pos/26-late-promotions.spec.ts` (TC-2105 → TC-2113 + TC-2119, always-fresh
   tenant with a Stripe TEST account; TC-2113 closes that tenant's business
-  day), `customer/16-deal-copies.spec.ts` (TC-2114 → TC-2117, seed
+  day, so it runs last), `customer/16-deal-copies.spec.ts` (TC-2114 → TC-2117, seed
   restaurant, per-test BOGO) and `dashboard/owner/42-deal-limit-per-order-ui.spec.ts`
   (TC-2118, seed restaurant, a paused combo). Helpers:
   `utils/dealCopiesApi.ts`; POM additions in `pages/customer/CustomerDealPage.ts`.
-- **Release gates, three, because the halves deploy separately** (all **off**
-  until the branches are on QA): `RELEASED_ON_QA.dealCopies` (+
+- **Release gates, three, because the halves deploy separately** (all **on**
+  since 2026-11-28, after a green run on QA): `RELEASED_ON_QA.dealCopies` (+
   `probeDealCopies`: the owner's deal read carries `maxPerOrder`),
   `dealCopiesDashboard` (+ `probeDealCopiesDashboard`:
   `locales/en/promotions.json` has `rules.card.limits.perOrder`) and
-  `dealCopiesWind` (the builder shows `deal-add-another` after an Add). Flip
-  each after a green run on QA.
+  `dealCopiesWind` (the builder shows `deal-add-another` after an Add).
 - **Existing specs:** none asserted the old behaviour (apply-coupon refused once
   READY, one cart entry per deal, the Edit link without `?entry=`), so none
   were changed; TC-839 / TC-841 match `/deals/<id>?code=` as a prefix, which
@@ -797,6 +796,7 @@ exact wire is its "Backend contract (as built)").
 | TC-2116 | Wind: limit 1 → "Limit 1 per order"; Add another disabled with the limit message                                      | Browser |
 | TC-2117 | Wind: "Your cart qualifies for …" with the quote's savings; Apply turns the gyros into the deal                       | Browser |
 | TC-2118 | Dashboard: "Limit per order" saves, reloads, clears                                                                   | Browser |
+| TC-2119 | Staff without the refund permission: apply-deal on a paid order needs a manager PIN; with it, the deal goes on        | API/POS |
 
 ## Helpers
 
